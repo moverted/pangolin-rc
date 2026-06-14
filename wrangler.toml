@@ -1,0 +1,40 @@
+name = "pangolin-rc"
+main = "src/index.ts"
+compatibility_date = "2025-06-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "pangolin-rc"
+database_id = "4bd25737-94c1-4da3-b54a-b28d467ef505"
+migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "RAW_BUCKET"
+bucket_name = "pangolin-rc-payloads"
+
+[[kv_namespaces]]
+binding = "ACCESS_KV"
+id = "aea02943b81941a698a1bbbc5c78228d"
+
+[durable_objects]
+bindings = [
+  { name = "RESOURCE_DO", class_name = "ResourceCoordinator" }
+]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["ResourceCoordinator"]
+
+[[queues.producers]]
+binding = "PROCESS_QUEUE"
+queue = "pangolin-rc-processing"
+
+[[queues.producers]]
+binding = "EVENTS_QUEUE"
+queue = "pangolin-rc-events"
+
+[[queues.consumers]]
+queue = "pangolin-rc-processing"
+max_batch_size = 10
+max_batch_timeout = 5
+max_retries = 3

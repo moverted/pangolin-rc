@@ -1,0 +1,20 @@
+{
+  "name": "pangolin-rc",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "type-check": "tsc --noEmit",
+    "db:migrate:local": "wrangler d1 migrations apply pangolin-rc --local",
+    "db:migrate:remote": "wrangler d1 migrations apply pangolin-rc --remote"
+  },
+  "dependencies": {
+    "hono": "^4.7.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250620.0",
+    "typescript": "^5.8.3",
+    "wrangler": "^4.100.0"
+  }
+}
