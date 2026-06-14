@@ -62,17 +62,14 @@
     /* ── episode face overlay ── */
     #episode-overlay {
       position: fixed; inset: 0;
-      display: flex; align-items: center; justify-content: center;
-      padding-bottom: 80px;
       z-index: 20;
       opacity: 0; pointer-events: none;
       transition: opacity 0.4s;
     }
     #episode-overlay.active { opacity: 1; pointer-events: all; }
     #episode-overlay iframe {
-      width: min(88vw, 480px); height: min(88vw, 480px);
-      border: none; border-radius: 16px; display: block;
-      overflow: hidden;
+      position: absolute;
+      border: none; display: block;
     }
 
     /* ── media controls (Fire TV remote) ── */
@@ -321,7 +318,8 @@ function lock() {
   pinchHint.textContent = 'pinch to unlock';
   pinchHint.classList.remove('hide');
   if (fi === 0) {
-    setTimeout(() => document.getElementById('episode-overlay').classList.add('active'), 300);
+    updateEpisodeBounds();
+    episodeOverlay.classList.add('active');
   }
 }
 
@@ -330,7 +328,7 @@ function unlock() {
   locked = false;
   camTargetZ = 13;
   hideFaceInfo();
-  document.getElementById('episode-overlay').classList.remove('active');
+  episodeOverlay.classList.remove('active');
   snapping = false; // release to free rotation
   velX = 0; velY = 0;
 }
@@ -421,11 +419,11 @@ canvas.addEventListener('pointerup', (e) => {
         : (activeFace + 5) % 6;
       activeFace = next;
       snapToFace(next);
-      const epOverlay = document.getElementById('episode-overlay');
-      epOverlay.classList.remove('active');
+      episodeOverlay.classList.remove('active');
       showFaceInfo(next);
       if (next === 0) {
-        setTimeout(() => epOverlay.classList.add('active'), 300);
+        updateEpisodeBounds();
+        episodeOverlay.classList.add('active');
       }
     }
   }
@@ -436,6 +434,35 @@ canvas.addEventListener('pointercancel', (e) => {
   dragging = false;
   if (ptrs.size < 2) pinchTriggered = false;
 });
+
+// ─── episode overlay: project face 0 (+X) corners to screen each frame ──────
+const episodeOverlay = document.getElementById('episode-overlay');
+const episodeFrame   = document.getElementById('episode-frame');
+// Face 0 (+X) local-space corners
+const _epC = [
+  new THREE.Vector3(0.9, -0.9, -0.9),
+  new THREE.Vector3(0.9,  0.9, -0.9),
+  new THREE.Vector3(0.9,  0.9,  0.9),
+  new THREE.Vector3(0.9, -0.9,  0.9),
+];
+const _epW = new THREE.Vector3();
+const _epP = new THREE.Vector3();
+
+function updateEpisodeBounds() {
+  let x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity;
+  for (const c of _epC) {
+    _epW.copy(c).applyQuaternion(cube.quaternion).add(cube.position);
+    _epP.copy(_epW).project(camera);
+    const sx = (_epP.x+1)/2*innerWidth,  sy = (1-_epP.y)/2*innerHeight;
+    if(sx<x0)x0=sx; if(sx>x1)x1=sx; if(sy<y0)y0=sy; if(sy>y1)y1=sy;
+  }
+  const l=Math.round(x0),t_=Math.round(y0),w=Math.round(x1-x0),h=Math.round(y1-y0);
+  if(episodeFrame._l!==l||episodeFrame._t!==t_||episodeFrame._w!==w||episodeFrame._h!==h){
+    episodeFrame.style.left=l+'px'; episodeFrame.style.top=t_+'px';
+    episodeFrame.style.width=w+'px'; episodeFrame.style.height=h+'px';
+    episodeFrame._l=l; episodeFrame._t=t_; episodeFrame._w=w; episodeFrame._h=h;
+  }
+}
 
 // ─── animation loop ───────────────────────────────────────────────────────
 let t = 0;
@@ -466,6 +493,7 @@ let t = 0;
   camera.position.z += (camTargetZ - camera.position.z) * 0.07;
 
   renderer.render(scene, camera);
+  if (episodeOverlay.classList.contains('active')) updateEpisodeBounds();
 })();
 
 window.addEventListener('resize', () => {
