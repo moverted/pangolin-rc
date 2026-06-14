@@ -64,9 +64,7 @@
       position: fixed; inset: 0;
       z-index: 20;
       opacity: 0; pointer-events: none;
-      transition: opacity 0.4s;
     }
-    #episode-overlay.active { opacity: 1; pointer-events: all; }
     #episode-overlay iframe {
       position: absolute;
       border: none; display: block;
@@ -170,11 +168,19 @@ const SNAP_EULER = [
 ];
 
 // ─── canvas face textures (no baked borders — faces connect seamlessly) ──
-function makeTex(face) {
+function makeTex(face, faceIndex) {
   const S = 512;
   const c = document.createElement('canvas');
   c.width = c.height = S;
   const ctx = c.getContext('2d');
+
+  if (faceIndex === 0) {
+    // EPISODE: dark neutral placeholder — the iframe delivers the real content
+    const g = ctx.createLinearGradient(0, 0, 0, S);
+    g.addColorStop(0, '#1c1a16'); g.addColorStop(1, '#0c0a08');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, S, S);
+    return new THREE.CanvasTexture(c);
+  }
 
   // Solid bg
   ctx.fillStyle = face.bg;
@@ -240,7 +246,7 @@ camera.position.set(0, 0, 13);
 
 // Cube — one MeshBasicMaterial per face (flat/comic, no lighting needed)
 const geo  = new THREE.BoxGeometry(1.8, 1.8, 1.8);
-const mats = FACES.map(f => new THREE.MeshBasicMaterial({ map: makeTex(f) }));
+const mats = FACES.map((f, i) => new THREE.MeshBasicMaterial({ map: makeTex(f, i) }));
 const cube = new THREE.Mesh(geo, mats);
 scene.add(cube);
 
@@ -317,10 +323,6 @@ function lock() {
   showFaceInfo(fi);
   pinchHint.textContent = 'pinch to unlock';
   pinchHint.classList.remove('hide');
-  if (fi === 0) {
-    updateEpisodeBounds();
-    episodeOverlay.classList.add('active');
-  }
 }
 
 function unlock() {
@@ -328,7 +330,6 @@ function unlock() {
   locked = false;
   camTargetZ = 13;
   hideFaceInfo();
-  episodeOverlay.classList.remove('active');
   snapping = false; // release to free rotation
   velX = 0; velY = 0;
 }
@@ -419,12 +420,7 @@ canvas.addEventListener('pointerup', (e) => {
         : (activeFace + 5) % 6;
       activeFace = next;
       snapToFace(next);
-      episodeOverlay.classList.remove('active');
       showFaceInfo(next);
-      if (next === 0) {
-        updateEpisodeBounds();
-        episodeOverlay.classList.add('active');
-      }
     }
   }
 });
@@ -447,6 +443,7 @@ const _epC = [
 ];
 const _epW = new THREE.Vector3();
 const _epP = new THREE.Vector3();
+const _epN = new THREE.Vector3(); // face 0 world-space normal
 
 function updateEpisodeBounds() {
   let x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity;
@@ -493,7 +490,27 @@ let t = 0;
   camera.position.z += (camTargetZ - camera.position.z) * 0.07;
 
   renderer.render(scene, camera);
-  if (episodeOverlay.classList.contains('active')) updateEpisodeBounds();
+
+  // Episode overlay: always tracks face 0, opacity = face-normal·camera when free, 1 when locked
+  _epN.set(1, 0, 0).applyQuaternion(cube.quaternion);
+  const epDot = _epN.z; // dot with +Z (toward camera)
+  if (epDot > 0) {
+    updateEpisodeBounds();
+    const epOpacity = (locked && activeFace === 0) ? 1 : epDot;
+    if (Math.abs((episodeOverlay._op || 0) - epOpacity) > 0.004) {
+      episodeOverlay.style.opacity = epOpacity.toFixed(3);
+      episodeOverlay._op = epOpacity;
+    }
+    const epActive = locked && activeFace === 0;
+    if (episodeOverlay._active !== epActive) {
+      episodeOverlay.style.pointerEvents = epActive ? 'all' : 'none';
+      episodeOverlay._active = epActive;
+    }
+  } else if ((episodeOverlay._op || 0) > 0) {
+    episodeOverlay.style.opacity = '0';
+    episodeOverlay.style.pointerEvents = 'none';
+    episodeOverlay._op = 0; episodeOverlay._active = false;
+  }
 })();
 
 window.addEventListener('resize', () => {
