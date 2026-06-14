@@ -59,9 +59,25 @@
     }
     #pinch-hint.hide { opacity: 0; }
 
+    /* ── episode face overlay ── */
+    #episode-overlay {
+      position: fixed; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      z-index: 20;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.4s;
+    }
+    #episode-overlay.active { opacity: 1; pointer-events: all; }
+    #episode-overlay iframe {
+      width: min(90vw, 480px); height: min(90vw, 480px);
+      border: none; border-radius: 20px; display: block;
+      box-shadow: 0 32px 80px rgba(0,0,0,0.8);
+    }
+
     /* ── media controls (Fire TV remote) ── */
     #controls {
       position: fixed; bottom: 0; left: 0; right: 0;
+      z-index: 30;
       padding: 20px 24px 44px;
       background: linear-gradient(to top, rgba(10,10,20,0.97) 60%, transparent);
       display: flex; justify-content: center; align-items: center;
@@ -99,6 +115,10 @@
 </div>
 
 <div id="pinch-hint">pinch to lock</div>
+
+<div id="episode-overlay">
+  <iframe id="episode-frame" src="/pangolin_episodes_face_v5.html"></iframe>
+</div>
 
 <div id="controls">
   <div id="media-controls">
@@ -296,6 +316,9 @@ function lock() {
   showFaceInfo(fi);
   pinchHint.textContent = 'pinch to unlock';
   pinchHint.classList.remove('hide');
+  if (fi === 0) {
+    setTimeout(() => document.getElementById('episode-overlay').classList.add('active'), 300);
+  }
 }
 
 function unlock() {
@@ -303,6 +326,7 @@ function unlock() {
   locked = false;
   camTargetZ = 13;
   hideFaceInfo();
+  document.getElementById('episode-overlay').classList.remove('active');
   snapping = false; // release to free rotation
   velX = 0; velY = 0;
 }
@@ -381,7 +405,12 @@ canvas.addEventListener('pointerup', (e) => {
         : (activeFace + 5) % 6;
       activeFace = next;
       snapToFace(next);
+      const epOverlay = document.getElementById('episode-overlay');
+      epOverlay.classList.remove('active');
       showFaceInfo(next);
+      if (next === 0) {
+        setTimeout(() => epOverlay.classList.add('active'), 300);
+      }
     }
   }
 });
@@ -452,6 +481,11 @@ bindRemote('btn-rw',   'rw');
 bindRemote('btn-play', 'play');
 bindRemote('btn-ff',   'ff');
 bindRemote('btn-back', 'back');
+
+// ‹ back from episode face iframe
+window.addEventListener('message', (e) => {
+  if (e.data?.type === 'pangolin-back') unlock();
+});
 </script>
 </body>
 </html>

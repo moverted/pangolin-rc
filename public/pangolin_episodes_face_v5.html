@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PangolinRC — Episodes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --dgreen:#2E6B45; --green:#5BBF7B; --grey:#5A5149;
+    --dred:#7E2A24; --amber:#F0A93B; --amber-deep:#1a1206;
+    --text:#F8F2E8; --dim:#D2C8B8; --faint:#A29684;
+    --sheet:rgba(13,10,7,.66);
+    --display:'Space Grotesk',system-ui,sans-serif;
+    --body:'Inter',system-ui,sans-serif;
+    --mono:'Space Mono',ui-monospace,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{ background:#0c0a08; color:var(--text); font-family:var(--body);
+    -webkit-font-smoothing:antialiased; display:flex; justify-content:center;
+    align-items:flex-start; padding:24px 12px; min-height:100vh; }
+
+  .face{ position:relative; width:min(94vw,500px); aspect-ratio:1/1;
+    border-radius:20px; overflow:hidden; border:1px solid rgba(255,255,255,.06);
+    box-shadow:0 24px 70px rgba(0,0,0,.6); }
+  .bg{ position:absolute; inset:0; background-size:cover; background-position:center top;
+    filter:blur(9px) saturate(.92) brightness(.52); transform:scale(1.1); }
+  .bg-fallback{ background:radial-gradient(120% 90% at 30% 8%, #3c5566, #11100b 72%); }
+  .scrim{ position:absolute; inset:0; pointer-events:none;
+    background:
+      linear-gradient(180deg, rgba(8,6,4,.5) 0%, rgba(8,6,4,.4) 26%,
+        rgba(8,6,4,.72) 56%, rgba(8,6,4,.92) 100%),
+      radial-gradient(140% 80% at 50% 120%, rgba(8,6,4,.5), transparent 60%); }
+  .scroll{ position:absolute; inset:0; overflow-y:auto; overflow-x:hidden;
+    -webkit-overflow-scrolling:touch; }
+  .scroll::-webkit-scrollbar{ width:0; }
+
+  .hero{ padding:16px 18px 18px; min-height:56%; display:flex; flex-direction:column; }
+  .facebar{ display:flex; align-items:center; justify-content:space-between;
+    font-family:var(--mono); font-size:10px; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--faint); }
+  .facebar .mid{ display:flex; align-items:center; gap:8px; color:var(--dim); }
+  .dots{ display:flex; gap:4px; }
+  .dots i{ width:4px; height:4px; border-radius:50%; background:rgba(255,255,255,.3); }
+  .dots i.on{ background:var(--amber); box-shadow:0 0 0 3px rgba(240,169,59,.2); }
+  .cube{ color:var(--amber); font-size:12px; }
+
+  .herofoot{ margin-top:auto; }
+  .name{ font-family:var(--display); font-weight:700; font-size:33px; line-height:1.0;
+    letter-spacing:-.02em; margin:0 0 8px; text-shadow:0 2px 22px rgba(0,0,0,.85), 0 0 4px rgba(0,0,0,.5); }
+  .ymeta{ font-family:var(--mono); font-size:11px; color:var(--dim);
+    letter-spacing:.05em; margin-bottom:12px; text-shadow:0 1px 10px rgba(0,0,0,.7); }
+  .ymeta .sep{ color:rgba(255,255,255,.35); margin:0 7px; }
+
+  .scorepill{ display:inline-flex; align-items:center; gap:7px; cursor:pointer;
+    background:rgba(0,0,0,.36); border:1px solid rgba(255,255,255,.14); border-radius:999px;
+    padding:5px 12px 5px 7px; margin-bottom:20px; align-self:flex-start; }
+  .scorepill:hover{ border-color:var(--amber); }
+  .scorepill .dot{ width:15px; height:15px; border-radius:50%;
+    background:radial-gradient(circle at 35% 30%, #ffd98a, var(--amber)); flex:0 0 15px; }
+  .scorepill .v{ font-family:var(--display); font-weight:700; font-size:14px; }
+  .scorepill small{ font-family:var(--mono); font-size:8.5px; color:var(--faint);
+    letter-spacing:.08em; text-transform:uppercase; }
+
+  /* seasons bar (slim, above the episode bar) */
+  .seasonsbar{ position:relative; height:19px; border-radius:7px; background:var(--grey);
+    overflow:hidden; margin-bottom:10px; cursor:pointer; box-shadow:inset 0 1px 2px rgba(0,0,0,.42); }
+  .ss{ position:absolute; top:0; bottom:0; transition:width .3s cubic-bezier(.2,.8,.2,1),left .3s; }
+  .ss.w{ left:0; background:var(--dgreen); }
+  .ss.a{ background:var(--green); }
+  .sscopy{ position:absolute; inset:0; display:flex; align-items:center; justify-content:space-between;
+    padding:0 11px; pointer-events:none; font-family:var(--mono); font-size:9px; font-weight:700;
+    letter-spacing:.1em; text-transform:uppercase; }
+  .sscopy .l{ color:rgba(255,255,255,.9); text-shadow:0 1px 2px rgba(0,0,0,.55); }
+  .sscopy .r{ color:#f0dcb0; text-shadow:0 1px 2px rgba(0,0,0,.55); }
+
+  .barzone{ position:relative; }
+  .pop{ position:absolute; top:-4px; transform:translateX(-50%); text-align:center;
+    transition:left .32s cubic-bezier(.2,.8,.2,1); pointer-events:none; z-index:4; }
+  .pop .corn{ font-size:23px; line-height:1; filter:drop-shadow(0 2px 5px rgba(0,0,0,.7)); display:block; }
+  .pop .fire{ position:absolute; left:50%; top:-12px; transform:translateX(-50%);
+    font-size:16px; opacity:0; transition:opacity .2s; filter:drop-shadow(0 0 7px rgba(255,120,0,.9)); }
+  .binge .pop .fire{ opacity:1; animation:flick .35s infinite alternate; }
+  @keyframes flick{ from{transform:translateX(-50%) scale(1) rotate(-4deg);opacity:.8}
+    to{transform:translateX(-52%) scale(1.14) rotate(4deg);opacity:1} }
+
+  .bar{ position:relative; height:15px; border-radius:999px;
+    background:var(--grey); overflow:hidden; box-shadow:inset 0 1px 2px rgba(0,0,0,.45); }
+  .seg{ position:absolute; top:0; bottom:0;
+    transition:width .32s cubic-bezier(.2,.8,.2,1),left .32s,background .4s; }
+  .seg.watched{ left:0; background:var(--dgreen); }
+  .seg.avail{ background:var(--green); cursor:pointer; }
+  .seg.avail.lit{ box-shadow:0 0 14px rgba(91,191,123,.6) inset; animation:pulse 1.6s infinite; }
+  @keyframes pulse{ 0%,100%{filter:brightness(1)} 50%{filter:brightness(1.3)} }
+  .binge .seg.watched{ background:linear-gradient(90deg,#ffd24a,#ff8c1a,#ff3b1a,#ff8c1a,#ffd24a);
+    background-size:280% 100%; animation:flow 1.1s linear infinite; }
+  @keyframes flow{ from{background-position:0 0} to{background-position:280% 0} }
+
+  .barfoot{ display:flex; align-items:center; justify-content:space-between;
+    margin-top:12px; font-family:var(--mono); font-size:10.5px; letter-spacing:.04em; }
+  .barfoot .d{ color:var(--dim); white-space:nowrap; }
+  .barfoot .d.faint{ color:var(--faint); }
+  .barfoot .center{ flex:1; text-align:center; padding:0 8px; }
+  .binge-tag{ display:none; font-family:var(--display); font-weight:700; font-size:13px;
+    letter-spacing:.03em; color:#ffb347; text-shadow:0 0 14px rgba(255,120,0,.8); }
+  .binge .binge-tag{ display:inline-block; animation:pin .3s ease; }
+  .hint{ color:var(--faint); font-size:9.5px; }
+  .binge .hint{ display:none; }
+  @keyframes pin{ from{transform:scale(.6);opacity:0} to{transform:scale(1);opacity:1} }
+
+  .sheet{ background:var(--sheet); backdrop-filter:blur(16px);
+    -webkit-backdrop-filter:blur(16px); border-top:1px solid rgba(255,255,255,.08);
+    border-radius:22px 22px 0 0; padding:20px 18px 24px; margin-top:8px; min-height:44%; }
+  .catalog{ display:flex; align-items:center; gap:6px; margin-bottom:20px;
+    background:rgba(0,0,0,.34); border:1px solid rgba(255,255,255,.13);
+    border-radius:12px; padding:3px 3px 3px 12px; }
+  .catalog .mag{ color:var(--amber); font-size:15px; }
+  .catalog input{ flex:1; background:transparent; border:none; color:var(--text);
+    font-family:var(--body); font-size:13px; padding:9px 4px; }
+  .catalog input:focus{ outline:none; }
+  .catalog input::placeholder{ color:var(--faint); }
+  .catalog button{ background:var(--amber); color:var(--amber-deep); border:none;
+    border-radius:9px; padding:9px 14px; font-family:var(--mono); font-size:11px;
+    font-weight:700; cursor:pointer; }
+  .catalog button:active{ transform:translateY(1px); }
+
+  .epline{ font-family:var(--mono); font-size:11px; letter-spacing:.06em; color:var(--amber);
+    text-transform:uppercase; margin-bottom:9px; display:flex; gap:9px; align-items:baseline; }
+  .epline .sep{ color:rgba(255,255,255,.3); }
+  .epline .ttl{ color:var(--text); text-transform:none; font-family:var(--display);
+    font-weight:600; font-size:15px; letter-spacing:0; }
+  .syn{ font-size:13.5px; color:var(--dim); margin:0 0 18px; line-height:1.55; }
+
+  .block-label{ font-family:var(--mono); font-size:9.5px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--faint); margin:0 0 10px; }
+  .rank{ display:flex; gap:5px; flex-wrap:wrap; margin-bottom:16px; }
+  .rank b{ width:30px; height:30px; border-radius:8px; display:flex; align-items:center;
+    justify-content:center; font-family:var(--mono); font-size:12px; font-weight:700;
+    background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.09);
+    color:var(--dim); cursor:pointer; transition:.12s; }
+  .rank b:hover{ border-color:var(--amber); color:var(--text); }
+  .rank b.sel{ background:var(--amber); color:var(--amber-deep); border-color:var(--amber); }
+  .comment{ width:100%; min-height:54px; resize:vertical; background:rgba(0,0,0,.32);
+    border:1px solid rgba(255,255,255,.1); border-radius:12px; padding:11px 13px;
+    color:var(--text); font-family:var(--body); font-size:13px; line-height:1.5; margin-bottom:24px; }
+  .comment::placeholder{ color:var(--faint); }
+  .comment:focus{ outline:none; border-color:var(--amber); box-shadow:0 0 0 3px rgba(240,169,59,.12); }
+
+  .wlhead{ display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+  .wlctl{ display:flex; gap:14px; }
+  .ctl{ font-family:var(--mono); font-size:10px; color:var(--faint); cursor:pointer; letter-spacing:.04em; }
+  .ctl:hover{ color:var(--amber); }
+  .ctl.cool{ display:none; color:#ff9d5c; }
+  .binge .ctl.cool{ display:inline; }
+  .wrow{ display:flex; align-items:center; gap:11px; padding:9px 0;
+    border-bottom:1px solid rgba(255,255,255,.06); cursor:pointer; }
+  .wrow .wt{ flex:1; min-width:0; font-family:var(--display); font-weight:500; font-size:13.5px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .wdate{ font-family:var(--mono); font-size:10px; background:rgba(46,107,69,.9);
+    color:#cdebd6; padding:4px 9px; border-radius:999px; white-space:nowrap; letter-spacing:.03em; }
+  .wdate.binged{ background:rgba(126,42,36,.92); color:#f4c9c4; }
+  .wscore{ font-family:var(--mono); font-size:11px; color:var(--amber); font-weight:700; width:34px; text-align:right; }
+  .empty{ font-family:var(--mono); font-size:11px; color:var(--faint); padding:6px 0 2px; }
+</style>
+</head>
+<body>
+<div class="face" id="face">
+  <div class="bg bg-fallback" id="bg"></div>
+  <div class="scrim"></div>
+  <div class="scroll">
+
+    <div class="hero">
+      <div class="facebar">
+        <span style="cursor:pointer" onclick="window.parent.postMessage({type:'pangolin-back'},'*')">‹ back</span>
+        <span class="mid">Episodes <span class="dots"><i></i><i></i><i></i><i class="on"></i><i></i><i></i></span></span>
+        <span class="cube">⬢</span>
+      </div>
+
+      <div class="herofoot">
+        <h1 class="name" id="name">Loading…</h1>
+        <div class="ymeta" id="ymeta"></div>
+        <span class="scorepill" id="scorePill" title="Tap to enter the @betterscreenscore value">
+          <span class="dot"></span><span class="v" id="scoreVal">—</span><small>Screen Score</small>
+        </span>
+
+        <!-- seasons bar: 3-state, no popcorn, copy inside. tap to set status -->
+        <div class="seasonsbar" id="seasonsbar" title="Tap to set season status">
+          <div class="ss w" id="ssW" style="width:0"></div>
+          <div class="ss a" id="ssA" style="left:0;width:0"></div>
+          <div class="sscopy"><span class="l" id="ssCount"></span><span class="r" id="ssStatus"></span></div>
+        </div>
+
+        <div class="barzone">
+          <div class="pop" id="pop"><span class="fire">🔥</span><span class="corn">🍿</span></div>
+          <div class="bar" id="bar">
+            <div class="seg watched" id="segW" style="width:0"></div>
+            <div class="seg avail" id="segA" style="left:0;width:0"></div>
+          </div>
+          <div class="barfoot">
+            <span class="d" id="lastWatch">—</span>
+            <span class="center">
+              <span class="binge-tag">🔥 BINGE MODE!</span>
+              <span class="hint" id="hint"></span>
+            </span>
+            <span class="d faint" id="nextEp"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sheet">
+      <div class="catalog">
+        <span class="mag">⌕</span>
+        <input id="q" placeholder="Type a show to catalog… (e.g. Severance)" />
+        <button id="go">Load</button>
+      </div>
+
+      <div class="epline"><span id="epNo">EP — / —</span><span class="sep">|</span><span class="ttl" id="epTtl"></span></div>
+      <p class="syn" id="syn"></p>
+
+      <div class="block-label">Your rank</div>
+      <div class="rank" id="rank"></div>
+
+      <div class="block-label">Note</div>
+      <textarea class="comment" id="comment" placeholder="what won the room? (optional)"></textarea>
+
+      <div class="wlhead">
+        <div class="block-label" style="margin:0" id="wlLabel">Watched · 0</div>
+        <div class="wlctl">
+          <span class="ctl cool" id="cool">⏭ 24h later</span>
+          <span class="ctl" id="reset">↺ reset</span>
+        </div>
+      </div>
+      <div id="watchlist"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const NOW=new Date(); const DAY=864e5;
+const DEFAULT_ID=79390;              // Widow's Bay
+let allEps=[], eps=[], watched=0, watchTs=[], watchDate={}, binged={}, ranks={}, notes={}, focus=0, cooled=false;
+let seasonStatus='', score='';
+
+const $=id=>document.getElementById(id);
+const strip=s=>{const d=document.createElement('div');d.innerHTML=s||'';return (d.textContent||'').trim();};
+const fmt=d=>d?new Date(typeof d==='string'?d+'T12:00:00':d).toLocaleDateString('en-US',{month:'short',day:'numeric'}):'';
+const released=e=>e.airdate && new Date(e.airdate+'T23:59:59')<=NOW;
+const sNum=e=>e.season||1;
+
+async function load(url,isDefault){
+  try{ const r=await fetch(url); if(!r.ok) throw 0;
+    const s=await r.json(); boot(s,(s._embedded&&s._embedded.episodes)||[],isDefault);
+  }catch(e){ if(isDefault) fallback(); else $('name').textContent='Show not found'; }
+}
+
+function boot(show,list,isDefault){
+  allEps=list;
+  const aired=[...new Set(allEps.filter(released).map(sNum))];
+  const cur=aired.length?Math.max(...aired):(allEps.length?Math.max(...allEps.map(sNum)):1);
+  eps=allEps.filter(e=>sNum(e)===cur); if(!eps.length) eps=allEps;
+
+  const img=show.image&&(show.image.original||show.image.medium);
+  if(img){ $('bg').style.backgroundImage=`url("${img}")`; $('bg').classList.remove('bg-fallback'); }
+  else { $('bg').classList.add('bg-fallback'); $('bg').style.backgroundImage=''; }
+  $('name').textContent=show.name||'';
+  const yr=(show.premiered||'').slice(0,4);
+  const svc=(show.webChannel&&show.webChannel.name)||(show.network&&show.network.name)||'';
+  const g=(show.genres&&show.genres[0])||'';
+  $('ymeta').innerHTML=[yr,svc,g].filter(Boolean).join('<span class="sep">|</span>');
+
+  seasonStatus = isDefault ? 'RENEWED!' : '';   // editorial; tap the seasons bar to change
+  score = '';                                    // tap the pill to enter the @betterscreenscore value
+  watched=Math.min(2,eps.filter(released).length);
+  watchTs=[]; watchDate={}; binged={}; ranks={}; notes={}; cooled=false;
+  for(let i=0;i<watched;i++){ const t=Date.now()-(watched-i)*45*6e4; watchTs.push(t); watchDate[i]=new Date(t); }
+  focus=Math.max(0,watched-1);
+  paint();
+}
+
+const isBinge=()=>watchTs.length>=3 && (watchTs[watchTs.length-1]-watchTs[watchTs.length-3])<=DAY;
+const bingeLive=()=>isBinge() && !cooled;
+
+function logNext(){
+  const rel=eps.filter(released).length; if(watched>=rel) return;
+  const t=Date.now(); watchTs.push(t); watchDate[watched]=new Date(t);
+  watched++; focus=watched-1; cooled=false;
+  if(isBinge()){ const latest=watchTs[watchTs.length-1];
+    for(let i=0;i<watched;i++){ if(latest-watchTs[i]<=DAY) binged[i]=true; } }
+  paint();
+}
+
+function paint(){
+  const total=eps.length, rel=eps.filter(released).length;
+  $('face').classList.toggle('binge', bingeLive());
+
+  // ----- seasons bar -----
+  const airedSeasons=[...new Set(allEps.filter(released).map(sNum))].length || 1;
+  const pending=seasonStatus?1:0;
+  const totalSeasons=airedSeasons+pending;
+  const curFull = rel>0 && watched>=rel;
+  let dgS=Math.max(0,airedSeasons-1)+(curFull?1:0); dgS=Math.min(dgS,airedSeasons);
+  const gS=airedSeasons-dgS;
+  $('ssW').style.width=(dgS/totalSeasons*100)+'%';
+  $('ssA').style.left=(dgS/totalSeasons*100)+'%';
+  $('ssA').style.width=(gS/totalSeasons*100)+'%';
+  $('ssCount').textContent=totalSeasons+' SEASON'+(totalSeasons>1?'S':'');
+  $('ssStatus').textContent=seasonStatus||'';
+
+  // ----- score pill -----
+  $('scoreVal').textContent=score||'—';
+
+  // ----- episode bar -----
+  $('segW').style.width=(watched/total*100)+'%';
+  $('segA').style.left=(watched/total*100)+'%';
+  $('segA').style.width=((rel-watched)/total*100)+'%';
+  $('segA').classList.toggle('lit', rel>watched && !bingeLive());
+  $('segA').onclick=logNext;
+  $('pop').style.left=Math.max(4,Math.min(96,(focus+0.5)/total*100))+'%';
+
+  $('lastWatch').textContent=watched>0?'last · '+fmt(watchDate[watched-1]):'—';
+  const nextUnrel=eps.find(e=>!released(e));
+  $('nextEp').textContent=nextUnrel&&nextUnrel.airdate?'next · '+fmt(nextUnrel.airdate):'';
+  $('hint').textContent=(rel>watched)?'tap the lit bar to log':'';
+
+  const f=eps[focus]||{};
+  $('epNo').textContent=`EP ${focus+1} / ${total}`;
+  $('epTtl').textContent=f.name||('Episode '+(focus+1));
+  $('syn').textContent=strip(f.summary)||'No synopsis available yet.';
+
+  const rk=$('rank'); rk.innerHTML='';
+  for(let n=0;n<=10;n++){ const b=document.createElement('b'); b.textContent=n;
+    if(ranks[focus]===n) b.classList.add('sel');
+    b.onclick=()=>{ ranks[focus]=n; paint(); }; rk.appendChild(b); }
+  $('comment').value=notes[focus]||'';
+
+  $('wlLabel').textContent='Watched · '+watched;
+  const wl=$('watchlist'); wl.innerHTML='';
+  if(!watched) wl.innerHTML='<div class="empty">Nothing logged yet.</div>';
+  for(let i=watched-1;i>=0;i--){ const e=eps[i]; const row=document.createElement('div'); row.className='wrow';
+    row.innerHTML=`<span class="wt">${e.name||('Episode '+(i+1))}</span>
+      <span class="wdate${binged[i]?' binged':''}">${fmt(watchDate[i])}</span>
+      <span class="wscore">${ranks[i]!==undefined?ranks[i]+'/10':''}</span>`;
+    row.onclick=()=>{ focus=i; paint(); };
+    wl.appendChild(row);
+  }
+}
+
+$('comment').addEventListener('input',e=>{ notes[focus]=e.target.value; });
+$('cool').onclick=()=>{ cooled=true; paint(); };
+$('reset').onclick=()=>{ watched=0; watchTs=[]; watchDate={}; binged={}; focus=0; cooled=false; paint(); };
+$('seasonsbar').onclick=()=>{ const v=prompt('Season status — blank, RENEWED!, or e.g. RETURNING MAY 2027:', seasonStatus);
+  if(v!==null){ seasonStatus=v.trim().toUpperCase(); paint(); } };
+$('scorePill').onclick=()=>{ const v=prompt('Screen Score from @betterscreenscore (e.g. 87):', score);
+  if(v!==null){ score=v.trim(); paint(); } };
+$('go').onclick=()=>{ const v=$('q').value.trim(); if(v) load(`https://api.tvmaze.com/singlesearch/shows?q=${encodeURIComponent(v)}&embed=episodes`,false); };
+$('q').addEventListener('keydown',e=>{ if(e.key==='Enter')$('go').click(); });
+
+function fallback(){
+  const d=[['Welcome to Widow\u2019s Bay!','2026-04-29','We hope you enjoyed the three-hour ferry to New England\u2019s best-kept secret. Ignore the warnings about the fog. Everything\u2019s fine.'],
+   ['Lodging','2026-04-29','Cherish the historical charm of our local inn, which Mayor Loftis will prove is safe by spending a night there alone.'],
+   ['The Inaugural Swim','2026-05-06','It\u2019s time for the annual beach opening. Lay out a towel as the mayor tests the waters. Unrelated: do not pick up hitchhikers.'],
+   ['Beach Reads','2026-05-13','Make sure you pack a good read for the beach. (We do not recommend self-help books on the island.)'],
+   ['What to Expect on Your Trip','2026-05-20','We apologize for the curfew. Please remain calm as we determine what\u2019s happening. Keep your teenagers inside after dark.'],
+   ['Our History','2026-05-27','The history of Widow\u2019s Bay is a beautiful tale of marriage, loyalty, and a love that endures beyond lifetimes. That\u2019s all.'],
+   ['Seasickness','2026-05-27','Set out to sea with Mayor Loftis and cherished local figure, Wyck. They are attending to some business.'],
+   ['Your Baggage','2026-06-03','Don\u2019t worry about misplaced luggage. Old baggage always resurfaces in Widow\u2019s Bay.'],
+   ['Emergency Shelter','2026-06-10','Please seek shelter should a centuries-old storm rage toward the island and plunge us into darkness. Enjoy a card game.'],
+   ['We Hope You Enjoyed Your Time!','2026-06-17','Season finale.']]
+   .map((e,i)=>({name:e[0],airdate:e[1],summary:e[2],season:1,number:i+1}));
+  boot({name:'Widow\u2019s Bay',premiered:'2026',webChannel:{name:'Apple TV'},genres:['Horror'],image:null,_embedded:{episodes:d}}, d, true);
+}
+
+load(`https://api.tvmaze.com/shows/${DEFAULT_ID}?embed=episodes`, true);
+
+// When running inside the cube face overlay, fill the iframe completely
+if (window.parent !== window) {
+  document.documentElement.style.height = '100%';
+  document.body.style.padding = '0';
+  document.body.style.minHeight = '100%';
+  document.body.style.height = '100%';
+  document.body.style.alignItems = 'stretch';
+  const face = document.querySelector('.face');
+  if (face) {
+    face.style.width = '100%';
+    face.style.height = '100%';
+    face.style.aspectRatio = 'unset';
+  }
+}
+</script>
+</body>
+</html>
