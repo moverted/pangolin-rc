@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, interactive-widget=overlays-content">
   <title>pangolinRC</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -65,6 +65,7 @@
       z-index: 20;
       opacity: 0; pointer-events: none;
       overflow: visible;
+      transition: transform 0.25s ease;
     }
     .face-overlay iframe {
       position: absolute; top: 0; left: 0;
@@ -548,6 +549,30 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
 });
+
+// ─── soft-keyboard handling for the Pierre chat face ────────────────────────
+// PIERRE (+Y, material index 2) is a chat window: square at top, keyboard at
+// bottom. When the on-screen keyboard opens, the browser would normally pan the
+// whole page up to reveal the focused input, pushing the square off the top.
+// Instead we lock the square in place and lift it into the space above the
+// keyboard, letting the keyboard cover the media buttons below.
+const PIERRE_FACE = 2;
+const vv = window.visualViewport;
+if (vv) {
+  const applyKeyboard = () => {
+    const pierre = FACE_OVERLAYS[PIERRE_FACE];
+    if (!pierre) return;
+    // Keyboard height = full layout height minus the (shrunken) visual viewport.
+    const kb = Math.max(0, innerHeight - vv.height - vv.offsetTop);
+    const chatting = locked && activeFace === PIERRE_FACE && kb > 120;
+    // Re-center the square in the visible band above the keyboard (lift by half
+    // the keyboard height), and counter any pan the browser applies (offsetTop).
+    const shift = chatting ? (vv.offsetTop - kb / 2) : 0;
+    pierre.el.style.transform = shift ? `translateY(${shift}px)` : '';
+  };
+  vv.addEventListener('resize', applyKeyboard);
+  vv.addEventListener('scroll', applyKeyboard);
+}
 
 // ─── Fire TV remote ───────────────────────────────────────────────────────
 const API = window.location.hostname === 'localhost'
