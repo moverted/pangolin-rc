@@ -60,14 +60,17 @@
     #pinch-hint.hide { opacity: 0; }
 
     /* ── episode face overlay ── */
-    #episode-overlay {
+    .face-overlay {
       position: fixed; inset: 0;
       z-index: 20;
       opacity: 0; pointer-events: none;
+      overflow: visible;
     }
-    #episode-overlay iframe {
-      position: absolute;
-      border: none; display: block;
+    .face-overlay iframe {
+      position: absolute; top: 0; left: 0;
+      width: 480px; height: 480px;
+      border: none;
+      transform-origin: 0 0;
     }
 
     /* ── media controls (Fire TV remote) ── */
@@ -112,9 +115,6 @@
 
 <div id="pinch-hint">pinch to lock</div>
 
-<div id="episode-overlay">
-  <iframe id="episode-frame" src="/pangolin_episodes_face_v5.html"></iframe>
-</div>
 
 <div id="controls">
   <div id="media-controls">
@@ -174,8 +174,8 @@ function makeTex(face, faceIndex) {
   c.width = c.height = S;
   const ctx = c.getContext('2d');
 
-  if (faceIndex === 0) {
-    // EPISODE: dark neutral placeholder — the iframe delivers the real content
+  if (faceIndex === 0 || faceIndex === 2) {
+    // iframe delivers the real content — dark placeholder sits behind the overlay
     const g = ctx.createLinearGradient(0, 0, 0, S);
     g.addColorStop(0, '#1c1a16'); g.addColorStop(1, '#0c0a08');
     ctx.fillStyle = g; ctx.fillRect(0, 0, S, S);
@@ -431,34 +431,56 @@ canvas.addEventListener('pointercancel', (e) => {
   if (ptrs.size < 2) pinchTriggered = false;
 });
 
-// ─── episode overlay: project face 0 (+X) corners to screen each frame ──────
-const episodeOverlay = document.getElementById('episode-overlay');
-const episodeFrame   = document.getElementById('episode-frame');
-// Face 0 (+X) local-space corners
-const _epC = [
-  new THREE.Vector3(0.9, -0.9, -0.9),
-  new THREE.Vector3(0.9,  0.9, -0.9),
-  new THREE.Vector3(0.9,  0.9,  0.9),
-  new THREE.Vector3(0.9, -0.9,  0.9),
-];
-const _epW = new THREE.Vector3();
-const _epP = new THREE.Vector3();
-const _epN = new THREE.Vector3(); // face 0 world-space normal
+// ─── face overlay system (CSS matrix3d perspective-correct tracking) ─────────
+const IFRAME_SZ = 480;
+const _fN = new THREE.Vector3();
+const _fW = new THREE.Vector3();
+const _fP = new THREE.Vector3();
 
-function updateEpisodeBounds() {
-  let x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity;
-  for (const c of _epC) {
-    _epW.copy(c).applyQuaternion(cube.quaternion).add(cube.position);
-    _epP.copy(_epW).project(camera);
-    const sx = (_epP.x+1)/2*innerWidth,  sy = (1-_epP.y)/2*innerHeight;
-    if(sx<x0)x0=sx; if(sx>x1)x1=sx; if(sy<y0)y0=sy; if(sy>y1)y1=sy;
-  }
-  const l=Math.round(x0),t_=Math.round(y0),w=Math.round(x1-x0),h=Math.round(y1-y0);
-  if(episodeFrame._l!==l||episodeFrame._t!==t_||episodeFrame._w!==w||episodeFrame._h!==h){
-    episodeFrame.style.left=l+'px'; episodeFrame.style.top=t_+'px';
-    episodeFrame.style.width=w+'px'; episodeFrame.style.height=h+'px';
-    episodeFrame._l=l; episodeFrame._t=t_; episodeFrame._w=w; episodeFrame._h=h;
-  }
+function _adj3(m){return[m[4]*m[8]-m[5]*m[7],m[2]*m[7]-m[1]*m[8],m[1]*m[5]-m[2]*m[4],m[5]*m[6]-m[3]*m[8],m[0]*m[8]-m[2]*m[6],m[2]*m[3]-m[0]*m[5],m[3]*m[7]-m[4]*m[6],m[1]*m[6]-m[0]*m[7],m[0]*m[4]-m[1]*m[3]];}
+function _mul3(a,b){return[a[0]*b[0]+a[1]*b[3]+a[2]*b[6],a[0]*b[1]+a[1]*b[4]+a[2]*b[7],a[0]*b[2]+a[1]*b[5]+a[2]*b[8],a[3]*b[0]+a[4]*b[3]+a[5]*b[6],a[3]*b[1]+a[4]*b[4]+a[5]*b[7],a[3]*b[2]+a[4]*b[5]+a[5]*b[8],a[6]*b[0]+a[7]*b[3]+a[8]*b[6],a[6]*b[1]+a[7]*b[4]+a[8]*b[7],a[6]*b[2]+a[7]*b[5]+a[8]*b[8]];}
+function _basis(p0,p1,p2,p3){const m=[p0[0],p1[0],p2[0],p0[1],p1[1],p2[1],1,1,1];const a=_adj3(m);const lam=[a[0]*p3[0]+a[1]*p3[1]+a[2],a[3]*p3[0]+a[4]*p3[1]+a[5],a[6]*p3[0]+a[7]*p3[1]+a[8]];return[m[0]*lam[0],m[1]*lam[1],m[2]*lam[2],m[3]*lam[0],m[4]*lam[1],m[5]*lam[2],m[6]*lam[0],m[7]*lam[1],m[8]*lam[2]];}
+
+function faceCssMatrix3d(pts) {
+  const W = IFRAME_SZ, H = IFRAME_SZ;
+  const src = _basis([0,0],[W,0],[W,H],[0,H]);
+  const dst = _basis([pts[0].x,pts[0].y],[pts[1].x,pts[1].y],[pts[2].x,pts[2].y],[pts[3].x,pts[3].y]);
+  const h = _mul3(dst, _adj3(src)); const s = h[8];
+  return `matrix3d(${h[0]/s},${h[3]/s},0,${h[6]/s},${h[1]/s},${h[4]/s},0,${h[7]/s},0,0,1,0,${h[2]/s},${h[5]/s},0,1)`;
+}
+
+// Keyed by BoxGeometry material index; corners in TL→TR→BR→BL order (local cube space)
+const FACE_OVERLAYS = {
+  0: {                                       // +X face: EPISODE
+    src: '/pangolin_episodes_face_v5.html',
+    normal: new THREE.Vector3(1, 0, 0),
+    corners: [
+      new THREE.Vector3(0.9,  0.9,  0.9),   // TL
+      new THREE.Vector3(0.9,  0.9, -0.9),   // TR
+      new THREE.Vector3(0.9, -0.9, -0.9),   // BR
+      new THREE.Vector3(0.9, -0.9,  0.9),   // BL
+    ],
+  },
+  2: {                                       // +Y face: PIERRE
+    src: '/pierre.html',
+    normal: new THREE.Vector3(0, 1, 0),
+    corners: [
+      new THREE.Vector3(-0.9, 0.9, -0.9),   // TL
+      new THREE.Vector3( 0.9, 0.9, -0.9),   // TR
+      new THREE.Vector3( 0.9, 0.9,  0.9),   // BR
+      new THREE.Vector3(-0.9, 0.9,  0.9),   // BL
+    ],
+  },
+};
+
+for (const cfg of Object.values(FACE_OVERLAYS)) {
+  const el = document.createElement('div');
+  el.className = 'face-overlay';
+  const frame = document.createElement('iframe');
+  frame.src = cfg.src;
+  el.appendChild(frame);
+  document.body.appendChild(el);
+  cfg.el = el; cfg.frame = frame; cfg._op = 0; cfg._active = false; cfg._tx = '';
 }
 
 // ─── animation loop ───────────────────────────────────────────────────────
@@ -491,25 +513,33 @@ let t = 0;
 
   renderer.render(scene, camera);
 
-  // Episode overlay: always tracks face 0, opacity = face-normal·camera when free, 1 when locked
-  _epN.set(1, 0, 0).applyQuaternion(cube.quaternion);
-  const epDot = _epN.z; // dot with +Z (toward camera)
-  if (epDot > 0) {
-    updateEpisodeBounds();
-    const epOpacity = (locked && activeFace === 0) ? 1 : epDot;
-    if (Math.abs((episodeOverlay._op || 0) - epOpacity) > 0.004) {
-      episodeOverlay.style.opacity = epOpacity.toFixed(3);
-      episodeOverlay._op = epOpacity;
+  // Face overlays — perspective-correct matrix3d tracking
+  for (const [fi, cfg] of Object.entries(FACE_OVERLAYS)) {
+    _fN.copy(cfg.normal).applyQuaternion(cube.quaternion);
+    const dot = _fN.z;
+    if (dot > 0.02) {
+      const pts = cfg.corners.map(c => {
+        _fW.copy(c).applyQuaternion(cube.quaternion).add(cube.position);
+        _fP.copy(_fW).project(camera);
+        return { x: (_fP.x + 1) / 2 * innerWidth, y: (1 - _fP.y) / 2 * innerHeight };
+      });
+      const tx = faceCssMatrix3d(pts);
+      if (cfg._tx !== tx) { cfg.frame.style.transform = tx; cfg._tx = tx; }
+      const opacity = (locked && activeFace === +fi) ? 1 : dot;
+      if (Math.abs(cfg._op - opacity) > 0.004) {
+        cfg.el.style.opacity = opacity.toFixed(3);
+        cfg._op = opacity;
+      }
+      const active = locked && activeFace === +fi;
+      if (cfg._active !== active) {
+        cfg.el.style.pointerEvents = active ? 'all' : 'none';
+        cfg._active = active;
+      }
+    } else if (cfg._op > 0) {
+      cfg.el.style.opacity = '0';
+      cfg.el.style.pointerEvents = 'none';
+      cfg._op = 0; cfg._active = false;
     }
-    const epActive = locked && activeFace === 0;
-    if (episodeOverlay._active !== epActive) {
-      episodeOverlay.style.pointerEvents = epActive ? 'all' : 'none';
-      episodeOverlay._active = epActive;
-    }
-  } else if ((episodeOverlay._op || 0) > 0) {
-    episodeOverlay.style.opacity = '0';
-    episodeOverlay.style.pointerEvents = 'none';
-    episodeOverlay._op = 0; episodeOverlay._active = false;
   }
 })();
 
@@ -544,7 +574,7 @@ bindRemote('btn-play', 'play');
 bindRemote('btn-ff',   'ff');
 bindRemote('btn-back', 'back');
 
-// ‹ back from episode face iframe
+// any face iframe can send pangolin-back to unlock the cube
 window.addEventListener('message', (e) => {
   if (e.data?.type === 'pangolin-back') unlock();
 });
