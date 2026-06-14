@@ -7,6 +7,7 @@ import { uploadRoutes }     from './handlers/uploads';
 import { auditRoutes }      from './handlers/audit';
 import { accessRoutes }     from './handlers/access';
 import { eventRoutes }      from './handlers/events';
+import { remoteRoutes }     from './handlers/remote';
 import { processQueue }     from './queue';
 
 export { ResourceCoordinator } from './do/resource-coordinator';
@@ -21,6 +22,7 @@ app.route('/uploads',     uploadRoutes);
 app.route('/audit',       auditRoutes);
 app.route('/submissions', accessRoutes);
 app.route('/events',      eventRoutes);
+app.route('/remote',      remoteRoutes);
 
 app.notFound((c) => c.json({ error: 'Not found' }, 404));
 app.onError((err, c) => {

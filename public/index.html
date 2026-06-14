@@ -2,338 +2,423 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
   <title>pangolinRC</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bangers&family=Comic+Neue:wght@700&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      background: #07070f;
-      color: #e0e8ff;
-      font-family: 'SF Mono', 'Fira Code', monospace;
-      height: 100dvh;
-      overflow: hidden;
-      user-select: none;
+      background: #0a0a14;
+      height: 100dvh; overflow: hidden; user-select: none;
+      background-image: radial-gradient(circle, rgba(255,255,255,0.035) 1px, transparent 1px);
+      background-size: 20px 20px;
     }
 
     #canvas {
+      position: fixed; inset: 0; width: 100%; height: 100%;
+      cursor: grab; touch-action: none;
+    }
+    #canvas:active { cursor: grabbing; }
+
+    /* ── face info strip (locked state only) ── */
+    #face-info {
       position: fixed;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-    }
-
-    /* ── top-left: ids ── */
-    #info {
-      position: fixed;
-      top: 24px;
-      left: 24px;
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      font-size: 11px;
-      letter-spacing: 0.04em;
-    }
-    .info-row { display: flex; gap: 8px; align-items: center; }
-    .info-label {
-      color: #4455aa;
-      text-transform: uppercase;
-      font-size: 9px;
-      letter-spacing: 0.12em;
-      width: 72px;
-    }
-    .info-value {
-      color: #8899cc;
-      max-width: 220px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .info-value.set { color: #aabcee; }
-
-    /* ── top-center: state badge ── */
-    #state-badge {
-      position: fixed;
-      top: 24px;
-      left: 50%;
-      transform: translateX(-50%);
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    #state-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #334;
-      transition: background 0.5s, box-shadow 0.5s;
-    }
-    #state-label {
-      font-size: 12px;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      color: #556;
-      transition: color 0.5s;
-    }
-
-    /* ── bottom: control panel ── */
-    #controls {
-      position: fixed;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      padding: 28px 24px 32px;
-      background: linear-gradient(to top, rgba(7,7,15,0.95) 60%, transparent);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 14px;
-    }
-
-    #role-row {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-      font-size: 10px;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: #3344aa;
-    }
-    .role-chip {
-      padding: 3px 10px;
-      border-radius: 20px;
-      border: 1px solid #1a2255;
-      background: transparent;
-      color: #3344aa;
-      font: inherit;
-      cursor: pointer;
-      transition: all 0.15s;
-    }
-    .role-chip.active { border-color: #4466cc; color: #88aaff; background: rgba(68,102,204,0.12); }
-
-    #btn-row {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      justify-content: center;
-    }
-
-    .btn {
-      padding: 10px 22px;
-      border-radius: 8px;
-      border: 1px solid transparent;
-      background: rgba(255,255,255,0.04);
-      color: #fff;
-      font: 11px/1 'SF Mono', 'Fira Code', monospace;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      cursor: pointer;
-      transition: all 0.18s;
-      position: relative;
-      overflow: hidden;
-    }
-    .btn::after {
-      content: '';
-      position: absolute;
-      inset: 0;
-      opacity: 0;
-      transition: opacity 0.15s;
-      background: rgba(255,255,255,0.08);
-    }
-    .btn:hover:not(:disabled)::after { opacity: 1; }
-    .btn:active:not(:disabled) { transform: scale(0.96); }
-    .btn:disabled { opacity: 0.2; cursor: not-allowed; }
-
-    .btn-submit  { border-color: #2244cc; color: #88aaff; box-shadow: 0 0 14px rgba(34,68,204,0.25); }
-    .btn-advance { border-color: #008899; color: #00eeff; box-shadow: 0 0 14px rgba(0,136,153,0.25); }
-    .btn-reveal  { border-color: #007744; color: #00ee88; box-shadow: 0 0 14px rgba(0,119,68,0.25); }
-    .btn-revoke  { border-color: #885500; color: #ffaa33; box-shadow: 0 0 14px rgba(136,85,0,0.25); }
-    .btn-reject  { border-color: #aa2200; color: #ff6644; box-shadow: 0 0 14px rgba(170,34,0,0.25); }
-    .btn-purge   { border-color: #550000; color: #aa4444; box-shadow: 0 0 14px rgba(85,0,0,0.2); }
-
-    .btn:hover.btn-submit  { box-shadow: 0 0 28px rgba(34,68,204,0.5); }
-    .btn:hover.btn-advance { box-shadow: 0 0 28px rgba(0,136,153,0.5); }
-    .btn:hover.btn-reveal  { box-shadow: 0 0 28px rgba(0,119,68,0.5); }
-    .btn:hover.btn-revoke  { box-shadow: 0 0 28px rgba(136,85,0,0.5); }
-    .btn:hover.btn-reject  { box-shadow: 0 0 28px rgba(170,34,0,0.5); }
-    .btn:hover.btn-purge   { box-shadow: 0 0 28px rgba(85,0,0,0.4); }
-
-    /* ── toast ── */
-    #toast {
-      position: fixed;
-      top: 70px;
-      left: 50%;
-      transform: translateX(-50%);
-      padding: 8px 18px;
-      border-radius: 6px;
-      font-size: 11px;
-      letter-spacing: 0.08em;
-      background: rgba(20,20,40,0.9);
-      border: 1px solid #223;
-      color: #8899cc;
+      bottom: 128px; left: 0; right: 0;
+      display: flex; flex-direction: column; align-items: center; gap: 4px;
       pointer-events: none;
-      opacity: 0;
-      transition: opacity 0.2s;
-      white-space: nowrap;
+      opacity: 0; transform: translateY(8px);
+      transition: opacity 0.35s, transform 0.35s;
     }
-    #toast.visible { opacity: 1; }
-    #toast.error   { border-color: #552200; color: #ff6644; }
+    #face-info.show { opacity: 1; transform: translateY(0); }
+
+    #face-name {
+      font-family: 'Bangers', cursive;
+      font-size: 32px; letter-spacing: 0.2em; text-transform: uppercase;
+      color: #fff;
+      text-shadow: 2px 2px 0 #000, -1px -1px 0 #000;
+    }
+    #face-desc {
+      font-family: 'Comic Neue', cursive;
+      font-size: 12px; letter-spacing: 0.15em; text-transform: uppercase;
+      color: rgba(255,255,255,0.45);
+    }
+
+    /* ── pinch hint (free mode) ── */
+    #pinch-hint {
+      position: fixed;
+      bottom: 128px; left: 0; right: 0;
+      text-align: center;
+      font-family: 'Comic Neue', cursive;
+      font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase;
+      color: rgba(255,255,255,0.22);
+      pointer-events: none;
+      opacity: 1; transition: opacity 0.35s;
+    }
+    #pinch-hint.hide { opacity: 0; }
+
+    /* ── media controls (Fire TV remote) ── */
+    #controls {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      padding: 20px 24px 44px;
+      background: linear-gradient(to top, rgba(10,10,20,0.97) 60%, transparent);
+      display: flex; justify-content: center; align-items: center;
+    }
+    #media-controls { display: flex; gap: 32px; align-items: center; }
+
+    .media-btn {
+      width: 52px; height: 52px; border-radius: 50%;
+      border: 2px solid rgba(255,255,255,0.22);
+      background: rgba(255,255,255,0.06);
+      color: rgba(255,255,255,0.55);
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: transform 0.1s, background 0.15s;
+    }
+    .media-btn:active { transform: scale(0.88); background: rgba(255,255,255,0.14); }
+    .media-btn.primary {
+      width: 68px; height: 68px;
+      border-color: rgba(255,255,255,0.35);
+      background: rgba(255,255,255,0.1);
+      color: rgba(255,255,255,0.85);
+    }
+    .media-btn.primary:active { background: rgba(255,255,255,0.2); }
+    .media-btn.sent { border-color: rgba(255,255,255,0.6); }
   </style>
 </head>
 <body>
 
 <canvas id="canvas"></canvas>
 
-<div id="info">
-  <div class="info-row">
-    <span class="info-label">Resource</span>
-    <span class="info-value" id="resource-val">—</span>
-  </div>
-  <div class="info-row">
-    <span class="info-label">Submission</span>
-    <span class="info-value" id="submission-val">—</span>
-  </div>
+<div id="face-info">
+  <div id="face-name">SHOW</div>
+  <div id="face-desc">The main event</div>
 </div>
 
-<div id="state-badge">
-  <div id="state-dot"></div>
-  <span id="state-label">no submission</span>
-</div>
-
-<div id="toast"></div>
+<div id="pinch-hint">pinch to lock</div>
 
 <div id="controls">
-  <div id="role-row">
-    <span>acting as</span>
-    <button class="role-chip active" data-role="authority">authority</button>
-    <button class="role-chip" data-role="submitter">submitter</button>
-    <button class="role-chip" data-role="system">system</button>
+  <div id="media-controls">
+    <button class="media-btn" id="btn-rw" aria-label="Rewind">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+        <path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/>
+      </svg>
+    </button>
+    <button class="media-btn primary" id="btn-play" aria-label="Play / Pause">
+      <svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor">
+        <path d="M8 5v14l11-7z"/>
+      </svg>
+    </button>
+    <button class="media-btn" id="btn-ff" aria-label="Fast Forward">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+        <path d="m6 18 8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
+      </svg>
+    </button>
+    <button class="media-btn" id="btn-back" aria-label="Back">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+        <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
+      </svg>
+    </button>
   </div>
-  <div id="btn-row"></div>
 </div>
 
 <script type="module">
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js';
 
-// ─── config ────────────────────────────────────────────────────────────────
-const API = window.location.hostname === 'localhost'
-  ? 'http://localhost:8787'
-  : 'https://pangolin-rc.edward-m-willett.workers.dev';
+await document.fonts.ready;
 
-// ─── state ─────────────────────────────────────────────────────────────────
-let resourceId   = null;
-let submissionId = null;
-let submissionState = null;
-let actorRole    = 'authority';
-const actorId    = () => `demo-${actorRole}`;
+// ─── face definitions ──────────────────────────────────────────────────────
+// BoxGeometry material order: 0=+X, 1=-X, 2=+Y, 3=-Y, 4=+Z(front), 5=-Z(back)
+const FACES = [
+  { label: 'EPISODE', bg: '#FF6B35', fg: '#fff',    sub: "What's on right now"  },
+  { label: 'FEED',    bg: '#22BB44', fg: '#fff',    sub: 'The latest drops'      },
+  { label: 'PIERRE',  bg: '#BB00FF', fg: '#FFE600', sub: 'Your host'             },
+  { label: 'PROFILE', bg: '#FFD600', fg: '#000',    sub: "That's you"            },
+  { label: 'SHOW',    bg: '#EE1122', fg: '#fff',    sub: 'The main event'        },
+  { label: 'JOIN',    bg: '#00BBEE', fg: '#000',    sub: 'Get in on it'          },
+];
 
-// ─── three.js scene ────────────────────────────────────────────────────────
+// Euler to bring each face directly toward camera (+Z)
+const SNAP_EULER = [
+  new THREE.Euler(0,           -Math.PI / 2, 0),
+  new THREE.Euler(0,            Math.PI / 2, 0),
+  new THREE.Euler( Math.PI / 2, 0,           0),
+  new THREE.Euler(-Math.PI / 2, 0,           0),
+  new THREE.Euler(0,            0,           0),
+  new THREE.Euler(0,            Math.PI,     0),
+];
+
+// ─── canvas face textures (no baked borders — faces connect seamlessly) ──
+function makeTex(face) {
+  const S = 512;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const ctx = c.getContext('2d');
+
+  // Solid bg
+  ctx.fillStyle = face.bg;
+  ctx.fillRect(0, 0, S, S);
+
+  // Ben-Day dots
+  ctx.fillStyle = 'rgba(0,0,0,0.07)';
+  for (let x = 8; x < S; x += 20)
+    for (let y = 8; y < S; y += 20) {
+      ctx.beginPath(); ctx.arc(x, y, 6.5, 0, Math.PI * 2); ctx.fill();
+    }
+
+  // Halftone ring — larger dots near edges fade to hint at depth without a border
+  ctx.fillStyle = 'rgba(0,0,0,0.06)';
+  for (let x = 0; x < S; x += 20)
+    for (let y = 0; y < S; y += 20) {
+      const dx = x - S / 2, dy = y - S / 2;
+      const dist = Math.sqrt(dx * dx + dy * dy) / (S / 2);
+      const r = 3 + dist * 8;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    }
+
+  // Label
+  const sz = face.label.length > 5 ? 86 : 106;
+  ctx.font = `${sz}px Bangers, sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.lineWidth = 10; ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+  ctx.strokeText(face.label, S / 2, S / 2 - 14);
+  ctx.fillStyle = face.fg;
+  ctx.fillText(face.label, S / 2, S / 2 - 14);
+
+  // Sub-label
+  ctx.font = `bold 23px "Comic Neue", sans-serif`;
+  ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+  ctx.strokeText(face.sub, S / 2, S / 2 + 65);
+  ctx.fillStyle = face.fg === '#fff' ? 'rgba(255,255,255,0.75)' : 'rgba(0,0,0,0.6)';
+  ctx.fillText(face.sub, S / 2, S / 2 + 65);
+
+  return new THREE.CanvasTexture(c);
+}
+
+// ─── three.js ──────────────────────────────────────────────────────────────
 const canvas   = document.getElementById('canvas');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.2;
+renderer.setClearColor(0x000000, 0);
 
 const scene  = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 500);
-camera.position.set(0, 0, 6);
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 500);
+camera.position.set(0, 0, 13);
 
-// stars
+// Stars
 {
-  const n = 2200;
-  const pos = new Float32Array(n * 3);
-  for (let i = 0; i < n * 3; i++) pos[i] = (Math.random() - 0.5) * 300;
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  scene.add(new THREE.Points(geo,
-    new THREE.PointsMaterial({ color: 0xaabbff, size: 0.18, sizeAttenuation: true, transparent: true, opacity: 0.6 })
+  const n = 1800, pos = new Float32Array(n * 3);
+  for (let i = 0; i < n * 3; i++) pos[i] = (Math.random() - 0.5) * 280;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  scene.add(new THREE.Points(g,
+    new THREE.PointsMaterial({ color: 0xffffff, size: 0.2, sizeAttenuation: true, transparent: true, opacity: 0.38 })
   ));
 }
 
-// cube faces
-const cubeGeo  = new THREE.BoxGeometry(2, 2, 2);
-const faceMat  = new THREE.MeshStandardMaterial({
-  color: 0x1133cc,
-  emissive: 0x002266,
-  metalness: 0.15,
-  roughness: 0.08,
-  transparent: true,
-  opacity: 0.5,
-  side: THREE.DoubleSide,
-});
-const cube = new THREE.Mesh(cubeGeo, faceMat);
+// Cube — one MeshBasicMaterial per face (flat/comic, no lighting needed)
+const geo  = new THREE.BoxGeometry(1.8, 1.8, 1.8);
+const mats = FACES.map(f => new THREE.MeshBasicMaterial({ map: makeTex(f) }));
+const cube = new THREE.Mesh(geo, mats);
 scene.add(cube);
 
-// cube edges
-const edgeMat = new THREE.LineBasicMaterial({ color: 0x3366ff });
-const edges   = new THREE.LineSegments(new THREE.EdgesGeometry(cubeGeo), edgeMat);
-cube.add(edges);
+// ─── interaction state ────────────────────────────────────────────────────
+let locked     = false;
+let activeFace = 4; // SHOW starts front
 
-// inner glow shell (slightly larger, more transparent)
-const glowMat  = new THREE.MeshStandardMaterial({
-  color: 0x2244ff,
-  emissive: 0x112288,
-  transparent: true,
-  opacity: 0.15,
-  side: THREE.BackSide,
-});
-const glowMesh = new THREE.Mesh(new THREE.BoxGeometry(2.08, 2.08, 2.08), glowMat);
-scene.add(glowMesh);
+// Single-pointer drag
+let dragging   = false;
+let lastX = 0, lastY = 0, velX = 0, velY = 0;
+let dragStartX = 0, dragStartY = 0;
 
-// lights
-scene.add(new THREE.AmbientLight(0x223366, 8));
-const dirLight = new THREE.DirectionalLight(0x6688ff, 6);
-dirLight.position.set(4, 6, 4);
-scene.add(dirLight);
-const dirLight2 = new THREE.DirectionalLight(0xffffff, 2);
-dirLight2.position.set(-4, -2, 3);
-scene.add(dirLight2);
-const orbitLight = new THREE.PointLight(0x4488ff, 12, 20);
-scene.add(orbitLight);
+// Multi-pointer pinch
+const ptrs = new Map(); // pointerId → {x, y}
+let pinchStartDist = 0;
+let pinchTriggered = false; // prevent re-trigger until fingers lift
 
-// ─── state → visual mapping ────────────────────────────────────────────────
-const STATE_THEME = {
-  null:       { face: 0x1a1a55, emissive: 0x080833, edge: 0x3333aa, glow: 0x111155, dot: '#3333aa' },
-  pending:    { face: 0x1144ee, emissive: 0x002266, edge: 0x4488ff, glow: 0x1133aa, dot: '#4488ff' },
-  ready:      { face: 0x007799, emissive: 0x004466, edge: 0x00ddff, glow: 0x005577, dot: '#00ddff' },
-  revealed:   { face: 0x007744, emissive: 0x004422, edge: 0x00ff88, glow: 0x005533, dot: '#00ff88' },
-  unrevealed: { face: 0xaa6600, emissive: 0x553300, edge: 0xffbb33, glow: 0x664400, dot: '#ffbb33' },
-  rejected:   { face: 0xaa2200, emissive: 0x551100, edge: 0xff5533, glow: 0x661100, dot: '#ff5533' },
-  purged:     { face: 0x333333, emissive: 0x1a1a1a, edge: 0x666666, glow: 0x222222, dot: '#555555' },
-};
+// Snap animation
+let snapping  = false;
+let snapQ     = new THREE.Quaternion();
 
-function applyTheme(stateKey) {
-  const t = STATE_THEME[stateKey] ?? STATE_THEME[null];
-  faceMat.color.setHex(t.face);
-  faceMat.emissive.setHex(t.emissive);
-  edgeMat.color.setHex(t.edge);
-  glowMat.color.setHex(t.edge);
-  glowMat.emissive.setHex(t.glow);
-  orbitLight.color.setHex(t.edge);
+// Camera target z
+let camTargetZ = 13;
 
-  const dot = document.getElementById('state-dot');
-  const lbl = document.getElementById('state-label');
-  dot.style.background    = t.dot;
-  dot.style.boxShadow     = `0 0 8px ${t.dot}`;
-  lbl.style.color         = t.dot;
-  lbl.textContent         = stateKey ?? 'no submission';
+// UI refs
+const faceInfo  = document.getElementById('face-info');
+const faceName  = document.getElementById('face-name');
+const faceDesc  = document.getElementById('face-desc');
+const pinchHint = document.getElementById('pinch-hint');
+
+function showFaceInfo(fi) {
+  faceName.textContent = FACES[fi].label;
+  faceDesc.textContent = FACES[fi].sub;
+  faceInfo.classList.add('show');
+  pinchHint.classList.add('hide');
+}
+function hideFaceInfo() {
+  faceInfo.classList.remove('show');
+  pinchHint.classList.remove('hide');
+  // swap hint text
+  pinchHint.textContent = 'pinch to lock';
 }
 
-// ─── animation loop ────────────────────────────────────────────────────────
+function nearestFace() {
+  const fwd = new THREE.Vector3(0, 0, 1);
+  const normals = [
+    new THREE.Vector3( 1,0,0), new THREE.Vector3(-1,0,0),
+    new THREE.Vector3( 0,1,0), new THREE.Vector3( 0,-1,0),
+    new THREE.Vector3( 0,0,1), new THREE.Vector3( 0,0,-1),
+  ];
+  let best = 4, bestDot = -Infinity;
+  normals.forEach((n, i) => {
+    const d = n.clone().applyQuaternion(cube.quaternion).dot(fwd);
+    if (d > bestDot) { bestDot = d; best = i; }
+  });
+  return best;
+}
+
+function snapToFace(fi) {
+  activeFace = fi;
+  snapQ.setFromEuler(SNAP_EULER[fi]);
+  snapping = true;
+}
+
+function lock() {
+  if (locked) return;
+  locked = true;
+  const fi = nearestFace();
+  snapToFace(fi);
+  camTargetZ = 4.6;
+  showFaceInfo(fi);
+  pinchHint.textContent = 'pinch to unlock';
+  pinchHint.classList.remove('hide');
+}
+
+function unlock() {
+  if (!locked) return;
+  locked = false;
+  camTargetZ = 13;
+  hideFaceInfo();
+  snapping = false; // release to free rotation
+  velX = 0; velY = 0;
+}
+
+// ─── pointer events ───────────────────────────────────────────────────────
+canvas.addEventListener('pointerdown', (e) => {
+  canvas.setPointerCapture(e.pointerId);
+  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+  if (ptrs.size === 2) {
+    // Second finger down — start pinch tracking
+    const [a, b] = [...ptrs.values()];
+    pinchStartDist = Math.hypot(b.x - a.x, b.y - a.y);
+    pinchTriggered = false;
+    dragging = false; // cancel any single-finger drag
+  } else if (ptrs.size === 1) {
+    dragging = true;
+    lastX = dragStartX = e.clientX;
+    lastY = dragStartY = e.clientY;
+    velX = velY = 0;
+    snapping = false;
+  }
+});
+
+canvas.addEventListener('pointermove', (e) => {
+  if (!ptrs.has(e.pointerId)) return;
+  const prev = ptrs.get(e.pointerId);
+  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+  if (ptrs.size >= 2) {
+    if (!pinchTriggered) {
+      const [a, b] = [...ptrs.values()];
+      const dist = Math.hypot(b.x - a.x, b.y - a.y);
+      const scale = dist / pinchStartDist;
+      if (!locked && scale > 1.22) {
+        pinchTriggered = true;
+        lock();
+      } else if (locked && scale < 0.78) {
+        pinchTriggered = true;
+        unlock();
+      }
+    }
+    return; // don't drag-rotate while two fingers are down
+  }
+
+  // Single-finger drag
+  if (!dragging) return;
+  const dx = e.clientX - prev.x;
+  const dy = e.clientY - prev.y;
+  velX = dx * 0.007;
+  velY = dy * 0.007;
+
+  if (!locked) {
+    // Rotate around world axes so the direction never flips when upside-down
+    const qH = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), velX);
+    const qV = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), velY);
+    cube.quaternion.premultiply(qH).premultiply(qV);
+  }
+});
+
+canvas.addEventListener('pointerup', (e) => {
+  const start = { x: dragStartX, y: dragStartY };
+  ptrs.delete(e.pointerId);
+  dragging = false;
+
+  if (ptrs.size < 2) pinchTriggered = false;
+  if (ptrs.size > 0) return;
+
+  // Swipe navigation when locked
+  if (locked) {
+    const swipeDx = e.clientX - start.x;
+    const swipeDy = e.clientY - start.y;
+    if (Math.abs(swipeDx) > Math.abs(swipeDy) && Math.abs(swipeDx) > 38) {
+      const next = swipeDx < 0
+        ? (activeFace + 1) % 6
+        : (activeFace + 5) % 6;
+      activeFace = next;
+      snapToFace(next);
+      showFaceInfo(next);
+    }
+  }
+});
+
+canvas.addEventListener('pointercancel', (e) => {
+  ptrs.delete(e.pointerId);
+  dragging = false;
+  if (ptrs.size < 2) pinchTriggered = false;
+});
+
+// ─── animation loop ───────────────────────────────────────────────────────
 let t = 0;
 (function animate() {
   requestAnimationFrame(animate);
-  t += 0.012;
-  cube.rotation.y      += 0.004;
-  cube.rotation.x      += 0.0015;
-  cube.position.y       = Math.sin(t) * 0.22;
-  glowMesh.rotation.y   = cube.rotation.y;
-  glowMesh.rotation.x   = cube.rotation.x;
-  glowMesh.position.y   = cube.position.y;
-  orbitLight.position.x = Math.cos(t * 0.4) * 5;
-  orbitLight.position.z = Math.sin(t * 0.4) * 5;
-  orbitLight.position.y = Math.sin(t * 0.25) * 2;
+  t += 0.01;
+
+  if (snapping) {
+    cube.quaternion.slerp(snapQ, 0.16);
+    if (cube.quaternion.angleTo(snapQ) < 0.003) {
+      cube.quaternion.copy(snapQ);
+      snapping = false;
+    }
+  } else if (!locked && !dragging) {
+    // Inertia + gentle auto-drift — same world-axis approach
+    velX *= 0.94;
+    velY *= 0.94;
+    const qH = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), velX + 0.004);
+    const qV = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), velY);
+    cube.quaternion.premultiply(qH).premultiply(qV);
+  }
+
+  // Bob
+  cube.position.y = Math.sin(t * 0.75) * 0.12;
+
+  // Smooth camera zoom
+  camera.position.z += (camTargetZ - camera.position.z) * 0.07;
+
   renderer.render(scene, camera);
 })();
 
@@ -343,159 +428,30 @@ window.addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight);
 });
 
-// ─── toast ─────────────────────────────────────────────────────────────────
-let toastTimer = null;
-function toast(msg, isError = false) {
-  const el = document.getElementById('toast');
-  el.textContent = msg;
-  el.className   = 'visible' + (isError ? ' error' : '');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.className = ''; }, 2800);
-}
+// ─── Fire TV remote ───────────────────────────────────────────────────────
+const API = window.location.hostname === 'localhost'
+  ? 'http://localhost:8787'
+  : 'https://pangolin-rc.edward-m-willett.workers.dev';
 
-// ─── api ───────────────────────────────────────────────────────────────────
-async function api(method, path, body) {
-  const res = await fetch(API + path, {
-    method,
-    headers: {
-      'Content-Type':  'application/json',
-      'X-Actor-Id':    actorId(),
-      'X-Actor-Role':  actorRole,
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error ?? res.statusText);
-  return data;
-}
-
-// ─── buttons ───────────────────────────────────────────────────────────────
-const BUTTONS = [
-  {
-    id: 'submit', label: 'Submit', cls: 'btn-submit',
-    show: () => resourceId && !submissionId,
-    action: async () => {
-      const sub = await api('POST', `/resources/${resourceId}/submissions`, {});
-      submissionId = sub.id;
-      submissionState = sub.state;
-      document.getElementById('submission-val').textContent = submissionId;
-      document.getElementById('submission-val').classList.add('set');
-      toast('Submitted → pending');
-    },
-  },
-  {
-    id: 'advance', label: 'Advance', cls: 'btn-advance',
-    show: () => submissionState === 'pending',
-    action: async () => {
-      const sub = await api('POST', `/submissions/${submissionId}/advance`, null);
-      submissionState = sub.state;
-      toast('Advanced → ready');
-    },
-  },
-  {
-    id: 'reveal', label: 'Reveal', cls: 'btn-reveal',
-    show: () => submissionState === 'ready' || submissionState === 'unrevealed',
-    action: async () => {
-      const sub = await api('POST', `/submissions/${submissionId}/reveal`, null);
-      submissionState = sub.state;
-      toast(submissionState === 'revealed' ? 'Revealed ✓' : 'Re-revealed ✓');
-    },
-  },
-  {
-    id: 'revoke', label: 'Revoke', cls: 'btn-revoke',
-    show: () => submissionState === 'revealed',
-    action: async () => {
-      const sub = await api('POST', `/submissions/${submissionId}/revoke`, null);
-      submissionState = sub.state;
-      toast('Revoked → unrevealed');
-    },
-  },
-  {
-    id: 'reject', label: 'Reject', cls: 'btn-reject',
-    show: () => submissionState === 'pending' || submissionState === 'ready',
-    action: async () => {
-      const sub = await api('POST', `/submissions/${submissionId}/reject`, null);
-      submissionState = sub.state;
-      toast('Rejected');
-    },
-  },
-  {
-    id: 'purge', label: 'Purge', cls: 'btn-purge',
-    show: () => submissionState === 'unrevealed' || submissionState === 'rejected',
-    action: async () => {
-      const sub = await api('POST', `/submissions/${submissionId}/purge`, null);
-      submissionState = sub.state;
-      toast('Purged — terminal state');
-    },
-  },
-];
-
-function renderButtons() {
-  const row = document.getElementById('btn-row');
-  row.innerHTML = '';
-  BUTTONS.forEach(({ id, label, cls, show, action }) => {
-    const visible = show();
-    if (!visible && submissionState === 'purged') return;
-    const btn = document.createElement('button');
-    btn.id        = `btn-${id}`;
-    btn.className = `btn ${cls}`;
-    btn.textContent = label;
-    btn.disabled  = !visible;
-    btn.addEventListener('click', async () => {
-      btn.disabled = true;
-      try {
-        await action();
-        applyTheme(submissionState);
-        renderButtons();
-      } catch (e) {
-        toast(e.message, true);
-        btn.disabled = false;
-      }
-    });
-    row.appendChild(btn);
-  });
-
-  // Always show "New submission" button if purged or rejected (for demo reset)
-  if (submissionState === 'purged' || submissionState === 'rejected') {
-    const btn = document.createElement('button');
-    btn.className = 'btn btn-submit';
-    btn.textContent = 'New submission';
-    btn.addEventListener('click', () => {
-      submissionId    = null;
-      submissionState = null;
-      document.getElementById('submission-val').textContent = '—';
-      document.getElementById('submission-val').classList.remove('set');
-      applyTheme(null);
-      renderButtons();
-    });
-    row.appendChild(btn);
-  }
-}
-
-// ─── role chips ────────────────────────────────────────────────────────────
-document.getElementById('role-row').addEventListener('click', (e) => {
-  const chip = e.target.closest('.role-chip');
-  if (!chip) return;
-  actorRole = chip.dataset.role;
-  document.querySelectorAll('.role-chip').forEach(c => c.classList.toggle('active', c === chip));
-  toast(`Acting as ${actorRole}`);
-  renderButtons();
-});
-
-// ─── init: create resource ─────────────────────────────────────────────────
-(async () => {
+async function sendKey(cmd) {
   try {
-    const res = await api('POST', '/resources', null);
-    resourceId = res.id;
-    document.getElementById('resource-val').textContent = resourceId;
-    document.getElementById('resource-val').classList.add('set');
-    toast('Resource created — ready');
-  } catch (e) {
-    toast('API unreachable — start the Worker with npm run dev', true);
-  }
-  applyTheme(submissionState);
-  renderButtons();
-})();
+    await fetch(`${API}/remote/cmd/${cmd}`, { method: 'POST' });
+  } catch { /* ignore network errors */ }
+}
+
+function bindRemote(id, cmd) {
+  const btn = document.getElementById(id);
+  btn.addEventListener('click', () => {
+    sendKey(cmd);
+    btn.classList.add('sent');
+    setTimeout(() => btn.classList.remove('sent'), 180);
+  });
+}
+
+bindRemote('btn-rw',   'rw');
+bindRemote('btn-play', 'play');
+bindRemote('btn-ff',   'ff');
+bindRemote('btn-back', 'back');
 </script>
 </body>
 </html>
