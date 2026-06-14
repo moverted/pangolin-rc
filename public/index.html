@@ -62,17 +62,18 @@
     /* ── episode face overlay ── */
     #episode-overlay {
       position: fixed; inset: 0;
-      display: flex; align-items: center; justify-content: center;
       z-index: 20;
       opacity: 0; pointer-events: none;
       transition: opacity 0.4s;
     }
     #episode-overlay.active { opacity: 1; pointer-events: all; }
     #episode-overlay iframe {
-      width: min(90vw, 480px); height: min(90vw, 480px);
-      border: none; border-radius: 20px; display: block;
-      box-shadow: 0 32px 80px rgba(0,0,0,0.8);
+      width: 100%; height: 100%;
+      border: none; display: block;
     }
+
+    #canvas { transition: opacity 0.4s; }
+    #canvas.behind { opacity: 0; }
 
     /* ── media controls (Fire TV remote) ── */
     #controls {
@@ -267,6 +268,9 @@ let snapQ     = new THREE.Quaternion();
 // Camera target z
 let camTargetZ = 13;
 
+// Double-tap detection
+let lastTapTime = 0;
+
 // UI refs
 const faceInfo  = document.getElementById('face-info');
 const faceName  = document.getElementById('face-name');
@@ -317,7 +321,10 @@ function lock() {
   pinchHint.textContent = 'pinch to unlock';
   pinchHint.classList.remove('hide');
   if (fi === 0) {
-    setTimeout(() => document.getElementById('episode-overlay').classList.add('active'), 300);
+    setTimeout(() => {
+      document.getElementById('episode-overlay').classList.add('active');
+      canvas.classList.add('behind');
+    }, 300);
   }
 }
 
@@ -327,6 +334,7 @@ function unlock() {
   camTargetZ = 13;
   hideFaceInfo();
   document.getElementById('episode-overlay').classList.remove('active');
+  canvas.classList.remove('behind');
   snapping = false; // release to free rotation
   velX = 0; velY = 0;
 }
@@ -395,6 +403,18 @@ canvas.addEventListener('pointerup', (e) => {
   if (ptrs.size < 2) pinchTriggered = false;
   if (ptrs.size > 0) return;
 
+  // Double-tap to toggle lock/unlock
+  const tapDist = Math.hypot(e.clientX - start.x, e.clientY - start.y);
+  if (tapDist < 16) {
+    const now = performance.now();
+    if (now - lastTapTime < 340) {
+      lastTapTime = 0;
+      if (locked) unlock(); else lock();
+      return;
+    }
+    lastTapTime = now;
+  }
+
   // Swipe navigation when locked
   if (locked) {
     const swipeDx = e.clientX - start.x;
@@ -407,9 +427,13 @@ canvas.addEventListener('pointerup', (e) => {
       snapToFace(next);
       const epOverlay = document.getElementById('episode-overlay');
       epOverlay.classList.remove('active');
+      canvas.classList.remove('behind');
       showFaceInfo(next);
       if (next === 0) {
-        setTimeout(() => epOverlay.classList.add('active'), 300);
+        setTimeout(() => {
+          epOverlay.classList.add('active');
+          canvas.classList.add('behind');
+        }, 300);
       }
     }
   }
@@ -442,8 +466,9 @@ let t = 0;
     cube.quaternion.premultiply(qH).premultiply(qV);
   }
 
-  // Bob
-  cube.position.y = Math.sin(t * 0.75) * 0.12;
+  // Bob — settle to center when locked
+  const targetY = locked ? 0 : Math.sin(t * 0.75) * 0.12;
+  cube.position.y += (targetY - cube.position.y) * 0.08;
 
   // Smooth camera zoom
   camera.position.z += (camTargetZ - camera.position.z) * 0.07;

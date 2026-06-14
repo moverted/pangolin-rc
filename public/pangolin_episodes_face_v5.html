@@ -352,7 +352,11 @@ function paint(){
 
 $('comment').addEventListener('input',e=>{ notes[focus]=e.target.value; });
 $('cool').onclick=()=>{ cooled=true; paint(); };
-$('reset').onclick=()=>{ watched=0; watchTs=[]; watchDate={}; binged={}; focus=0; cooled=false; paint(); };
+$('reset').onclick=()=>{
+  watched=0; watchTs=[]; watchDate={}; binged={}; cooled=false;
+  eps=allEps.filter(e=>sNum(e)===1); if(!eps.length) eps=allEps;
+  focus=0; paint();
+};
 $('seasonsbar').onclick=()=>{ const v=prompt('Season status — blank, RENEWED!, or e.g. RETURNING MAY 2027:', seasonStatus);
   if(v!==null){ seasonStatus=v.trim().toUpperCase(); paint(); } };
 $('scorePill').onclick=()=>{ const v=prompt('Screen Score from @betterscreenscore (e.g. 87):', score);
@@ -376,6 +380,20 @@ function fallback(){
 }
 
 load(`https://api.tvmaze.com/shows/${DEFAULT_ID}?embed=episodes`, true);
+
+// Double-tap the hero image area to return to cube
+let dblTapTime = 0;
+document.querySelector('.hero').addEventListener('click', (e) => {
+  if (window.parent === window) return;
+  if (e.target.closest('.facebar, .scorepill, .seasonsbar, .barzone, .herofoot')) return;
+  const now = Date.now();
+  if (now - dblTapTime < 350) {
+    window.parent.postMessage({type:'pangolin-back'}, '*');
+    dblTapTime = 0;
+  } else {
+    dblTapTime = now;
+  }
+});
 
 // When running inside the cube face overlay, fill the iframe completely
 if (window.parent !== window) {
