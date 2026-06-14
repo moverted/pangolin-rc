@@ -216,7 +216,9 @@
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js';
 
 // ─── config ────────────────────────────────────────────────────────────────
-const API = window.location.hostname === 'localhost' ? 'http://localhost:8787' : '';
+const API = window.location.hostname === 'localhost'
+  ? 'http://localhost:8787'
+  : 'https://pangolin-rc.edward-m-willett.workers.dev';
 
 // ─── state ─────────────────────────────────────────────────────────────────
 let resourceId   = null;
@@ -253,11 +255,11 @@ camera.position.set(0, 0, 6);
 const cubeGeo  = new THREE.BoxGeometry(2, 2, 2);
 const faceMat  = new THREE.MeshStandardMaterial({
   color: 0x1133cc,
-  emissive: 0x001133,
+  emissive: 0x002266,
   metalness: 0.15,
   roughness: 0.08,
   transparent: true,
-  opacity: 0.28,
+  opacity: 0.5,
   side: THREE.DoubleSide,
 });
 const cube = new THREE.Mesh(cubeGeo, faceMat);
@@ -273,29 +275,32 @@ const glowMat  = new THREE.MeshStandardMaterial({
   color: 0x2244ff,
   emissive: 0x112288,
   transparent: true,
-  opacity: 0.06,
+  opacity: 0.15,
   side: THREE.BackSide,
 });
 const glowMesh = new THREE.Mesh(new THREE.BoxGeometry(2.08, 2.08, 2.08), glowMat);
 scene.add(glowMesh);
 
 // lights
-scene.add(new THREE.AmbientLight(0x111122, 3));
-const dirLight = new THREE.DirectionalLight(0x4466ff, 2.5);
+scene.add(new THREE.AmbientLight(0x223366, 8));
+const dirLight = new THREE.DirectionalLight(0x6688ff, 6);
 dirLight.position.set(4, 6, 4);
 scene.add(dirLight);
-const orbitLight = new THREE.PointLight(0x2255ff, 4, 14);
+const dirLight2 = new THREE.DirectionalLight(0xffffff, 2);
+dirLight2.position.set(-4, -2, 3);
+scene.add(dirLight2);
+const orbitLight = new THREE.PointLight(0x4488ff, 12, 20);
 scene.add(orbitLight);
 
 // ─── state → visual mapping ────────────────────────────────────────────────
 const STATE_THEME = {
-  null:       { face: 0x111133, emissive: 0x000011, edge: 0x222255, glow: 0x000033, dot: '#1a1a44' },
-  pending:    { face: 0x1133cc, emissive: 0x001133, edge: 0x3366ff, glow: 0x112288, dot: '#3366ff' },
-  ready:      { face: 0x006688, emissive: 0x003344, edge: 0x00ccee, glow: 0x004466, dot: '#00ccee' },
-  revealed:   { face: 0x006633, emissive: 0x003322, edge: 0x00ee77, glow: 0x004422, dot: '#00ee77' },
-  unrevealed: { face: 0x885500, emissive: 0x442200, edge: 0xffaa22, glow: 0x553300, dot: '#ffaa22' },
-  rejected:   { face: 0x882200, emissive: 0x441100, edge: 0xff4422, glow: 0x551100, dot: '#ff4422' },
-  purged:     { face: 0x222222, emissive: 0x111111, edge: 0x555555, glow: 0x111111, dot: '#444444' },
+  null:       { face: 0x1a1a55, emissive: 0x080833, edge: 0x3333aa, glow: 0x111155, dot: '#3333aa' },
+  pending:    { face: 0x1144ee, emissive: 0x002266, edge: 0x4488ff, glow: 0x1133aa, dot: '#4488ff' },
+  ready:      { face: 0x007799, emissive: 0x004466, edge: 0x00ddff, glow: 0x005577, dot: '#00ddff' },
+  revealed:   { face: 0x007744, emissive: 0x004422, edge: 0x00ff88, glow: 0x005533, dot: '#00ff88' },
+  unrevealed: { face: 0xaa6600, emissive: 0x553300, edge: 0xffbb33, glow: 0x664400, dot: '#ffbb33' },
+  rejected:   { face: 0xaa2200, emissive: 0x551100, edge: 0xff5533, glow: 0x661100, dot: '#ff5533' },
+  purged:     { face: 0x333333, emissive: 0x1a1a1a, edge: 0x666666, glow: 0x222222, dot: '#555555' },
 };
 
 function applyTheme(stateKey) {

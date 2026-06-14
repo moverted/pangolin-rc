@@ -23,7 +23,7 @@ bindings = [
 
 [[migrations]]
 tag = "v1"
-new_classes = ["ResourceCoordinator"]
+new_sqlite_classes = ["ResourceCoordinator"]
 
 [[queues.producers]]
 binding = "PROCESS_QUEUE"
