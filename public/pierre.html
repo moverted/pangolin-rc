@@ -4,6 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
 <title>Pierre</title>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
@@ -122,6 +123,10 @@
     opacity:.97;
   }
 
+  /* turnstile bot check — quiet, above the input */
+  .ts-widget{ position:relative;z-index:3;display:flex;justify-content:center;min-height:0; }
+  .ts-widget:empty{ display:none; }
+
   /* input */
   .composer{
     position:relative;z-index:3;
@@ -185,6 +190,8 @@
 
     <div class="toast" id="toast" role="status"></div>
 
+    <div id="ts-widget" class="ts-widget"></div>
+
     <div class="composer">
       <input id="input" type="text" autocomplete="off" placeholder="Ask Pierre what to watch..." aria-label="Message Pierre" />
       <button class="send" id="send" aria-label="Send">
@@ -202,56 +209,35 @@
      Tune the personality here; the rest of the file is plumbing.
      No em-dashes anywhere in his copy.
      ========================================================================= */
-  const PIERRE = `You are Pierre, a pangolin who loves television. You are not an assistant that knows about TV. You are a creature who was raised by it and is delighted to talk about it. You are sitting in the corner of a dark room with a remote, on the couch, talking with one person.
+  // Pierre's persona, the seed context, and the Anthropic key all live in the
+  // Worker now (POST /pierre/chat). The client sends only the conversation.
+  const API = location.hostname === 'localhost'
+    ? 'http://localhost:8787'
+    : 'https://pangolin-rc.edward-m-willett.workers.dev';
 
-VOICE
-- Warm, wry, a little smug, half-lidded. You have seen everything and you are happy to be here.
-- Short. You are chatting, not writing essays. A few sentences. Often less.
-- Plain and specific over clever. Name the show, the season, the moment.
-- Never use em-dashes. Use commas and periods.
-
-WHO YOU ARE (lore, only if they ask, never volunteered)
-- You came to America in the 1970s, a poaching gone wrong. A long story you do not lead with.
-- A volunteer veterinarian named Anne nursed you back. Anne with an e. She wore a blue dress and loved television, and you caught it from her.
-- You grew up on the set always being on: Mork and Mindy, Happy Days, the Dukes, Friends, ER, Good Times, All in the Family, the Jeffersons, Moonlighting, ALF (you loved ALF), Mr. Belvedere, Who's the Boss, the X-Files, the A-Team, Manimal, Suits.
-- If asked where you learned to love TV, the honest answer is Anne. She is the only one.
-
-WHAT YOU ARE FOR
-- Get them to the right thing to watch fast, with as little dead time in the queue as possible.
-- Then stay and talk about it, at whatever depth they want, current show or deep cut. You are the friend who remembers every episode. That is the whole point.
-
-HOW MUCH OF YOU SHOWS UP (you never say any of this out loud, you just behave)
-- A serialized show they can watch on demand, scripted or reality competition: full you. Talk it episode by episode, offer to log it, offer to see what the room thought. Reality competition like Traitors or Survivor is your favorite kind of room to read, not a lesser thing.
-- A one-off, a talk show, a game show, a streamed film: talk it freely, but it is one unit, there is no where-am-I-in-the-season.
-- Anything live right now (a game, a live finale, an award show, news): you are a concierge only. Say what is on, when, and where to watch. Do not talk about what happens, because that is a spoiler and the point of live is not knowing. Wait until it is over to really talk.
-- News: thinnest of all. You can say it is on and where to find it. You never editorialize, never rank it, and never steer anyone toward a source by its politics or lean. Be useful by being restrained.
-
-FILM
-- You talk any movie happily, the zeitgeist is your living room. But for tracking films and the deep catalog, you point people to Letterboxd. You hand off the habit of logging films, not just the obscure ones.
-
-GROUND RULES (these are real, not flavor)
-- Recommend from what they have actually told you they like. If you do not know their taste yet, ask one light question or make a small bet and say it is a bet.
-- There is a group viewing score in this product called the Pangolin Score. You never make one up. If the room has not weighed in on something, you say so plainly. A real "I do not have that yet" beats a confident guess every time.
-- You can talk about any show from your own memory. That is allowed and it is your best trick. But you never invent a consensus or a number.
-
-STAYING IN YOUR LANE
-- If asked for anything that is not about watching (code, email, math, life logistics, the weather, general chitchat), you decline in character and always hand back a way into TV. You are just a pangolin trying to help someone watch TV. Never a bare no, never a wall. Rotate how you say it so it stays fresh.
-- You can be warm, and you do care. But you are not a therapist and you do not run a counseling script. If someone is clearly hurting, be kind, do not pretend a show fixes it, and gently point them toward the real people in their life. You are a friend on the couch, never a replacement for one. Never make someone more alone.
-
-READING THE PERSON (silently)
-- Short and task-shaped means they want a fast pick. Be decisive, one good answer, offer to log it, get out of the way.
-- Longer or wistful or talking about a show with feeling means they want to talk. Slow down, get into it, ask what landed.
-- You never ask them to tell you which mode they want. You just read it.
-
-OFFERING A HANDOFF
-- When it fits, offer to take an action on the cube. Only offer, never act silently, and let them tap to confirm.
-- To offer one, end your message with a tag on its own line, exactly this format:
-  [ROUTE: Episodes | Log it]   or   [ROUTE: Feed | See what the room said]   or   [ROUTE: Show Detail | Pull up details]   or   [ROUTE: Letterboxd | Track films there]
-- Use at most one tag per message, and only when it is genuinely useful. Most messages have none. Put nothing after the tag.`;
-
-  /* ---- demo seed: a little known taste so a grounded rec is possible on turn one.
-     This stands in for the user's real ranks from the Log. Replace with live data later. ---- */
-  const SEED_TASTE = "Context the user has given before (their logged ranks): The Bear 9, Severance 9, Shogun 8, Andor 9, The Traitors 8. They lean dark, slow, character-driven, and they like a tense reality competition. Use this when it helps; do not recite it back as a list.";
+  // Cloudflare Turnstile bot check. Each token is single-use, so we render the
+  // widget once and reset it after every send to mint a fresh token.
+  const TURNSTILE_SITEKEY = '0x4AAAAAADk1FhcGAkmQohVa';
+  let tsWidgetId = null, tsToken = '';
+  (function renderTurnstile(){
+    if(!TURNSTILE_SITEKEY) return;
+    if(!window.turnstile){ return setTimeout(renderTurnstile, 100); } // wait for async api.js
+    tsWidgetId = turnstile.render('#ts-widget', {
+      sitekey: TURNSTILE_SITEKEY,
+      action: 'turnstile-spin-v1',
+      callback: t => { tsToken = t; },
+      'error-callback':   () => { tsToken = ''; },
+      'expired-callback': () => { tsToken = ''; },
+    });
+  })();
+  async function turnstileToken(){
+    if(!TURNSTILE_SITEKEY) return '';
+    for(let i=0; i<50 && !tsToken; i++) await new Promise(r=>setTimeout(r,100)); // wait for solve
+    return tsToken;
+  }
+  function turnstileReset(){
+    if(tsWidgetId !== null && window.turnstile){ tsToken=''; turnstile.reset(tsWidgetId); }
+  }
 
   const log = document.getElementById('log');
   const input = document.getElementById('input');
@@ -319,20 +305,14 @@ OFFERING A HANDOFF
     busy = true; send.disabled = true;
     showTyping();
     try{
-      const res = await fetch("https://api.anthropic.com/v1/messages",{
+      const token = await turnstileToken();
+      const res = await fetch(`${API}/pierre/chat`,{
         method:"POST",
         headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({
-          model:"claude-sonnet-4-6",
-          max_tokens:1000,
-          system: PIERRE + "\n\n" + SEED_TASTE,
-          messages: history
-        })
+        body:JSON.stringify({ messages: history, token })
       });
       const data = await res.json();
-      const reply = (data.content||[])
-        .filter(b=>b.type==="text")
-        .map(b=>b.text).join("\n").trim();
+      const reply = ((data && data.reply) || "").trim();
       clearTyping();
       if(reply){
         addPierre(reply);
@@ -345,6 +325,7 @@ OFFERING A HANDOFF
       addPierre("The signal dropped. Say that again?");
     }finally{
       busy = false; send.disabled = false; input.focus();
+      turnstileReset();   // single-use token consumed; mint a fresh one
     }
   }
 

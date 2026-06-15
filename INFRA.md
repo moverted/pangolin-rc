@@ -49,7 +49,23 @@ or changed.
   on a separate Cloudflare **Worker** (`pangolin-rc`), which is what talks to
   the R2 bucket, D1 database, etc.
 
+### 3. Pierre chat proxy — Worker route `POST /pierre/chat`
+
+- **What it is:** A small endpoint on the existing Cloudflare Worker
+  (`pangolin-rc`, at `https://pangolin-rc.edward-m-willett.workers.dev`). Code
+  lives in `src/handlers/pierre.ts`.
+- **What it's for:** Powering the Pierre chat. The browser sends only the
+  conversation; this endpoint adds Pierre's personality and calls Anthropic's
+  API to get his reply, then sends the reply back.
+- **Why it exists:** So the secret API key and Pierre's personality never live
+  in the public web page. The browser can't see either.
+- **Who calls it:** The Pierre chat page (`public/pierre.html`).
+- **Secret it needs:** `ANTHROPIC_API_KEY` — the Anthropic API key, stored as a
+  Worker secret (not in any file). Set it with
+  `wrangler secret put ANTHROPIC_API_KEY`. For local dev, put it in `.dev.vars`.
+  Until it is set, Pierre politely fails ("The signal dropped").
+
 ---
 
-_Last updated: 2026-06-14 — added Pages production deploy + custom domain
-remote.pangolinrc.com._
+_Last updated: 2026-06-14 — added Pierre chat Worker proxy (`/pierre/chat`) +
+`ANTHROPIC_API_KEY` secret._
