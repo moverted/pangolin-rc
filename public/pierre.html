@@ -123,9 +123,8 @@
     opacity:.97;
   }
 
-  /* turnstile bot check — quiet, above the input */
-  .ts-widget{ position:relative;z-index:3;display:flex;justify-content:center;min-height:0; }
-  .ts-widget:empty{ display:none; }
+  /* turnstile runs in invisible mode — present in the DOM but no visible UI */
+  .ts-widget{ position:absolute;width:0;height:0;overflow:hidden; }
 
   /* input */
   .composer{
