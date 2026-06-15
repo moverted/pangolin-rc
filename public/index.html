@@ -65,7 +65,6 @@
       z-index: 20;
       opacity: 0; pointer-events: none;
       overflow: visible;
-      transition: transform 0.25s ease;
     }
     .face-overlay iframe {
       position: absolute; top: 0; left: 0;
@@ -324,15 +323,38 @@ function lock() {
   showFaceInfo(fi);
   pinchHint.textContent = 'pinch to unlock';
   pinchHint.classList.remove('hide');
+  if (fi === PIERRE_FACE) focusPierre();
 }
 
 function unlock() {
   if (!locked) return;
+  if (activeFace === PIERRE_FACE) focusPierreBlur();
   locked = false;
   camTargetZ = 13;
   hideFaceInfo();
   snapping = false; // release to free rotation
   velX = 0; velY = 0;
+}
+
+// Selecting the Pierre side drops the cursor straight into the chat box and
+// raises the keyboard. Must run inside the user gesture (tap/pinch/swipe) or
+// iOS won't open the keyboard. Same-origin iframe → parent can focus it.
+function focusPierre() {
+  const cfg = FACE_OVERLAYS[PIERRE_FACE];
+  if (!cfg || !cfg.frame) return;
+  try {
+    const inp = cfg.frame.contentWindow.document.getElementById('input');
+    if (inp) inp.focus();
+  } catch (_) { /* iframe not ready yet */ }
+}
+
+function focusPierreBlur() {
+  const cfg = FACE_OVERLAYS[PIERRE_FACE];
+  if (!cfg || !cfg.frame) return;
+  try {
+    const inp = cfg.frame.contentWindow.document.getElementById('input');
+    if (inp) inp.blur();
+  } catch (_) { /* iframe not ready yet */ }
 }
 
 // ─── pointer events ───────────────────────────────────────────────────────
@@ -399,20 +421,25 @@ canvas.addEventListener('pointerup', (e) => {
   if (ptrs.size < 2) pinchTriggered = false;
   if (ptrs.size > 0) return;
 
+  // Stay in the Pierre chat: ignore the casual gestures (double-tap, swipe) that
+  // would otherwise navigate away or unlock while you're typing. The in-chat
+  // "‹ back" button (and a deliberate pinch) remain the way out.
+  const inPierreChat = locked && activeFace === PIERRE_FACE;
+
   // Double-tap to toggle lock/unlock
   const tapDist = Math.hypot(e.clientX - start.x, e.clientY - start.y);
   if (tapDist < 16) {
     const now = performance.now();
     if (now - lastTapTime < 340) {
       lastTapTime = 0;
-      if (locked) unlock(); else lock();
+      if (!inPierreChat) { if (locked) unlock(); else lock(); }
       return;
     }
     lastTapTime = now;
   }
 
   // Swipe navigation when locked
-  if (locked) {
+  if (locked && !inPierreChat) {
     const swipeDx = e.clientX - start.x;
     const swipeDy = e.clientY - start.y;
     if (Math.abs(swipeDx) > Math.abs(swipeDy) && Math.abs(swipeDx) > 38) {
@@ -422,6 +449,8 @@ canvas.addEventListener('pointerup', (e) => {
       activeFace = next;
       snapToFace(next);
       showFaceInfo(next);
+      if (next === PIERRE_FACE) focusPierre();
+      else focusPierreBlur();
     }
   }
 });
@@ -484,6 +513,17 @@ for (const cfg of Object.values(FACE_OVERLAYS)) {
   cfg.el = el; cfg.frame = frame; cfg._op = 0; cfg._active = false; cfg._tx = '';
 }
 
+// Pierre (+Y, material index 2) is a chat window. While its input is focused
+// and the soft keyboard is open, the animation loop pins that square to the top
+// of the visible viewport instead of 3D-projecting it onto the cube face — so
+// the browser's keyboard pan can't slide it off the top of the screen.
+const PIERRE_FACE  = 2;
+const vv           = window.visualViewport;
+const controlsEl   = document.getElementById('controls');
+let   chatFocused  = false;  // set from pierre.html via postMessage
+let   chatMode     = false;  // chatFocused + keyboard actually open
+let   _ctrlHidden  = false;  // are the media buttons currently hidden?
+
 // ─── animation loop ───────────────────────────────────────────────────────
 let t = 0;
 (function animate() {
@@ -514,6 +554,23 @@ let t = 0;
 
   renderer.render(scene, camera);
 
+  // Pierre chat is in "pinned" mode when its input is focused AND the keyboard
+  // is actually up. Browsers signal that two different ways: some shrink the
+  // visual viewport (vv.height < innerHeight), others keep the height but scroll
+  // the page to lift the input above the keyboard (vv.offsetTop > 0). Either
+  // counts. Programmatic focus on load (no keyboard, no pan) does not.
+  const kbOpen = !!vv && (vv.offsetTop > 1 || innerHeight - vv.height > 60);
+  const pierreActive = locked && activeFace === PIERRE_FACE;
+  chatMode = pierreActive && chatFocused && kbOpen;
+
+  // While the Pierre chat is selected, hide the media buttons so they sit
+  // underneath the chat instead of floating on top of it.
+  if (pierreActive !== _ctrlHidden) {
+    controlsEl.style.opacity = pierreActive ? '0' : '';
+    controlsEl.style.pointerEvents = pierreActive ? 'none' : '';
+    _ctrlHidden = pierreActive;
+  }
+
   // Face overlays — perspective-correct matrix3d tracking
   for (const [fi, cfg] of Object.entries(FACE_OVERLAYS)) {
     _fN.copy(cfg.normal).applyQuaternion(cube.quaternion);
@@ -525,7 +582,11 @@ let t = 0;
         return { x: (_fP.x + 1) / 2 * innerWidth, y: (1 - _fP.y) / 2 * innerHeight };
       });
       const tx = faceCssMatrix3d(pts);
-      if (cfg._tx !== tx) { cfg.frame.style.transform = tx; cfg._tx = tx; }
+      // In chat mode the Pierre square is positioned by the keyboard handler;
+      // don't overwrite it with the cube-face projection.
+      if (!(chatMode && +fi === PIERRE_FACE) && cfg._tx !== tx) {
+        cfg.frame.style.transform = tx; cfg._tx = tx;
+      }
       const opacity = (locked && activeFace === +fi) ? 1 : dot;
       if (Math.abs(cfg._op - opacity) > 0.004) {
         cfg.el.style.opacity = opacity.toFixed(3);
@@ -542,6 +603,20 @@ let t = 0;
       cfg._op = 0; cfg._active = false;
     }
   }
+
+  // Pin the Pierre square to the top of the visible viewport, sized to fit
+  // above the keyboard. Done every frame so any browser pan is corrected within
+  // ~16ms instead of letting the square slide off the top.
+  if (chatMode) {
+    const cfg = FACE_OVERLAYS[PIERRE_FACE];
+    const margin = 12;
+    const size  = Math.min(vv.width, vv.height) - margin * 2;
+    const scale = size / IFRAME_SZ;
+    const x = (vv.offsetLeft || 0) + (vv.width - size) / 2;
+    const y = vv.offsetTop + margin;            // glue to top of visible band
+    cfg.frame.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+    cfg._tx = '';                               // force projection to re-apply on exit
+  }
 })();
 
 window.addEventListener('resize', () => {
@@ -549,30 +624,6 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
 });
-
-// ─── soft-keyboard handling for the Pierre chat face ────────────────────────
-// PIERRE (+Y, material index 2) is a chat window: square at top, keyboard at
-// bottom. When the on-screen keyboard opens, the browser would normally pan the
-// whole page up to reveal the focused input, pushing the square off the top.
-// Instead we lock the square in place and lift it into the space above the
-// keyboard, letting the keyboard cover the media buttons below.
-const PIERRE_FACE = 2;
-const vv = window.visualViewport;
-if (vv) {
-  const applyKeyboard = () => {
-    const pierre = FACE_OVERLAYS[PIERRE_FACE];
-    if (!pierre) return;
-    // Keyboard height = full layout height minus the (shrunken) visual viewport.
-    const kb = Math.max(0, innerHeight - vv.height - vv.offsetTop);
-    const chatting = locked && activeFace === PIERRE_FACE && kb > 120;
-    // Re-center the square in the visible band above the keyboard (lift by half
-    // the keyboard height), and counter any pan the browser applies (offsetTop).
-    const shift = chatting ? (vv.offsetTop - kb / 2) : 0;
-    pierre.el.style.transform = shift ? `translateY(${shift}px)` : '';
-  };
-  vv.addEventListener('resize', applyKeyboard);
-  vv.addEventListener('scroll', applyKeyboard);
-}
 
 // ─── Fire TV remote ───────────────────────────────────────────────────────
 const API = window.location.hostname === 'localhost'
@@ -602,6 +653,8 @@ bindRemote('btn-back', 'back');
 // any face iframe can send pangolin-back to unlock the cube
 window.addEventListener('message', (e) => {
   if (e.data?.type === 'pangolin-back') unlock();
+  // Pierre chat reports input focus so we can pin it above the keyboard.
+  if (e.data?.type === 'pierre-chat-focus') chatFocused = !!e.data.focused;
 });
 </script>
 </body>

@@ -69,7 +69,7 @@
   .log{
     position:relative;z-index:2;
     flex:1;overflow-y:auto;
-    padding:8px 16px 0;
+    padding:8px 16px 120px;   /* bottom clearance keeps text above Pierre */
     display:flex;flex-direction:column;gap:12px;
     scrollbar-width:thin;scrollbar-color:var(--line) transparent;
   }
@@ -115,8 +115,8 @@
 
   /* Pierre sits in the corner, in the warm dark, below the glow */
   .pierre-art{
-    position:absolute;left:-6px;bottom:54px;z-index:1;
-    width:60%;max-width:300px;
+    position:absolute;left:-4px;bottom:0;z-index:1;
+    width:38%;max-width:170px;
     pointer-events:none;
     filter:drop-shadow(0 6px 16px rgba(0,0,0,.5));
     opacity:.97;
@@ -127,7 +127,7 @@
     position:relative;z-index:3;
     display:flex;gap:8px;align-items:center;
     padding:10px 12px 12px;
-    margin-left:38%;            /* clear Pierre's corner */
+    margin-left:22%;            /* covers part of Pierre's tail, not the whole bottom */
   }
   .composer input{
     flex:1;min-width:0;
@@ -353,16 +353,30 @@ OFFERING A HANDOFF
     if(!text || busy) return;
     addUser(text);
     input.value = '';
+    input.focus();   // keep the keyboard up / stay pinned in the chat
     ask(text);
   }
 
+  // Don't let tapping Send blur the input (which would close the keyboard and
+  // pop us out of the pinned chat). preventDefault on mousedown keeps focus.
+  send.addEventListener('mousedown', e => e.preventDefault());
   send.addEventListener('click', submit);
   input.addEventListener('keydown', e=>{ if(e.key==='Enter') submit(); });
+
+  // Tell the parent cube when the chat input is focused, so it can pin this
+  // square above the soft keyboard instead of letting the page pan it off-screen.
+  if (window.parent !== window) {
+    input.addEventListener('focus', () => window.parent.postMessage({ type:'pierre-chat-focus', focused:true  }, '*'));
+    input.addEventListener('blur',  () => window.parent.postMessage({ type:'pierre-chat-focus', focused:false }, '*'));
+  }
 
   /* Pierre opens. Seed line so the room is never empty. Yours to rewrite. */
   window.addEventListener('load', ()=>{
     addPierre("Evening. I am Pierre. Tell me what you are in the mood for and I will keep your queue moving. Or just tell me what you watched last, I have opinions.");
-    input.focus();
+    // Standalone only. When embedded in the cube, the parent focuses this input
+    // inside the selecting gesture so iOS raises the keyboard (a load-time focus
+    // here would pre-focus it and suppress that).
+    if (window.parent === window) input.focus();
   });
 
   // ── embedded in cube face ──
