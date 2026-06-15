@@ -152,7 +152,7 @@ const FACES = [
   { label: 'EPISODE', bg: '#FF6B35', fg: '#fff',    sub: "What's on right now"  },
   { label: 'FEED',    bg: '#22BB44', fg: '#fff',    sub: 'The latest drops'      },
   { label: 'PIERRE',  bg: '#BB00FF', fg: '#FFE600', sub: 'Your host'             },
-  { label: 'PROFILE', bg: '#FFD600', fg: '#000',    sub: "That's you"            },
+  { label: 'LOG',     bg: '#FFD600', fg: '#000',    sub: 'Your viewing log'      },
   { label: 'SHOW',    bg: '#EE1122', fg: '#fff',    sub: 'The main event'        },
   { label: 'JOIN',    bg: '#00BBEE', fg: '#000',    sub: 'Get in on it'          },
 ];
@@ -174,7 +174,7 @@ function makeTex(face, faceIndex) {
   c.width = c.height = S;
   const ctx = c.getContext('2d');
 
-  if (faceIndex === 0 || faceIndex === 2) {
+  if (faceIndex === 0 || faceIndex === 2 || faceIndex === 3) {
     // iframe delivers the real content — dark placeholder sits behind the overlay
     const g = ctx.createLinearGradient(0, 0, 0, S);
     g.addColorStop(0, '#1c1a16'); g.addColorStop(1, '#0c0a08');
@@ -357,6 +357,21 @@ function focusPierreBlur() {
   } catch (_) { /* iframe not ready yet */ }
 }
 
+// Cross-face navigation: a face asks the shell to rotate to another face
+// (e.g. a Log tile tap -> Episodes). The shell owns routing; faces post a
+// 'cube:rotateTo' message and this maps the face name to its cube index.
+const FACE_INDEX = { episodes: 0, feed: 1, pierre: 2, log: 3, show: 4, join: 5 };
+function rotateToFace(fi) {
+  if (typeof fi !== 'number' || fi < 0 || fi > 5) return;
+  locked = true;
+  camTargetZ = 4.6;
+  snapToFace(fi);                 // sets activeFace and starts the snap
+  showFaceInfo(fi);
+  pinchHint.textContent = 'pinch to unlock';
+  pinchHint.classList.remove('hide');
+  if (fi === PIERRE_FACE) focusPierre(); else focusPierreBlur();
+}
+
 // ─── pointer events ───────────────────────────────────────────────────────
 canvas.addEventListener('pointerdown', (e) => {
   canvas.setPointerCapture(e.pointerId);
@@ -499,6 +514,16 @@ const FACE_OVERLAYS = {
       new THREE.Vector3( 0.9, 0.9, -0.9),   // TR
       new THREE.Vector3( 0.9, 0.9,  0.9),   // BR
       new THREE.Vector3(-0.9, 0.9,  0.9),   // BL
+    ],
+  },
+  3: {                                       // -Y face: LOG
+    src: '/cube_face_log.html',
+    normal: new THREE.Vector3(0, -1, 0),
+    corners: [
+      new THREE.Vector3(-0.9, -0.9,  0.9),  // TL
+      new THREE.Vector3( 0.9, -0.9,  0.9),  // TR
+      new THREE.Vector3( 0.9, -0.9, -0.9),  // BR
+      new THREE.Vector3(-0.9, -0.9, -0.9),  // BL
     ],
   },
 };
@@ -655,6 +680,11 @@ window.addEventListener('message', (e) => {
   if (e.data?.type === 'pangolin-back') unlock();
   // Pierre chat reports input focus so we can pin it above the keyboard.
   if (e.data?.type === 'pierre-chat-focus') chatFocused = !!e.data.focused;
+  // A face asked to rotate the cube to another face.
+  if (e.data?.type === 'cube:rotateTo') {
+    const fi = FACE_INDEX[e.data.face];
+    if (fi !== undefined) rotateToFace(fi);
+  }
 });
 </script>
 </body>
