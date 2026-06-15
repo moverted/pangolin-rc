@@ -1,0 +1,495 @@
+<!--
+  Cube Face: LOG  (v4)
+  v4 changes:
+   - Orphan fix: titles with "Show: Subtitle" break at the colon, never leave
+     a one-word last line. text-wrap:pretty handles the rest.
+   - Comfort is now a different object: a paired row. Poster tile on the left,
+     the rewatch PLAN on the right (label + a barcode bar + episode count).
+     The barcode shows which episodes the plan includes, in a new palette
+     colour (--plan). Clicking adopts the plan onto the Episodes face (stubbed
+     as a flash here; the small Pierre to reset/edit/re-cut lives on Episodes).
+   - Pierre always offers a Top 10 / Top 5. SVU carries a Pierre-generated
+     "Top 10" to show the auto-offer next to the human-curated plans.
+   - Plan kinds: all (complete), seasons (first N), seasonsScatter (e.g. Logan
+     episodes), top (Pierre's top-N). Demo subsets, labelled as such.
+
+  Data: TVMaze live. Plans, watched counts, prices, return dates = seeds.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Log</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --base:#181210; --base-2:#211915; --line:#352a23;
+    --amber:#E9A23C; --watched:#1c5a37; --avail:#46c46f; --unrel:#463d36;
+    --countdown:#caa15e; --ash:#6b5d52; --plan:#bb8ae6; --text:#f5efe9; --muted:#b3a193;
+    --display:"Space Grotesk",sans-serif; --body:"Inter",sans-serif; --mono:"JetBrains Mono",monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:#0c0907;color:var(--text);font-family:var(--body);min-height:100%;
+    display:flex;align-items:center;justify-content:center;padding:16px}
+
+  .face{width:min(92vw,460px);aspect-ratio:1/1;background:var(--base);border:1px solid var(--line);
+    border-radius:18px;overflow:hidden;display:flex;flex-direction:column;position:relative}
+
+  .head{display:flex;align-items:flex-start;justify-content:space-between;padding:13px 15px 8px;flex-shrink:0}
+  .label{font-family:var(--mono);font-size:12px;letter-spacing:.18em;color:var(--muted)}
+  .savings{text-align:right;line-height:1;cursor:pointer;user-select:none}
+  .savings .amt{font-family:var(--display);font-weight:700;font-size:17px;color:var(--amber)}
+  .savings .cap{font-family:var(--mono);font-size:8.5px;letter-spacing:.08em;color:var(--muted);margin-top:2px}
+  .savings:hover .amt{filter:drop-shadow(0 0 6px rgba(233,162,60,.55))}
+  .headright{display:flex;align-items:center;gap:11px}
+  .addbtn{width:26px;height:26px;flex-shrink:0;padding:0;border:1px solid var(--line);border-radius:8px;
+    background:var(--base-2);color:var(--amber);font-family:var(--display);font-weight:700;font-size:18px;line-height:1;
+    cursor:pointer;display:flex;align-items:center;justify-content:center;transition:border-color .15s ease,box-shadow .15s ease,transform .1s ease}
+  .addbtn:hover{border-color:var(--amber);box-shadow:0 0 6px rgba(233,162,60,.35)}
+  .addbtn:active{transform:scale(.92)}
+
+  .pierre{flex-shrink:0;padding:6px 15px 9px;display:flex;flex-direction:column;gap:6px;border-bottom:1px solid var(--line)}
+  .pierre .read{display:flex;align-items:center;gap:8px;min-height:16px}
+  .pierre .dot{width:7px;height:7px;border-radius:50%;background:var(--amber);flex-shrink:0;box-shadow:0 0 6px rgba(233,162,60,.7)}
+  .pierre .line{font-size:11.5px;color:var(--text);line-height:1.25}
+  .pierre .line b{font-weight:600} .pierre .line .q{color:var(--muted)}
+  .pierre .chips{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
+  .pierre .chip{background:transparent;border:1px solid var(--line);color:var(--muted);font-family:var(--mono);
+    font-size:9px;letter-spacing:.02em;padding:4px 8px;border-radius:999px;cursor:pointer;transition:all .15s ease}
+  .pierre .chip.on{color:var(--amber);border-color:var(--amber)}
+  .pierre .chip.demo{border-style:dashed} .pierre .spacer{flex:1}
+
+  .scroll{flex:1;overflow-y:auto;overflow-x:hidden;padding:12px 15px;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+  .scroll::-webkit-scrollbar{width:5px} .scroll::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .grid.list{grid-template-columns:1fr;gap:12px}
+
+  /* Poster tiles (current / returning / completed) */
+  .tile{aspect-ratio:1/1;border-radius:12px;overflow:hidden;position:relative;background:var(--base-2);cursor:pointer;border:1px solid var(--line)}
+  .tile .poster,.pcell .poster{position:absolute;inset:0;background-size:cover;background-position:center top}
+  .tile .scrim,.pcell .scrim{position:absolute;inset:0;background:linear-gradient(to top,rgba(10,7,5,.94) 0%,rgba(10,7,5,.55) 40%,rgba(10,7,5,.04) 72%)}
+  .tile .body{position:absolute;left:0;right:0;bottom:0;padding:10px;display:flex;flex-direction:column;gap:7px}
+  .tile .title,.pcell .ctitle{font-family:var(--display);font-weight:700;line-height:1.08;text-shadow:0 1px 4px rgba(0,0,0,.6);
+    text-wrap:pretty;display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden}
+  .tile .title{font-size:13.5px;-webkit-line-clamp:2}
+  .tile .meta,.tile .ret{font-family:var(--mono);font-size:9px;letter-spacing:.02em;color:var(--muted);display:flex;justify-content:space-between;align-items:center;gap:4px}
+  .tile .meta .done{color:var(--amber);display:flex;align-items:center;gap:3px}
+  .tile .ret .soon{color:var(--amber)}
+
+  .bars{display:flex;flex-direction:column;gap:3px}
+  .bar{position:relative;height:5px;border-radius:3px;display:flex;background:var(--unrel)}
+  .bar .seg{height:100%}
+  .bar .seg.w{background:var(--watched)} .bar .seg.a{background:var(--avail)} .bar .seg.u{background:var(--unrel)}
+  .bar .seg:first-child{border-radius:3px 0 0 3px} .bar .seg:last-child{border-radius:0 3px 3px 0}
+  .bar.cd .fill{height:100%;background:var(--countdown);border-radius:3px}
+  .bar.cd .fill.soon{background:var(--amber);box-shadow:0 0 5px rgba(233,162,60,.7)}
+  .pop{position:absolute;top:50%;width:11px;height:11px;transform:translate(-50%,-50%);font-size:11px;line-height:11px;filter:drop-shadow(0 0 3px rgba(233,162,60,.8));pointer-events:none}
+
+  .tile.completed .poster{filter:saturate(.6) brightness(.74)}
+  .tile.stopped{opacity:.62} .tile.stopped .poster{filter:grayscale(.85) brightness(.6)}
+  .tryagain{align-self:flex-start;background:transparent;border:none;color:var(--muted);font-family:var(--mono);font-size:8.5px;letter-spacing:.04em;cursor:pointer;padding:0;opacity:.85}
+  .tryagain:hover{color:var(--amber)}
+  .divider{grid-column:1/-1;font-family:var(--mono);font-size:9px;letter-spacing:.14em;color:var(--muted);margin:6px 0 2px;display:flex;align-items:center;gap:8px}
+  .divider::after{content:"";flex:1;height:1px;background:var(--line)}
+  .state{grid-column:1/-1;text-align:center;color:var(--muted);font-family:var(--mono);font-size:11px;padding:34px 10px}
+
+  /* Comfort paired rows */
+  .crow{display:flex;gap:12px;cursor:pointer}
+  .crow .pcell{position:relative;flex:0 0 138px;width:138px;aspect-ratio:1;border-radius:12px;overflow:hidden;background:var(--base-2);border:1px solid var(--line)}
+  .crow .ctitle{position:absolute;left:0;right:0;bottom:0;padding:9px;font-size:12.5px;-webkit-line-clamp:3}
+  .crow .pinfo{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:9px}
+  .crow .planlabel{font-family:var(--display);font-weight:700;font-size:14px;line-height:1.14;color:var(--text);text-wrap:pretty}
+  .crow .barcode{display:flex;gap:1px;height:24px;align-items:stretch;width:100%}
+  .crow .barcode .tk{flex:1 1 0;min-width:0;background:rgba(255,255,255,.09);border-radius:1px}
+  .crow .barcode .tk.on{background:var(--plan);box-shadow:0 0 4px rgba(187,138,230,.45)}
+  .crow .pmeta{display:flex;justify-content:space-between;font-family:var(--mono);font-size:9px;color:var(--muted)}
+  .crow .pmeta .edit{color:var(--amber)}
+  .crow:hover .planlabel{color:var(--plan)}
+
+  .tabbar{flex-shrink:0;display:flex;border-top:1px solid var(--line);background:var(--base-2)}
+  .tab{flex:1;background:transparent;border:none;border-right:1px solid var(--line);color:var(--muted);font-family:var(--mono);
+    font-size:8.5px;letter-spacing:.04em;padding:9px 3px;cursor:pointer;transition:background .15s ease,color .15s ease;display:flex;align-items:center;justify-content:center;gap:4px}
+  .tab:last-child{border-right:none}
+  .tab .ct{opacity:.6;font-size:8px}
+  .tab.on{background:rgba(233,162,60,.16);color:var(--amber)} .tab.on .ct{opacity:.9}
+  .tab.pulse{animation:tabpulse .7s ease}
+  @keyframes tabpulse{0%,100%{background:rgba(233,162,60,.16)}45%{background:rgba(233,162,60,.42)}}
+
+  .fx{position:absolute;inset:0;pointer-events:none;z-index:40;overflow:hidden}
+  .particle{position:absolute;transform:translate(-50%,-50%);animation:fly var(--dur) ease-out forwards;will-change:transform,opacity}
+  .particle.dot{width:6px;height:6px;border-radius:50%;background:var(--amber);box-shadow:0 0 6px rgba(233,162,60,.8)}
+  @keyframes fly{0%{transform:translate(-50%,-50%) translate(0,0) rotate(0);opacity:1}
+    100%{transform:translate(-50%,-50%) translate(var(--dx),calc(var(--dy) + 240px)) rotate(var(--rot));opacity:0}}
+  .ash{position:absolute;width:5px;height:5px;background:var(--ash);border-radius:1px;transform:translate(-50%,-50%);animation:ashfall var(--dur) ease-in forwards}
+  @keyframes ashfall{0%{opacity:.85}100%{transform:translate(-50%,-50%) translate(var(--dx),var(--dy));opacity:0}}
+  .tile.dusting{filter:grayscale(1) blur(2px);opacity:0;transform:scale(.96);transition:all .6s ease}
+
+  .flash{position:absolute;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+    background:rgba(12,9,7,.6);opacity:0;pointer-events:none;transition:opacity .2s ease;padding:24px;text-align:center}
+  .flash.show{opacity:1}
+  .flash .flabel{font-family:var(--mono);font-size:14px;letter-spacing:.14em;color:var(--amber)}
+  .flash .fsub{font-family:var(--display);font-weight:700;font-size:18px;line-height:1.1;text-wrap:pretty}
+  .flash .fnote{font-family:var(--mono);font-size:9px;letter-spacing:.06em;color:var(--muted);margin-top:2px}
+
+  .savpop{position:absolute;inset:0;z-index:60;display:none;align-items:center;justify-content:center;background:rgba(8,6,4,.8);padding:22px}
+  .savpop.show{display:flex}
+  .sav-card{width:100%;max-width:344px;background:var(--base-2);border:1px solid var(--line);border-radius:14px;padding:16px}
+  .sav-card h4{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;color:var(--muted);margin-bottom:11px;font-weight:500}
+  .sav-row{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:baseline;padding:5px 0;font-family:var(--mono);font-size:12px}
+  .sav-row .svc{color:var(--text)} .sav-row .full{color:var(--muted);text-decoration:line-through;font-size:11px} .sav-row .paid b{color:var(--amber);font-weight:500}
+  .sav-total{display:flex;justify-content:space-between;align-items:baseline;border-top:1px solid var(--line);margin-top:9px;padding-top:11px}
+  .sav-total .t{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.06em}
+  .sav-total .v{font-family:var(--display);font-weight:700;font-size:18px;color:var(--amber)}
+  .sav-foot{font-family:var(--body);font-size:10px;color:var(--muted);margin-top:10px;line-height:1.35}
+</style>
+</head>
+<body>
+<div class="face" id="face">
+  <div class="head">
+    <div class="label">LOG</div>
+    <div class="headright">
+      <button class="addbtn" id="addBtn" aria-label="Add a show">+</button>
+      <div class="savings" id="savingsBtn"><div class="amt" id="savings">$0</div><div class="cap">SAVED IN PROGRAM</div></div>
+    </div>
+  </div>
+
+  <div class="pierre">
+    <div class="read"><span class="dot"></span><span class="line" id="pierreLine"><span class="q">asking Pierre...</span></span></div>
+    <div class="chips">
+      <button class="chip on" data-q="last">last watched</button>
+      <button class="chip" data-q="watching">watching now</button>
+      <span class="spacer"></span>
+      <button class="chip demo" id="finishBtn">&#8629; finished</button>
+      <button class="chip demo" id="stopBtn">&#10005; stop</button>
+    </div>
+  </div>
+
+  <div class="scroll"><div class="grid" id="grid"><div class="state">loading your log...</div></div></div>
+
+  <div class="tabbar">
+    <button class="tab on" data-tab="current">CURRENT<span class="ct" id="n-current"></span></button>
+    <button class="tab" data-tab="returning">RETURNING<span class="ct" id="n-returning"></span></button>
+    <button class="tab" data-tab="comfort">COMFORT<span class="ct" id="n-comfort"></span></button>
+    <button class="tab" data-tab="completed">COMPLETED<span class="ct" id="n-completed"></span></button>
+  </div>
+
+  <div class="fx" id="fx"></div>
+  <div class="flash" id="flash"><div class="flabel">&#8594; EPISODES</div><div class="fsub"></div><div class="fnote"></div></div>
+  <div class="savpop" id="savpop"><div class="sav-card" id="savCard"></div></div>
+</div>
+
+<script>
+const SEED=[
+  {id:"severance", q:"Severance",      watched:14,      lastDate:"2026-06-12"},
+  {id:"slowhorses",q:"Slow Horses",    watched:12,      lastDate:"2026-06-08"},
+  {id:"silo",      q:"Silo",           watchedAll:true, lastDate:"2026-05-30", returnDate:"2026-06-19"},
+  {id:"thebear",   q:"The Bear",       watchedAll:true, lastDate:"2026-06-02", returnDate:"2026-07-15"},
+  {id:"tlou",      q:"The Last of Us", watchedAll:true, lastDate:"2026-05-20", returnDate:"2026-09-01"},
+  {id:"mrrobot",   q:"Mr. Robot",      watchedAll:true, lastDate:"2026-04-30"},
+  {id:"andor",     q:"Andor",          watchedAll:true, lastDate:"2026-04-14"},
+  {id:"goodplace", q:"The Good Place", watchedAll:true, lastDate:"2026-02-02"},
+  {id:"westwing",  q:"The West Wing",  watchedAll:true, comfort:true, lastDate:"2026-06-11", plan:{label:"Complete Series Rewatch", kind:"all"}},
+  {id:"psych",     q:"Psych",          watchedAll:true, comfort:true, lastDate:"2026-06-01", plan:{label:"Top 10 Episodes", kind:"top", n:10}},
+  {id:"gilmore",   q:"Gilmore Girls",  watchedAll:true, comfort:true, lastDate:"2026-05-25", plan:{label:"Logan Huntzberger Episodes", kind:"seasonsScatter", seasons:[5,6,7]}},
+  {id:"homicide",  q:"Homicide Life on the Street",       watchedAll:true, comfort:true, lastDate:"2026-05-18", plan:{label:"Only the First 4 Seasons", kind:"seasons", max:4}},
+  {id:"svu",       q:"Law and Order Special Victims Unit", watchedAll:true, comfort:true, lastDate:"2026-05-10", plan:{label:"Pierre's Top 10", kind:"top", n:10}}
+];
+
+const SUBS=[
+  {name:"Disney+",     full:18.99, paid:9.49,  months:4},
+  {name:"Netflix",     full:26.99, paid:13.49, months:4},
+  {name:"Peacock",     full:16.99, paid:8.49,  months:3},
+  {name:"Prime Video", full:13.98, paid:6.98,  months:2},
+  {name:"Paramount+",  full:13.99, paid:6.99,  months:1}
+];
+const TOTAL_SAVED=SUBS.reduce((a,s)=>a+(s.full-s.paid)*s.months,0);
+
+const NOW=new Date();
+let LOG=[], activeTab="current", pierreQ="last";
+const face=document.getElementById("face");
+const fmtDate=(iso)=>new Date(iso).toLocaleDateString("en-US",{month:"short",day:"numeric"});
+const daysTo=(iso)=>Math.round((new Date(iso)-NOW)/86400000);
+const money=(n)=>"$"+n.toFixed(2);
+const esc=(t)=>(t||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+
+/* Orphan fix: break "Show: Subtitle" at the colon. */
+function titleHTML(name){
+  const i=name.indexOf(": ");
+  if(i>0) return esc(name.slice(0,i+1))+"<br>"+esc(name.slice(i+2));
+  return esc(name);
+}
+
+function relDate(iso){const d=Math.round((NOW-new Date(iso))/86400000);
+  if(d<=0)return"today"; if(d===1)return"yesterday"; if(d<7)return d+" days ago";
+  if(d<14)return"last week"; if(d<60)return Math.round(d/7)+" weeks ago"; return Math.round(d/30)+" months ago";}
+
+async function hydrate(seed){
+  const base={...seed,name:seed.q,poster:null,status:"Unknown",failed:false,episodes:[],
+    total:0,released:0,watched:0,lastWatched:null,forceCompleted:false,stopped:false};
+  try{
+    const url="https://api.tvmaze.com/singlesearch/shows?q="+encodeURIComponent(seed.q)+"&embed=episodes";
+    const res=await fetch(url); if(!res.ok)throw new Error(res.status);
+    const show=await res.json();
+    const eps=(show._embedded?.episodes||[]).filter(e=>e.season>=1).sort((a,b)=>a.season-b.season||a.number-b.number);
+    const released=eps.filter(e=>e.airdate&&new Date(e.airdate)<=NOW);
+    const total=eps.length;
+    let watched=seed.watchedAll?released.length:Math.min(seed.watched||0,released.length);
+    const lw=watched>0?released[watched-1]:null;
+    return {...base,name:show.name||seed.q,poster:show.image?.original||show.image?.medium||null,
+      status:show.status||"Unknown",episodes:eps,total,released:released.length,watched,
+      lastWatched:lw?{season:lw.season,number:lw.number,title:lw.name,at:seed.lastDate}:null};
+  }catch(e){return {...base,failed:true};}
+}
+
+function bucketOf(s){
+  if(s.stopped) return "completed";
+  if(s.forceCompleted) return "completed";
+  if(s.failed) return "current";
+  if(s.comfort) return "comfort";
+  const ended=s.status==="Ended"||s.status==="Canceled";
+  if(ended && s.watched>=s.total && s.total>0) return "completed";
+  if(s.watched < s.released) return "current";
+  if(s.returnDate) return daysTo(s.returnDate)<=7 ? "current" : "returning";
+  return ended ? "completed" : "returning";
+}
+
+/* Which episodes a rewatch plan includes. Demo subsets. */
+function planSet(s){
+  const set=new Set(), eps=s.episodes, p=s.plan||{kind:"all"};
+  const key=(e)=>e.season+"-"+e.number;
+  if(p.kind==="all"){eps.forEach(e=>set.add(key(e)));}
+  else if(p.kind==="seasons"){eps.filter(e=>e.season<=p.max).forEach(e=>set.add(key(e)));}
+  else if(p.kind==="seasonsScatter"){const inS=eps.filter(e=>p.seasons.includes(e.season));inS.forEach((e,i)=>{if(i%2===0)set.add(key(e));});}
+  else if(p.kind==="top"){const n=p.n||10,step=Math.max(1,Math.floor(eps.length/n));for(let i=0;i<eps.length&&set.size<n;i+=step)set.add(key(eps[i]));}
+  return set;
+}
+
+const Pierre={
+  lastEpisodeWatched(){const w=LOG.filter(s=>s.lastWatched&&!s.failed&&!s.forceCompleted&&!s.stopped);
+    if(!w.length)return null; w.sort((a,b)=>new Date(b.lastWatched.at)-new Date(a.lastWatched.at)); return w[0];},
+  currentlyWatching(){return LOG.filter(s=>bucketOf(s)==="current"&&!s.failed&&s.watched<s.released)
+    .sort((a,b)=>new Date(b.lastDate)-new Date(a.lastDate));}
+};
+
+function renderPierre(){
+  const el=document.getElementById("pierreLine");
+  if(pierreQ==="last"){
+    const s=Pierre.lastEpisodeWatched(); if(!s){el.innerHTML='<span class="q">nothing logged yet</span>';return;}
+    const e=s.lastWatched;
+    el.innerHTML='<span class="q">Last:</span> <b>'+esc(s.name)+"</b> S"+e.season+" E"+e.number+' <span class="q">&middot; '+relDate(e.at)+"</span>";
+  }else{
+    const list=Pierre.currentlyWatching(); if(!list.length){el.innerHTML='<span class="q">all caught up</span>';return;}
+    const names=list.slice(0,2).map(s=>"<b>"+esc(s.name)+"</b>").join(", ");
+    el.innerHTML='<span class="q">Mid:</span> '+names+(list.length>2?' <span class="q">+'+(list.length-2)+"</span>":"");
+  }
+}
+
+function episodeBar(s){
+  if(s.failed||s.total===0)return '<div class="bar"></div>';
+  const w=(s.watched/s.total)*100,a=((s.released-s.watched)/s.total)*100,u=((s.total-s.released)/s.total)*100;
+  let h='<div class="bar">';
+  if(w>0)h+='<div class="seg w" style="width:'+w+'%"></div>';
+  if(a>0)h+='<div class="seg a" style="width:'+a+'%"></div>';
+  if(u>0)h+='<div class="seg u" style="width:'+u+'%"></div>';
+  if(bucketOf(s)!=="completed"&&s.watched>0&&s.watched<s.total&&!s.returnDate)h+='<div class="pop" style="left:'+w+'%">&#127871;</div>';
+  return h+"</div>";
+}
+function countdownBar(s){
+  const span=(new Date(s.returnDate)-new Date(s.lastDate))/86400000,elapsed=(NOW-new Date(s.lastDate))/86400000;
+  const pct=Math.max(0,Math.min(100,(elapsed/span)*100)),soon=daysTo(s.returnDate)<=7;
+  return '<div class="bar cd"><div class="fill'+(soon?' soon':'')+'" style="width:'+pct+'%"></div></div>';
+}
+function returnLine(s){const d=daysTo(s.returnDate);
+  if(d<=7) return '<div class="ret"><span class="soon">&#128276; new season</span><span class="soon">in '+d+'d</span></div>';
+  return '<div class="ret"><span>returns '+fmtDate(s.returnDate)+'</span><span>'+d+'d</span></div>';}
+function metaFor(s){
+  if(s.failed)return '<span>data unavailable</span>';
+  if(bucketOf(s)==="completed")return '<span class="done">&#10003; done</span><span>'+s.total+'ep</span>';
+  const left=s.released-s.watched,pos=s.lastWatched?"S"+s.lastWatched.season+" E"+s.lastWatched.number:"";
+  return "<span>"+pos+"</span><span>"+(left>0?left+" left":"caught up")+"</span>";
+}
+function posterDiv(s){return s.poster?'<div class="poster" style="background-image:url('+s.poster+')"></div>'
+  :'<div class="poster" style="background:linear-gradient(150deg,#2a201a,#16100c)"></div>';}
+
+function tileFor(s,asStopped){
+  const b=bucketOf(s);
+  const cls="tile"+(b==="completed"?" completed":"")+(s.failed?" failed":"")+(asStopped?" stopped":"");
+  let bars='<div class="bars">'+episodeBar(s);
+  if(s.returnDate&&b!=="completed")bars+=countdownBar(s);
+  bars+="</div>";
+  let footer;
+  if(asStopped) footer='<button class="tryagain" data-act="resume" data-id="'+s.id+'">&#8635; try again</button>';
+  else if(s.returnDate&&b!=="completed") footer=returnLine(s);
+  else footer='<div class="meta">'+metaFor(s)+"</div>";
+  return '<div class="'+cls+'" data-id="'+s.id+'">'+posterDiv(s)+'<div class="scrim"></div>'+
+    '<div class="body"><div class="title">'+titleHTML(s.name)+"</div>"+bars+footer+"</div></div>";
+}
+
+function barcode(s,sel){
+  if(!s.episodes.length)return '<div class="barcode"></div>';
+  const ticks=s.episodes.map(e=>'<i class="tk'+(sel.has(e.season+"-"+e.number)?" on":"")+'"></i>').join("");
+  return '<div class="barcode">'+ticks+"</div>";
+}
+function crowFor(s){
+  const sel=planSet(s),total=s.episodes.length;
+  const meta=(s.plan&&s.plan.kind==="all")?("all "+total+" episodes"):(sel.size+" of "+total+" episodes");
+  return '<div class="crow" data-id="'+s.id+'">'+
+    '<div class="pcell">'+posterDiv(s)+'<div class="scrim"></div><div class="ctitle">'+titleHTML(s.name)+'</div></div>'+
+    '<div class="pinfo"><div class="planlabel">'+esc(s.plan?s.plan.label:"Rewatch")+'</div>'+
+      barcode(s,sel)+
+      '<div class="pmeta"><span>'+meta+'</span><span class="edit">&#9998; Pierre</span></div></div></div>';
+}
+
+function counts(){
+  const c={current:0,returning:0,comfort:0,completed:0};
+  LOG.forEach(s=>{c[bucketOf(s)]++;});
+  for(const k in c)document.getElementById("n-"+k).textContent=c[k];
+}
+
+function render(){
+  counts();
+  const grid=document.getElementById("grid");
+  if(activeTab==="comfort"){
+    grid.classList.add("list");
+    const list=LOG.filter(s=>bucketOf(s)==="comfort");
+    grid.innerHTML=list.length?list.map(crowFor).join(""):'<div class="state">no comfort shows</div>';
+    grid.querySelectorAll(".crow").forEach(r=>r.addEventListener("click",()=>{
+      const s=LOG.find(x=>x.id===r.dataset.id); if(s)cube.rotateTo("episodes",{showId:s.id,plan:s.plan||null});
+    }));
+    return;
+  }
+  grid.classList.remove("list");
+  if(activeTab==="completed"){
+    const done=LOG.filter(s=>bucketOf(s)==="completed"&&!s.stopped),stopped=LOG.filter(s=>s.stopped);
+    let html=done.map(s=>tileFor(s,false)).join("");
+    if(stopped.length){html+='<div class="divider">stopped watching</div>';html+=stopped.map(s=>tileFor(s,true)).join("");}
+    grid.innerHTML=(done.length||stopped.length)?html:'<div class="state">nothing finished yet</div>';
+  }else{
+    const list=LOG.filter(s=>bucketOf(s)===activeTab);
+    grid.innerHTML=list.length?list.map(s=>tileFor(s,false)).join(""):'<div class="state">nothing here yet</div>';
+  }
+  grid.querySelectorAll(".tryagain").forEach(b=>b.addEventListener("click",ev=>{ev.stopPropagation();
+    const s=LOG.find(x=>x.id===b.dataset.id); if(s){s.stopped=false;render();renderPierre();}}));
+  grid.querySelectorAll(".tile").forEach(t=>t.addEventListener("click",()=>{
+    if(t.classList.contains("stopped"))return;
+    const s=LOG.find(x=>x.id===t.dataset.id); if(s&&!s.failed)cube.rotateTo("episodes",{showId:s.id,plan:s.plan||null});}));
+}
+
+/* Cross-face contract. In production the cube shell provides window.cube and
+   window.viewingLog. Standalone (no shell) we shim them so this face still runs:
+   rotateTo falls back to the on-screen flash, on/emit are a tiny local bus, and
+   viewingLog reads and writes the in-file LOG array (the one store). */
+const _bus={};
+if(!window.cube){
+  window.cube={
+    rotateTo(face,payload){ flashFallback(face,payload||{}); },
+    on(evt,handler){ (_bus[evt]=_bus[evt]||[]).push(handler); },
+    emit(evt,payload){ (_bus[evt]||[]).forEach(h=>h(payload)); }
+  };
+}
+if(!window.viewingLog){
+  window.viewingLog={
+    all(){ return LOG; },
+    get(showId){ return LOG.find(s=>s.id===showId)||null; },
+    upsert(record){ const i=LOG.findIndex(s=>s.id===record.id);
+      if(i>=0)LOG[i]={...LOG[i],...record}; else LOG.push(record); },
+    recordWatch(showId,{season,number,at}){ const s=LOG.find(x=>x.id===showId); if(!s)return;
+      const idx=s.episodes.findIndex(e=>e.season===season&&e.number===number);
+      if(idx>=0)s.watched=Math.max(s.watched,idx+1);
+      s.lastWatched={season,number,title:(s.episodes[idx]&&s.episodes[idx].title)||"",at:at||new Date().toISOString()}; },
+    setStopped(showId,bool){ const s=LOG.find(x=>x.id===showId); if(s)s.stopped=!!bool; },
+    setPlan(showId,plan){ const s=LOG.find(x=>x.id===showId); if(s)s.plan=plan; }
+  };
+}
+
+/* Episodes-to-Log lifecycle events (episode:logged, show:finished, show:stopped,
+   show:resumed) are intentionally not subscribed yet. The finish and stop
+   animations stay driven by the demo chips for now. Wire cube.on to these once
+   the Episodes face emits them. */
+
+/* Standalone fallback for cube.rotateTo: the existing on-screen flash. */
+function flashFallback(face,payload){
+  const o=document.getElementById("flash"),lbl=o.querySelector(".flabel");
+  if(face==="pierre"){
+    lbl.innerHTML="&#8594; PIERRE";
+    o.querySelector(".fsub").textContent="Add a show";
+    o.querySelector(".fnote").textContent="Pierre checks your history first";
+    o.classList.add("show"); setTimeout(()=>o.classList.remove("show"),900);
+    return;
+  }
+  const s=payload.showId?LOG.find(x=>x.id===payload.showId):null;
+  const name=s?s.name:(payload.name||"");
+  const planLabel=payload.plan?payload.plan.label:null;
+  lbl.innerHTML="&#8594; "+(face||"episodes").toUpperCase();
+  o.querySelector(".fsub").innerHTML=planLabel?esc(planLabel):esc(name);
+  o.querySelector(".fnote").textContent=planLabel?("plan adopted \u00b7 "+name):"";
+  o.classList.add("show"); setTimeout(()=>o.classList.remove("show"),planLabel?1050:850);
+}
+
+/* Add a show: route to Pierre with an add intent. Never creates a record. */
+function addShow(){ cube.rotateTo("pierre",{intent:"add"}); }
+
+function burst(cx,cy){const fx=document.getElementById("fx");
+  for(let i=0;i<40;i++){const p=document.createElement("div");p.className="particle";
+    const ang=Math.random()*Math.PI*2,vel=50+Math.random()*170;
+    p.style.left=cx+"px";p.style.top=cy+"px";
+    p.style.setProperty("--dx",Math.cos(ang)*vel+"px");p.style.setProperty("--dy",(Math.sin(ang)*vel-(70+Math.random()*90))+"px");
+    p.style.setProperty("--rot",(Math.random()*720-360)+"deg");p.style.setProperty("--dur",(0.9+Math.random()*0.7)+"s");
+    if(Math.random()<0.62){p.textContent="\u{1F37F}";p.style.fontSize=(11+Math.random()*11)+"px";}else p.classList.add("dot");
+    fx.appendChild(p);setTimeout(()=>p.remove(),1800);}}
+function dustParticles(rect,fr){const fx=document.getElementById("fx");
+  for(let i=0;i<60;i++){const p=document.createElement("div");p.className="ash";
+    p.style.left=(rect.left-fr.left+Math.random()*rect.width)+"px";p.style.top=(rect.top-fr.top+Math.random()*rect.height)+"px";
+    p.style.setProperty("--dx",(Math.random()*30-15)+"px");p.style.setProperty("--dy",(50+Math.random()*120)+"px");p.style.setProperty("--dur",(0.7+Math.random()*0.6)+"s");
+    fx.appendChild(p);setTimeout(()=>p.remove(),1500);}}
+
+function finishShow(id){
+  const tileEl=document.querySelector('.tile[data-id="'+id+'"]'),s=LOG.find(x=>x.id===id); if(!s)return;
+  const fr=face.getBoundingClientRect();
+  if(tileEl){const tr=tileEl.getBoundingClientRect();
+    burst(tr.left-fr.left+tr.width/2,tr.top-fr.top+tr.height/2);
+    const tab=document.querySelector('.tab[data-tab="completed"]').getBoundingClientRect();
+    tileEl.style.transition="transform .75s cubic-bezier(.5,0,.2,1),opacity .75s ease";
+    tileEl.style.transform="translate("+((tab.left+tab.width/2)-(tr.left+tr.width/2))+"px,"+((tab.top+tab.height/2)-(tr.top+tr.height/2))+"px) scale(.1)";
+    tileEl.style.opacity="0";}else burst(fr.width/2,fr.height/2);
+  s.forceCompleted=true;s.watched=s.total;
+  const tabEl=document.querySelector('.tab[data-tab="completed"]');tabEl.classList.add("pulse");setTimeout(()=>tabEl.classList.remove("pulse"),700);
+  setTimeout(()=>{render();renderPierre();},780); setTimeout(()=>switchTab("completed"),1300);
+}
+function stopShow(id){
+  const tileEl=document.querySelector('.tile[data-id="'+id+'"]'),s=LOG.find(x=>x.id===id); if(!s)return;
+  const fr=face.getBoundingClientRect();
+  if(tileEl){dustParticles(tileEl.getBoundingClientRect(),fr);tileEl.classList.add("dusting");}
+  s.stopped=true; setTimeout(()=>{render();renderPierre();},640);
+}
+
+function switchTab(name){activeTab=name;
+  document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("on",x.dataset.tab===name));render();}
+document.querySelectorAll(".tab").forEach(t=>t.addEventListener("click",()=>switchTab(t.dataset.tab)));
+document.querySelectorAll(".chip[data-q]").forEach(c=>c.addEventListener("click",()=>{
+  document.querySelectorAll(".chip[data-q]").forEach(x=>x.classList.remove("on"));c.classList.add("on");pierreQ=c.dataset.q;renderPierre();}));
+function firstCurrent(){return LOG.filter(s=>bucketOf(s)==="current"&&!s.failed&&!s.forceCompleted&&!s.stopped&&s.watched<s.released)[0]
+  || LOG.filter(s=>bucketOf(s)==="current"&&!s.failed&&!s.forceCompleted&&!s.stopped)[0];}
+document.getElementById("finishBtn").addEventListener("click",()=>{const t=firstCurrent();if(t){if(activeTab!=="current")switchTab("current");setTimeout(()=>finishShow(t.id),60);}});
+document.getElementById("stopBtn").addEventListener("click",()=>{const t=firstCurrent();if(t){if(activeTab!=="current")switchTab("current");setTimeout(()=>stopShow(t.id),60);}});
+
+function buildSavings(){
+  document.getElementById("savings").textContent=money(TOTAL_SAVED);
+  const rows=SUBS.map(s=>'<div class="sav-row"><span class="svc">'+esc(s.name)+'</span><span class="full">'+money(s.full)+
+    '</span><span class="paid">'+money(s.paid)+' <b>&times;'+s.months+'</b></span></div>').join("");
+  document.getElementById("savCard").innerHTML='<h4>WHAT THE PROGRAM COVERS</h4>'+rows+
+    '<div class="sav-total"><span class="t">SAVED SO FAR</span><span class="v">'+money(TOTAL_SAVED)+'</span></div>'+
+    '<div class="sav-foot">Half of each bill, covered in exchange for your viewing data. That data is the product.</div>';
+}
+document.getElementById("addBtn").addEventListener("click",e=>{e.stopPropagation();addShow();});
+document.getElementById("savingsBtn").addEventListener("click",e=>{e.stopPropagation();document.getElementById("savpop").classList.add("show");});
+document.getElementById("savpop").addEventListener("click",()=>document.getElementById("savpop").classList.remove("show"));
+
+(async function(){buildSavings();LOG=await Promise.all(SEED.map(hydrate));
+  LOG.sort((a,b)=>new Date(b.lastDate)-new Date(a.lastDate));render();renderPierre();})();
+</script>
+</body>
+</html>
