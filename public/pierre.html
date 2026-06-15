@@ -456,7 +456,7 @@
     pierreSay("Putting on "+show.name+". Over to the screen.");
     if(window.parent!==window)
       window.parent.postMessage({type:'cube:rotateTo', face:'episodes',
-        payload:{show:{id:show.id,name:show.name}, pattern}}, '*');
+        payload:{show:{id:show.id,name:show.name}, pattern, addToLog:true}}, '*');
   }
 
   window.addEventListener('message',(e)=>{

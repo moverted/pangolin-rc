@@ -126,10 +126,10 @@
     border-radius:9px; padding:9px 14px; font-family:var(--mono); font-size:11px;
     font-weight:700; cursor:pointer; }
   .catalog button:active{ transform:translateY(1px); }
-  .addshow{ display:flex; align-items:center; justify-content:center; gap:6px; width:100%; margin-bottom:20px;
-    background:var(--amber); color:var(--amber-deep); border:none; border-radius:12px; padding:13px;
-    font-family:var(--mono); font-size:13px; font-weight:700; letter-spacing:.04em; cursor:pointer; }
-  .addshow:active{ transform:translateY(1px); }
+  .addpill{ background:rgba(0,0,0,.34); border:1px solid rgba(255,255,255,.18); color:var(--amber);
+    font-family:var(--mono); font-size:11px; font-weight:500; letter-spacing:.04em; line-height:1;
+    padding:5px 10px; border-radius:999px; cursor:pointer; }
+  .addpill:active{ transform:translateY(1px); }
 
   .epline{ font-family:var(--mono); font-size:11px; letter-spacing:.06em; color:var(--amber);
     text-transform:uppercase; margin-bottom:9px; display:flex; gap:9px; align-items:baseline; }
@@ -180,7 +180,7 @@
       <div class="facebar">
         <span style="cursor:pointer" onclick="window.parent.postMessage({type:'pangolin-back'},'*')">‹ back</span>
         <span class="mid">Episodes <span class="dots"><i></i><i></i><i></i><i class="on"></i><i></i><i></i></span></span>
-        <span class="cube">⬢</span>
+        <button id="addShowBtn" class="addpill">+ Show</button>
       </div>
 
       <div class="herofoot">
@@ -216,8 +216,6 @@
     </div>
 
     <div class="sheet">
-      <button id="addShowBtn" class="addshow">+ Show</button>
-
       <div class="epline"><span id="epNo">EP — / —</span><span class="sep">|</span><span class="ttl" id="epTtl"></span></div>
       <p class="syn" id="syn"></p>
 

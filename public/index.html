@@ -695,6 +695,12 @@ window.addEventListener('message', (e) => {
       const cfg = FACE_OVERLAYS[fi];
       if (cfg && cfg.frame && cfg.frame.contentWindow)
         cfg.frame.contentWindow.postMessage({ type: 'cube:payload', face: e.data.face, payload }, '*');
+      // Pierre's add flow also writes the picked show into the Log store.
+      if (e.data.face === 'episodes' && payload.addToLog && payload.show) {
+        const logCfg = FACE_OVERLAYS[FACE_INDEX.log];
+        if (logCfg && logCfg.frame && logCfg.frame.contentWindow)
+          logCfg.frame.contentWindow.postMessage({ type: 'cube:payload', face: 'log', payload: { addShow: payload.show, pattern: payload.pattern } }, '*');
+      }
     }
   }
 });

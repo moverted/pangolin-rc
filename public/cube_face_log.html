@@ -78,6 +78,9 @@
   .tile .meta,.tile .ret{font-family:var(--mono);font-size:9px;letter-spacing:.02em;color:var(--muted);display:flex;justify-content:space-between;align-items:center;gap:4px}
   .tile .meta .done{color:var(--amber);display:flex;align-items:center;gap:3px}
   .tile .ret .soon{color:var(--amber)}
+  .tile .newflag{position:absolute;top:8px;left:8px;z-index:2;background:var(--amber);color:#1a1206;
+    font-family:var(--mono);font-size:8.5px;font-weight:700;letter-spacing:.12em;padding:3px 7px;border-radius:5px;
+    box-shadow:0 1px 4px rgba(0,0,0,.5)}
 
   .bars{display:flex;flex-direction:column;gap:3px}
   .bar{position:relative;height:5px;border-radius:3px;display:flex;background:var(--unrel)}
@@ -208,7 +211,7 @@ const SUBS=[
 const TOTAL_SAVED=SUBS.reduce((a,s)=>a+(s.full-s.paid)*s.months,0);
 
 const NOW=new Date();
-let LOG=[], activeTab="current", pierreQ="last";
+let LOG=[], activeTab="current", pierreQ="last", addSeq=0;
 const face=document.getElementById("face");
 const fmtDate=(iso)=>new Date(iso).toLocaleDateString("en-US",{month:"short",day:"numeric"});
 const daysTo=(iso)=>Math.round((new Date(iso)-NOW)/86400000);
@@ -325,6 +328,7 @@ function tileFor(s,asStopped){
   else if(s.returnDate&&b!=="completed") footer=returnLine(s);
   else footer='<div class="meta">'+metaFor(s)+"</div>";
   return '<div class="'+cls+'" data-id="'+s.id+'">'+posterDiv(s)+'<div class="scrim"></div>'+
+    (s.isNew?'<div class="newflag">NEW</div>':'')+
     '<div class="body"><div class="title">'+titleHTML(s.name)+"</div>"+bars+footer+"</div></div>";
 }
 
@@ -358,7 +362,7 @@ function render(){
     const list=LOG.filter(s=>bucketOf(s)==="comfort");
     grid.innerHTML=list.length?list.map(crowFor).join(""):'<div class="state">no comfort shows</div>';
     grid.querySelectorAll(".crow").forEach(r=>r.addEventListener("click",()=>{
-      const s=LOG.find(x=>x.id===r.dataset.id); if(s)cube.rotateTo("episodes",{showId:s.id,plan:s.plan||null});
+      const s=LOG.find(x=>x.id===r.dataset.id); if(s)cube.rotateTo("episodes",episodesPayload(s));
     }));
     return;
   }
@@ -370,13 +374,21 @@ function render(){
     grid.innerHTML=(done.length||stopped.length)?html:'<div class="state">nothing finished yet</div>';
   }else{
     const list=LOG.filter(s=>bucketOf(s)===activeTab);
+    if(activeTab==="current") list.sort((a,b)=>{
+      const an=a.isNew?0:1, bn=b.isNew?0:1;
+      if(an!==bn) return an-bn;                                 // NEW shows first
+      if(an===0) return (a.addedSeq||0)-(b.addedSeq||0);        // NEW: order requested
+      return new Date(b.lastDate)-new Date(a.lastDate);         // rest: recently active
+    });
     grid.innerHTML=list.length?list.map(s=>tileFor(s,false)).join(""):'<div class="state">nothing here yet</div>';
   }
   grid.querySelectorAll(".tryagain").forEach(b=>b.addEventListener("click",ev=>{ev.stopPropagation();
     const s=LOG.find(x=>x.id===b.dataset.id); if(s){s.stopped=false;render();renderPierre();}}));
   grid.querySelectorAll(".tile").forEach(t=>t.addEventListener("click",()=>{
     if(t.classList.contains("stopped"))return;
-    const s=LOG.find(x=>x.id===t.dataset.id); if(s&&!s.failed)cube.rotateTo("episodes",{showId:s.id,plan:s.plan||null});}));
+    const s=LOG.find(x=>x.id===t.dataset.id); if(!s||s.failed)return;
+    if(s.isNew){ s.isNew=false; s.lastDate=new Date().toISOString().slice(0,10); }  // watched it: drops the NEW flag
+    cube.rotateTo("episodes",episodesPayload(s)); render(); renderPierre();}));
 }
 
 /* Cross-face contract. In production the cube shell provides window.cube and
@@ -427,7 +439,7 @@ function flashFallback(face,payload){
     return;
   }
   const s=payload.showId?LOG.find(x=>x.id===payload.showId):null;
-  const name=s?s.name:(payload.name||"");
+  const name=(payload.show&&payload.show.name)||(s?s.name:(payload.name||""));
   const planLabel=payload.plan?payload.plan.label:null;
   lbl.innerHTML="&#8594; "+(face||"episodes").toUpperCase();
   o.querySelector(".fsub").innerHTML=planLabel?esc(planLabel):esc(name);
@@ -450,6 +462,48 @@ function publishLog(){
     returnDate:s.returnDate||null, bucket:bucketOf(s)
   }))}, "*");
 }
+
+/* Selecting a show on Log loads it on Episodes at the user's position
+   (resume to last watched if there is one, otherwise from the beginning). */
+function episodesPayload(s){
+  const pat = (!s.comfort && s.lastWatched && s.watched>0)
+    ? {kind:"resume", season:s.lastWatched.season, number:s.lastWatched.number}
+    : {kind:"beginning"};
+  return {show: s.tvmazeId?{id:s.tvmazeId,name:s.name}:null, pattern:pat};
+}
+
+/* Pierre's add flow asks the shell to add the picked show here too, so a new
+   show shows up in the Log. Idempotent: an already-tracked show is not duplicated. */
+async function addToLog(show, pattern){
+  const norm=(show.name||"").toLowerCase();
+  const existing=LOG.find(s=>(s.tvmazeId&&s.tvmazeId===show.id)||(s.name&&s.name.toLowerCase()===norm));
+  const today=new Date().toISOString().slice(0,10);
+  if(existing){ if(existing.stopped)existing.stopped=false; existing.lastDate=today; render(); renderPierre(); return; }
+  try{
+    const r=await fetch("https://api.tvmaze.com/shows/"+show.id+"?embed=episodes"); if(!r.ok) throw 0;
+    const sh=await r.json();
+    const eps=(sh._embedded?.episodes||[]).filter(e=>e.season>=1).sort((a,b)=>a.season-b.season||a.number-b.number);
+    const rel=eps.filter(e=>e.airdate&&new Date(e.airdate)<=NOW);
+    const p=pattern||{kind:"beginning"};
+    let watched = p.kind==="live" ? rel.length : 0;
+    if(p.kind==="resume" && p.season){ const i=rel.findIndex(e=>e.season===p.season&&e.number===p.number); watched=i>=0?i+1:0; }
+    const lw=watched>0?rel[watched-1]:null;
+    LOG.unshift({ id:"add-"+show.id, tvmazeId:show.id, q:sh.name, name:sh.name||show.name,
+      poster:sh.image?.original||sh.image?.medium||null, status:sh.status||"Unknown", failed:false,
+      episodes:eps, total:eps.length, released:rel.length, watched,
+      lastWatched: lw?{season:lw.season,number:lw.number,title:lw.name,at:today}:null,
+      lastDate:today, returnDate:null, comfort:false, forceCompleted:false, stopped:false, plan:null,
+      isNew:true, addedSeq:++addSeq });
+    render(); renderPierre();
+  }catch(e){ /* Pierre validated the show; ignore if the detail fetch fails */ }
+}
+
+window.addEventListener("message",(e)=>{
+  if(e.data && e.data.type==="cube:payload" && e.data.face==="log"){
+    const p=e.data.payload||{};
+    if(p.addShow && p.addShow.id) addToLog(p.addShow, p.pattern);
+  }
+});
 
 function burst(cx,cy){const fx=document.getElementById("fx");
   for(let i=0;i<40;i++){const p=document.createElement("div");p.className="particle";
