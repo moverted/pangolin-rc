@@ -361,6 +361,7 @@ function focusPierreBlur() {
 // (e.g. a Log tile tap -> Episodes). The shell owns routing; faces post a
 // 'cube:rotateTo' message and this maps the face name to its cube index.
 const FACE_INDEX = { episodes: 0, feed: 1, pierre: 2, log: 3, show: 4, join: 5 };
+let viewingStore = [];   // snapshot of the Log face's records, shared with Pierre/Episodes
 function rotateToFace(fi) {
   if (typeof fi !== 'number' || fi < 0 || fi > 5) return;
   locked = true;
@@ -680,10 +681,21 @@ window.addEventListener('message', (e) => {
   if (e.data?.type === 'pangolin-back') unlock();
   // Pierre chat reports input focus so we can pin it above the keyboard.
   if (e.data?.type === 'pierre-chat-focus') chatFocused = !!e.data.focused;
-  // A face asked to rotate the cube to another face.
+  // The Log face published its current records; keep a snapshot for the others.
+  if (e.data?.type === 'log:data') viewingStore = e.data.shows || [];
+  // A face asked to rotate the cube to another face (optionally with a payload).
   if (e.data?.type === 'cube:rotateTo') {
     const fi = FACE_INDEX[e.data.face];
-    if (fi !== undefined) rotateToFace(fi);
+    if (fi !== undefined) {
+      rotateToFace(fi);
+      // Forward the payload into the target face. Pierre's add flow also gets the
+      // current viewing history so its status branch and resume position are real.
+      let payload = e.data.payload || {};
+      if (e.data.face === 'pierre' && payload.intent === 'add') payload = { ...payload, history: viewingStore };
+      const cfg = FACE_OVERLAYS[fi];
+      if (cfg && cfg.frame && cfg.frame.contentWindow)
+        cfg.frame.contentWindow.postMessage({ type: 'cube:payload', face: e.data.face, payload }, '*');
+    }
   }
 });
 </script>

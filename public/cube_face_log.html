@@ -45,9 +45,9 @@
   .savings .cap{font-family:var(--mono);font-size:8.5px;letter-spacing:.08em;color:var(--muted);margin-top:2px}
   .savings:hover .amt{filter:drop-shadow(0 0 6px rgba(233,162,60,.55))}
   .headright{display:flex;align-items:center;gap:11px}
-  .addbtn{width:26px;height:26px;flex-shrink:0;padding:0;border:1px solid var(--line);border-radius:8px;
-    background:var(--base-2);color:var(--amber);font-family:var(--display);font-weight:700;font-size:18px;line-height:1;
-    cursor:pointer;display:flex;align-items:center;justify-content:center;transition:border-color .15s ease,box-shadow .15s ease,transform .1s ease}
+  .addbtn{flex-shrink:0;padding:6px 11px;border:1px solid var(--line);border-radius:999px;
+    background:var(--base-2);color:var(--amber);font-family:var(--mono);font-weight:500;font-size:11px;letter-spacing:.04em;line-height:1;
+    white-space:nowrap;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:border-color .15s ease,box-shadow .15s ease,transform .1s ease}
   .addbtn:hover{border-color:var(--amber);box-shadow:0 0 6px rgba(233,162,60,.35)}
   .addbtn:active{transform:scale(.92)}
 
@@ -151,8 +151,8 @@
   <div class="head">
     <div class="label">LOG</div>
     <div class="headright">
-      <button class="addbtn" id="addBtn" aria-label="Add a show">+</button>
       <div class="savings" id="savingsBtn"><div class="amt" id="savings">$0</div><div class="cap">SAVED IN PROGRAM</div></div>
+      <button class="addbtn" id="addBtn" aria-label="Add a show">+ Show</button>
     </div>
   </div>
 
@@ -238,7 +238,7 @@ async function hydrate(seed){
     const total=eps.length;
     let watched=seed.watchedAll?released.length:Math.min(seed.watched||0,released.length);
     const lw=watched>0?released[watched-1]:null;
-    return {...base,name:show.name||seed.q,poster:show.image?.original||show.image?.medium||null,
+    return {...base,name:show.name||seed.q,tvmazeId:show.id,poster:show.image?.original||show.image?.medium||null,
       status:show.status||"Unknown",episodes:eps,total,released:released.length,watched,
       lastWatched:lw?{season:lw.season,number:lw.number,title:lw.name,at:seed.lastDate}:null};
   }catch(e){return {...base,failed:true};}
@@ -351,6 +351,7 @@ function counts(){
 
 function render(){
   counts();
+  publishLog();
   const grid=document.getElementById("grid");
   if(activeTab==="comfort"){
     grid.classList.add("list");
@@ -436,6 +437,19 @@ function flashFallback(face,payload){
 
 /* Add a show: route to Pierre with an add intent. Never creates a record. */
 function addShow(){ cube.rotateTo("pierre",{intent:"add"}); }
+
+/* Publish a snapshot of the store to the cube shell so Pierre and Episodes can
+   read the user's real history (status branch, resume position). Name + TVMaze
+   id let other faces match a typed show against what is already tracked. */
+function publishLog(){
+  if(window.parent===window) return;
+  window.parent.postMessage({type:"log:data", shows: LOG.map(s=>({
+    id:s.id, tvmazeId:s.tvmazeId||null, name:s.name, status:s.status,
+    total:s.total, released:s.released, watched:s.watched, lastWatched:s.lastWatched,
+    stopped:!!s.stopped, forceCompleted:!!s.forceCompleted, comfort:!!s.comfort,
+    returnDate:s.returnDate||null, bucket:bucketOf(s)
+  }))}, "*");
+}
 
 function burst(cx,cy){const fx=document.getElementById("fx");
   for(let i=0;i<40;i++){const p=document.createElement("div");p.className="particle";

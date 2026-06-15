@@ -126,6 +126,10 @@
     border-radius:9px; padding:9px 14px; font-family:var(--mono); font-size:11px;
     font-weight:700; cursor:pointer; }
   .catalog button:active{ transform:translateY(1px); }
+  .addshow{ display:flex; align-items:center; justify-content:center; gap:6px; width:100%; margin-bottom:20px;
+    background:var(--amber); color:var(--amber-deep); border:none; border-radius:12px; padding:13px;
+    font-family:var(--mono); font-size:13px; font-weight:700; letter-spacing:.04em; cursor:pointer; }
+  .addshow:active{ transform:translateY(1px); }
 
   .epline{ font-family:var(--mono); font-size:11px; letter-spacing:.06em; color:var(--amber);
     text-transform:uppercase; margin-bottom:9px; display:flex; gap:9px; align-items:baseline; }
@@ -212,11 +216,7 @@
     </div>
 
     <div class="sheet">
-      <div class="catalog">
-        <span class="mag">⌕</span>
-        <input id="q" placeholder="Type a show to catalog… (e.g. Severance)" />
-        <button id="go">Load</button>
-      </div>
+      <button id="addShowBtn" class="addshow">+ Show</button>
 
       <div class="epline"><span id="epNo">EP — / —</span><span class="sep">|</span><span class="ttl" id="epTtl"></span></div>
       <p class="syn" id="syn"></p>
@@ -361,8 +361,39 @@ $('seasonsbar').onclick=()=>{ const v=prompt('Season status — blank, RENEWED!,
   if(v!==null){ seasonStatus=v.trim().toUpperCase(); paint(); } };
 $('scorePill').onclick=()=>{ const v=prompt('Screen Score from @betterscreenscore (e.g. 87):', score);
   if(v!==null){ score=v.trim(); paint(); } };
-$('go').onclick=()=>{ const v=$('q').value.trim(); if(v) load(`https://api.tvmaze.com/singlesearch/shows?q=${encodeURIComponent(v)}&embed=episodes`,false); };
-$('q').addEventListener('keydown',e=>{ if(e.key==='Enter')$('go').click(); });
+$('addShowBtn').onclick=()=>{ window.parent.postMessage({type:'cube:rotateTo',face:'pierre',payload:{intent:'add'}},'*'); };
+
+// Pierre hands off a picked show + watch pattern. Load it and set the position.
+async function loadShowWithPattern(id,pattern){
+  try{ const r=await fetch(`https://api.tvmaze.com/shows/${id}?embed=episodes`); if(!r.ok) throw 0;
+    const s=await r.json(); boot(s,(s._embedded&&s._embedded.episodes)||[],false); applyPattern(pattern||{kind:'beginning'});
+  }catch(e){ $('name').textContent='Show not found'; }
+}
+function applyPattern(p){
+  const seasons=[...new Set(allEps.map(sNum))]; if(!seasons.length) return;
+  if(p.kind==='live'){
+    const aired=[...new Set(allEps.filter(released).map(sNum))];
+    const cur=aired.length?Math.max(...aired):Math.max(...seasons);
+    eps=allEps.filter(e=>sNum(e)===cur); if(!eps.length) eps=allEps;
+    watched=eps.filter(released).length;
+  } else if(p.kind==='resume' && p.season){
+    eps=allEps.filter(e=>sNum(e)===p.season); if(!eps.length) eps=allEps;
+    const idx=eps.findIndex(e=>(e.number||0)===p.number);
+    watched=idx>=0?idx+1:0;
+  } else {                                  // beginning, pick, or resume with no position
+    eps=allEps.filter(e=>sNum(e)===Math.min(...seasons)); if(!eps.length) eps=allEps;
+    watched=0;
+  }
+  watchTs=[]; watchDate={}; binged={}; ranks={}; notes={}; cooled=false;
+  for(let i=0;i<watched;i++){ const t=Date.now()-(watched-i)*45*6e4; watchTs.push(t); watchDate[i]=new Date(t); }
+  focus=Math.max(0,watched-1); paint();
+}
+window.addEventListener('message',(e)=>{
+  if(e.data && e.data.type==='cube:payload' && e.data.face==='episodes'){
+    const p=e.data.payload||{};
+    if(p.show && p.show.id) loadShowWithPattern(p.show.id, p.pattern);
+  }
+});
 
 function fallback(){
   const d=[['Welcome to Widow\u2019s Bay!','2026-04-29','We hope you enjoyed the three-hour ferry to New England\u2019s best-kept secret. Ignore the warnings about the fog. Everything\u2019s fine.'],

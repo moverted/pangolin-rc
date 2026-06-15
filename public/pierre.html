@@ -333,6 +333,9 @@
     if(!text || busy) return;
     addUser(text);
     input.value = '';
+    // Add flow, name step: the typed line is a show name, not a chat turn.
+    // Drop the keyboard so the result + choice chips show on the full face.
+    if(addFlow==='name'){ input.blur(); resolveShowName(text); return; }
     input.focus();   // keep the keyboard up / stay pinned in the chat
     ask(text);
   }
@@ -349,6 +352,119 @@
     input.addEventListener('focus', () => window.parent.postMessage({ type:'pierre-chat-focus', focused:true  }, '*'));
     input.addEventListener('blur',  () => window.parent.postMessage({ type:'pierre-chat-focus', focused:false }, '*'));
   }
+
+  /* ---- Add-show flow ---------------------------------------------------------
+     Deterministic by design: the show is validated against TVMaze and the watch
+     pattern is captured with chips, so nothing here is guessed. Pierre's free
+     chat (the LLM) is untouched; this only runs when the cube hands over an add
+     intent. If a lookup fails, Pierre owns it as a pangolin and offers Ted. */
+  let addFlow=null, addHistory=[], addFailCount=0;
+
+  function tod(){ const h=new Date().getHours();
+    if(h<5||h>=22) return "Late one"; if(h<12) return "Morning"; if(h<17) return "Afternoon"; return "Evening"; }
+
+  // A Pierre line with optional choice chips. Chips disable once one is tapped.
+  function pierreSay(text, chips){
+    const wrap=document.createElement('div'); wrap.className='msg pierre';
+    wrap.innerHTML='<div class="who">Pierre</div><div class="bubble"></div>';
+    wrap.querySelector('.bubble').textContent=text;
+    if(chips && chips.length){
+      const c=document.createElement('div'); c.className='chips';
+      chips.forEach(ch=>{ const b=document.createElement('button'); b.className='chip'; b.textContent=ch.label;
+        b.onclick=()=>{ c.querySelectorAll('button').forEach(x=>x.disabled=true); ch.onClick(); };
+        c.appendChild(b); });
+      wrap.appendChild(c);
+    }
+    log.appendChild(wrap); log.scrollTop=log.scrollHeight;
+  }
+  const tedChip=()=>[{label:'Get Ted', onClick:getTed}];
+  function getTed(){ pierreSay("Pinging Ted. He is the human in this operation, he can pick up what I cannot."); }
+
+  function enterAddFlow(vlog){
+    addHistory=Array.isArray(vlog)?vlog:[];
+    addFlow='name'; addFailCount=0;
+    history.length=0;                 // fresh slate for the LLM history too
+    log.innerHTML='';
+    pierreSay(tod()+". What do you want to add, or just put on right now?");
+  }
+
+  function candLabel(s){
+    const yr=(s.premiered||'').slice(0,4);
+    const net=(s.network&&s.network.name)||(s.webChannel&&s.webChannel.name)||'';
+    const tail=[yr,net].filter(Boolean).join(', ');
+    return tail ? (s.name+' ('+tail+')') : s.name;
+  }
+  function findInHistory(show){
+    return addHistory.find(h=>(h.tvmazeId&&h.tvmazeId===show.id)||
+      (h.name&&show.name&&h.name.toLowerCase()===show.name.toLowerCase()))||null;
+  }
+
+  async function resolveShowName(text){
+    showTyping();
+    let results=[];
+    try{ const r=await fetch('https://api.tvmaze.com/search/shows?q='+encodeURIComponent(text));
+      results = r.ok ? await r.json() : []; }
+    catch(e){ results=null; }
+    clearTyping();
+    if(results===null){
+      addFlow='name';
+      pierreSay("Something hiccuped looking that up. I am a pangolin working a remote, so honestly it is a small miracle this works at all. Try again?", tedChip());
+      return;
+    }
+    results=(results||[]).filter(x=>x&&x.show);
+    if(!results.length){
+      addFailCount++; addFlow='name';
+      if(addFailCount>=2){ pierreSay("Still cannot place it, and I will not pretend I can. I am a pangolin, that I read at all is amazing. Let me get Ted, he is the human here.", tedChip()); return; }
+      pierreSay("I cannot find that one. Try the full title?");
+      return;
+    }
+    addFailCount=0;
+    const cands=results.slice(0,4).map(x=>x.show);
+    if(cands.length===1){ resolveShow(cands[0]); return; }
+    addFlow='disambig';
+    pierreSay("More than one of those. Which?", cands.map(s=>({label:candLabel(s), onClick:()=>resolveShow(s)})));
+  }
+
+  function resolveShow(show){
+    addFlow='pattern';
+    const h=findInHistory(show);
+    const lw=h&&h.lastWatched;
+    const pos=lw?(' at S'+lw.season+' E'+lw.number):'';
+    const resumePat={kind:'resume', season:lw&&lw.season, number:lw&&lw.number};
+    if(h && h.stopped){
+      pierreSay("You stopped "+show.name+pos+". Pick up where you left off, or start fresh?", [
+        {label:'Pick up where I left off', onClick:()=>handoff(show,resumePat)},
+        {label:'Start over', onClick:()=>handoff(show,{kind:'beginning'})}]);
+    } else if(h && (h.bucket==='current'||h.bucket==='returning'||(h.watched>0&&!h.forceCompleted))){
+      pierreSay("You are already mid "+show.name+pos+". Jump back in?", [
+        {label:'Jump back in', onClick:()=>handoff(show,resumePat)},
+        {label:'From the beginning', onClick:()=>handoff(show,{kind:'beginning'})}]);
+    } else if(h && (h.forceCompleted||h.bucket==='completed'||h.comfort)){
+      pierreSay("You have finished "+show.name+" before. A rewatch? From the top, or pick episodes?", [
+        {label:'From the top', onClick:()=>handoff(show,{kind:'beginning'})},
+        {label:'Pick episodes', onClick:()=>handoff(show,{kind:'pick'})}]);
+    } else {
+      pierreSay(show.name+", new to you. From the start, a specific episode, or catch up to live?", [
+        {label:'From the beginning', onClick:()=>handoff(show,{kind:'beginning'})},
+        {label:'Pick an episode', onClick:()=>handoff(show,{kind:'pick'})},
+        {label:'Catch up live', onClick:()=>handoff(show,{kind:'live'})}]);
+    }
+  }
+
+  function handoff(show, pattern){
+    addFlow=null;
+    pierreSay("Putting on "+show.name+". Over to the screen.");
+    if(window.parent!==window)
+      window.parent.postMessage({type:'cube:rotateTo', face:'episodes',
+        payload:{show:{id:show.id,name:show.name}, pattern}}, '*');
+  }
+
+  window.addEventListener('message',(e)=>{
+    if(e.data && e.data.type==='cube:payload' && e.data.face==='pierre'){
+      const p=e.data.payload||{};
+      if(p.intent==='add') enterAddFlow(p.history||[]);
+    }
+  });
 
   /* Pierre opens. Seed line so the room is never empty. Yours to rewrite. */
   window.addEventListener('load', ()=>{
