@@ -359,7 +359,9 @@ $('seasonsbar').onclick=()=>{ const v=prompt('Season status — blank, RENEWED!,
   if(v!==null){ seasonStatus=v.trim().toUpperCase(); paint(); } };
 $('scorePill').onclick=()=>{ const v=prompt('Screen Score from @betterscreenscore (e.g. 87):', score);
   if(v!==null){ score=v.trim(); paint(); } };
-$('addShowBtn').onclick=()=>{ window.parent.postMessage({type:'cube:rotateTo',face:'pierre',payload:{intent:'add'}},'*'); };
+$('addShowBtn').onclick=()=>{ if(window.parent===window) return;
+  if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('pierre',{intent:'add'});
+  else window.parent.postMessage({type:'cube:rotateTo',face:'pierre',payload:{intent:'add'}},'*'); };
 
 // Pierre hands off a picked show + watch pattern. Load it and set the position.
 async function loadShowWithPattern(id,pattern){

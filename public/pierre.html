@@ -333,6 +333,9 @@
     if(!text || busy) return;
     addUser(text);
     input.value = '';
+    // Join intake: typed lines are show searches / the email.
+    if(joinFlow==='picking'){ input.focus(); joinSearch(text); return; }
+    if(joinFlow==='email'){ joinSetEmail(text); return; }
     // Add flow, name step: the typed line is a show name, not a chat turn.
     // Drop the keyboard so the result + choice chips show on the full face.
     if(addFlow==='name'){ input.blur(); resolveShowName(text); return; }
@@ -364,13 +367,14 @@
     if(h<5||h>=22) return "Late one"; if(h<12) return "Morning"; if(h<17) return "Afternoon"; return "Evening"; }
 
   // A Pierre line with optional choice chips. Chips disable once one is tapped.
-  function pierreSay(text, chips){
+  function pierreSay(text, chips, keepFocus){
     const wrap=document.createElement('div'); wrap.className='msg pierre';
     wrap.innerHTML='<div class="who">Pierre</div><div class="bubble"></div>';
     wrap.querySelector('.bubble').textContent=text;
     if(chips && chips.length){
       const c=document.createElement('div'); c.className='chips';
       chips.forEach(ch=>{ const b=document.createElement('button'); b.className='chip'; b.textContent=ch.label;
+        if(keepFocus) b.addEventListener('mousedown', e=>e.preventDefault());  // don't blur the input
         b.onclick=()=>{ c.querySelectorAll('button').forEach(x=>x.disabled=true); ch.onClick(); };
         c.appendChild(b); });
       wrap.appendChild(c);
@@ -382,7 +386,7 @@
 
   function enterAddFlow(vlog){
     addHistory=Array.isArray(vlog)?vlog:[];
-    addFlow='name'; addFailCount=0;
+    addFlow='name'; addFailCount=0; joinFlow=null;
     history.length=0;                 // fresh slate for the LLM history too
     log.innerHTML='';
     pierreSay(tod()+". What do you want to add, or just put on right now?");
@@ -459,10 +463,82 @@
         payload:{show:{id:show.id,name:show.name}, pattern, addToLog:true}}, '*');
   }
 
+  /* ---- Join intake flow ------------------------------------------------------
+     The cube's Join button hands off here. Same questions as the in-face intake,
+     asked in Pierre's chat: five favorites, three current, optional "waiting on",
+     then email. TVMaze-validated picks; capture only (demo, nothing is sent). */
+  let joinFlow=null, joinStep=0, joinPicks=[[],[],[]], joinEmail="";
+  const JOIN_STEPS=[
+    {key:"favorites", target:5, bubble:"Let's build your room. Drop five all time favorites, one at a time."},
+    {key:"current",   target:3, bubble:"Nice. Now three you are watching this week."},
+    {key:"future",    target:0, bubble:"Anything you are waiting on? Add a few, or say skip."},
+    {key:"email",     target:0, bubble:"Last step. Where should I send your room?"}
+  ];
+
+  function enterJoinFlow(){
+    addFlow=null; joinFlow='picking'; joinStep=0; joinPicks=[[],[],[]]; joinEmail="";
+    history.length=0; log.innerHTML='';
+    pierreSay(tod()+". I am Pierre, let's build your room.");
+    promptJoinStep();
+  }
+  function promptJoinStep(){
+    const cfg=JOIN_STEPS[joinStep];
+    if(cfg.key==='email'){ joinFlow='email'; pierreSay(cfg.bubble); return; }
+    const have=joinPicks[joinStep].length, need=cfg.target;
+    const count = need ? (have+" of "+need) : (have+" added, optional");
+    const chips = need ? null : [{label:(have?'Done':'Skip'), onClick:advanceJoin}];
+    pierreSay(cfg.bubble+"  ("+count+")", chips, true);
+  }
+  function advanceJoin(){
+    joinStep++;
+    if(joinStep>=JOIN_STEPS.length){ joinDone(); return; }
+    promptJoinStep();
+  }
+  async function joinSearch(text){
+    showTyping();
+    let results=[];
+    try{ const r=await fetch('https://api.tvmaze.com/search/shows?q='+encodeURIComponent(text)); results=r.ok?await r.json():[]; }
+    catch(e){ results=null; }
+    clearTyping();
+    if(results===null){ pierreSay("Search hiccuped. I am a pangolin on a remote, so a small miracle it works at all. Try again?", tedChip(), true); return; }
+    results=(results||[]).filter(x=>x&&x.show);
+    if(!results.length){ pierreSay("I cannot find that one. Try the full title?", null, true); return; }
+    const chosen=new Set(joinPicks[joinStep].map(p=>p.id));
+    const cands=results.map(x=>x.show).filter(s=>!chosen.has(s.id)).slice(0,4);
+    if(!cands.length){ pierreSay("Already on your list. Another?", null, true); return; }
+    pierreSay("Which one?", cands.map(s=>({label:candLabel(s), onClick:()=>addJoinPick(s)})), true);
+  }
+  function addJoinPick(show){
+    const cfg=JOIN_STEPS[joinStep];
+    if(cfg.target && joinPicks[joinStep].length>=cfg.target) return;
+    if(!joinPicks[joinStep].some(p=>p.id===show.id)) joinPicks[joinStep].push({id:show.id, name:show.name});
+    input.focus();
+    const have=joinPicks[joinStep].length, need=cfg.target;
+    if(need && have>=need){ pierreSay("Got your "+need+"."); advanceJoin(); return; }
+    pierreSay("Added "+show.name+". "+(need?(have+" of "+need+", keep going"):(have+" so far, add more or say skip")),
+      need?null:[{label:'Done', onClick:advanceJoin}], true);
+  }
+  function joinSetEmail(text){
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)){ input.focus(); pierreSay("That email looks off. Try again?", null, true); return; }
+    joinEmail=text; joinDone();
+  }
+  function joinDone(){
+    joinFlow=null; input.blur();
+    const f=joinPicks[0].length, c=joinPicks[1].length, w=joinPicks[2].length;
+    // Populate the Log (and thereby Episodes) with the named shows.
+    const out=[];
+    joinPicks[0].forEach(s=>out.push({id:s.id,name:s.name,pattern:{kind:'live'}}));      // favorites: caught up
+    joinPicks[1].forEach(s=>out.push({id:s.id,name:s.name,pattern:{kind:'beginning'}}));  // current
+    joinPicks[2].forEach(s=>out.push({id:s.id,name:s.name,pattern:{kind:'beginning'}}));  // waiting
+    if(out.length && window.parent!==window) window.parent.postMessage({type:'pierre:addToLog', shows:out}, '*');
+    pierreSay("You're in. "+f+" favorites, "+c+" current, "+w+" waiting. They are on your Log now. (Demo, no email is actually sent.)");
+  }
+
   window.addEventListener('message',(e)=>{
     if(e.data && e.data.type==='cube:payload' && e.data.face==='pierre'){
       const p=e.data.payload||{};
       if(p.intent==='add') enterAddFlow(p.history||[]);
+      else if(p.intent==='join') enterJoinFlow();
     }
   });
 

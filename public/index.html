@@ -174,7 +174,7 @@ function makeTex(face, faceIndex) {
   c.width = c.height = S;
   const ctx = c.getContext('2d');
 
-  if (faceIndex === 0 || faceIndex === 2 || faceIndex === 3) {
+  if (faceIndex === 0 || faceIndex === 2 || faceIndex === 3 || faceIndex === 5) {
     // iframe delivers the real content — dark placeholder sits behind the overlay
     const g = ctx.createLinearGradient(0, 0, 0, S);
     g.addColorStop(0, '#1c1a16'); g.addColorStop(1, '#0c0a08');
@@ -373,6 +373,29 @@ function rotateToFace(fi) {
   if (fi === PIERRE_FACE) focusPierre(); else focusPierreBlur();
 }
 
+// Faces call this DIRECTLY (same-origin) rather than postMessage so the tap's
+// user activation carries into the parent — that is what lets focusPierre open
+// the soft keyboard when a face hands off to Pierre. Rotates, then forwards the
+// payload into the target face.
+function cubeRotateTo(face, payload) {
+  const fi = FACE_INDEX[face];
+  if (fi === undefined) return;
+  rotateToFace(fi);
+  payload = payload || {};
+  if (face === 'pierre' && payload.intent === 'add') payload = { ...payload, history: viewingStore };
+  const cfg = FACE_OVERLAYS[fi];
+  if (cfg && cfg.frame && cfg.frame.contentWindow)
+    cfg.frame.contentWindow.postMessage({ type: 'cube:payload', face, payload }, '*');
+  if (face === 'episodes' && payload.addToLog && payload.show) addToLogFace(payload.show, payload.pattern);
+}
+window.cubeRotateTo = cubeRotateTo;
+
+function addToLogFace(show, pattern) {
+  const logCfg = FACE_OVERLAYS[FACE_INDEX.log];
+  if (logCfg && logCfg.frame && logCfg.frame.contentWindow)
+    logCfg.frame.contentWindow.postMessage({ type: 'cube:payload', face: 'log', payload: { addShow: { id: show.id, name: show.name }, pattern } }, '*');
+}
+
 // ─── pointer events ───────────────────────────────────────────────────────
 canvas.addEventListener('pointerdown', (e) => {
   canvas.setPointerCapture(e.pointerId);
@@ -525,6 +548,16 @@ const FACE_OVERLAYS = {
       new THREE.Vector3( 0.9, -0.9,  0.9),  // TR
       new THREE.Vector3( 0.9, -0.9, -0.9),  // BR
       new THREE.Vector3(-0.9, -0.9, -0.9),  // BL
+    ],
+  },
+  5: {                                       // -Z face (back): JOIN
+    src: '/cube_join.html',
+    normal: new THREE.Vector3(0, 0, -1),
+    corners: [
+      new THREE.Vector3( 0.9,  0.9, -0.9),  // TL
+      new THREE.Vector3(-0.9,  0.9, -0.9),  // TR
+      new THREE.Vector3(-0.9, -0.9, -0.9),  // BR
+      new THREE.Vector3( 0.9, -0.9, -0.9),  // BL
     ],
   },
 };
@@ -683,26 +716,11 @@ window.addEventListener('message', (e) => {
   if (e.data?.type === 'pierre-chat-focus') chatFocused = !!e.data.focused;
   // The Log face published its current records; keep a snapshot for the others.
   if (e.data?.type === 'log:data') viewingStore = e.data.shows || [];
-  // A face asked to rotate the cube to another face (optionally with a payload).
-  if (e.data?.type === 'cube:rotateTo') {
-    const fi = FACE_INDEX[e.data.face];
-    if (fi !== undefined) {
-      rotateToFace(fi);
-      // Forward the payload into the target face. Pierre's add flow also gets the
-      // current viewing history so its status branch and resume position are real.
-      let payload = e.data.payload || {};
-      if (e.data.face === 'pierre' && payload.intent === 'add') payload = { ...payload, history: viewingStore };
-      const cfg = FACE_OVERLAYS[fi];
-      if (cfg && cfg.frame && cfg.frame.contentWindow)
-        cfg.frame.contentWindow.postMessage({ type: 'cube:payload', face: e.data.face, payload }, '*');
-      // Pierre's add flow also writes the picked show into the Log store.
-      if (e.data.face === 'episodes' && payload.addToLog && payload.show) {
-        const logCfg = FACE_OVERLAYS[FACE_INDEX.log];
-        if (logCfg && logCfg.frame && logCfg.frame.contentWindow)
-          logCfg.frame.contentWindow.postMessage({ type: 'cube:payload', face: 'log', payload: { addShow: payload.show, pattern: payload.pattern } }, '*');
-      }
-    }
-  }
+  // postMessage fallback for a face asking to rotate (no keyboard activation).
+  if (e.data?.type === 'cube:rotateTo') cubeRotateTo(e.data.face, e.data.payload);
+  // Pierre's join intake populates the Log with the named shows.
+  if (e.data?.type === 'pierre:addToLog' && Array.isArray(e.data.shows))
+    e.data.shows.forEach(s => addToLogFace({ id: s.id, name: s.name }, s.pattern));
 });
 </script>
 </body>

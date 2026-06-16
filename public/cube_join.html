@@ -1,0 +1,345 @@
+<!doctype html>
+<!--
+  PangolinRC cube face: JOIN (splash slides to Pierre intake)
+  Self-contained HTML. Data fetched live in the browser from TVMaze.
+  NOTE FOR CLAUDE CODE: this file fetches https://api.tvmaze.com live.
+  Do not "fix" the fetch or treat the file as broken if a sandbox cannot
+  reach the network. Typeahead simply returns no results offline.
+  No scroll by design: the face is a fixed square, everything fits inside.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>PangolinRC . Join</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --base:#17120e; --panel:#211a13; --panel-2:#2b2218; --line:#3a2f22;
+    --amber:#e89f3d; --amber-soft:#c98a37; --green:#5f8f5a;
+    --red:#9d4a3f; --text:#f3ebe0; --muted:#a7967f;
+    --display:"Space Grotesk",system-ui,sans-serif;
+    --body:"Inter",system-ui,sans-serif;
+    --mono:"IBM Plex Mono",ui-monospace,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden}
+  body{
+    background:radial-gradient(120% 80% at 50% -10%, #241b12 0%, var(--base) 60%);
+    color:var(--text);font-family:var(--body);
+    display:flex;align-items:center;justify-content:center;padding:18px;
+  }
+  .face{
+    position:relative;
+    width:min(92vw,420px);height:min(92vw,420px);
+    background:var(--panel);border:1px solid var(--line);border-radius:18px;
+    overflow:hidden;
+    box-shadow:0 30px 80px -40px rgba(0,0,0,.9), inset 0 1px 0 rgba(255,255,255,.03);
+  }
+  .track{position:absolute;inset:0;display:flex;width:200%;height:100%;
+    transition:transform .5s cubic-bezier(.7,0,.2,1)}
+  .track.toPierre{transform:translateX(-50%)}
+  .panel{flex:0 0 50%;width:50%;height:100%;padding:18px;
+    display:flex;flex-direction:column;overflow:hidden}
+
+  .eyebrow{font-family:var(--mono);font-size:10px;letter-spacing:.22em;
+    text-transform:uppercase;color:var(--muted)}
+
+  .splash{justify-content:flex-start}
+  .splash h1{font-family:var(--display);font-weight:700;
+    font-size:25px;line-height:1.06;letter-spacing:-.01em;margin:7px 0 5px}
+  .splash .sub{margin:0;color:var(--muted);font-size:12.5px;line-height:1.4}
+  .video{margin:13px 0;border-radius:12px;overflow:hidden;border:1px solid var(--line);
+    background:#000;aspect-ratio:16/9;flex:0 0 auto}
+  .video iframe{display:block;width:100%;height:100%;border:0}
+  .join{margin-top:auto;width:100%;font-family:var(--display);font-weight:700;
+    font-size:17px;letter-spacing:.04em;color:#1a130b;background:var(--amber);
+    border:0;border-radius:12px;padding:15px 16px;cursor:pointer;
+    box-shadow:0 10px 26px -12px rgba(232,159,61,.7);
+    transition:transform .08s ease,filter .15s ease}
+  .join:hover{filter:brightness(1.05)}
+  .join:active{transform:translateY(1px)}
+  .join:focus-visible{outline:2px solid var(--text);outline-offset:3px}
+
+  .phead{display:flex;align-items:center;gap:11px;flex:0 0 auto}
+  .mark{flex:0 0 auto;width:38px;height:38px;border-radius:50%;
+    background:radial-gradient(circle at 35% 30%, #f2b457, var(--amber-soft));
+    display:flex;align-items:center;justify-content:center;
+    box-shadow:inset 0 -3px 6px rgba(0,0,0,.25)}
+  .mark svg{width:24px;height:24px}
+  .phead .who{font-family:var(--display);font-weight:700;font-size:15px}
+  .phead .who small{display:block;font-family:var(--mono);font-weight:400;
+    font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
+
+  .steps{display:flex;align-items:center;gap:6px;margin:14px 0 2px;flex:0 0 auto}
+  .seg{height:4px;flex:1;border-radius:3px;background:var(--line)}
+  .seg.done{background:var(--green)}
+  .seg.active{background:var(--amber)}
+  .here{font-size:13px;line-height:1}
+
+  .bubble{flex:0 0 auto;margin:14px 0 4px;font-family:var(--display);font-weight:500;
+    font-size:17px;line-height:1.25;min-height:46px;animation:rise .35s ease both}
+  @keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  @media (prefers-reduced-motion:reduce){.bubble{animation:none}.track{transition:none}}
+
+  .search{position:relative;flex:0 0 auto}
+  .search input{width:100%;font-family:var(--body);font-size:13.5px;color:var(--text);
+    background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:11px 12px}
+  .search input::placeholder{color:#7d7060}
+  .search input:focus{outline:none;border-color:var(--amber-soft)}
+  .results{position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:5;
+    border:1px solid var(--line);border-radius:10px;overflow:auto;max-height:172px;
+    background:var(--panel-2);box-shadow:0 18px 40px -20px rgba(0,0,0,.8)}
+  .results:empty{display:none}
+  .res{display:flex;align-items:center;gap:10px;padding:8px 10px;cursor:pointer;
+    border-bottom:1px solid var(--line)}
+  .res:last-child{border-bottom:0}
+  .res:hover{background:#332819}
+  .res img{width:28px;height:40px;object-fit:cover;border-radius:4px;background:#000;flex:0 0 auto}
+  .res .noimg{width:28px;height:40px;border-radius:4px;background:#3a2f22;flex:0 0 auto}
+  .res .meta{min-width:0}
+  .res .nm{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .res .yr{font-family:var(--mono);font-size:10px;color:var(--muted)}
+
+  .pickwrap{flex:1 1 auto;min-height:0;overflow:hidden;margin-top:12px}
+  .picks{display:flex;flex-wrap:wrap;gap:7px;align-content:flex-start}
+  .chip{display:inline-flex;align-items:center;gap:7px;background:var(--panel-2);
+    border:1px solid var(--line);border-radius:20px;padding:5px 6px 5px 11px;font-size:12px;max-width:100%}
+  .chip span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px}
+  .chip button{border:0;background:#3a2f22;color:var(--text);width:18px;height:18px;
+    border-radius:50%;cursor:pointer;font-size:12px;line-height:1;
+    display:flex;align-items:center;justify-content:center}
+  .chip button:hover{background:var(--red)}
+
+  .meter{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.04em;
+    flex:0 0 auto;margin-bottom:10px}
+  .meter b{color:var(--amber)}
+
+  .nav{display:flex;gap:10px;flex:0 0 auto}
+  .next{flex:1;font-family:var(--display);font-weight:700;font-size:14px;letter-spacing:.03em;
+    color:#1a130b;background:var(--amber);border:0;border-radius:11px;padding:13px;cursor:pointer;
+    transition:filter .15s ease}
+  .next:hover{filter:brightness(1.05)}
+  .next:disabled{background:#4a3f30;color:#8a7c6a;cursor:not-allowed}
+  .back{font-family:var(--body);font-size:13px;color:var(--muted);background:transparent;
+    border:1px solid var(--line);border-radius:11px;padding:13px 16px;cursor:pointer}
+  .back:hover{color:var(--text)}
+
+  .stub{font-family:var(--mono);font-size:9.5px;color:#7d7060;margin-top:10px;flex:0 0 auto}
+</style>
+</head>
+<body>
+<div class="face">
+  <div class="track" id="track">
+
+    <section class="panel splash">
+      <div class="eyebrow">PangolinRC</div>
+      <h1>Watch what you want, when you want. For less.</h1>
+      <p class="sub">Pierre learns your taste and builds your room in a minute.</p>
+      <div class="video">
+        <iframe src="https://www.youtube.com/embed/brdzZG3Bas8?si=R_mptZFrb39IQ15H"
+          title="YouTube video player"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+      </div>
+      <button class="join" id="joinBtn">JOIN!</button>
+    </section>
+
+    <section class="panel pierre" id="pierre"></section>
+
+  </div>
+</div>
+
+<script>
+const STEP = [
+  { key:"favorites", target:5, ph:"Search a show you love",
+    bubble:"I'm Pierre. Let's build your room. Drop five all time favorites." },
+  { key:"current", target:3, ph:"Search a current show",
+    bubble:"Nice picks. Now three you are watching this week." },
+  { key:"future", target:0, ph:"Search a show you want",
+    bubble:"Anything you are waiting on? Add a few or skip." },
+  { key:"email", target:0, ph:"you@email.com",
+    bubble:"Last step. Where should I send your room?" },
+];
+const state = { step:0, picks:[[],[],[]], email:"", done:false };
+const pierre = document.getElementById("pierre");
+const track = document.getElementById("track");
+const esc = s => (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const mark = `<div class="mark"><svg viewBox="0 0 24 24" fill="none">
+  <path d="M6 12.5c0-3.6 2.7-6.3 6.3-6.3 3.3 0 5.7 2.6 5.7 5.8 0 3.4-2.4 5.8-5.9 5.8" stroke="#1a130b" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M9 9.5l2-1M9.5 12l2.2-1M10 14.5l2.3-1" stroke="#1a130b" stroke-width="1.3" stroke-linecap="round"/>
+  <circle cx="15.4" cy="10.6" r="1" fill="#1a130b"/></svg></div>`;
+
+document.getElementById("joinBtn").onclick = () => {
+  // In the cube, hand the intake to the real Pierre face. Standalone, run the
+  // in-face intake as before.
+  if (window.parent !== window) {
+    if (typeof window.parent.cubeRotateTo === "function") window.parent.cubeRotateTo("pierre", { intent:"join" });
+    else window.parent.postMessage({ type:"cube:rotateTo", face:"pierre", payload:{ intent:"join" } }, "*");
+    return;
+  }
+  track.classList.add("toPierre");
+  renderPierre();
+};
+
+function progress(active){
+  return `<div class="steps">
+    ${[0,1,2,3].map(n=>`<div class="seg ${n<active?'done':''} ${n===active?'active':''}"></div>`).join("")}
+    <span class="here">🍿</span></div>`;
+}
+
+function renderPierre(){
+  if(state.done) return renderDone();
+  const i = state.step, cfg = STEP[i];
+  if(cfg.key === "email") return renderEmail();
+
+  const picks = state.picks[i], have = picks.length, need = cfg.target;
+  const ready = need===0 ? true : have>=need;
+  const status = ["five favorites","three current","the future","almost done"][i];
+
+  pierre.innerHTML = `
+    <div class="phead">${mark}<div class="who">Pierre<small>${status}</small></div></div>
+    ${progress(i)}
+    <div class="bubble">${esc(cfg.bubble)}</div>
+    <div class="search">
+      <input id="q" type="text" autocomplete="off" placeholder="${esc(cfg.ph)}">
+      <div class="results" id="results"></div>
+    </div>
+    <div class="pickwrap"><div class="picks" id="picks"></div></div>
+    <div class="meter" id="meter"></div>
+    <div class="nav">
+      <button class="back" id="back">Back</button>
+      <button class="next" id="next" ${ready?'':'disabled'}>${i<2?'Next':'Continue'}</button>
+    </div>`;
+
+  drawPicks(); drawMeter(); wireSearch();
+  document.getElementById("next").onclick = e => {
+    if(e.currentTarget.disabled) return; state.step++; renderPierre();
+  };
+  document.getElementById("back").onclick = () => {
+    if(i===0){ track.classList.remove("toPierre"); return; }
+    state.step--; renderPierre();
+  };
+}
+
+function drawPicks(){
+  const i=state.step, w=document.getElementById("picks");
+  w.innerHTML = state.picks[i].map((p,x)=>`<span class="chip"><span>${esc(p.name)}</span>
+    <button data-x="${x}" aria-label="Remove">&times;</button></span>`).join("");
+  w.querySelectorAll("button").forEach(b=>b.onclick=()=>{state.picks[i].splice(+b.dataset.x,1);renderPierre();});
+}
+function drawMeter(){
+  const i=state.step, have=state.picks[i].length, need=STEP[i].target, m=document.getElementById("meter");
+  m.innerHTML = need===0 ? `<b>${have}</b> added . optional`
+    : `<b>${have}</b> of <b>${need}</b> . ${have<need?(need-have)+' to go':'ready'}`;
+}
+
+let timer=null, ctrl=null;
+function wireSearch(){
+  const q=document.getElementById("q"), box=document.getElementById("results");
+  q.focus();
+  q.oninput=()=>{const t=q.value.trim();clearTimeout(timer);
+    if(t.length<2){box.innerHTML="";return;} timer=setTimeout(()=>runSearch(t,box),220);};
+}
+async function runSearch(term,box){
+  try{
+    if(ctrl) ctrl.abort(); ctrl=new AbortController();
+    const r=await fetch("https://api.tvmaze.com/search/shows?q="+encodeURIComponent(term),{signal:ctrl.signal});
+    const data=await r.json(); const i=state.step;
+    const chosen=new Set(state.picks[i].map(p=>p.id));
+    const rows=data.slice(0,6).map(d=>d.show).filter(s=>!chosen.has(s.id));
+    box.innerHTML=rows.map(s=>{
+      const yr=s.premiered?s.premiered.slice(0,4):"";
+      const net=(s.network&&s.network.name)||(s.webChannel&&s.webChannel.name)||"";
+      const img=s.image&&s.image.medium?`<img src="${s.image.medium}" alt="">`:`<div class="noimg"></div>`;
+      const tail=[yr,net].filter(Boolean).join(" . ");
+      return `<div class="res" data-id="${s.id}" data-name="${esc(s.name)}">${img}
+        <div class="meta"><div class="nm">${esc(s.name)}</div><div class="yr">${esc(tail)}</div></div></div>`;
+    }).join("");
+    box.querySelectorAll(".res").forEach(el=>el.onclick=()=>addPick(+el.dataset.id,el.dataset.name));
+  }catch(e){}
+}
+function addPick(id,name){
+  const i=state.step, max=STEP[i].target;
+  if(max && state.picks[i].length>=max){flashMeter();return;}
+  if(!state.picks[i].some(p=>p.id===id)) state.picks[i].push({id,name});
+  const q=document.getElementById("q"); if(q) q.value="";
+  document.getElementById("results").innerHTML=""; renderPierre();
+}
+function flashMeter(){const m=document.getElementById("meter");if(!m)return;
+  m.style.color="var(--amber)";setTimeout(()=>m.style.color="",600);}
+
+function renderEmail(){
+  const valid=/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(state.email);
+  pierre.innerHTML=`
+    <div class="phead">${mark}<div class="who">Pierre<small>almost done</small></div></div>
+    ${progress(3)}
+    <div class="bubble">${esc(STEP[3].bubble)}</div>
+    <div class="search">
+      <input id="email" type="email" autocomplete="email" placeholder="${esc(STEP[3].ph)}" value="${esc(state.email)}">
+    </div>
+    <div class="pickwrap"></div>
+    <div class="meter">i'll send your room and a recap of your picks</div>
+    <div class="nav">
+      <button class="back" id="back">Back</button>
+      <button class="next" id="done" ${valid?'':'disabled'}>Build my room</button>
+    </div>`;
+  const inp=document.getElementById("email"); inp.focus();
+  inp.oninput=()=>{state.email=inp.value.trim();
+    const ok=/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(state.email);
+    document.getElementById("done").disabled=!ok;};
+  document.getElementById("back").onclick=()=>{state.step--;renderPierre();};
+  document.getElementById("done").onclick=e=>{if(e.currentTarget.disabled)return;state.done=true;renderDone();};
+}
+
+function renderDone(){
+  pierre.innerHTML=`
+    <div class="phead">${mark}<div class="who">Pierre<small>you're in</small></div></div>
+    ${progress(4)}
+    <div class="bubble">You're in. I'll have your room ready in your inbox.</div>
+    <div class="pickwrap"><div class="meter" style="line-height:1.6">
+      <b>${state.picks[0].length}</b> favorites . <b>${state.picks[1].length}</b> current . <b>${state.picks[2].length}</b> waiting<br>
+      sent to ${esc(state.email)}</div></div>
+    <div class="nav"><button class="back" id="restart" style="flex:1">Start over</button></div>
+    <div class="stub">DEMO . capture only, no email is actually sent</div>`;
+  document.getElementById("restart").onclick=()=>{
+    state.step=0;state.picks=[[],[],[]];state.email="";state.done=false;
+    track.classList.remove("toPierre");
+    setTimeout(()=>{pierre.innerHTML="";},520);
+  };
+}
+
+// ---- Cube embedding ---------------------------------------------------------
+// Fill the iframe completely, and let a pinch contract back to cube navigation
+// (the overlay captures touches, so it needs its own way out).
+if (window.parent !== window) {
+  document.documentElement.style.height = "100%";
+  document.body.style.padding = "0";
+  document.body.style.minHeight = "100%";
+  document.body.style.height = "100%";
+  document.body.style.alignItems = "stretch";
+  const face = document.querySelector(".face");
+  if (face) { face.style.width = "100%"; face.style.height = "100%"; face.style.borderRadius = "0"; face.style.border = "0"; }
+
+  let _pinchStart = 0, _pinchActive = false;
+  const faceEl = document.querySelector(".face");
+  if (faceEl) {
+    faceEl.addEventListener("touchstart", (e) => {
+      if (e.touches.length === 2) {
+        _pinchStart = Math.hypot(e.touches[1].clientX - e.touches[0].clientX, e.touches[1].clientY - e.touches[0].clientY);
+        _pinchActive = true;
+      }
+    }, { passive: true });
+    faceEl.addEventListener("touchmove", (e) => {
+      if (!_pinchActive || e.touches.length < 2) return;
+      const d = Math.hypot(e.touches[1].clientX - e.touches[0].clientX, e.touches[1].clientY - e.touches[0].clientY);
+      if (d < _pinchStart * 0.72) { _pinchActive = false; window.parent.postMessage({ type: "pangolin-back" }, "*"); }
+    }, { passive: true });
+    faceEl.addEventListener("touchend", () => { _pinchActive = false; }, { passive: true });
+  }
+}
+</script>
+</body>
+</html>

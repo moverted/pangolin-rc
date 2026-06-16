@@ -399,10 +399,12 @@ const _bus={};
 if(!window.cube){
   window.cube={
     rotateTo(face,payload){
-      // Embedded in the cube shell: ask it to rotate (the shell owns routing).
-      // Standalone: fall back to the on-screen flash so the demo still moves.
-      if(window.parent!==window){ window.parent.postMessage({type:"cube:rotateTo",face,payload:payload||{}},"*"); }
-      else { flashFallback(face,payload||{}); }
+      // Embedded: call the shell directly so the tap's activation carries through
+      // (lets Pierre raise the keyboard). Standalone: the on-screen flash.
+      if(window.parent!==window){
+        if(typeof window.parent.cubeRotateTo==="function") window.parent.cubeRotateTo(face, payload||{});
+        else window.parent.postMessage({type:"cube:rotateTo",face,payload:payload||{}},"*");
+      } else { flashFallback(face,payload||{}); }
     },
     on(evt,handler){ (_bus[evt]=_bus[evt]||[]).push(handler); },
     emit(evt,payload){ (_bus[evt]||[]).forEach(h=>h(payload)); }
