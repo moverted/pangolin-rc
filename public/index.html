@@ -81,11 +81,22 @@
     }
     .media-btn.primary:active { transform: scale(0.92); filter: brightness(1.06); }
     .media-btn.sent { border-color: #e89f3d; color: #e89f3d; }
+
+    /* ── DEMO band (shown to waitlisted visitors) ── */
+    #demoband { position: fixed; top: 0; left: 0; right: 0; z-index: 150; display: none;
+      align-items: center; justify-content: center; gap: 12px;
+      background: #e89f3d; color: #1a130b; font-family: system-ui, sans-serif;
+      font-size: 12px; font-weight: 700; letter-spacing: 0.02em; padding: 8px 14px; }
+    #demoband.show { display: flex; }
+    #demoband button { background: #1a130b; color: #e89f3d; border: none; border-radius: 999px;
+      padding: 5px 11px; font-size: 11px; font-weight: 700; cursor: pointer; -webkit-tap-highlight-color: transparent; }
   </style>
 </head>
 <body>
 
 <canvas id="canvas"></canvas>
+
+<div id="demoband"><span>DEMO &middot; you're on the waitlist</span><button id="textteam">Text the team</button></div>
 
 
 <div id="pinch-hint">pinch to lock</div>
@@ -710,6 +721,19 @@ window.addEventListener('message', (e) => {
   // Pierre's join intake populates the Log with the named shows.
   if (e.data?.type === 'pierre:addToLog' && Array.isArray(e.data.shows))
     e.data.shows.forEach(s => addToLogFace({ id: s.id, name: s.name }, s.pattern));
+  // A visitor signed up past the cap -> show the waitlist DEMO band.
+  if (e.data?.type === 'pg-demo') showDemo();
+});
+
+// ─── DEMO band (waitlisted visitors) ───────────────────────────────────────
+// Pierre posts 'pg-demo' when someone signs up past the member cap. The band
+// then persists and offers a direct text to the team.
+const TEAM_PHONE = '+13109221109';
+const _demoband = document.getElementById('demoband');
+function showDemo() { _demoband.classList.add('show'); try { localStorage.setItem('pg_demo', '1'); } catch {} }
+try { if (localStorage.getItem('pg_demo') === '1') _demoband.classList.add('show'); } catch {}
+document.getElementById('textteam').addEventListener('click', () => {
+  window.location.href = 'sms:' + TEAM_PHONE + '?&body=' + encodeURIComponent("I want in on pangolinRC");
 });
 </script>
 </body>

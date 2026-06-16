@@ -489,17 +489,31 @@
     showTyping();
     let user=null;
     try{ const r=await fetch(API+'/profile/'+encodeURIComponent(joinEmail)); if(r.ok){ user=(await r.json()).user; } }
-    catch(e){ /* treat as new on a network error */ }
-    clearTyping();
-    if(user){                          // returning -> log in
-      pgSet(joinEmail); joinFlow=null; input.placeholder="Ask Pierre what to watch...";
+    catch(e){}
+    if(user){                          // returning member -> log in
+      clearTyping(); pgSet(joinEmail); joinFlow=null; input.placeholder="Ask Pierre what to watch...";
       pierreSay("Welcome back, "+(user.username||joinEmail)+". Taking you to your profile.");
       setTimeout(()=>nav('profile'),1200);
       return;
     }
-    joinFlow='picking'; joinStep=0;    // new -> build the room
-    pierreSay("New here. Let's build your room.");
-    promptJoinStep();
+    // new email -> try to claim a spot; the server enforces the 10-member cap
+    let res=null;
+    try{ const r=await fetch(API+'/profile/signup',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({email:joinEmail, username:joinEmail.split('@')[0]})}); if(r.ok) res=await r.json(); }
+    catch(e){}
+    clearTyping();
+    if(res && res.status==='member'){
+      pgSet(joinEmail); joinFlow='picking'; joinStep=0;
+      pierreSay("New here, and you made the cut. Let's build your room.");
+      promptJoinStep(); return;
+    }
+    if(res && res.status==='waitlist'){
+      joinFlow=null; input.blur(); input.placeholder="Ask Pierre what to watch...";
+      pierreSay("We are full right now, the first ten are in. You are on the waitlist. Look around in demo mode, and text the team if you want a spot.");
+      if(window.parent!==window) window.parent.postMessage({type:'pg-demo'}, '*');
+      return;
+    }
+    pierreSay("Could not reach the front desk. I am a pangolin, the wires are past me sometimes. Try again, or get Ted?", tedChip());
   }
   function promptJoinStep(){
     const cfg=JOIN_STEPS[joinStep];
@@ -541,12 +555,7 @@
   async function joinDone(){
     joinFlow=null; input.blur(); input.placeholder="Ask Pierre what to watch...";
     const f=joinPicks[0].length, c=joinPicks[1].length, w=joinPicks[2].length;
-    // Create the account from the email captured up front, and log in.
-    if(joinEmail){
-      try{ await fetch(API+'/profile/signup',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({email:joinEmail, username:joinEmail.split('@')[0]})}); }catch(e){}
-      pgSet(joinEmail);
-    }
+    // Account was already created (and logged in) at the email step.
     // Populate the Log (and thereby Episodes) with the named shows.
     const out=[];
     joinPicks[0].forEach(s=>out.push({id:s.id,name:s.name,pattern:{kind:'live'}}));      // favorites: caught up

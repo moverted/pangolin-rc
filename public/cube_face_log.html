@@ -565,6 +565,15 @@ document.getElementById("savpop").addEventListener("click",()=>document.getEleme
 
 (async function(){buildSavings();LOG=await Promise.all(SEED.map(hydrate));
   LOG.sort((a,b)=>new Date(b.lastDate)-new Date(a.lastDate));render();renderPierre();})();
+
+/* Pinch to contract back to the cube. The face overlay captures touches when
+   active, so it needs its own way out, like the other faces. */
+if(window.parent!==window){
+  let _ps=0,_pa=false;
+  face.addEventListener("touchstart",e=>{ if(e.touches.length===2){ _ps=Math.hypot(e.touches[1].clientX-e.touches[0].clientX,e.touches[1].clientY-e.touches[0].clientY); _pa=true; } },{passive:true});
+  face.addEventListener("touchmove",e=>{ if(!_pa||e.touches.length<2)return; const d=Math.hypot(e.touches[1].clientX-e.touches[0].clientX,e.touches[1].clientY-e.touches[0].clientY); if(d<_ps*0.72){ _pa=false; window.parent.postMessage({type:"pangolin-back"},"*"); } },{passive:true});
+  face.addEventListener("touchend",()=>{_pa=false;},{passive:true});
+}
 </script>
 </body>
 </html>

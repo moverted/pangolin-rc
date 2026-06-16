@@ -17,6 +17,19 @@ profileRoutes.post('/signup', async (c) => {
   const phone = str(body.phone, 40) || null;
   const photo_url = str(body.photo_url, 4096) || null;
   const now = Date.now();
+
+  // Member cap. Existing members always get in (returning login). New people
+  // beyond the cap go on the waitlist instead of becoming members.
+  const MEMBER_CAP = 10;
+  const already = await c.env.DB.prepare('SELECT email FROM users WHERE email = ?').bind(email).first();
+  if (!already) {
+    const countRow = await c.env.DB.prepare('SELECT COUNT(*) AS c FROM users').first<{ c: number }>();
+    if ((countRow?.c ?? 0) >= MEMBER_CAP) {
+      await c.env.DB.prepare('INSERT OR IGNORE INTO waitlist (email, created_at) VALUES (?, ?)').bind(email, now).run();
+      return c.json({ status: 'waitlist' });
+    }
+  }
+
   await c.env.DB.prepare(
     `INSERT INTO users (email, username, phone, photo_url, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?)
@@ -27,7 +40,7 @@ profileRoutes.post('/signup', async (c) => {
        updated_at = excluded.updated_at`
   ).bind(email, username, phone, photo_url, now, now).run();
   const user = await c.env.DB.prepare('SELECT * FROM users WHERE email = ?').bind(email).first();
-  return c.json({ user });
+  return c.json({ status: 'member', user });
 });
 
 // Get a user plus their devices.
