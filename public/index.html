@@ -23,28 +23,6 @@
     }
     #canvas:active { cursor: grabbing; }
 
-    /* ── face info strip (locked state only) ── */
-    #face-info {
-      position: fixed;
-      bottom: 128px; left: 0; right: 0;
-      display: flex; flex-direction: column; align-items: center; gap: 4px;
-      pointer-events: none;
-      opacity: 0; transform: translateY(8px);
-      transition: opacity 0.35s, transform 0.35s;
-    }
-    #face-info.show { opacity: 1; transform: translateY(0); }
-
-    #face-name {
-      font-family: 'Bangers', cursive;
-      font-size: 32px; letter-spacing: 0.2em; text-transform: uppercase;
-      color: #fff;
-      text-shadow: 2px 2px 0 #000, -1px -1px 0 #000;
-    }
-    #face-desc {
-      font-family: 'Comic Neue', cursive;
-      font-size: 12px; letter-spacing: 0.15em; text-transform: uppercase;
-      color: rgba(255,255,255,0.45);
-    }
 
     /* ── pinch hint (free mode) ── */
     #pinch-hint {
@@ -73,45 +51,42 @@
       transform-origin: 0 0;
     }
 
-    /* ── media controls (Fire TV remote) ── */
+    /* ── media controls (Fire TV remote) — warm theme, matches the faces ── */
     #controls {
       position: fixed; bottom: 0; left: 0; right: 0;
       z-index: 30;
       padding: 20px 24px 44px;
-      background: linear-gradient(to top, rgba(10,10,20,0.97) 60%, transparent);
+      background: linear-gradient(to top, rgba(12,9,7,0.97) 55%, transparent);
       display: flex; justify-content: center; align-items: center;
     }
     #media-controls { display: flex; gap: 32px; align-items: center; }
 
     .media-btn {
       width: 52px; height: 52px; border-radius: 50%;
-      border: 2px solid rgba(255,255,255,0.22);
-      background: rgba(255,255,255,0.06);
-      color: rgba(255,255,255,0.55);
+      border: 1px solid #3a2f22;
+      background: #211a13;
+      color: #a7967f;
       display: flex; align-items: center; justify-content: center;
       cursor: pointer;
       -webkit-tap-highlight-color: transparent;
-      transition: transform 0.1s, background 0.15s;
+      transition: transform 0.1s, background 0.15s, border-color 0.15s, color 0.15s;
     }
-    .media-btn:active { transform: scale(0.88); background: rgba(255,255,255,0.14); }
+    .media-btn:active { transform: scale(0.88); background: #2b2218; color: #f3ebe0; }
     .media-btn.primary {
       width: 68px; height: 68px;
-      border-color: rgba(255,255,255,0.35);
-      background: rgba(255,255,255,0.1);
-      color: rgba(255,255,255,0.85);
+      border: none;
+      background: radial-gradient(circle at 35% 30%, #f2b457, #e89f3d);
+      color: #1a130b;
+      box-shadow: 0 10px 26px -12px rgba(232,159,61,0.7);
     }
-    .media-btn.primary:active { background: rgba(255,255,255,0.2); }
-    .media-btn.sent { border-color: rgba(255,255,255,0.6); }
+    .media-btn.primary:active { transform: scale(0.92); filter: brightness(1.06); }
+    .media-btn.sent { border-color: #e89f3d; color: #e89f3d; }
   </style>
 </head>
 <body>
 
 <canvas id="canvas"></canvas>
 
-<div id="face-info">
-  <div id="face-name">SHOW</div>
-  <div id="face-desc">The main event</div>
-</div>
 
 <div id="pinch-hint">pinch to lock</div>
 
@@ -248,11 +223,12 @@ camera.position.set(0, 0, 13);
 const geo  = new THREE.BoxGeometry(1.8, 1.8, 1.8);
 const mats = FACES.map((f, i) => new THREE.MeshBasicMaterial({ map: makeTex(f, i) }));
 const cube = new THREE.Mesh(geo, mats);
+cube.quaternion.setFromEuler(SNAP_EULER[5]); // open showing the JOIN face
 scene.add(cube);
 
 // ─── interaction state ────────────────────────────────────────────────────
 let locked     = false;
-let activeFace = 4; // SHOW starts front
+let activeFace = 5; // JOIN starts
 
 // Single-pointer drag
 let dragging   = false;
@@ -269,25 +245,18 @@ let snapping  = false;
 let snapQ     = new THREE.Quaternion();
 
 // Camera target z
-let camTargetZ = 13;
+let camTargetZ = 8.5;
 
 // Double-tap detection
 let lastTapTime = 0;
 
 // UI refs
-const faceInfo  = document.getElementById('face-info');
-const faceName  = document.getElementById('face-name');
-const faceDesc  = document.getElementById('face-desc');
 const pinchHint = document.getElementById('pinch-hint');
 
 function showFaceInfo(fi) {
-  faceName.textContent = FACES[fi].label;
-  faceDesc.textContent = FACES[fi].sub;
-  faceInfo.classList.add('show');
   pinchHint.classList.add('hide');
 }
 function hideFaceInfo() {
-  faceInfo.classList.remove('show');
   pinchHint.classList.remove('hide');
   // swap hint text
   pinchHint.textContent = 'pinch to lock';
@@ -330,7 +299,7 @@ function unlock() {
   if (!locked) return;
   if (activeFace === PIERRE_FACE) focusPierreBlur();
   locked = false;
-  camTargetZ = 13;
+  camTargetZ = 8.5;
   hideFaceInfo();
   snapping = false; // release to free rotation
   velX = 0; velY = 0;

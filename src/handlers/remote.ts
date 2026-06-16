@@ -13,7 +13,9 @@ remoteRoutes.post('/cmd/:code', async (c) => {
     return c.json({ error: 'unknown command' }, 400);
 
   const entry = { cmd: code, id: crypto.randomUUID(), t: Date.now() };
-  await c.env.ACCESS_KV.put('remote:pending', JSON.stringify(entry), { expirationTtl: 10 });
+  // KV requires expirationTtl >= 60s. The bridge dedupes by id, so a lingering
+  // entry never re-fires; it just self-cleans after a minute.
+  await c.env.ACCESS_KV.put('remote:pending', JSON.stringify(entry), { expirationTtl: 60 });
   return c.json({ ok: true, id: entry.id });
 });
 
