@@ -472,7 +472,7 @@
     {key:"favorites", target:5, bubble:"Let's build your room. Drop five all time favorites, one at a time."},
     {key:"current",   target:3, bubble:"Nice. Now three you are watching this week."},
     {key:"future",    target:0, bubble:"Anything you are waiting on? Add a few, or say skip."},
-    {key:"email",     target:0, bubble:"Last step. Where should I send your room?"}
+    {key:"email",     target:0, bubble:"Last step. What email address should I send your room to? Type it below."}
   ];
 
   function enterJoinFlow(){
@@ -483,7 +483,8 @@
   }
   function promptJoinStep(){
     const cfg=JOIN_STEPS[joinStep];
-    if(cfg.key==='email'){ joinFlow='email'; pierreSay(cfg.bubble); return; }
+    if(cfg.key==='email'){ joinFlow='email'; input.placeholder="you@email.com"; pierreSay(cfg.bubble); return; }
+    input.placeholder="Type a show, one at a time";
     const have=joinPicks[joinStep].length, need=cfg.target;
     const count = need ? (have+" of "+need) : (have+" added, optional");
     const chips = need ? null : [{label:(have?'Done':'Skip'), onClick:advanceJoin}];
@@ -523,7 +524,7 @@
     joinEmail=text; joinDone();
   }
   function joinDone(){
-    joinFlow=null; input.blur();
+    joinFlow=null; input.blur(); input.placeholder="Ask Pierre what to watch...";
     const f=joinPicks[0].length, c=joinPicks[1].length, w=joinPicks[2].length;
     // Populate the Log (and thereby Episodes) with the named shows.
     const out=[];
@@ -531,7 +532,12 @@
     joinPicks[1].forEach(s=>out.push({id:s.id,name:s.name,pattern:{kind:'beginning'}}));  // current
     joinPicks[2].forEach(s=>out.push({id:s.id,name:s.name,pattern:{kind:'beginning'}}));  // waiting
     if(out.length && window.parent!==window) window.parent.postMessage({type:'pierre:addToLog', shows:out}, '*');
-    pierreSay("You're in. "+f+" favorites, "+c+" current, "+w+" waiting. They are on your Log now. (Demo, no email is actually sent.)");
+    pierreSay("You're in. "+f+" favorites, "+c+" current, "+w+" waiting. Taking you to your Log now. (Demo, no email is actually sent.)");
+    // Give the Log a beat to take the shows, then rotate over to it.
+    if(window.parent!==window) setTimeout(()=>{
+      if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('log',{});
+      else window.parent.postMessage({type:'cube:rotateTo', face:'log', payload:{}}, '*');
+    }, 1400);
   }
 
   window.addEventListener('message',(e)=>{
