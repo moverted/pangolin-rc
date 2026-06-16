@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Feed</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --base:#17120e; --panel:#211a13; --panel-2:#2b2218; --line:#3a2f22;
+    --amber:#e89f3d; --text:#f3ebe0; --muted:#a7967f;
+    --display:"Space Grotesk",system-ui,sans-serif; --body:"Inter",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;background:#0c0907}
+  body{display:flex;align-items:center;justify-content:center;padding:16px;font-family:var(--body);color:var(--text)}
+  .face{position:relative;width:min(92vw,420px);height:min(92vw,420px);
+    background:radial-gradient(120% 80% at 50% -10%, #241b12 0%, var(--base) 60%);
+    border:1px solid var(--line);border-radius:18px;overflow:hidden;display:flex;flex-direction:column}
+  .head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px 8px;flex-shrink:0}
+  .label{font-family:var(--mono);font-size:12px;letter-spacing:.18em;color:var(--muted)}
+  .badge{font-family:var(--mono);font-size:8.5px;letter-spacing:.1em;color:var(--amber);border:1px solid var(--line);padding:3px 8px;border-radius:999px}
+  .body{flex:1;overflow:auto;padding:2px 16px 14px;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+  .item{padding:13px 0;border-top:1px solid var(--line)}
+  .item:first-child{border-top:0}
+  .itop{display:flex;align-items:center;gap:9px}
+  .ava{width:30px;height:30px;border-radius:50%;flex:0 0 auto;background:var(--panel-2);border:1px solid var(--line);
+    display:flex;align-items:center;justify-content:center;font-family:var(--display);font-weight:700;font-size:13px;color:var(--amber)}
+  .nm{font-family:var(--display);font-weight:600;font-size:13px}
+  .ctx{font-family:var(--mono);font-size:9px;color:var(--muted);margin-top:1px}
+  .ctx b{color:var(--amber);font-weight:500}
+  .cmt{font-size:13.5px;line-height:1.4;margin:7px 0 6px 39px}
+  .react{margin-left:39px;font-family:var(--mono);font-size:10px;color:var(--muted)}
+  .react b{color:var(--amber);font-weight:500}
+  .stub{font-family:var(--mono);font-size:8px;letter-spacing:.1em;color:var(--muted);opacity:.55;text-align:center;padding:7px;flex-shrink:0}
+</style>
+</head>
+<body>
+<div class="face">
+  <div class="head"><span class="label">FEED</span><span class="badge">COOLER CHAT</span></div>
+  <div class="body">
+    <div class="item">
+      <div class="itop"><div class="ava">M</div><div><div class="nm">Maya</div><div class="ctx"><b>Severance</b> S2 E4 . 12:03</div></div></div>
+      <div class="cmt">the elevator scene. nobody on that floor is okay and they all know it.</div>
+      <div class="react">&#9829; <b>14</b> . 3 replies</div>
+    </div>
+    <div class="item">
+      <div class="itop"><div class="ava">D</div><div><div class="nm">Dev</div><div class="ctx"><b>The Bear</b> S3 E1 . 02:41</div></div></div>
+      <div class="cmt">chef. CHEF. they did not have to open the season like that.</div>
+      <div class="react">&#9829; <b>8</b> . 1 reply</div>
+    </div>
+    <div class="item">
+      <div class="itop"><div class="ava">P</div><div><div class="nm">Pierre</div><div class="ctx"><b>The Traitors</b> . 41:10</div></div></div>
+      <div class="cmt">she is lying and the whole table knows it. this is the good kind of dinner.</div>
+      <div class="react">&#9829; <b>23</b> . 6 replies</div>
+    </div>
+    <div class="item">
+      <div class="itop"><div class="ava">S</div><div><div class="nm">Sam</div><div class="ctx"><b>Silo</b> S2 E6 . 18:55</div></div></div>
+      <div class="cmt">that reveal reordered my whole theory. starting the season over tonight.</div>
+      <div class="react">&#9829; <b>11</b> . 2 replies</div>
+    </div>
+  </div>
+  <div class="stub">DUMMY . feed face placeholder</div>
+</div>
+<script>
+if (window.parent !== window) {
+  document.documentElement.style.height = "100%";
+  document.body.style.padding = "0";
+  document.body.style.height = "100%";
+  document.body.style.alignItems = "stretch";
+  const face = document.querySelector(".face");
+  if (face) {
+    face.style.width = "100%"; face.style.height = "100%"; face.style.borderRadius = "0"; face.style.border = "0";
+    let s = 0, a = false;
+    face.addEventListener("touchstart", e => { if (e.touches.length === 2) { s = Math.hypot(e.touches[1].clientX - e.touches[0].clientX, e.touches[1].clientY - e.touches[0].clientY); a = true; } }, { passive: true });
+    face.addEventListener("touchmove", e => { if (!a || e.touches.length < 2) return; const d = Math.hypot(e.touches[1].clientX - e.touches[0].clientX, e.touches[1].clientY - e.touches[0].clientY); if (d < s * 0.72) { a = false; window.parent.postMessage({ type: "pangolin-back" }, "*"); } }, { passive: true });
+    face.addEventListener("touchend", () => { a = false; }, { passive: true });
+  }
+}
+</script>
+</body>
+</html>
