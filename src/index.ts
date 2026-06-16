@@ -9,6 +9,7 @@ import { accessRoutes }     from './handlers/access';
 import { eventRoutes }      from './handlers/events';
 import { remoteRoutes }     from './handlers/remote';
 import { pierreRoutes }     from './handlers/pierre';
+import { profileRoutes }    from './handlers/profile';
 import { processQueue }     from './queue';
 
 export { ResourceCoordinator } from './do/resource-coordinator';
@@ -25,6 +26,7 @@ app.route('/submissions', accessRoutes);
 app.route('/events',      eventRoutes);
 app.route('/remote',      remoteRoutes);
 app.route('/pierre',      pierreRoutes);
+app.route('/profile',     profileRoutes);
 
 app.notFound((c) => c.json({ error: 'Not found' }, 404));
 app.onError((err, c) => {

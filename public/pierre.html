@@ -333,6 +333,8 @@
     if(!text || busy) return;
     addUser(text);
     input.value = '';
+    // Account flow (login / signup / add device): typed lines feed the step.
+    if(acctFlow){ input.focus(); acctStep(text); return; }
     // Join intake: typed lines are show searches / the email.
     if(joinFlow==='picking'){ input.focus(); joinSearch(text); return; }
     if(joinFlow==='email'){ joinSetEmail(text); return; }
@@ -386,7 +388,7 @@
 
   function enterAddFlow(vlog){
     addHistory=Array.isArray(vlog)?vlog:[];
-    addFlow='name'; addFailCount=0; joinFlow=null;
+    addFlow='name'; addFailCount=0; joinFlow=null; acctFlow=null;
     history.length=0;                 // fresh slate for the LLM history too
     log.innerHTML='';
     pierreSay(tod()+". What do you want to add, or just put on right now?");
@@ -476,7 +478,7 @@
   ];
 
   function enterJoinFlow(){
-    addFlow=null; joinFlow='picking'; joinStep=0; joinPicks=[[],[],[]]; joinEmail="";
+    addFlow=null; acctFlow=null; joinFlow='picking'; joinStep=0; joinPicks=[[],[],[]]; joinEmail="";
     history.length=0; log.innerHTML='';
     pierreSay(tod()+". I am Pierre, let's build your room.");
     promptJoinStep();
@@ -540,11 +542,85 @@
     }, 1400);
   }
 
+  /* ---- Account flow: login / signup and add-device, backed by D1 ------------
+     Email is the key (SEAM:identity, no password yet). Signup captures email,
+     username, cell phone; the device skill captures type + location. Both write
+     through the Worker /profile API and nudge the Profile face to refresh. */
+  let acctFlow=null, acctThen=null, acctEmail='', acctUser='', pendDevType=null;
+  function pgSession(){ try{ return localStorage.getItem('pg_user')||''; }catch(_){ return ''; } }
+  function pgSet(email){ try{ localStorage.setItem('pg_user',email); localStorage.setItem('pg_refresh',String(Date.now())); }catch(_){} }
+  function pgRefresh(){ try{ localStorage.setItem('pg_refresh',String(Date.now())); }catch(_){} }
+  function nav(face,payload){
+    if(window.parent===window) return;
+    if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo(face,payload||{});
+    else window.parent.postMessage({type:'cube:rotateTo',face,payload:payload||{}},'*');
+  }
+
+  function enterLoginFlow(then){
+    addFlow=null; joinFlow=null; acctThen=then||null; acctEmail=''; acctUser='';
+    acctFlow='login-email'; history.length=0; log.innerHTML='';
+    input.placeholder='you@email.com';
+    pierreSay(tod()+". Let's set you up. What email should I use?");
+  }
+  function enterDeviceFlow(){
+    addFlow=null; joinFlow=null;
+    if(pgSession()){ log.innerHTML=''; pierreSay(tod()+". Let's connect a device."); deviceTypePrompt(); }
+    else enterLoginFlow('device');
+  }
+  function deviceTypePrompt(){
+    acctFlow='dev-type';
+    pierreSay("What are we connecting?", [
+      {label:'LG TV',            onClick:()=>pickDevType('LG TV')},
+      {label:'Amazon Fire Cube', onClick:()=>pickDevType('Amazon Fire Cube')},
+      {label:'Other',            onClick:()=>pickDevType('Other')}
+    ], true);
+  }
+  function pickDevType(t){ pendDevType=t; acctFlow='dev-location'; input.placeholder='e.g. living room';
+    pierreSay("Where does the "+t+" live?"); input.focus(); }
+
+  async function acctStep(text){
+    if(acctFlow==='login-email'){
+      if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)){ input.focus(); pierreSay("That email looks off. Try again?"); return; }
+      acctEmail=text.toLowerCase(); acctFlow='login-username'; input.placeholder='your name';
+      pierreSay("Got it. What should I call you?"); input.focus(); return;
+    }
+    if(acctFlow==='login-username'){
+      acctUser=text; acctFlow='login-phone'; input.placeholder='cell number';
+      pierreSay("And a cell number, so I can ping you when a show you are waiting on comes back?"); input.focus(); return;
+    }
+    if(acctFlow==='login-phone'){
+      showTyping();
+      try{
+        const r=await fetch(API+'/profile/signup',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({email:acctEmail, username:acctUser, phone:text})});
+        clearTyping(); if(!r.ok) throw 0; pgSet(acctEmail);
+      }catch(e){ clearTyping(); pierreSay("Could not save that just now. The database is past me sometimes, I am only a pangolin. Try again, or get Ted?", tedChip()); return; }
+      if(acctThen==='device'){ acctThen=null; pierreSay("You're in, "+acctUser+"."); deviceTypePrompt(); return; }
+      acctFlow=null; input.placeholder='Ask Pierre what to watch...';
+      pierreSay("You're in, "+acctUser+". Taking you to your profile.");
+      setTimeout(()=>nav('profile'),1200); return;
+    }
+    if(acctFlow==='dev-location'){
+      const email=pgSession();
+      showTyping();
+      try{
+        const r=await fetch(API+'/profile/'+encodeURIComponent(email)+'/devices',{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({type:pendDevType, location:text})});
+        clearTyping(); if(!r.ok) throw 0; pgRefresh();
+      }catch(e){ clearTyping(); pierreSay("Could not store that device. Try again, or get Ted?", tedChip()); return; }
+      acctFlow=null; input.placeholder='Ask Pierre what to watch...';
+      pierreSay("Done. "+pendDevType+" in "+text+", saved to your account. Taking you to your profile.");
+      setTimeout(()=>nav('profile'),1200); return;
+    }
+  }
+
   window.addEventListener('message',(e)=>{
     if(e.data && e.data.type==='cube:payload' && e.data.face==='pierre'){
       const p=e.data.payload||{};
       if(p.intent==='add') enterAddFlow(p.history||[]);
       else if(p.intent==='join') enterJoinFlow();
+      else if(p.intent==='login') enterLoginFlow(p.then);
+      else if(p.intent==='device') enterDeviceFlow();
     }
   });
 

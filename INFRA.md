@@ -65,7 +65,25 @@ or changed.
   `wrangler secret put ANTHROPIC_API_KEY`. For local dev, put it in `.dev.vars`.
   Until it is set, Pierre politely fails ("The signal dropped").
 
+### 4. Accounts database — D1 `pangolin-rc` (tables: `users`, `devices`, `watch`)
+
+- **What it is:** Cloudflare D1 is the project's SQL database (already existed
+  for the core engine). We added tables for signed-up users and their stuff.
+- **What it stores:** One row per signed-up person in `users` (email = the key,
+  plus username, cell phone, and a profile-photo slot). `devices` holds each
+  person's connected devices (e.g. LG TV in the gym garage, Fire Cube in the
+  living room). `watch` is for shows + where they are within them + watch
+  history (schema in place; wiring is the next step).
+- **Who writes/reads it:** The Worker's account API (`src/handlers/profile.ts`):
+  `POST /profile/signup` (create or update a user), `GET /profile/{email}`
+  (user + devices), `POST /profile/{email}/devices` (add a device). The Profile
+  face reads it; Pierre's login and add-device skills write to it.
+- **Identity note:** Email is the only identity for now — no password or
+  verification yet (that is a later security layer). The profile photo still
+  lives in the browser for now, not the database.
+
 ---
 
-_Last updated: 2026-06-14 — added Pierre chat Worker proxy (`/pierre/chat`) +
-`ANTHROPIC_API_KEY` secret._
+_Last updated: 2026-06-16 — added D1 accounts (users/devices/watch) + the
+Worker `/profile` API, the Pierre login + add-device skills, and made
+`cube_face_profile.html` the live Profile face._

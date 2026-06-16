@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>PangolinRC · Profile</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#08080e;
+    --bg-2:#0b0b14;
+    --face-top:#241c12;
+    --face-bot:#15100a;
+    --amber:#efa83c;
+    --amber-dim:#b8853a;
+    --text:#f3efe7;
+    --muted:#8b8478;
+    --muted-2:#5d574c;
+    --line:rgba(239,168,60,.12);
+    --line-soft:rgba(239,168,60,.07);
+    --card:rgba(239,168,60,.04);
+    --card-line:rgba(239,168,60,.16);
+    --face-edge:rgba(239,168,60,.14);
+    --btn-line:rgba(255,255,255,.20);
+    --btn-ico:#b6b1a6;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;height:100%;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:'Inter',system-ui,sans-serif;
+    display:flex;justify-content:center;
+    min-height:100dvh;
+  }
+  .device{
+    position:relative;
+    width:100%;max-width:430px;
+    min-height:100dvh;
+    display:flex;flex-direction:column;
+    background:
+      radial-gradient(circle at 12% 18%, rgba(120,120,150,.05) 0 1px, transparent 1px) 0 0/46px 46px,
+      radial-gradient(circle at 60% 70%, rgba(120,120,150,.04) 0 1px, transparent 1px) 0 0/64px 64px,
+      linear-gradient(180deg,var(--bg) 0%, var(--bg-2) 100%);
+    overflow:hidden;
+  }
+
+  /* status bar */
+  .statusbar{
+    display:flex;justify-content:space-between;align-items:center;
+    padding:14px 26px 0;font-family:'JetBrains Mono',monospace;
+    font-size:16px;font-weight:500;color:var(--text);
+  }
+  .statusbar .right{display:flex;align-items:center;gap:10px;font-size:13px;}
+  .battery{border:1.5px solid var(--text);border-radius:4px;padding:1px 4px;font-size:11px;font-weight:600;position:relative;}
+  .battery::after{content:"";position:absolute;right:-3px;top:4px;width:2px;height:7px;background:var(--text);border-radius:0 1px 1px 0;}
+
+  /* stage : the cube sits in space; the face is a square */
+  .stage{flex:1;display:flex;align-items:center;justify-content:center;padding:18px;}
+
+  .face{
+    position:relative;
+    width:min(100% , 420px);
+    aspect-ratio:1 / 1;
+    display:flex;flex-direction:column;
+    background:linear-gradient(180deg,var(--face-top) 0%, var(--face-bot) 78%);
+    border:1px solid var(--face-edge);
+    border-radius:22px;
+    overflow:hidden;
+    box-shadow:0 22px 60px -28px rgba(0,0,0,.9), inset 0 1px 0 rgba(255,255,255,.03);
+  }
+  /* fade hint at the bottom edge of the square so scroll reads */
+  .face::after{
+    content:"";position:absolute;left:0;right:0;bottom:0;height:42px;pointer-events:none;
+    background:linear-gradient(180deg,rgba(21,16,10,0) 0%, var(--face-bot) 100%);
+    border-radius:0 0 22px 22px;
+  }
+
+  /* hero : stays in view */
+  .hero{padding:22px 22px 0;flex:none;}
+  .eyebrow{
+    display:flex;justify-content:space-between;align-items:center;
+    font-family:'JetBrains Mono',monospace;letter-spacing:.28em;
+    font-size:13px;color:var(--muted);text-transform:uppercase;
+  }
+  .member{
+    letter-spacing:.18em;font-size:10px;color:var(--amber);
+    border:1px solid rgba(239,168,60,.45);border-radius:999px;padding:5px 11px;
+  }
+  .id{display:flex;align-items:center;gap:16px;margin-top:18px;}
+  .avatar{
+    position:relative;width:70px;height:70px;border-radius:999px;
+    background:var(--amber);background-size:cover;background-position:center;
+    display:flex;align-items:center;justify-content:center;
+    font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:30px;color:#1a130a;
+    cursor:pointer;flex:none;border:none;padding:0;transition:transform .12s ease;
+  }
+  .avatar:active{transform:scale(.96);}
+  .avatar .initial.hidden{display:none;}
+  .avatar .cam{
+    position:absolute;right:-2px;bottom:-2px;width:26px;height:26px;border-radius:999px;
+    background:#1a130a;border:2px solid var(--face-top);
+    display:flex;align-items:center;justify-content:center;
+  }
+  .avatar .cam svg{width:12px;height:12px;stroke:var(--amber);}
+  .id .name{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:29px;line-height:1;color:var(--text);}
+  .id .handle{font-family:'JetBrains Mono',monospace;font-size:14px;color:var(--muted);margin-top:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  .authbtn{background:none;border:1px solid rgba(239,168,60,.45);color:var(--amber);
+    font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.04em;padding:3px 9px;border-radius:999px;cursor:pointer;}
+  .authbtn:active{opacity:.6;}
+
+  .hero-rule{height:1px;background:var(--line);margin:18px 0 0;}
+
+  /* scroll region inside the square */
+  .scroll{
+    flex:1;overflow-y:auto;padding:6px 22px 26px;-webkit-overflow-scrolling:touch;
+    scrollbar-width:none;
+  }
+  .scroll::-webkit-scrollbar{display:none;}
+
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px;}
+  .stat{
+    background:var(--card);border:1px solid var(--card-line);border-radius:13px;
+    padding:15px 4px;text-align:center;
+  }
+  .stat .num{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:26px;color:var(--amber);line-height:1;}
+  .stat .lbl{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.16em;color:var(--muted);margin-top:8px;}
+
+  .section{margin-top:24px;}
+  .section h2{
+    font-family:'JetBrains Mono',monospace;letter-spacing:.24em;
+    font-size:14px;color:var(--muted);text-transform:uppercase;font-weight:400;margin:0;
+  }
+  .section .rule{height:1px;background:var(--line);margin-top:11px;}
+
+  .row{display:flex;align-items:center;gap:12px;padding:13px 0;border-bottom:1px solid var(--line-soft);}
+  .row:last-child{border-bottom:none;}
+  .dot{width:9px;height:9px;border-radius:2px;background:var(--amber);flex:none;}
+  .row .label{font-size:16px;color:var(--text);flex:1;}
+  .row .val{font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--muted);}
+
+  .dev-row{width:100%;background:none;border:none;border-bottom:1px solid var(--line-soft);
+    padding:13px 0;text-align:left;cursor:pointer;color:inherit;font:inherit;
+    display:flex;align-items:center;gap:12px;}
+  .dev-row:active{opacity:.6;}
+  .dev-row .label{font-size:16px;color:var(--text);flex:1;}
+  .dev-row .val{font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--amber-dim);}
+  .add-row{display:flex;align-items:center;gap:12px;padding:13px 0;width:100%;
+    background:none;border:none;text-align:left;cursor:pointer;color:inherit;font:inherit;}
+  .add-row:active{opacity:.6;}
+  .plus{width:9px;height:9px;position:relative;flex:none;}
+  .plus::before,.plus::after{content:"";position:absolute;background:var(--amber);}
+  .plus::before{left:3.5px;top:0;width:2px;height:9px;}
+  .plus::after{top:3.5px;left:0;height:2px;width:9px;}
+  .add-row .label{font-size:15px;color:var(--muted);font-family:'JetBrains Mono',monospace;letter-spacing:.04em;}
+
+  .placeholder{
+    text-align:center;font-family:'JetBrains Mono',monospace;
+    font-size:12px;letter-spacing:.18em;color:var(--muted-2);
+    margin-top:24px;text-transform:uppercase;
+  }
+
+  /* dock : persistent cube chrome, outside the face */
+  .dock{padding:0 26px calc(20px + env(safe-area-inset-bottom));}
+  .unlock{text-align:center;font-family:'JetBrains Mono',monospace;font-size:13px;
+    letter-spacing:.32em;color:var(--muted-2);text-transform:uppercase;margin-bottom:22px;}
+  .transport{display:flex;align-items:center;justify-content:space-between;}
+  .key{
+    background:none;border:1.4px solid var(--btn-line);border-radius:999px;
+    width:58px;height:58px;display:flex;align-items:center;justify-content:center;
+    cursor:pointer;transition:transform .1s ease, border-color .1s ease, background .1s ease;
+  }
+  .key svg{width:23px;height:23px;fill:var(--btn-ico);stroke:none;}
+  .key.center{width:76px;height:76px;border-color:rgba(255,255,255,.30);background:rgba(255,255,255,.03);}
+  .key.center svg{width:29px;height:29px;}
+  .key:active{transform:scale(.92);border-color:var(--amber);background:rgba(239,168,60,.10);}
+  .key:active svg{fill:var(--amber);}
+  .key.power svg{fill:none;stroke:var(--btn-ico);stroke-width:2.2;stroke-linecap:round;}
+  .key.power:active svg{fill:none;stroke:var(--amber);}
+  .key.back svg{fill:none;stroke:var(--btn-ico);stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;}
+  .key.back:active svg{stroke:var(--amber);fill:none;}
+
+  .toast{
+    position:fixed;left:50%;bottom:118px;transform:translateX(-50%) translateY(12px);
+    background:#1a140c;border:1px solid var(--card-line);color:var(--text);
+    font-family:'JetBrains Mono',monospace;font-size:13px;
+    padding:11px 16px;border-radius:10px;opacity:0;pointer-events:none;
+    transition:opacity .22s ease, transform .22s ease;max-width:80%;text-align:center;
+  }
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+  input[type=file]{display:none;}
+</style>
+</head>
+<body>
+  <div class="device">
+
+    <div class="statusbar">
+      <div class="left">9:43</div>
+      <div class="right"><span>signal</span><span class="battery">55</span></div>
+    </div>
+
+    <div class="stage">
+      <div class="face">
+
+        <!-- hero : stays in view -->
+        <div class="hero">
+          <div class="eyebrow">
+            <span>Profile</span>
+            <span class="member">MEMBER</span>
+          </div>
+          <div class="id">
+            <button class="avatar" id="avatar" aria-label="Add profile picture">
+              <span class="initial" id="initial">T</span>
+              <span class="cam" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M3 8.5A1.5 1.5 0 0 1 4.5 7h2L8 5h8l1.5 2h2A1.5 1.5 0 0 1 21 8.5v9A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5z"/><circle cx="12" cy="13" r="3.2"/></svg>
+              </span>
+            </button>
+            <div>
+              <div class="name" id="pname">Guest</div>
+              <div class="handle"><span id="phandle">not signed in</span><button class="authbtn" id="authBtn">log in</button></div>
+            </div>
+          </div>
+          <div class="hero-rule"></div>
+        </div>
+
+        <!-- content scrolls inside the square -->
+        <div class="scroll">
+          <div class="stats">
+            <div class="stat"><div class="num">128</div><div class="lbl">SHOWS</div></div>
+            <div class="stat"><div class="num">1,340</div><div class="lbl">EPISODES</div></div>
+            <div class="stat"><div class="num">$284</div><div class="lbl">SAVED</div></div>
+          </div>
+
+          <div class="section">
+            <h2>Stored Devices</h2>
+            <div class="rule"></div>
+            <div id="deviceList"></div>
+            <button class="add-row" id="addDevice">
+              <span class="plus"></span>
+              <span class="label">add device</span>
+            </button>
+          </div>
+
+          <div class="section">
+            <h2>Your Taste</h2>
+            <div class="rule"></div>
+            <div class="row"><span class="dot"></span><span class="label">Dark, slow, character-driven</span><span class="val">core</span></div>
+            <div class="row"><span class="dot"></span><span class="label">Tense reality competition</span><span class="val">rising</span></div>
+            <div class="row"><span class="dot"></span><span class="label">Prestige sci-fi</span><span class="val">steady</span></div>
+          </div>
+
+          <div class="section">
+            <h2>Status</h2>
+            <div class="rule"></div>
+            <div class="row"><span class="dot"></span><span class="label">Pangolin Score contributor</span><span class="val">tier 2</span></div>
+            <div class="row"><span class="dot"></span><span class="label">Subsidy active</span><span class="val">5 services</span></div>
+          </div>
+
+          <div class="placeholder">DUMMY . profile face placeholder</div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="dock">
+      <div class="unlock">PINCH TO UNLOCK</div>
+      <div class="transport">
+        <button class="key power" aria-label="Power">
+          <svg viewBox="0 0 24 24"><path d="M12 3v8"/><path d="M6.5 6.5a8 8 0 1 0 11 0"/></svg>
+        </button>
+        <button class="key" aria-label="Rewind">
+          <svg viewBox="0 0 24 24"><path d="M11 6 4 12l7 6V6zM20 6l-7 6 7 6V6z"/></svg>
+        </button>
+        <button class="key center" aria-label="Play">
+          <svg viewBox="0 0 24 24"><path d="M7 5l12 7-12 7V5z"/></svg>
+        </button>
+        <button class="key" aria-label="Fast forward">
+          <svg viewBox="0 0 24 24"><path d="M13 6l7 6-7 6V6zM4 6l7 6-7 6V6z"/></svg>
+        </button>
+        <button class="key back" aria-label="Back">
+          <svg viewBox="0 0 24 24"><path d="M19 12H6"/><path d="M11 7l-5 5 5 5"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+    <input type="file" id="picker" accept="image/*">
+  </div>
+
+<script>
+  const API = location.hostname === 'localhost' ? 'http://localhost:8787' : 'https://pangolin-rc.edward-m-willett.workers.dev';
+  const $ = id => document.getElementById(id);
+
+  // ---- avatar photo (client-side for now; DB/R2 photo is a follow-up) ----
+  const avatar=$('avatar'), picker=$('picker'), initial=$('initial');
+  function setAvatar(url){ avatar.style.backgroundImage="url('"+url+"')"; initial.classList.add('hidden'); }
+  try{ const saved=localStorage.getItem('pg_avatar'); if(saved) setAvatar(saved); }catch(_){}
+  avatar.addEventListener('click', ()=>picker.click());
+  picker.addEventListener('change', e=>{
+    const file=e.target.files&&e.target.files[0]; if(!file) return;
+    const r=new FileReader();
+    r.onload=ev=>{ const img=new Image(); img.onload=()=>{
+      const sz=240,c=document.createElement('canvas'); c.width=c.height=sz; const ctx=c.getContext('2d');
+      const s=Math.min(img.width,img.height); ctx.drawImage(img,(img.width-s)/2,(img.height-s)/2,s,s,0,0,sz,sz);
+      const url=c.toDataURL('image/jpeg',0.85); setAvatar(url); try{localStorage.setItem('pg_avatar',url);}catch(_){}
+    }; img.src=ev.target.result; };
+    r.readAsDataURL(file);
+  });
+
+  // ---- toast ----
+  const toast=$('toast'); let toastTimer;
+  function showToast(msg){ toast.textContent=msg; toast.classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>toast.classList.remove('show'),2200); }
+
+  // ---- account + devices, backed by D1 via the Worker ----
+  function session(){ try{ return localStorage.getItem('pg_user')||''; }catch(_){ return ''; } }
+  function nav(face, payload){
+    if(window.parent===window){ showToast('Pierre handles this in the cube'); return; }
+    if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo(face, payload||{});
+    else window.parent.postMessage({type:'cube:rotateTo', face, payload:payload||{}}, '*');
+  }
+  function renderDevices(devices){
+    const list=$('deviceList'); list.innerHTML='';
+    (devices||[]).forEach(dv=>{
+      const b=document.createElement('button'); b.className='dev-row';
+      b.innerHTML='<span class="dot"></span><span class="label"></span><span class="val"></span>';
+      b.querySelector('.label').textContent = dv.location || dv.type;
+      b.querySelector('.val').textContent = dv.type;
+      b.onclick=()=>showToast(dv.type+(dv.location?(' . '+dv.location):'')+' . manage in Pierre');
+      list.appendChild(b);
+    });
+  }
+  async function refresh(){
+    const email=session();
+    if(!email){
+      $('pname').textContent='Guest'; $('phandle').textContent='not signed in';
+      $('authBtn').textContent='log in'; $('authBtn').onclick=()=>nav('pierre',{intent:'login'});
+      $('deviceList').innerHTML=''; return;
+    }
+    $('authBtn').textContent='log out';
+    $('authBtn').onclick=()=>{ try{localStorage.removeItem('pg_user');}catch(_){} refresh(); };
+    $('phandle').textContent=email;
+    try{
+      const r=await fetch(API+'/profile/'+encodeURIComponent(email));
+      if(r.ok){ const d=await r.json(); if(d.user&&d.user.username) $('pname').textContent=d.user.username; renderDevices(d.devices); }
+    }catch(_){}
+  }
+  $('addDevice').addEventListener('click', ()=> nav('pierre', session()?{intent:'device'}:{intent:'login',then:'device'}) );
+  window.addEventListener('storage', e=>{ if(e.key==='pg_user'||e.key==='pg_refresh') refresh(); });
+  refresh();
+
+  // ---- cube embedding: hide phone chrome, fill the face, pinch back ----
+  if (window.parent !== window) {
+    const sb=document.querySelector('.statusbar'), dock=document.querySelector('.dock'),
+          dev=document.querySelector('.device'), stage=document.querySelector('.stage'), face=document.querySelector('.face');
+    if(sb) sb.style.display='none';
+    if(dock) dock.style.display='none';
+    document.documentElement.style.height='100%'; document.body.style.height='100%';
+    if(dev){ dev.style.minHeight='100%'; dev.style.height='100%'; dev.style.maxWidth='none'; }
+    if(stage){ stage.style.padding='0'; }
+    if(face){ face.style.width='100%'; face.style.height='100%'; face.style.maxWidth='none'; face.style.aspectRatio='unset'; face.style.borderRadius='0'; }
+    if(face){
+      let s=0,a=false;
+      face.addEventListener('touchstart',e=>{ if(e.touches.length===2){ s=Math.hypot(e.touches[1].clientX-e.touches[0].clientX,e.touches[1].clientY-e.touches[0].clientY); a=true; } },{passive:true});
+      face.addEventListener('touchmove',e=>{ if(!a||e.touches.length<2)return; const d=Math.hypot(e.touches[1].clientX-e.touches[0].clientX,e.touches[1].clientY-e.touches[0].clientY); if(d<s*0.72){a=false;window.parent.postMessage({type:'pangolin-back'},'*');} },{passive:true});
+      face.addEventListener('touchend',()=>{a=false;},{passive:true});
+    }
+  }
+</script>
+</body>
+</html>
