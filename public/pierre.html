@@ -337,6 +337,8 @@
     if(acctFlow){ input.focus(); acctStep(text); return; }
     // Join / Login: the email step branches; the picking step searches shows.
     if(joinFlow==='auth-email'){ input.focus(); joinAuthEmail(text); return; }
+    if(joinFlow==='login-pw'){ joinLoginPw(text); return; }
+    if(joinFlow==='set-pw'){ joinSetPw(text); return; }
     if(joinFlow==='picking'){ input.focus(); joinSearch(text); return; }
     // Add flow, name step: the typed line is a show name, not a chat turn.
     // Drop the keyboard so the result + choice chips show on the full face.
@@ -480,7 +482,7 @@
   function enterJoinFlow(){
     addFlow=null; acctFlow=null; joinFlow='auth-email'; joinStep=0; joinPicks=[[],[],[]]; joinEmail="";
     history.length=0; log.innerHTML='';
-    input.placeholder="you@email.com";
+    input.type='text'; input.placeholder="you@email.com";
     pierreSay(tod()+". New here or returning? Drop your email and I will know.");
   }
   async function joinAuthEmail(text){
@@ -490,18 +492,17 @@
     let user=null;
     try{ const r=await fetch(API+'/profile/'+encodeURIComponent(joinEmail)); if(r.ok){ user=(await r.json()).user; } }
     catch(e){}
-    if(user){                          // returning member -> log in
-      clearTyping(); pgSet(joinEmail); joinFlow=null; input.placeholder="Ask Pierre what to watch...";
-      pierreSay("Welcome back, "+(user.username||joinEmail)+". Taking you to your profile.");
-      setTimeout(()=>nav('profile'),1200);
-      return;
+    clearTyping();
+    if(user){                          // returning member -> greet by name, ask password
+      joinFlow='login-pw'; input.type='password'; input.placeholder='your password';
+      pierreSay("Welcome back, "+(user.username||joinEmail)+". What's your password?");
+      input.focus(); return;
     }
-    // new email -> try to claim a spot; the server enforces the 10-member cap
+    // new email -> claim a spot (server enforces the 10-member cap; password set at the end)
     let res=null;
     try{ const r=await fetch(API+'/profile/signup',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({email:joinEmail, username:joinEmail.split('@')[0]})}); if(r.ok) res=await r.json(); }
     catch(e){}
-    clearTyping();
     if(res && res.status==='member'){
       pgSet(joinEmail); joinFlow='picking'; joinStep=0;
       pierreSay("New here, and you made the cut. Let's build your room.");
@@ -515,6 +516,17 @@
     }
     pierreSay("Could not reach the front desk. I am a pangolin, the wires are past me sometimes. Try again, or get Ted?", tedChip());
   }
+  async function joinLoginPw(text){
+    showTyping();
+    let ok=false;
+    try{ const r=await fetch(API+'/profile/login',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({email:joinEmail, password:text})}); if(r.ok){ ok=(await r.json()).ok; } }
+    catch(e){}
+    clearTyping();
+    if(ok){ pgSet(joinEmail); joinFlow=null; input.type='text'; input.placeholder="Ask Pierre what to watch...";
+      pierreSay("In you go. Taking you to your profile."); setTimeout(()=>nav('profile'),1200); return; }
+    pierreSay("That's not the password. Try again?"); input.focus();
+  }
   function promptJoinStep(){
     const cfg=JOIN_STEPS[joinStep];
     input.placeholder="Type a show, one at a time";
@@ -525,8 +537,21 @@
   }
   function advanceJoin(){
     joinStep++;
-    if(joinStep>=JOIN_STEPS.length){ joinDone(); return; }
+    if(joinStep>=JOIN_STEPS.length){ joinAskPassword(); return; }
     promptJoinStep();
+  }
+  function joinAskPassword(){
+    joinFlow='set-pw'; input.type='password'; input.placeholder='create a password';
+    pierreSay("Last thing. Set a password so you can get back in.");
+    input.focus();
+  }
+  async function joinSetPw(text){
+    if(text.length<4){ input.focus(); pierreSay("Make it at least 4 characters."); return; }
+    showTyping();
+    try{ await fetch(API+'/profile/signup',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({email:joinEmail, password:text})}); }catch(e){}
+    clearTyping(); input.type='text';
+    joinFinalize();
   }
   async function joinSearch(text){
     showTyping();
@@ -552,8 +577,8 @@
     pierreSay("Added "+show.name+". "+(need?(have+" of "+need+", keep going"):(have+" so far, add more or say skip")),
       need?null:[{label:'Done', onClick:advanceJoin}], true);
   }
-  async function joinDone(){
-    joinFlow=null; input.blur(); input.placeholder="Ask Pierre what to watch...";
+  async function joinFinalize(){
+    joinFlow=null; input.blur(); input.type='text'; input.placeholder="Ask Pierre what to watch...";
     const f=joinPicks[0].length, c=joinPicks[1].length, w=joinPicks[2].length;
     // Account was already created (and logged in) at the email step.
     // Populate the Log (and thereby Episodes) with the named shows.
@@ -589,7 +614,7 @@
   function enterDeviceFlow(){
     addFlow=null; joinFlow=null;
     if(pgSession()){ log.innerHTML=''; pierreSay(tod()+". Let's connect a device."); deviceTypePrompt(); }
-    else enterLoginFlow('device');
+    else enterJoinFlow();   // must log in first (password-aware JOIN flow)
   }
   function deviceTypePrompt(){
     acctFlow='dev-type';
@@ -643,7 +668,7 @@
       const p=e.data.payload||{};
       if(p.intent==='add') enterAddFlow(p.history||[]);
       else if(p.intent==='join') enterJoinFlow();
-      else if(p.intent==='login') enterLoginFlow(p.then);
+      else if(p.intent==='login') enterJoinFlow();
       else if(p.intent==='device') enterDeviceFlow();
     }
   });

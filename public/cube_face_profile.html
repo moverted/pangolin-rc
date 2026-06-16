@@ -335,7 +335,7 @@
     const email=session();
     if(!email){
       $('pname').textContent='Guest'; $('phandle').textContent='not signed in';
-      $('authBtn').textContent='log in'; $('authBtn').onclick=()=>nav('pierre',{intent:'login'});
+      $('authBtn').textContent='log in'; $('authBtn').onclick=()=>nav('pierre',{intent:'join'});
       $('deviceList').innerHTML=''; return;
     }
     $('authBtn').textContent='log out';
@@ -347,7 +347,7 @@
       if(r.ok){ const d=await r.json(); if(d.user&&d.user.username) $('pname').textContent=d.user.username; renderDevices(d.devices); }
     }catch(_){}
   }
-  $('addDevice').addEventListener('click', ()=> nav('pierre', session()?{intent:'device'}:{intent:'login',then:'device'}) );
+  $('addDevice').addEventListener('click', ()=> nav('pierre', session()?{intent:'device'}:{intent:'join'}) );
   window.addEventListener('storage', e=>{ if(e.key==='pg_user'||e.key==='pg_refresh') refresh(); });
   refresh();
 
