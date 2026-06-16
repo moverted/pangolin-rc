@@ -343,6 +343,7 @@
     $('phandle').textContent=email;
     try{
       const r=await fetch(API+'/profile/'+encodeURIComponent(email));
+      if(r.status===404){ try{localStorage.removeItem('pg_user');}catch(_){} return refresh(); }  // account gone -> sign out
       if(r.ok){ const d=await r.json(); if(d.user&&d.user.username) $('pname').textContent=d.user.username; renderDevices(d.devices); }
     }catch(_){}
   }
