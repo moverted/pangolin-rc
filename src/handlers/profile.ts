@@ -36,7 +36,7 @@ profileRoutes.get('/:email', async (c) => {
   const user = await c.env.DB.prepare('SELECT * FROM users WHERE email = ?').bind(email).first();
   if (!user) return c.json({ error: 'not found' }, 404);
   const devices = await c.env.DB
-    .prepare('SELECT id, type, location, created_at FROM devices WHERE user_email = ? ORDER BY created_at')
+    .prepare('SELECT id, type, location, ip, model, created_at FROM devices WHERE user_email = ? ORDER BY created_at')
     .bind(email).all();
   return c.json({ user, devices: devices.results || [] });
 });
@@ -50,19 +50,21 @@ profileRoutes.post('/:email/devices', async (c) => {
   try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
   const type = str(body.type, 60);
   const location = str(body.location, 80);
+  const ip = str(body.ip, 64) || null;
+  const model = str(body.model, 80) || null;
   if (!type) return c.json({ error: 'type required' }, 400);
   const id = crypto.randomUUID();
   await c.env.DB
-    .prepare('INSERT INTO devices (id, user_email, type, location, created_at) VALUES (?, ?, ?, ?, ?)')
-    .bind(id, email, type, location, Date.now()).run();
-  return c.json({ device: { id, type, location } });
+    .prepare('INSERT INTO devices (id, user_email, type, location, ip, model, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .bind(id, email, type, location, ip, model, Date.now()).run();
+  return c.json({ device: { id, type, location, ip, model } });
 });
 
 // List a user's devices.
 profileRoutes.get('/:email/devices', async (c) => {
   const email = c.req.param('email').toLowerCase();
   const devices = await c.env.DB
-    .prepare('SELECT id, type, location, created_at FROM devices WHERE user_email = ? ORDER BY created_at')
+    .prepare('SELECT id, type, location, ip, model, created_at FROM devices WHERE user_email = ? ORDER BY created_at')
     .bind(email).all();
   return c.json({ devices: devices.results || [] });
 });

@@ -335,9 +335,9 @@
     input.value = '';
     // Account flow (login / signup / add device): typed lines feed the step.
     if(acctFlow){ input.focus(); acctStep(text); return; }
-    // Join intake: typed lines are show searches / the email.
+    // Join / Login: the email step branches; the picking step searches shows.
+    if(joinFlow==='auth-email'){ input.focus(); joinAuthEmail(text); return; }
     if(joinFlow==='picking'){ input.focus(); joinSearch(text); return; }
-    if(joinFlow==='email'){ joinSetEmail(text); return; }
     // Add flow, name step: the typed line is a show name, not a chat turn.
     // Drop the keyboard so the result + choice chips show on the full face.
     if(addFlow==='name'){ input.blur(); resolveShowName(text); return; }
@@ -465,27 +465,44 @@
         payload:{show:{id:show.id,name:show.name}, pattern, addToLog:true}}, '*');
   }
 
-  /* ---- Join intake flow ------------------------------------------------------
-     The cube's Join button hands off here. Same questions as the in-face intake,
-     asked in Pierre's chat: five favorites, three current, optional "waiting on",
-     then email. TVMaze-validated picks; capture only (demo, nothing is sent). */
+  /* ---- Join / Login flow -----------------------------------------------------
+     The cube's Join/Login button hands off here. Pierre asks for an email first
+     and branches: a known email logs in; a new email runs the intake (five
+     favorites, three current, optional "waiting on"), then creates the account
+     and populates the Log. TVMaze-validated picks. */
   let joinFlow=null, joinStep=0, joinPicks=[[],[],[]], joinEmail="";
   const JOIN_STEPS=[
     {key:"favorites", target:5, bubble:"Let's build your room. Drop five all time favorites, one at a time."},
     {key:"current",   target:3, bubble:"Nice. Now three you are watching this week."},
-    {key:"future",    target:0, bubble:"Anything you are waiting on? Add a few, or say skip."},
-    {key:"email",     target:0, bubble:"Last step. What email address should I send your room to? Type it below."}
+    {key:"future",    target:0, bubble:"Anything you are waiting on? Add a few, or say skip."}
   ];
 
   function enterJoinFlow(){
-    addFlow=null; acctFlow=null; joinFlow='picking'; joinStep=0; joinPicks=[[],[],[]]; joinEmail="";
+    addFlow=null; acctFlow=null; joinFlow='auth-email'; joinStep=0; joinPicks=[[],[],[]]; joinEmail="";
     history.length=0; log.innerHTML='';
-    pierreSay(tod()+". I am Pierre, let's build your room.");
+    input.placeholder="you@email.com";
+    pierreSay(tod()+". New here or returning? Drop your email and I will know.");
+  }
+  async function joinAuthEmail(text){
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)){ input.focus(); pierreSay("That email looks off. Try again?"); return; }
+    joinEmail=text.toLowerCase();
+    showTyping();
+    let user=null;
+    try{ const r=await fetch(API+'/profile/'+encodeURIComponent(joinEmail)); if(r.ok){ user=(await r.json()).user; } }
+    catch(e){ /* treat as new on a network error */ }
+    clearTyping();
+    if(user){                          // returning -> log in
+      pgSet(joinEmail); joinFlow=null; input.placeholder="Ask Pierre what to watch...";
+      pierreSay("Welcome back, "+(user.username||joinEmail)+". Taking you to your profile.");
+      setTimeout(()=>nav('profile'),1200);
+      return;
+    }
+    joinFlow='picking'; joinStep=0;    // new -> build the room
+    pierreSay("New here. Let's build your room.");
     promptJoinStep();
   }
   function promptJoinStep(){
     const cfg=JOIN_STEPS[joinStep];
-    if(cfg.key==='email'){ joinFlow='email'; input.placeholder="you@email.com"; pierreSay(cfg.bubble); return; }
     input.placeholder="Type a show, one at a time";
     const have=joinPicks[joinStep].length, need=cfg.target;
     const count = need ? (have+" of "+need) : (have+" added, optional");
@@ -521,25 +538,23 @@
     pierreSay("Added "+show.name+". "+(need?(have+" of "+need+", keep going"):(have+" so far, add more or say skip")),
       need?null:[{label:'Done', onClick:advanceJoin}], true);
   }
-  function joinSetEmail(text){
-    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)){ input.focus(); pierreSay("That email looks off. Try again?", null, true); return; }
-    joinEmail=text; joinDone();
-  }
-  function joinDone(){
+  async function joinDone(){
     joinFlow=null; input.blur(); input.placeholder="Ask Pierre what to watch...";
     const f=joinPicks[0].length, c=joinPicks[1].length, w=joinPicks[2].length;
+    // Create the account from the email captured up front, and log in.
+    if(joinEmail){
+      try{ await fetch(API+'/profile/signup',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({email:joinEmail, username:joinEmail.split('@')[0]})}); }catch(e){}
+      pgSet(joinEmail);
+    }
     // Populate the Log (and thereby Episodes) with the named shows.
     const out=[];
     joinPicks[0].forEach(s=>out.push({id:s.id,name:s.name,pattern:{kind:'live'}}));      // favorites: caught up
     joinPicks[1].forEach(s=>out.push({id:s.id,name:s.name,pattern:{kind:'beginning'}}));  // current
     joinPicks[2].forEach(s=>out.push({id:s.id,name:s.name,pattern:{kind:'beginning'}}));  // waiting
     if(out.length && window.parent!==window) window.parent.postMessage({type:'pierre:addToLog', shows:out}, '*');
-    pierreSay("You're in. "+f+" favorites, "+c+" current, "+w+" waiting. Taking you to your Log now. (Demo, no email is actually sent.)");
-    // Give the Log a beat to take the shows, then rotate over to it.
-    if(window.parent!==window) setTimeout(()=>{
-      if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('log',{});
-      else window.parent.postMessage({type:'cube:rotateTo', face:'log', payload:{}}, '*');
-    }, 1400);
+    pierreSay("You're in. "+f+" favorites, "+c+" current, "+w+" waiting. Taking you to your Log now.");
+    if(window.parent!==window) setTimeout(()=>nav('log'), 1400);
   }
 
   /* ---- Account flow: login / signup and add-device, backed by D1 ------------
