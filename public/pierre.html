@@ -214,6 +214,9 @@
     ? 'http://localhost:8787'
     : 'https://pangolin-rc.edward-m-willett.workers.dev';
 
+  // Demo build (remote.demo.pangolinrc.com, or ?demo=1 preview): Pierre's chat is closed.
+  const IS_DEMO = location.hostname.split('.').includes('demo') || new URLSearchParams(location.search).has('demo');
+
   // Cloudflare Turnstile bot check. Each token is single-use, so we render the
   // widget once and reset it after every send to mint a fresh token.
   const TURNSTILE_SITEKEY = '0x4AAAAAADk1FhcGAkmQohVa';
@@ -329,6 +332,7 @@
   }
 
   function submit(){
+    if(IS_DEMO) return;
     const text = input.value.trim();
     if(!text || busy) return;
     addUser(text);
@@ -665,6 +669,7 @@
 
   window.addEventListener('message',(e)=>{
     if(e.data && e.data.type==='cube:payload' && e.data.face==='pierre'){
+      if(IS_DEMO) return;   // demo: Pierre's flows are off
       const p=e.data.payload||{};
       if(p.intent==='add') enterAddFlow(p.history||[]);
       else if(p.intent==='join') enterJoinFlow();
@@ -675,6 +680,11 @@
 
   /* Pierre opens. Seed line so the room is never empty. Yours to rewrite. */
   window.addEventListener('load', ()=>{
+    if (IS_DEMO) {
+      addPierre("Evening. I am Pierre. I am off the clock for this demo, so the chat is closed. Have a look around the other faces.");
+      input.disabled = true; send.disabled = true; input.placeholder = "chat closed for the demo";
+      return;
+    }
     addPierre("Evening. I am Pierre. Tell me what you are in the mood for and I will keep your queue moving. Or just tell me what you watched last, I have opinions.");
     // Standalone only. When embedded in the cube, the parent focuses this input
     // inside the selecting gesture so iOS raises the keyboard (a load-time focus
@@ -733,6 +743,12 @@
         else _dblTap = now;
       });
     }
+    // double-tap empty chat area to exit too
+    let _dt2 = 0;
+    document.addEventListener('click', e => {
+      if (e.target.closest('button,a,input,textarea,select,label,[role=button],.chip,.chips,.send')) { _dt2 = 0; return; }
+      const n = Date.now(); if (n - _dt2 < 350) { _dt2 = 0; window.parent.postMessage({type:'pangolin-back'}, '*'); } else _dt2 = n;
+    }, true);
   }
 </script>
 </body>

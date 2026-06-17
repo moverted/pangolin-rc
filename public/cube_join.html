@@ -172,6 +172,11 @@ const mark = `<div class="mark"><svg viewBox="0 0 24 24" fill="none">
   <path d="M9 9.5l2-1M9.5 12l2.2-1M10 14.5l2.3-1" stroke="#1a130b" stroke-width="1.3" stroke-linecap="round"/>
   <circle cx="15.4" cy="10.6" r="1" fill="#1a130b"/></svg></div>`;
 
+// Demo build (remote.demo.pangolinrc.com, or ?demo=1 preview): hide the Join button.
+if (location.hostname.split('.').includes('demo') || new URLSearchParams(location.search).has('demo')) {
+  const jb = document.getElementById('joinBtn'); if (jb) jb.style.display = 'none';
+}
+
 document.getElementById("joinBtn").onclick = () => {
   // In the cube, hand the intake to the real Pierre face. Standalone, run the
   // in-face intake as before.
@@ -338,6 +343,11 @@ if (window.parent !== window) {
       if (d < _pinchStart * 0.72) { _pinchActive = false; window.parent.postMessage({ type: "pangolin-back" }, "*"); }
     }, { passive: true });
     faceEl.addEventListener("touchend", () => { _pinchActive = false; }, { passive: true });
+    let _dt=0;
+    document.addEventListener("click", e=>{
+      if(e.target.closest("button,a,input,textarea,select,label,[role=button],.tile,.crow,.savings,.res")){ _dt=0; return; }
+      const n=Date.now(); if(n-_dt<350){ _dt=0; window.parent.postMessage({type:"pangolin-back"},"*"); } else _dt=n;
+    }, true);
   }
 }
 </script>

@@ -562,11 +562,15 @@ const FACE_OVERLAYS = {
   },
 };
 
+// Demo mode: the real demo subdomain, or a ?demo=1 preview on any host. Pass it
+// down to the face iframes (their own URL doesn't inherit the shell's query).
+const DEMO = location.hostname.split('.').includes('demo') || new URLSearchParams(location.search).has('demo');
+
 for (const cfg of Object.values(FACE_OVERLAYS)) {
   const el = document.createElement('div');
   el.className = 'face-overlay';
   const frame = document.createElement('iframe');
-  frame.src = cfg.src;
+  frame.src = cfg.src + (DEMO ? '?demo=1' : '');
   el.appendChild(frame);
   document.body.appendChild(el);
   cfg.el = el; cfg.frame = frame; cfg._op = 0; cfg._active = false; cfg._tx = '';

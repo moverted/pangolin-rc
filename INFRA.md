@@ -48,6 +48,12 @@ or changed.
 - **Note:** This Pages site is the front-end only. The app's data/commands run
   on a separate Cloudflare **Worker** (`pangolin-rc`), which is what talks to
   the R2 bucket, D1 database, etc.
+- **Demo subdomain:** `remote.demo.pangolinrc.com` is a second custom domain on
+  the *same* Pages project (no separate copy). On a `demo` host (or with
+  `?demo=1` on any URL) the app runs in demo mode: Pierre's chat is closed and
+  the Join button is hidden; everything else is identical. It shares the same
+  Worker and database as production. Needs a DNS CNAME `remote.demo` →
+  `pangolin-rc.pages.dev` (proxied) to go live.
 
 ### 3. Pierre chat proxy — Worker route `POST /pierre/chat`
 

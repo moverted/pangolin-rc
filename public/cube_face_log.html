@@ -569,10 +569,24 @@ document.getElementById("savpop").addEventListener("click",()=>document.getEleme
 /* Pinch to contract back to the cube. The face overlay captures touches when
    active, so it needs its own way out, like the other faces. */
 if(window.parent!==window){
+  // Fill the cube face edge to edge: no card, no rounded corners, no black margin.
+  // With the face at full height its flex layout pins the head/tabbar and only
+  // the shows pane (.scroll) scrolls.
+  const _de=document.documentElement, _b=document.body;
+  _de.style.height="100%"; _de.style.padding="0"; _de.style.display="block"; _de.style.overflow="hidden";
+  _b.style.height="100%"; _b.style.minHeight="100%"; _b.style.padding="0"; _b.style.margin="0";
+  _b.style.display="block"; _b.style.overflow="hidden";
+  face.style.width="100%"; face.style.height="100%"; face.style.maxWidth="none";
+  face.style.aspectRatio="unset"; face.style.borderRadius="0"; face.style.border="0";
   let _ps=0,_pa=false;
   face.addEventListener("touchstart",e=>{ if(e.touches.length===2){ _ps=Math.hypot(e.touches[1].clientX-e.touches[0].clientX,e.touches[1].clientY-e.touches[0].clientY); _pa=true; } },{passive:true});
   face.addEventListener("touchmove",e=>{ if(!_pa||e.touches.length<2)return; const d=Math.hypot(e.touches[1].clientX-e.touches[0].clientX,e.touches[1].clientY-e.touches[0].clientY); if(d<_ps*0.72){ _pa=false; window.parent.postMessage({type:"pangolin-back"},"*"); } },{passive:true});
   face.addEventListener("touchend",()=>{_pa=false;},{passive:true});
+  let _dt=0;
+  document.addEventListener("click",e=>{
+    if(e.target.closest("button,a,input,textarea,select,label,[role=button],.tile,.crow,.savings,.res")){ _dt=0; return; }
+    const n=Date.now(); if(n-_dt<350){ _dt=0; window.parent.postMessage({type:"pangolin-back"},"*"); } else _dt=n;
+  }, true);
 }
 </script>
 </body>
