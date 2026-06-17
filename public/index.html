@@ -783,11 +783,24 @@ bindRemote('btn-rw',   'rw');
 bindRemote('btn-ff',   'ff');
 bindRemote('btn-back', 'back');
 
-// ── The play button launches whatever the Episode face currently has loaded ──
-// We only have the show name (from TVMaze), so we open a Netflix search for it —
-// as deep as we can go without a per-show title-id map — and mark a start time so
-// the Episode minute bar can guess your position when you return.
-let currentEpisode = null;   // {tvmazeId, name, season, number, runtime} reported by the Episode face
+// ── The play button launches whatever the Episode face has loaded, on its own
+// streamer. The Episode reports the show's service (from TVMaze's web channel /
+// network); we open a deep search for the show on that service. Without a
+// per-show title-id map this search is as deep as we can go generically — refine
+// per service in live testing. We also mark a start time for the minute-bar guess.
+function serviceLink(service, q){
+  const s = (service||'').toLowerCase(), enc = encodeURIComponent(q);
+  if (s.includes('netflix'))                  return 'https://www.netflix.com/search?q=' + enc;
+  if (s.includes('hulu'))                     return 'https://www.hulu.com/search?q=' + enc;
+  if (s.includes('max') || s.includes('hbo')) return 'https://play.max.com/search?q=' + enc;
+  if (s.includes('disney'))                   return 'https://www.disneyplus.com/search?q=' + enc;
+  if (s.includes('prime') || s.includes('amazon')) return 'https://www.amazon.com/s?k=' + enc + '&i=instant-video';
+  if (s.includes('apple'))                    return 'https://tv.apple.com/search?term=' + enc;
+  if (s.includes('peacock'))                  return 'https://www.peacocktv.com/search?q=' + enc;
+  if (s.includes('paramount'))                return 'https://www.paramountplus.com/search/?query=' + enc;
+  return 'https://www.justwatch.com/us/search?q=' + enc;   // unknown streamer → where-to-watch aggregator
+}
+let currentEpisode = null;   // {tvmazeId, name, season, number, runtime, service} from the Episode face
 {
   const btn = document.getElementById('btn-play');
   btn.addEventListener('click', () => {
@@ -795,7 +808,7 @@ let currentEpisode = null;   // {tvmazeId, name, season, number, runtime} report
     btn.classList.add('sent');
     setTimeout(() => btn.classList.remove('sent'), 180);
     try { localStorage.setItem('pg_launch', JSON.stringify({ ...currentEpisode, startedAt: Date.now() })); } catch {}
-    window.location.href = 'https://www.netflix.com/search?q=' + encodeURIComponent(currentEpisode.name);
+    window.location.href = serviceLink(currentEpisode.service, currentEpisode.name);
   });
 }
 

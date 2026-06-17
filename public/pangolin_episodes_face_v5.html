@@ -308,7 +308,7 @@
 const NOW=new Date(); const DAY=864e5;
 const DEFAULT_ID=79390;              // Widow's Bay
 let allEps=[], eps=[], watched=0, watchTs=[], watchDate={}, binged={}, ranks={}, notes={}, focus=0, cooled=false;
-let seasonStatus='', score='', curShowId=null, curShowName='';
+let seasonStatus='', score='', curShowId=null, curShowName='', curService='';
 // Per-episode minute progress. epMin[i]=logged minutes, epDone[i]=watched,
 // epBp[i]=force-advanced (end stamp "BP"), startedAt[i]=on-device start ts.
 let epMin={}, epDone={}, epBp={}, startedAt={}, avgRuntime=45, minPreview=null, awaitingLog=false, pendingRestore=null;
@@ -343,6 +343,7 @@ function boot(show,list,isDefault){
   $('name').textContent=show.name||'';
   const yr=(show.premiered||'').slice(0,4);
   const svc=(show.webChannel&&show.webChannel.name)||(show.network&&show.network.name)||'';
+  curService=svc;   // the streamer to launch from the play button
   const g=(show.genres&&show.genres[0])||'';
   $('ymeta').innerHTML=[yr,svc,g].filter(Boolean).join('<span class="sep">|</span>');
 
@@ -626,7 +627,7 @@ function reportCurrent(){
   if(window.parent===window) return;
   const e=eps[focus];
   window.parent.postMessage({type:'episode:current', show:(curShowId && e) ? {
-    tvmazeId:curShowId, name:curShowName, season:sNum(e), number:e.number, runtime:runtimeOf(focus)
+    tvmazeId:curShowId, name:curShowName, season:sNum(e), number:e.number, runtime:runtimeOf(focus), service:curService
   } : null}, '*');
 }
 $('emPierre').onclick=()=>{ if(window.parent===window) return;
