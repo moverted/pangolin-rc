@@ -143,8 +143,19 @@
   .minfoot .d{ color:var(--dim); white-space:nowrap; }
   .minfoot .d.faint{ color:var(--faint); }
   .minfoot .d.bp{ color:#ff9d5c; font-weight:700; letter-spacing:.1em; }
-  .minfoot .center{ flex:1; text-align:center; padding:0 8px; }
-  .mincopy{ color:var(--amber); font-size:9px; letter-spacing:.03em; }
+  .minfoot .center{ flex:1; text-align:center; padding:0 8px; color:var(--dim); }
+  .minfoot .center.phrase{ color:var(--amber); font-size:9px; letter-spacing:.03em; }
+
+  /* MVP empty state: no shows in the Log → nothing on the Episode side yet */
+  .emptyface{ position:absolute; inset:0; z-index:6; display:none; flex-direction:column;
+    align-items:center; justify-content:center; gap:16px; text-align:center; padding:34px;
+    background:radial-gradient(120% 90% at 50% 18%, #1b1410 0%, #0c0a08 70%); }
+  .emptyface.show{ display:flex; }
+  .emptyface .emsg{ font-family:var(--display); font-weight:700; font-size:21px; line-height:1.35; color:var(--text); }
+  .emptyface .esub{ font-family:var(--mono); font-size:10.5px; letter-spacing:.16em; color:var(--faint); text-transform:uppercase; }
+  .emptyface .empill{ background:var(--amber); color:var(--amber-deep); border:none; border-radius:999px;
+    font-family:var(--mono); font-weight:700; font-size:12px; letter-spacing:.04em; padding:11px 22px; cursor:pointer; }
+  .emptyface .empill:active{ transform:translateY(1px); }
 
   .sheet{ background:var(--sheet); backdrop-filter:blur(16px);
     -webkit-backdrop-filter:blur(16px); border-top:1px solid rgba(255,255,255,.08);
@@ -230,6 +241,13 @@
 
   <div class="scroll">
 
+    <!-- MVP: shown when the Log is empty (nothing handed to the Episode face) -->
+    <div class="emptyface" id="emptyFace">
+      <div class="emsg">Nothing on yet</div>
+      <div class="esub">your room is empty</div>
+      <button class="empill" id="emPierre">See Pierre</button>
+    </div>
+
     <div class="hero">
       <div class="herofoot">
         <h1 class="name" id="name">Loading…</h1>
@@ -253,10 +271,11 @@
             <div class="minfill" id="minFill"></div>
             <div class="minhandle" id="minHandle"></div>
           </div>
+          <!-- elapsed · total (or the log prompt when touched) · remaining -->
           <div class="minfoot">
-            <span class="d" id="minPos">0 min</span>
-            <span class="center"><span class="mincopy" id="minCopy"></span></span>
-            <span class="d faint" id="minEnd">—</span>
+            <span class="d" id="minElapsed">0 min</span>
+            <span class="center" id="minMid">— min</span>
+            <span class="d faint" id="minRem">— min</span>
           </div>
         </div>
       </div>
@@ -311,6 +330,7 @@ async function load(url,isDefault){
 }
 
 function boot(show,list,isDefault){
+  hideEmpty();                       // a show is loading — clear the empty state
   allEps=list;
   curShowId=show.id||null; curShowName=show.name||'';
   const aired=[...new Set(allEps.filter(released).map(sNum))];
@@ -370,6 +390,7 @@ function logMinute(){
   const rt=runtimeOf(focus);
   const val=Math.round(minPreview!=null?minPreview:(epMin[focus]||0));
   epMin[focus]=val; minPreview=null; awaitingLog=false; cooled=false;
+  try{ localStorage.removeItem('pg_launch'); }catch(_){}   // launch guess consumed
   const done=val>=rt-1;
   if(done){ epDone[focus]=true; epBp[focus]=false; markWatchedThrough(focus); }
   emitProgress(focus, done, false, val);
@@ -418,12 +439,16 @@ function paint(){
     b.onclick=()=>{ ranks[focus]=n; paint(); }; rk.appendChild(b); }
   $('comment').value=notes[focus]||'';
 
+  // List anything with progress — completed AND in-progress (partial) episodes —
+  // so a partial can be tapped to resume its minute marker.
+  const logged=[]; for(let i=0;i<eps.length;i++){ if(epDone[i] || epMin[i]>0) logged.push(i); }
   $('wlLabel').textContent='Watched · '+watched;
   const wl=$('watchlist'); wl.innerHTML='';
-  if(!watched) wl.innerHTML='<div class="empty">Nothing logged yet.</div>';
-  for(let i=watched-1;i>=0;i--){ const e=eps[i]; const row=document.createElement('div'); row.className='wrow';
-    const stamp = epBp[i] ? 'BP' : (epMin[i]!=null ? Math.round(epMin[i])+'m' : fmt(watchDate[i]));
-    row.innerHTML=`<span class="wt">${e.name||('Episode '+(i+1))}</span>
+  if(!logged.length) wl.innerHTML='<div class="empty">Nothing logged yet.</div>';
+  for(let x=logged.length-1;x>=0;x--){ const i=logged[x], e=eps[i]; const row=document.createElement('div'); row.className='wrow';
+    const partial = !epDone[i] && epMin[i]>0;
+    const stamp = epBp[i] ? 'BP' : (epMin[i]>0 ? Math.round(epMin[i])+'m' : fmt(watchDate[i]));
+    row.innerHTML=`<span class="wt">${e.name||('Episode '+(i+1))}${partial?' · watching':''}</span>
       <span class="wdate${epBp[i]?' binged':''}">${stamp}</span>
       <span class="wscore">${ranks[i]!==undefined?ranks[i]+'/10':''}</span>`;
     row.onclick=()=>{ focus=i; awaitingLog=false; minPreview=null; paint(); };
@@ -455,12 +480,11 @@ function paintMinute(){
   const pct=rt>0?cur/rt*100:0;
   $('minFill').style.width=pct+'%';
   $('minHandle').style.left=pct+'%';
-  $('minPos').textContent=Math.round(cur)+' min';
-  const end=$('minEnd');
-  if(epBp[focus]){ end.textContent='BP'; end.classList.add('bp'); }
-  else { end.textContent=Math.round(rt)+' min'; end.classList.remove('bp'); }
-  $('minCopy').textContent = awaitingLog ? 'tap anywhere to log it · grab the bar again to adjust'
-    : (epDone[focus] ? 'logged' : '');
+  $('minElapsed').textContent=Math.round(cur)+' min';                 // left: elapsed
+  $('minRem').textContent=Math.max(0,Math.round(rt-cur))+' min';      // right: remaining
+  const mid=$('minMid');                                              // middle: total / prompt / BP
+  if(awaitingLog){ mid.textContent='tap to log · grab again to adjust'; mid.classList.add('phrase'); }
+  else { mid.classList.remove('phrase'); mid.textContent = epBp[focus] ? 'BP' : (Math.round(rt)+' min'); }
 }
 
 $('comment').addEventListener('input',e=>{ notes[focus]=e.target.value; });
@@ -489,8 +513,20 @@ minBar.addEventListener('pointermove',ev=>{ if(!minDragging)return; minPreview=m
 minBar.addEventListener('pointerup',ev=>{ if(!minDragging)return; minDragging=false; awaitingLog=true; paintMinute(); });
 minBar.addEventListener('pointercancel',()=>{ minDragging=false; });
 
-// Tapping the episode bar force-advances (logs the episode "BP").
-$('bar').addEventListener('click',e=>{ e.stopPropagation(); forceAdvance(); });
+// Tapping the episode bar jumps to that episode and resumes its minute marker.
+// Skipping forward over unwatched episodes marks the gap "BP" (Before PangolinRC).
+function bgo(clientX){
+  const r=$('bar').getBoundingClientRect();
+  const ratio=Math.max(0,Math.min(0.9999,(clientX-r.left)/r.width));
+  goToEpisode(Math.floor(ratio*eps.length));
+}
+function goToEpisode(idx){
+  idx=Math.max(0,Math.min(eps.length-1, idx));
+  for(let k=0;k<idx;k++){ if(!epDone[k]){ epDone[k]=true; epBp[k]=true; epMin[k]=runtimeOf(k);
+    markWatchedThrough(k); emitProgress(k,true,true,0); } }     // forced skips → BP
+  focus=idx; awaitingLog=false; minPreview=null; paint();
+}
+$('bar').addEventListener('click',e=>{ e.stopPropagation(); bgo(e.clientX); });
 
 // "tap anywhere to log it": one tap outside the controls commits the staged minute.
 document.querySelector('.face').addEventListener('click',e=>{
@@ -517,7 +553,9 @@ function applyPattern(p){
     const idx=eps.findIndex(e=>(e.number||0)===p.number);
     watched=idx>=0?idx+1:0;
   } else {                                  // beginning, pick, or resume with no position
-    eps=allEps.filter(e=>sNum(e)===Math.min(...seasons)); if(!eps.length) eps=allEps;
+    const real=seasons.filter(s=>s>=1);     // skip season 0 specials
+    const s1=Math.min(...(real.length?real:seasons));
+    eps=allEps.filter(e=>sNum(e)===s1); if(!eps.length) eps=allEps;
     watched=0;
   }
   watchTs=[]; watchDate={}; binged={}; ranks={}; notes={}; cooled=false;
@@ -545,6 +583,8 @@ window.addEventListener('message',(e)=>{
     const p=e.data.payload||{};
     if(p.show && p.show.id){ pendingRestore={minute:p.minute, startedAt:p.startedAt, episodes:p.episodes}; loadShowWithPattern(p.show.id, p.pattern); }
   }
+  // Deep-link return: load the launched title at S1E1 with the minute guess.
+  if(e.data && e.data.type==='cube:launch' && e.data.launch) launchShow(e.data.launch);
 });
 
 function fallback(){
@@ -562,7 +602,26 @@ function fallback(){
   boot({name:'Widow\u2019s Bay',premiered:'2026',webChannel:{name:'Apple TV'},genres:['Horror'],image:null,_embedded:{episodes:d}}, d, true);
 }
 
-load(`https://api.tvmaze.com/shows/${DEFAULT_ID}?embed=episodes`, true);
+// Deep-link test: if the play button launched a title (and marked a start time),
+// load that show at S1E1 so the minute bar can guess your position from elapsed
+// wall-clock time. Cleared once you log a minute. Otherwise load the default.
+function launchShow(L){
+  if(!L || !L.tvmazeId) return;
+  pendingRestore = { minute:0, startedAt:L.startedAt, episodes:{} };
+  loadShowWithPattern(L.tvmazeId, {kind:'beginning'});     // forces S1 E1
+}
+function showEmpty(){ const e=$('emptyFace'); if(e) e.classList.add('show'); }
+function hideEmpty(){ const e=$('emptyFace'); if(e) e.classList.remove('show'); }
+$('emPierre').onclick=()=>{ if(window.parent===window) return;
+  if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('pierre',{intent:'add'});
+  else window.parent.postMessage({type:'cube:rotateTo',face:'pierre',payload:{intent:'add'}},'*'); };
+
+// MVP shows nothing until the Log/Pierre hands over a show (empty Log → empty
+// Episode). DEMO keeps the showcase default; a deep-link launch overrides both.
+const _launch = (()=>{ try{ return JSON.parse(localStorage.getItem('pg_launch')||'null'); }catch(_){ return null; } })();
+if(_launch && _launch.tvmazeId) launchShow(_launch);
+else if(DEMO) load(`https://api.tvmaze.com/shows/${DEFAULT_ID}?embed=episodes`, true);
+else showEmpty();
 
 // Double-tap the hero image area to return to cube
 let dblTapTime = 0;

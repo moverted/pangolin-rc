@@ -17,8 +17,16 @@
       background-size: 20px 20px;
     }
 
+    /* Option A: the whole composition lives in #app, which rotates in place to
+       match device orientation. A transform on #app also makes its position:fixed
+       children (controls, overlays, hint) anchor to #app rather than the screen. */
+    #app {
+      position: fixed; left: 50%; top: 50%;
+      width: 100%; height: 100%;
+      transform-origin: 50% 50%; transform: translate(-50%, -50%);
+    }
     #canvas {
-      position: fixed; inset: 0; width: 100%; height: 100%;
+      position: absolute; inset: 0; width: 100%; height: 100%;
       cursor: grab; touch-action: none;
     }
     #canvas:active { cursor: grabbing; }
@@ -82,6 +90,15 @@
     .media-btn.primary:active { transform: scale(0.92); filter: brightness(1.06); }
     .media-btn.sent { border-color: #e89f3d; color: #e89f3d; }
 
+    /* ── "rotate to use this face" (keyboard faces held sideways) ── */
+    #rotate-msg {
+      position: fixed; inset: 0; z-index: 80; display: none;
+      align-items: center; justify-content: center; text-align: center; padding: 30px;
+      background: rgba(8,8,12,.93); color: #e89f3d;
+      font-family: 'Comic Neue', cursive; font-weight: 700; font-size: 19px; line-height: 1.6; letter-spacing: .03em;
+    }
+    #rotate-msg.show { display: flex; }
+
     /* ── DEMO band (shown to waitlisted visitors) ── */
     #demoband { position: fixed; top: 0; left: 0; right: 0; z-index: 150; display: none;
       align-items: center; justify-content: center; gap: 12px;
@@ -94,6 +111,7 @@
 </head>
 <body>
 
+<div id="app">
 <canvas id="canvas"></canvas>
 
 <div id="demoband"><span>DEMO &middot; you're on the waitlist</span><button id="textteam">Text the team</button></div>
@@ -126,6 +144,11 @@
     </button>
   </div>
 </div>
+
+<!-- shown on keyboard faces (Pierre / any open keyboard) when held in landscape -->
+<div id="rotate-msg"><span>&#8635;<br>rotate to use this face</span></div>
+
+</div><!-- #app -->
 
 <script type="module">
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js';
@@ -210,13 +233,20 @@ function makeTex(face, faceIndex) {
 
 // ─── three.js ──────────────────────────────────────────────────────────────
 const canvas   = document.getElementById('canvas');
+const appEl    = document.getElementById('app');
+const rotateMsg = document.getElementById('rotate-msg');
+// Logical (portrait) viewport. Option A keeps a portrait composition and rotates
+// the whole #app in place to match orientation, so VW/VH are the composition's
+// dimensions (not necessarily the screen's). Pointer input is mapped back into
+// this frame by toLogical().
+let VW = innerWidth, VH = innerHeight, ORI = 0;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-renderer.setSize(innerWidth, innerHeight);
+renderer.setSize(VW, VH);
 renderer.setClearColor(0x000000, 0);
 
 const scene  = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 500);
+const camera = new THREE.PerspectiveCamera(50, VW / VH, 0.1, 500);
 camera.position.set(0, 0, 13);
 
 // Stars
@@ -292,6 +322,7 @@ function snapToFace(fi) {
   activeFace = fi;
   snapQ.setFromEuler(SNAP_EULER[fi]);
   snapping = true;
+  layout();   // re-evaluate rotation gating for the new face (keyboard vs not)
 }
 
 function lock() {
@@ -314,6 +345,7 @@ function unlock() {
   hideFaceInfo();
   snapping = false; // release to free rotation
   velX = 0; velY = 0;
+  layout();   // leaving a keyboard face clears the rotate prompt / restores rotation
 }
 
 // Selecting the Pierre side drops the cursor straight into the chat box and
@@ -379,7 +411,8 @@ function addToLogFace(show, pattern) {
 // ─── pointer events ───────────────────────────────────────────────────────
 canvas.addEventListener('pointerdown', (e) => {
   canvas.setPointerCapture(e.pointerId);
-  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  const p = toLogical(e.clientX, e.clientY);
+  ptrs.set(e.pointerId, { x: p.x, y: p.y });
 
   if (ptrs.size === 2) {
     // Second finger down — start pinch tracking
@@ -389,8 +422,8 @@ canvas.addEventListener('pointerdown', (e) => {
     dragging = false; // cancel any single-finger drag
   } else if (ptrs.size === 1) {
     dragging = true;
-    lastX = dragStartX = e.clientX;
-    lastY = dragStartY = e.clientY;
+    lastX = dragStartX = p.x;
+    lastY = dragStartY = p.y;
     velX = velY = 0;
     snapping = false;
   }
@@ -399,7 +432,8 @@ canvas.addEventListener('pointerdown', (e) => {
 canvas.addEventListener('pointermove', (e) => {
   if (!ptrs.has(e.pointerId)) return;
   const prev = ptrs.get(e.pointerId);
-  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  const p = toLogical(e.clientX, e.clientY);
+  ptrs.set(e.pointerId, { x: p.x, y: p.y });
 
   if (ptrs.size >= 2) {
     if (!pinchTriggered) {
@@ -419,8 +453,8 @@ canvas.addEventListener('pointermove', (e) => {
 
   // Single-finger drag
   if (!dragging) return;
-  const dx = e.clientX - prev.x;
-  const dy = e.clientY - prev.y;
+  const dx = p.x - prev.x;
+  const dy = p.y - prev.y;
   velX = dx * 0.007;
   velY = dy * 0.007;
 
@@ -434,6 +468,7 @@ canvas.addEventListener('pointermove', (e) => {
 
 canvas.addEventListener('pointerup', (e) => {
   const start = { x: dragStartX, y: dragStartY };
+  const p = toLogical(e.clientX, e.clientY);
   ptrs.delete(e.pointerId);
   dragging = false;
 
@@ -446,7 +481,7 @@ canvas.addEventListener('pointerup', (e) => {
   const inPierreChat = locked && activeFace === PIERRE_FACE;
 
   // Double-tap to toggle lock/unlock
-  const tapDist = Math.hypot(e.clientX - start.x, e.clientY - start.y);
+  const tapDist = Math.hypot(p.x - start.x, p.y - start.y);
   if (tapDist < 16) {
     const now = performance.now();
     if (now - lastTapTime < 340) {
@@ -459,8 +494,8 @@ canvas.addEventListener('pointerup', (e) => {
 
   // Swipe navigation when locked
   if (locked && !inPierreChat) {
-    const swipeDx = e.clientX - start.x;
-    const swipeDy = e.clientY - start.y;
+    const swipeDx = p.x - start.x;
+    const swipeDy = p.y - start.y;
     if (Math.abs(swipeDx) > Math.abs(swipeDy) && Math.abs(swipeDx) > 38) {
       const next = swipeDx < 0
         ? (activeFace + 1) % 6
@@ -572,7 +607,7 @@ for (const cfg of Object.values(FACE_OVERLAYS)) {
   const frame = document.createElement('iframe');
   frame.src = cfg.src + (DEMO ? '?demo=1' : '');
   el.appendChild(frame);
-  document.body.appendChild(el);
+  appEl.appendChild(el);
   cfg.el = el; cfg.frame = frame; cfg._op = 0; cfg._active = false; cfg._tx = '';
 }
 
@@ -586,6 +621,7 @@ const controlsEl   = document.getElementById('controls');
 let   chatFocused  = false;  // set from pierre.html via postMessage
 let   chatMode     = false;  // chatFocused + keyboard actually open
 let   _ctrlHidden  = false;  // are the media buttons currently hidden?
+let   _chatPrev    = false;  // last chatMode (to re-run layout when the keyboard toggles)
 
 // ─── animation loop ───────────────────────────────────────────────────────
 let t = 0;
@@ -626,6 +662,8 @@ let t = 0;
   const pierreActive = locked && activeFace === PIERRE_FACE;
   chatMode = pierreActive && chatFocused && kbOpen;
 
+  if (chatMode !== _chatPrev) { _chatPrev = chatMode; layout(); }                 // keyboard toggle → re-gate rotation
+
   // While the Pierre chat is selected, hide the media buttons so they sit
   // underneath the chat instead of floating on top of it.
   if (pierreActive !== _ctrlHidden) {
@@ -642,7 +680,7 @@ let t = 0;
       const pts = cfg.corners.map(c => {
         _fW.copy(c).applyQuaternion(cube.quaternion).add(cube.position);
         _fP.copy(_fW).project(camera);
-        return { x: (_fP.x + 1) / 2 * innerWidth, y: (1 - _fP.y) / 2 * innerHeight };
+        return { x: (_fP.x + 1) / 2 * VW, y: (1 - _fP.y) / 2 * VH };
       });
       const tx = faceCssMatrix3d(pts);
       // In chat mode the Pierre square is positioned by the keyboard handler;
@@ -682,11 +720,44 @@ let t = 0;
   }
 })();
 
-window.addEventListener('resize', () => {
-  camera.aspect = innerWidth / innerHeight;
+// Option A: rotate the whole #app in place to match device orientation, keeping
+// a portrait composition (the square cube fits either way). VW/VH are the logical
+// portrait dims used by the renderer, camera, and face projection.
+// Keyboard faces (Pierre, or any face with the soft keyboard up) don't rotate —
+// typing sideways is bad UX — so they stay portrait and prompt a rotate-back.
+function keyboardFace() { return locked && (activeFace === PIERRE_FACE || chatMode); }
+function layout() {
+  const landscape = innerWidth > innerHeight;          // reliable cross-browser signal
+  const ang = (screen.orientation && screen.orientation.angle) || window.orientation || 0;
+  if (landscape && keyboardFace()) {
+    ORI = 0; VW = innerWidth; VH = innerHeight;         // stay native; show the prompt
+    rotateMsg.classList.add('show');
+  } else {
+    rotateMsg.classList.remove('show');
+    ORI = landscape ? ((ang === 270 || ang === -90) ? 90 : -90) : 0;   // counter-rotate to stay upright
+    VW = landscape ? innerHeight : innerWidth;
+    VH = landscape ? innerWidth  : innerHeight;
+  }
+  appEl.style.width  = VW + 'px';
+  appEl.style.height = VH + 'px';
+  appEl.style.transform = `translate(-50%,-50%) rotate(${ORI}deg)`;
+  camera.aspect = VW / VH;
   camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
-});
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(VW, VH);
+}
+// Map a physical screen point into the logical (un-rotated) #app frame. Identity
+// in portrait (ORI 0), so portrait behavior is unchanged.
+function toLogical(px, py) {
+  const x = px - innerWidth / 2, y = py - innerHeight / 2;
+  const rad = -ORI * Math.PI / 180, c = Math.cos(rad), s = Math.sin(rad);
+  return { x: (x * c - y * s) + VW / 2, y: (x * s + y * c) + VH / 2 };
+}
+window.addEventListener('resize', layout);
+window.addEventListener('orientationchange', layout);
+if (screen.orientation && screen.orientation.addEventListener)
+  screen.orientation.addEventListener('change', layout);
+layout();
 
 // ─── Fire TV remote ───────────────────────────────────────────────────────
 const API = window.location.hostname === 'localhost'
@@ -709,9 +780,41 @@ function bindRemote(id, cmd) {
 }
 
 bindRemote('btn-rw',   'rw');
-bindRemote('btn-play', 'play');
 bindRemote('btn-ff',   'ff');
 bindRemote('btn-back', 'back');
+
+// ── Deep-link test: the play button opens Beef on Netflix AND marks a start
+// timestamp so the Episode minute bar can guess your position when you return.
+// Netflix can't deep-link to a specific episode/timestamp without the opaque
+// video id, but we don't need it — the "guess" is computed on our side from
+// this start time. (Swap DEEPLINK for netflix.com/watch/{id} to land in-episode.)
+const DEEPLINK = 'https://www.netflix.com/title/81447461';            // Beef
+const LAUNCH   = { tvmazeId: 54285, season: 1, number: 1, name: 'Beef', runtime: 39 };
+{
+  const btn = document.getElementById('btn-play');
+  btn.addEventListener('click', () => {
+    btn.classList.add('sent');
+    setTimeout(() => btn.classList.remove('sent'), 180);
+    try { localStorage.setItem('pg_launch', JSON.stringify({ ...LAUNCH, startedAt: Date.now() })); } catch {}
+    window.location.href = DEEPLINK;   // universal link → opens the Netflix app if installed
+  });
+}
+
+// On return from the launched app, surface the minute guess: rotate to the
+// Episode face and hand it the launch. Runs on pageshow + visibility so it works
+// even when the browser restores the page from cache (no script re-run).
+function resumeLaunch() {
+  let L = null;
+  try { L = JSON.parse(localStorage.getItem('pg_launch') || 'null'); } catch {}
+  if (!L || !L.tvmazeId) return;
+  if (Date.now() - (L.startedAt || 0) > 6 * 3600 * 1000) return;   // stale (>6h) — ignore
+  const cfg = FACE_OVERLAYS[FACE_INDEX.episodes];
+  if (cfg && cfg.frame && cfg.frame.contentWindow)
+    cfg.frame.contentWindow.postMessage({ type: 'cube:launch', launch: L }, '*');
+  rotateToFace(FACE_INDEX.episodes);
+}
+window.addEventListener('pageshow', resumeLaunch);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) resumeLaunch(); });
 
 // any face iframe can send pangolin-back to unlock the cube
 window.addEventListener('message', (e) => {
