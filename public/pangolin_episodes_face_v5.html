@@ -454,6 +454,7 @@ function paint(){
     row.onclick=()=>{ focus=i; awaitingLog=false; minPreview=null; paint(); };
     wl.appendChild(row);
   }
+  reportCurrent();
 }
 
 // Season dots, colored by the episode convention.
@@ -552,6 +553,12 @@ function applyPattern(p){
     eps=allEps.filter(e=>sNum(e)===p.season); if(!eps.length) eps=allEps;
     const idx=eps.findIndex(e=>(e.number||0)===p.number);
     watched=idx>=0?idx+1:0;
+  } else if(p.kind==='at' && p.season){
+    // Land ON a specific episode (the one being watched): earlier episodes count
+    // as done, the target itself is the partial/current one.
+    eps=allEps.filter(e=>sNum(e)===p.season); if(!eps.length) eps=allEps;
+    const idx=eps.findIndex(e=>(e.number||0)===p.number);
+    watched=idx>=0?idx:0;
   } else {                                  // beginning, pick, or resume with no position
     const real=seasons.filter(s=>s>=1);     // skip season 0 specials
     const s1=Math.min(...(real.length?real:seasons));
@@ -608,10 +615,20 @@ function fallback(){
 function launchShow(L){
   if(!L || !L.tvmazeId) return;
   pendingRestore = { minute:0, startedAt:L.startedAt, episodes:{} };
-  loadShowWithPattern(L.tvmazeId, {kind:'beginning'});     // forces S1 E1
+  // Resume to the exact episode that was launched (the one you tapped play on).
+  const pat = (L.season && L.number) ? {kind:'at', season:L.season, number:L.number} : {kind:'beginning'};
+  loadShowWithPattern(L.tvmazeId, pat);
 }
-function showEmpty(){ const e=$('emptyFace'); if(e) e.classList.add('show'); }
+function showEmpty(){ const e=$('emptyFace'); if(e) e.classList.add('show'); reportCurrent(); }
 function hideEmpty(){ const e=$('emptyFace'); if(e) e.classList.remove('show'); }
+// Tell the shell which show/episode is loaded so the play button can launch it.
+function reportCurrent(){
+  if(window.parent===window) return;
+  const e=eps[focus];
+  window.parent.postMessage({type:'episode:current', show:(curShowId && e) ? {
+    tvmazeId:curShowId, name:curShowName, season:sNum(e), number:e.number, runtime:runtimeOf(focus)
+  } : null}, '*');
+}
 $('emPierre').onclick=()=>{ if(window.parent===window) return;
   if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('pierre',{intent:'add'});
   else window.parent.postMessage({type:'cube:rotateTo',face:'pierre',payload:{intent:'add'}},'*'); };
