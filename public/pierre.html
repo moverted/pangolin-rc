@@ -63,7 +63,7 @@
     padding:14px 18px 6px;
   }
   .dot{width:7px;height:7px;border-radius:50%;background:var(--amber);box-shadow:0 0 10px var(--amber);}
-  .wordmark{font-family:'Space Grotesk';font-weight:700;letter-spacing:.02em;font-size:15px;}
+  .wordmark{font-family:'Space Mono',monospace;font-weight:400;font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-dim);}
   .eyebrow{font-family:'Space Mono';font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-dim);margin-left:auto;}
 
   /* chat */
@@ -180,7 +180,6 @@
     <header>
       <span class="dot" aria-hidden="true"></span>
       <span class="wordmark">Pierre</span>
-      <span class="eyebrow">on the couch</span>
     </header>
 
     <div class="log" id="log" aria-live="polite" aria-label="Conversation with Pierre"></div>
@@ -705,15 +704,20 @@
       face.style.borderRadius = '0';
     }
 
-    // back button injected into header
-    const hdr = document.querySelector('header');
-    if (hdr) {
-      const back = document.createElement('span');
-      back.textContent = '‹ back';
-      back.style.cssText = 'cursor:pointer;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-dim);margin-right:auto;font-family:"Space Mono",monospace;';
-      back.addEventListener('click', () => window.parent.postMessage({type:'pangolin-back'}, '*'));
-      hdr.insertBefore(back, hdr.firstChild);
-    }
+    // Keyboard lock: with the chat open, iOS pans the page to keep the input
+    // visible, which slides the whole face (and the cube behind it) up and down.
+    // Pin the page so only the message log scrolls — the parent already keeps
+    // this square glued above the keyboard.
+    document.documentElement.style.cssText += ';overflow:hidden;overscroll-behavior:none;';
+    document.body.style.cssText += ';overflow:hidden;overscroll-behavior:none;position:fixed;inset:0;';
+    if (log) { log.style.overscrollBehavior = 'contain'; log.style.touchAction = 'pan-y'; }
+    document.addEventListener('touchmove', (ev) => {
+      if (ev.touches.length > 1) return;                              // leave pinch-to-exit alone
+      if (ev.target.closest && ev.target.closest('.log')) return;     // the log scrolls normally
+      ev.preventDefault();                                            // block the page pan everywhere else
+    }, { passive: false });
+
+    // (no back button — pinch or double-tap exits the chat)
 
     // pinch-to-exit
     let _pinchStart = 0, _pinchActive = false;

@@ -6,6 +6,8 @@ export const profileRoutes = new Hono<{ Bindings: Env }>();
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+const safeParse = (s: string) => { try { return JSON.parse(s); } catch { return {}; } };
+const int = (v: unknown, min = -Infinity) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(min, Math.trunc(v)) : null);
 
 // Columns safe to return to the client (never the password salt/hash).
 const SAFE = 'email, username, phone, photo_url, created_at, updated_at';
@@ -126,4 +128,63 @@ profileRoutes.get('/:email/devices', async (c) => {
     .prepare('SELECT id, type, location, ip, model, created_at FROM devices WHERE user_email = ? ORDER BY created_at')
     .bind(email).all();
   return c.json({ devices: devices.results || [] });
+});
+
+// ---- Watch history: tracked shows + per-episode minute progress -----------
+// The Log is the single client-side writer; it POSTs one show at a time and
+// reads the whole list back on login to rehydrate the member's room.
+
+// List a user's tracked shows (episodes JSON parsed for the client).
+profileRoutes.get('/:email/watch', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  const rows = await c.env.DB
+    .prepare(`SELECT show_id, show_name, status, watched, last_season, last_number,
+                     last_minute, started_at, episodes, updated_at
+              FROM watch WHERE user_email = ? ORDER BY updated_at DESC`)
+    .bind(email).all();
+  const shows = (rows.results || []).map((r: any) => ({
+    ...r, episodes: r.episodes ? safeParse(r.episodes) : {},
+  }));
+  return c.json({ shows });
+});
+
+// Upsert one tracked show's state (resume position + per-episode detail).
+profileRoutes.post('/:email/watch', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  const exists = await c.env.DB.prepare('SELECT email FROM users WHERE email = ?').bind(email).first();
+  if (!exists) return c.json({ error: 'unknown user' }, 404);
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const show_id = str(body.show_id, 80);
+  if (!show_id) return c.json({ error: 'show_id required' }, 400);
+  const show_name = str(body.show_name, 200) || null;
+  const status = str(body.status, 40) || null;
+  const watched = int(body.watched, 0) ?? 0;
+  const last_season = int(body.last_season);
+  const last_number = int(body.last_number);
+  const last_minute = int(body.last_minute, 0) ?? 0;
+  const started_at = int(body.started_at);
+  const episodes = body.episodes == null ? null
+    : (typeof body.episodes === 'string' ? body.episodes : JSON.stringify(body.episodes)).slice(0, 100000);
+  const now = Date.now();
+  await c.env.DB.prepare(
+    `INSERT INTO watch (user_email, show_id, show_name, status, watched, last_season, last_number,
+                        last_minute, started_at, episodes, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(user_email, show_id) DO UPDATE SET
+       show_name=excluded.show_name, status=excluded.status, watched=excluded.watched,
+       last_season=excluded.last_season, last_number=excluded.last_number,
+       last_minute=excluded.last_minute, started_at=excluded.started_at,
+       episodes=excluded.episodes, updated_at=excluded.updated_at`
+  ).bind(email, show_id, show_name, status, watched, last_season, last_number,
+         last_minute, started_at, episodes, now).run();
+  return c.json({ ok: true });
+});
+
+// Remove a tracked show (withdraw).
+profileRoutes.delete('/:email/watch/:show_id', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  const show_id = c.req.param('show_id');
+  await c.env.DB.prepare('DELETE FROM watch WHERE user_email = ? AND show_id = ?').bind(email, show_id).run();
+  return c.json({ ok: true });
 });

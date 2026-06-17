@@ -25,7 +25,7 @@
 
   .face{ position:relative; width:min(94vw,500px); aspect-ratio:1/1;
     border-radius:20px; overflow:hidden; border:1px solid rgba(255,255,255,.06);
-    box-shadow:0 24px 70px rgba(0,0,0,.6); }
+    box-shadow:0 24px 70px rgba(0,0,0,.6); display:flex; flex-direction:column; }
   .bg{ position:absolute; inset:0; background-size:cover; background-position:center top;
     filter:blur(9px) saturate(.92) brightness(.52); transform:scale(1.1); }
   .bg-fallback{ background:radial-gradient(120% 90% at 30% 8%, #3c5566, #11100b 72%); }
@@ -34,16 +34,26 @@
       linear-gradient(180deg, rgba(8,6,4,.5) 0%, rgba(8,6,4,.4) 26%,
         rgba(8,6,4,.72) 56%, rgba(8,6,4,.92) 100%),
       radial-gradient(140% 80% at 50% 120%, rgba(8,6,4,.5), transparent 60%); }
-  .scroll{ position:absolute; inset:0; overflow-y:auto; overflow-x:hidden;
-    -webkit-overflow-scrolling:touch; }
+  .scroll{ position:relative; z-index:1; flex:1; min-height:0; overflow-y:auto; overflow-x:hidden;
+    -webkit-overflow-scrolling:touch; overscroll-behavior:contain; }
   .scroll::-webkit-scrollbar{ width:0; }
 
-  .hero{ padding:16px 18px 18px; min-height:56%; display:flex; flex-direction:column; }
-  .facebar{ display:flex; align-items:center; justify-content:space-between;
+  /* fixed top bar (like the Feed face): EPISODE · SEASONS · + Show — never scrolls */
+  .topbar{ position:relative; z-index:2; flex:none; padding:13px 16px 11px;
+    background:linear-gradient(180deg, rgba(8,6,4,.88) 0%, rgba(8,6,4,.5) 72%, transparent 100%); }
+  .seasonlabel{ font-family:var(--mono); font-size:10px; letter-spacing:.18em;
+    text-transform:uppercase; color:var(--faint); flex:0 0 auto; }
+
+  .hero{ padding:16px 18px 18px; min-height:50%; display:flex; flex-direction:column; }
+  /* one row: EPISODE (left) · SEASONS (centered) · + Show (right) */
+  .facebar{ display:flex; align-items:center; gap:8px;
     font-family:var(--mono); font-size:10px; letter-spacing:.14em;
     text-transform:uppercase; color:var(--faint); }
-  .facebar .mid{ display:flex; align-items:center; gap:8px; color:var(--dim); }
-  .dots{ display:flex; gap:4px; }
+  .facebar .facelabel{ font-size:12px; letter-spacing:.18em; color:var(--faint); }
+  .fb-left{ flex:1 1 0; min-width:0; display:flex; align-items:center; gap:8px; }
+  .fb-mid{ flex:0 0 auto; display:flex; align-items:center; gap:8px; }
+  .fb-right{ flex:1 1 0; min-width:0; display:flex; justify-content:flex-end; }
+  .dots{ display:flex; gap:4px; align-items:center; }
   .dots i{ width:4px; height:4px; border-radius:50%; background:rgba(255,255,255,.3); }
   .dots i.on{ background:var(--amber); box-shadow:0 0 0 3px rgba(240,169,59,.2); }
   .cube{ color:var(--amber); font-size:12px; }
@@ -111,6 +121,31 @@
   .binge .hint{ display:none; }
   @keyframes pin{ from{transform:scale(.6);opacity:0} to{transform:scale(1);opacity:1} }
 
+  /* season dots (display-only) */
+  .seasondots{ display:flex; gap:9px; align-items:center; min-height:16px; }
+  .seasondots .sd{ width:11px; height:11px; border-radius:50%; background:var(--grey); position:relative; flex:0 0 auto; }
+  .seasondots .sd.done{ background:var(--dgreen); }
+  .seasondots .sd.avail{ background:var(--green); }
+  .seasondots .sd.cur{ background:transparent; width:16px; height:16px; }
+  .seasondots .sd.cur::after{ content:"🍿"; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); font-size:14px; line-height:1; }
+
+  /* minute bar: position inside the current episode (yellow track, elapsed darkens L→R) */
+  .minzone{ margin-top:4px; }
+  .minbar{ position:relative; height:14px; border-radius:999px; background:rgba(240,169,59,.24);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.42); cursor:pointer; touch-action:none; }
+  .minfill{ position:absolute; left:0; top:0; bottom:0; width:0; border-radius:999px;
+    background:linear-gradient(90deg,#caa15e,#7a5410); }
+  .minhandle{ position:absolute; top:50%; left:0; width:7px; height:26px; border-radius:4px;
+    background:var(--amber); transform:translate(-50%,-50%); box-shadow:0 2px 8px rgba(0,0,0,.55); cursor:grab; }
+  .minhandle:active{ cursor:grabbing; }
+  .minfoot{ display:flex; align-items:center; justify-content:space-between; margin-top:11px;
+    font-family:var(--mono); font-size:10.5px; letter-spacing:.04em; }
+  .minfoot .d{ color:var(--dim); white-space:nowrap; }
+  .minfoot .d.faint{ color:var(--faint); }
+  .minfoot .d.bp{ color:#ff9d5c; font-weight:700; letter-spacing:.1em; }
+  .minfoot .center{ flex:1; text-align:center; padding:0 8px; }
+  .mincopy{ color:var(--amber); font-size:9px; letter-spacing:.03em; }
+
   .sheet{ background:var(--sheet); backdrop-filter:blur(16px);
     -webkit-backdrop-filter:blur(16px); border-top:1px solid rgba(255,255,255,.08);
     border-radius:22px 22px 0 0; padding:20px 18px 24px; margin-top:8px; min-height:44%; }
@@ -174,15 +209,28 @@
 <div class="face" id="face">
   <div class="bg bg-fallback" id="bg"></div>
   <div class="scrim"></div>
+
+  <!-- fixed top bar (Feed-style): stays put while the content below scrolls -->
+  <div class="topbar">
+    <div class="facebar">
+      <div class="fb-left">
+        <span class="facelabel">EPISODE</span>
+        <span class="dots" id="epDots"><i></i><i></i><i></i><i class="on"></i><i></i><i></i></span>
+      </div>
+      <!-- season dots (display-only): dark-green done · 🍿 current · green future-available · grey unaired -->
+      <div class="fb-mid">
+        <span class="seasonlabel" id="seasonLabel">SEASONS</span>
+        <div class="seasondots" id="seasonDots"></div>
+      </div>
+      <div class="fb-right">
+        <button id="addShowBtn" class="addpill">+ Show</button>
+      </div>
+    </div>
+  </div>
+
   <div class="scroll">
 
     <div class="hero">
-      <div class="facebar">
-        <span style="cursor:pointer" onclick="window.parent.postMessage({type:'pangolin-back'},'*')">‹ back</span>
-        <span class="mid">Episodes <span class="dots"><i></i><i></i><i></i><i class="on"></i><i></i><i></i></span></span>
-        <button id="addShowBtn" class="addpill">+ Show</button>
-      </div>
-
       <div class="herofoot">
         <h1 class="name" id="name">Loading…</h1>
         <div class="ymeta" id="ymeta"></div>
@@ -190,26 +238,25 @@
           <span class="dot"></span><span class="v" id="scoreVal">—</span><small>Screen Score</small>
         </span>
 
-        <!-- seasons bar: 3-state, no popcorn, copy inside. tap to set status -->
-        <div class="seasonsbar" id="seasonsbar" title="Tap to set season status">
-          <div class="ss w" id="ssW" style="width:0"></div>
-          <div class="ss a" id="ssA" style="left:0;width:0"></div>
-          <div class="sscopy"><span class="l" id="ssCount"></span><span class="r" id="ssStatus"></span></div>
-        </div>
-
+        <!-- episode progress: popcorn marks the current episode. tap the bar to force-advance (logs BP) -->
         <div class="barzone">
           <div class="pop" id="pop"><span class="fire">🔥</span><span class="corn">🍿</span></div>
           <div class="bar" id="bar">
             <div class="seg watched" id="segW" style="width:0"></div>
             <div class="seg avail" id="segA" style="left:0;width:0"></div>
           </div>
-          <div class="barfoot">
-            <span class="d" id="lastWatch">—</span>
-            <span class="center">
-              <span class="binge-tag">🔥 BINGE MODE!</span>
-              <span class="hint" id="hint"></span>
-            </span>
-            <span class="d faint" id="nextEp"></span>
+        </div>
+
+        <!-- minute bar: where you are inside the current episode (yellow, elapsed darkens L→R) -->
+        <div class="minzone">
+          <div class="minbar" id="minBar">
+            <div class="minfill" id="minFill"></div>
+            <div class="minhandle" id="minHandle"></div>
+          </div>
+          <div class="minfoot">
+            <span class="d" id="minPos">0 min</span>
+            <span class="center"><span class="mincopy" id="minCopy"></span></span>
+            <span class="d faint" id="minEnd">—</span>
           </div>
         </div>
       </div>
@@ -242,7 +289,14 @@
 const NOW=new Date(); const DAY=864e5;
 const DEFAULT_ID=79390;              // Widow's Bay
 let allEps=[], eps=[], watched=0, watchTs=[], watchDate={}, binged={}, ranks={}, notes={}, focus=0, cooled=false;
-let seasonStatus='', score='';
+let seasonStatus='', score='', curShowId=null, curShowName='';
+// Per-episode minute progress. epMin[i]=logged minutes, epDone[i]=watched,
+// epBp[i]=force-advanced (end stamp "BP"), startedAt[i]=on-device start ts.
+let epMin={}, epDone={}, epBp={}, startedAt={}, avgRuntime=45, minPreview=null, awaitingLog=false, pendingRestore=null;
+
+// DEMO = showcase build; MVP = clean product. The "Episodes" 6-dot indicator is DEMO-only.
+const DEMO = location.hostname.split('.').includes('demo') || new URLSearchParams(location.search).has('demo');
+if(!DEMO){ const d=document.getElementById('epDots'); if(d) d.style.display='none'; }
 
 const $=id=>document.getElementById(id);
 const strip=s=>{const d=document.createElement('div');d.innerHTML=s||'';return (d.textContent||'').trim();};
@@ -258,6 +312,7 @@ async function load(url,isDefault){
 
 function boot(show,list,isDefault){
   allEps=list;
+  curShowId=show.id||null; curShowName=show.name||'';
   const aired=[...new Set(allEps.filter(released).map(sNum))];
   const cur=aired.length?Math.max(...aired):(allEps.length?Math.max(...allEps.map(sNum)):1);
   eps=allEps.filter(e=>sNum(e)===cur); if(!eps.length) eps=allEps;
@@ -271,59 +326,86 @@ function boot(show,list,isDefault){
   const g=(show.genres&&show.genres[0])||'';
   $('ymeta').innerHTML=[yr,svc,g].filter(Boolean).join('<span class="sep">|</span>');
 
-  seasonStatus = isDefault ? 'RENEWED!' : '';   // editorial; tap the seasons bar to change
   score = '';                                    // tap the pill to enter the @betterscreenscore value
+  avgRuntime = show.averageRuntime || show.runtime || 45;
   watched=Math.min(2,eps.filter(released).length);
   watchTs=[]; watchDate={}; binged={}; ranks={}; notes={}; cooled=false;
-  for(let i=0;i<watched;i++){ const t=Date.now()-(watched-i)*45*6e4; watchTs.push(t); watchDate[i]=new Date(t); }
-  focus=Math.max(0,watched-1);
+  epMin={}; epDone={}; epBp={}; startedAt={}; minPreview=null; awaitingLog=false;
+  for(let i=0;i<watched;i++){ const t=Date.now()-(watched-i)*45*6e4; watchTs.push(t); watchDate[i]=new Date(t); epDone[i]=true; epMin[i]=runtimeOf(i); }
+  focus=Math.min(watched, eps.length-1);
   paint();
 }
 
 const isBinge=()=>watchTs.length>=3 && (watchTs[watchTs.length-1]-watchTs[watchTs.length-3])<=DAY;
 const bingeLive=()=>isBinge() && !cooled;
 
-function logNext(){
-  const rel=eps.filter(released).length; if(watched>=rel) return;
-  const t=Date.now(); watchTs.push(t); watchDate[watched]=new Date(t);
-  watched++; focus=watched-1; cooled=false;
+function runtimeOf(i){ return (eps[i]&&eps[i].runtime) || avgRuntime || 45; }
+
+// Logging the last episode of a fully-aired current season = the season finale.
+// MVP hands off to the Log to finish the show; DEMO keeps the Log's own chip.
+function finaleCheck(){
+  const total=eps.length;
+  if(!DEMO && window.parent!==window && total>0 && watched>=total && curShowId)
+    window.parent.postMessage({type:'episode:finishedFinale', tvmazeId:curShowId, name:curShowName}, '*');
+}
+function markWatchedThrough(i){
+  if(i+1>watched) watched=i+1;
+  if(!watchDate[i]){ const t=Date.now(); watchTs.push(t); watchDate[i]=new Date(t); }
   if(isBinge()){ const latest=watchTs[watchTs.length-1];
-    for(let i=0;i<watched;i++){ if(latest-watchTs[i]<=DAY) binged[i]=true; } }
+    for(let k=0;k<watched;k++){ if(latest-watchTs[k]<=DAY) binged[k]=true; } }
+}
+function advanceFocus(){ if(focus<eps.length-1) focus++; }
+
+function emitProgress(i, done, bp, minute){
+  if(window.parent===window || !curShowId) return;
+  const e=eps[i]; if(!e) return;
+  window.parent.postMessage({type:'episode:progress', tvmazeId:curShowId,
+    season:sNum(e), number:e.number, minute:minute||0, done:!!done, bp:!!bp,
+    started_at: startedAt[i]||null}, '*');
+}
+
+// Log your minute position in the focused episode. Reaching the runtime marks it
+// done and advances to the next episode.
+function logMinute(){
+  const rt=runtimeOf(focus);
+  const val=Math.round(minPreview!=null?minPreview:(epMin[focus]||0));
+  epMin[focus]=val; minPreview=null; awaitingLog=false; cooled=false;
+  const done=val>=rt-1;
+  if(done){ epDone[focus]=true; epBp[focus]=false; markWatchedThrough(focus); }
+  emitProgress(focus, done, false, val);
+  if(done){ finaleCheck(); advanceFocus(); }
   paint();
+}
+
+// Force-advance: skip precise logging — the episode is marked watched with a
+// "BP" (Before PangolinRC) end stamp and we jump to the next one.
+function forceAdvance(){
+  const rt=runtimeOf(focus);
+  epDone[focus]=true; epBp[focus]=true; epMin[focus]=rt; minPreview=null; awaitingLog=false; cooled=false;
+  markWatchedThrough(focus);
+  emitProgress(focus, true, true, 0);
+  finaleCheck(); advanceFocus(); paint();
 }
 
 function paint(){
   const total=eps.length, rel=eps.filter(released).length;
   $('face').classList.toggle('binge', bingeLive());
 
-  // ----- seasons bar -----
-  const airedSeasons=[...new Set(allEps.filter(released).map(sNum))].length || 1;
-  const pending=seasonStatus?1:0;
-  const totalSeasons=airedSeasons+pending;
-  const curFull = rel>0 && watched>=rel;
-  let dgS=Math.max(0,airedSeasons-1)+(curFull?1:0); dgS=Math.min(dgS,airedSeasons);
-  const gS=airedSeasons-dgS;
-  $('ssW').style.width=(dgS/totalSeasons*100)+'%';
-  $('ssA').style.left=(dgS/totalSeasons*100)+'%';
-  $('ssA').style.width=(gS/totalSeasons*100)+'%';
-  $('ssCount').textContent=totalSeasons+' SEASON'+(totalSeasons>1?'S':'');
-  $('ssStatus').textContent=seasonStatus||'';
+  // ----- season dots (display-only) -----
+  renderSeasonDots();
 
   // ----- score pill -----
   $('scoreVal').textContent=score||'—';
 
-  // ----- episode bar -----
+  // ----- episode bar (popcorn marks the focused episode) -----
   $('segW').style.width=(watched/total*100)+'%';
   $('segA').style.left=(watched/total*100)+'%';
   $('segA').style.width=((rel-watched)/total*100)+'%';
   $('segA').classList.toggle('lit', rel>watched && !bingeLive());
-  $('segA').onclick=logNext;
   $('pop').style.left=Math.max(4,Math.min(96,(focus+0.5)/total*100))+'%';
 
-  $('lastWatch').textContent=watched>0?'last · '+fmt(watchDate[watched-1]):'—';
-  const nextUnrel=eps.find(e=>!released(e));
-  $('nextEp').textContent=nextUnrel&&nextUnrel.airdate?'next · '+fmt(nextUnrel.airdate):'';
-  $('hint').textContent=(rel>watched)?'tap the lit bar to log':'';
+  // ----- minute bar (position inside the focused episode) -----
+  paintMinute();
 
   const f=eps[focus]||{};
   $('epNo').textContent=`EP ${focus+1} / ${total}`;
@@ -340,28 +422,82 @@ function paint(){
   const wl=$('watchlist'); wl.innerHTML='';
   if(!watched) wl.innerHTML='<div class="empty">Nothing logged yet.</div>';
   for(let i=watched-1;i>=0;i--){ const e=eps[i]; const row=document.createElement('div'); row.className='wrow';
+    const stamp = epBp[i] ? 'BP' : (epMin[i]!=null ? Math.round(epMin[i])+'m' : fmt(watchDate[i]));
     row.innerHTML=`<span class="wt">${e.name||('Episode '+(i+1))}</span>
-      <span class="wdate${binged[i]?' binged':''}">${fmt(watchDate[i])}</span>
+      <span class="wdate${epBp[i]?' binged':''}">${stamp}</span>
       <span class="wscore">${ranks[i]!==undefined?ranks[i]+'/10':''}</span>`;
-    row.onclick=()=>{ focus=i; paint(); };
+    row.onclick=()=>{ focus=i; awaitingLog=false; minPreview=null; paint(); };
     wl.appendChild(row);
   }
+}
+
+// Season dots, colored by the episode convention.
+function renderSeasonDots(){
+  const el=$('seasonDots'); if(!el) return; el.innerHTML='';
+  const seasons=[...new Set(allEps.map(sNum))].sort((a,b)=>a-b);
+  const lab=$('seasonLabel'); if(lab) lab.textContent = seasons.length===1 ? 'SEASON' : 'SEASONS';
+  const curSeason = eps.length ? sNum(eps[0]) : (seasons[0]||1);
+  const airedBy={}; allEps.filter(released).forEach(e=>airedBy[sNum(e)]=(airedBy[sNum(e)]||0)+1);
+  seasons.forEach(se=>{
+    const d=document.createElement('span'); d.className='sd';
+    if(se===curSeason)      d.classList.add('cur');     // 🍿 current
+    else if(se<curSeason)   d.classList.add('done');    // dark green: completed
+    else if(airedBy[se]>0)  d.classList.add('avail');   // green: future, aired
+    // else grey (unaired) — default background
+    el.appendChild(d);
+  });
+}
+
+// Minute bar for the focused episode (yellow track, elapsed darkens left→right).
+function paintMinute(){
+  const rt=runtimeOf(focus);
+  const cur=Math.max(0,Math.min(rt, minPreview!=null?minPreview:(epMin[focus]||0)));
+  const pct=rt>0?cur/rt*100:0;
+  $('minFill').style.width=pct+'%';
+  $('minHandle').style.left=pct+'%';
+  $('minPos').textContent=Math.round(cur)+' min';
+  const end=$('minEnd');
+  if(epBp[focus]){ end.textContent='BP'; end.classList.add('bp'); }
+  else { end.textContent=Math.round(rt)+' min'; end.classList.remove('bp'); }
+  $('minCopy').textContent = awaitingLog ? 'tap anywhere to log it · grab the bar again to adjust'
+    : (epDone[focus] ? 'logged' : '');
 }
 
 $('comment').addEventListener('input',e=>{ notes[focus]=e.target.value; });
 $('cool').onclick=()=>{ cooled=true; paint(); };
 $('reset').onclick=()=>{
   watched=0; watchTs=[]; watchDate={}; binged={}; cooled=false;
+  epMin={}; epDone={}; epBp={}; startedAt={}; minPreview=null; awaitingLog=false;
   eps=allEps.filter(e=>sNum(e)===1); if(!eps.length) eps=allEps;
   focus=0; paint();
 };
-$('seasonsbar').onclick=()=>{ const v=prompt('Season status — blank, RENEWED!, or e.g. RETURNING MAY 2027:', seasonStatus);
-  if(v!==null){ seasonStatus=v.trim().toUpperCase(); paint(); } };
 $('scorePill').onclick=()=>{ const v=prompt('Screen Score from @betterscreenscore (e.g. 87):', score);
   if(v!==null){ score=v.trim(); paint(); } };
 $('addShowBtn').onclick=()=>{ if(window.parent===window) return;
   if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('pierre',{intent:'add'});
   else window.parent.postMessage({type:'cube:rotateTo',face:'pierre',payload:{intent:'add'}},'*'); };
+
+// ----- minute bar interaction -----
+const minBar=$('minBar');
+function minFromX(clientX){ const r=minBar.getBoundingClientRect();
+  return Math.max(0,Math.min(1,(clientX-r.left)/r.width))*runtimeOf(focus); }
+let minDragging=false;
+minBar.addEventListener('pointerdown',ev=>{ ev.preventDefault(); minBar.setPointerCapture(ev.pointerId);
+  minDragging=true; if(!startedAt[focus]) startedAt[focus]=Date.now();
+  minPreview=minFromX(ev.clientX); awaitingLog=false; paintMinute(); });
+minBar.addEventListener('pointermove',ev=>{ if(!minDragging)return; minPreview=minFromX(ev.clientX); paintMinute(); });
+minBar.addEventListener('pointerup',ev=>{ if(!minDragging)return; minDragging=false; awaitingLog=true; paintMinute(); });
+minBar.addEventListener('pointercancel',()=>{ minDragging=false; });
+
+// Tapping the episode bar force-advances (logs the episode "BP").
+$('bar').addEventListener('click',e=>{ e.stopPropagation(); forceAdvance(); });
+
+// "tap anywhere to log it": one tap outside the controls commits the staged minute.
+document.querySelector('.face').addEventListener('click',e=>{
+  if(!awaitingLog) return;
+  if(e.target.closest('.minbar,.minhandle,.bar,.addpill,.scorepill,.rank,.comment,.ctl,.wrow,.seasondots')) return;
+  e.stopPropagation(); logMinute();
+}, true);
 
 // Pierre hands off a picked show + watch pattern. Load it and set the position.
 async function loadShowWithPattern(id,pattern){
@@ -385,13 +521,29 @@ function applyPattern(p){
     watched=0;
   }
   watchTs=[]; watchDate={}; binged={}; ranks={}; notes={}; cooled=false;
-  for(let i=0;i<watched;i++){ const t=Date.now()-(watched-i)*45*6e4; watchTs.push(t); watchDate[i]=new Date(t); }
-  focus=Math.max(0,watched-1); paint();
+  epMin={}; epDone={}; epBp={}; startedAt={}; minPreview=null; awaitingLog=false;
+  for(let i=0;i<watched;i++){ const t=Date.now()-(watched-i)*45*6e4; watchTs.push(t); watchDate[i]=new Date(t); epDone[i]=true; epMin[i]=runtimeOf(i); }
+  // Restore saved per-episode detail (minutes / done / BP) from the account.
+  const det=pendingRestore&&pendingRestore.episodes;
+  if(det) eps.forEach((e,i)=>{ const d=det[sNum(e)+'-'+e.number]; if(!d) return;
+    if(d.done){ epDone[i]=true; if(i+1>watched) watched=i+1; }
+    if(typeof d.min==='number') epMin[i]=d.min;
+    if(d.bp) epBp[i]=true; });
+  focus=Math.min(watched, eps.length-1);
+  // Restore the partial current episode (saved minutes, or an on-device guess).
+  if(pendingRestore && !epDone[focus]){
+    if(typeof pendingRestore.minute==='number' && pendingRestore.minute>0) epMin[focus]=pendingRestore.minute;
+    if(pendingRestore.startedAt){ startedAt[focus]=pendingRestore.startedAt;
+      const guess=Math.min(runtimeOf(focus),(Date.now()-pendingRestore.startedAt)/60000);
+      if(guess>(epMin[focus]||0)) epMin[focus]=guess; }
+  }
+  pendingRestore=null;
+  paint();
 }
 window.addEventListener('message',(e)=>{
   if(e.data && e.data.type==='cube:payload' && e.data.face==='episodes'){
     const p=e.data.payload||{};
-    if(p.show && p.show.id) loadShowWithPattern(p.show.id, p.pattern);
+    if(p.show && p.show.id){ pendingRestore={minute:p.minute, startedAt:p.startedAt, episodes:p.episodes}; loadShowWithPattern(p.show.id, p.pattern); }
   }
 });
 
@@ -405,7 +557,7 @@ function fallback(){
    ['Seasickness','2026-05-27','Set out to sea with Mayor Loftis and cherished local figure, Wyck. They are attending to some business.'],
    ['Your Baggage','2026-06-03','Don\u2019t worry about misplaced luggage. Old baggage always resurfaces in Widow\u2019s Bay.'],
    ['Emergency Shelter','2026-06-10','Please seek shelter should a centuries-old storm rage toward the island and plunge us into darkness. Enjoy a card game.'],
-   ['We Hope You Enjoyed Your Time!','2026-06-17','Season finale.']]
+   ['We Hope You Enjoyed Your Time!','2026-06-19','Season finale.']]
    .map((e,i)=>({name:e[0],airdate:e[1],summary:e[2],season:1,number:i+1}));
   boot({name:'Widow\u2019s Bay',premiered:'2026',webChannel:{name:'Apple TV'},genres:['Horror'],image:null,_embedded:{episodes:d}}, d, true);
 }

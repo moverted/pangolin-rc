@@ -82,11 +82,11 @@
   .hero{padding:22px 22px 0;flex:none;}
   .eyebrow{
     display:flex;justify-content:space-between;align-items:center;
-    font-family:'JetBrains Mono',monospace;letter-spacing:.28em;
-    font-size:13px;color:var(--muted);text-transform:uppercase;
+    font-family:'JetBrains Mono',monospace;letter-spacing:.18em;
+    font-size:12px;color:var(--muted);text-transform:uppercase;
   }
   .member{
-    letter-spacing:.18em;font-size:10px;color:var(--amber);
+    letter-spacing:.16em;font-size:10px;color:var(--amber);white-space:nowrap;
     border:1px solid rgba(239,168,60,.45);border-radius:999px;padding:5px 11px;
   }
   .id{display:flex;align-items:center;gap:16px;margin-top:18px;}
@@ -105,7 +105,9 @@
     display:flex;align-items:center;justify-content:center;
   }
   .avatar .cam svg{width:12px;height:12px;stroke:var(--amber);}
+  .avatar .cam.hidden{display:none;}
   .id .name{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:29px;line-height:1;color:var(--text);}
+  .id .name.editing{outline:none;border-bottom:1px solid var(--amber);min-width:80px;}
   .id .handle{font-family:'JetBrains Mono',monospace;font-size:14px;color:var(--muted);margin-top:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
   .authbtn{background:none;border:1px solid rgba(239,168,60,.45);color:var(--amber);
     font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.04em;padding:3px 9px;border-radius:999px;cursor:pointer;}
@@ -208,7 +210,7 @@
         <div class="hero">
           <div class="eyebrow">
             <span>Profile</span>
-            <span class="member">MEMBER</span>
+            <span class="member" id="member">MEMBER</span>
           </div>
           <div class="id">
             <button class="avatar" id="avatar" aria-label="Add profile picture">
@@ -228,9 +230,9 @@
         <!-- content scrolls inside the square -->
         <div class="scroll">
           <div class="stats">
-            <div class="stat"><div class="num">128</div><div class="lbl">SHOWS</div></div>
-            <div class="stat"><div class="num">1,340</div><div class="lbl">EPISODES</div></div>
-            <div class="stat"><div class="num">$284</div><div class="lbl">SAVED</div></div>
+            <div class="stat"><div class="num" id="stShows">128</div><div class="lbl">SHOWS</div></div>
+            <div class="stat"><div class="num" id="stEps">1,340</div><div class="lbl">EPISODES</div></div>
+            <div class="stat"><div class="num" id="stThird">$284</div><div class="lbl" id="stThirdLbl">SAVED</div></div>
           </div>
 
           <div class="section">
@@ -241,14 +243,6 @@
               <span class="plus"></span>
               <span class="label">add device</span>
             </button>
-          </div>
-
-          <div class="section">
-            <h2>Your Taste</h2>
-            <div class="rule"></div>
-            <div class="row"><span class="dot"></span><span class="label">Dark, slow, character-driven</span><span class="val">core</span></div>
-            <div class="row"><span class="dot"></span><span class="label">Tense reality competition</span><span class="val">rising</span></div>
-            <div class="row"><span class="dot"></span><span class="label">Prestige sci-fi</span><span class="val">steady</span></div>
           </div>
 
           <div class="section">
@@ -293,11 +287,22 @@
   const API = location.hostname === 'localhost' ? 'http://localhost:8787' : 'https://pangolin-rc.edward-m-willett.workers.dev';
   const $ = id => document.getElementById(id);
 
+  // DEMO = the showcase build (dummy data); MVP = the clean first-run product.
+  const DEMO = location.hostname.split('.').includes('demo') || new URLSearchParams(location.search).has('demo');
+  $('member').textContent = DEMO ? 'MEMBER' : 'BRAVE FOUNDING MEMBER';
+  if(!DEMO){
+    $('stShows').textContent='0'; $('stEps').textContent='0';
+    $('stThird').textContent='0'; $('stThirdLbl').textContent='MINUTES';
+  }
+
   // ---- avatar photo (client-side for now; DB/R2 photo is a follow-up) ----
-  const avatar=$('avatar'), picker=$('picker'), initial=$('initial');
-  function setAvatar(url){ avatar.style.backgroundImage="url('"+url+"')"; initial.classList.add('hidden'); }
+  const avatar=$('avatar'), picker=$('picker'), initial=$('initial'), cam=avatar.querySelector('.cam');
+  let hasPhoto=false;
+  // The add/change icon only shows when there is no photo; once set, hide it
+  // (long-hold on the name plate brings the change affordance back).
+  function setAvatar(url){ avatar.style.backgroundImage="url('"+url+"')"; initial.classList.add('hidden'); hasPhoto=true; cam.classList.add('hidden'); }
   try{ const saved=localStorage.getItem('pg_avatar'); if(saved) setAvatar(saved); }catch(_){}
-  avatar.addEventListener('click', ()=>picker.click());
+  avatar.addEventListener('click', ()=>{ if(!cam.classList.contains('hidden')) picker.click(); });
   picker.addEventListener('change', e=>{
     const file=e.target.files&&e.target.files[0]; if(!file) return;
     const r=new FileReader();
@@ -331,12 +336,18 @@
       list.appendChild(b);
     });
   }
+  // DEMO shows a static "Home Gym" device; MVP defaults to a single "This Phone"
+  // row (real stored devices replace it once an account has any).
+  const DEMO_DEVICES=[{type:'Fire TV', location:'Home Gym'}];
+  const MVP_DEFAULT_DEVICES=[{type:'mobile', location:'This Phone'}];
   async function refresh(){
     const email=session();
+    if(DEMO) renderDevices(DEMO_DEVICES);
     if(!email){
       $('pname').textContent='Guest'; $('phandle').textContent='not signed in';
       $('authBtn').textContent='log in'; $('authBtn').onclick=()=>nav('pierre',{intent:'join'});
-      $('deviceList').innerHTML=''; return;
+      if(!DEMO) renderDevices(MVP_DEFAULT_DEVICES);
+      return;
     }
     $('authBtn').textContent='log out';
     $('authBtn').onclick=()=>{ try{localStorage.removeItem('pg_user');}catch(_){} refresh(); };
@@ -344,12 +355,44 @@
     try{
       const r=await fetch(API+'/profile/'+encodeURIComponent(email));
       if(r.status===404){ try{localStorage.removeItem('pg_user');}catch(_){} return refresh(); }  // account gone -> sign out
-      if(r.ok){ const d=await r.json(); if(d.user&&d.user.username) $('pname').textContent=d.user.username; renderDevices(d.devices); }
+      if(r.ok){ const d=await r.json(); if(d.user&&d.user.username) $('pname').textContent=d.user.username;
+        if(!DEMO) renderDevices((d.devices&&d.devices.length)?d.devices:MVP_DEFAULT_DEVICES); }
     }catch(_){}
   }
   $('addDevice').addEventListener('click', ()=> nav('pierre', session()?{intent:'device'}:{intent:'join'}) );
   window.addEventListener('storage', e=>{ if(e.key==='pg_user'||e.key==='pg_refresh') refresh(); });
   refresh();
+  try{ const u=localStorage.getItem('pg_username'); if(u && !session()) $('pname').textContent=u; }catch(_){}
+
+  // ---- long-hold the name plate: reveal the change-photo icon + edit username ----
+  const idBlock=document.querySelector('.id'), pname=$('pname');
+  let holdTimer=null;
+  function revealEdit(){
+    cam.classList.remove('hidden');                 // bring back the change-photo affordance
+    if(pname.dataset.editing) return;
+    pname.dataset.editing='1'; pname.classList.add('editing');
+    pname.contentEditable='true'; pname.focus();
+    const r=document.createRange(); r.selectNodeContents(pname);
+    const sel=getSelection(); sel.removeAllRanges(); sel.addRange(r);
+  }
+  function commitName(){
+    if(!pname.dataset.editing) return;
+    delete pname.dataset.editing; pname.classList.remove('editing'); pname.contentEditable='false';
+    const name=(pname.textContent||'').trim()||'Guest'; pname.textContent=name;
+    if(hasPhoto) cam.classList.add('hidden');       // re-hide the icon if a photo is set
+    try{ localStorage.setItem('pg_username', name); }catch(_){}
+    const email=session();
+    if(email) fetch(API+'/profile/signup',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({email, username:name})}).catch(()=>{});
+  }
+  pname.addEventListener('blur', commitName);
+  pname.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); pname.blur(); } });
+  idBlock.addEventListener('pointerdown', e=>{
+    if(e.target.closest('.avatar,.authbtn')) return;   // avatar + auth button own their taps
+    holdTimer=setTimeout(revealEdit, 500);
+  });
+  ['pointerup','pointerleave','pointercancel'].forEach(ev=>
+    idBlock.addEventListener(ev, ()=>clearTimeout(holdTimer)));
 
   // ---- cube embedding: hide phone chrome, fill the face, pinch back ----
   if (window.parent !== window) {
@@ -368,7 +411,7 @@
       face.addEventListener('touchend',()=>{a=false;},{passive:true});
       let _dt=0;
       document.addEventListener('click',e=>{
-        if(e.target.closest("button,a,input,textarea,select,label,[role=button],.tile,.crow,.savings,.res")){ _dt=0; return; }
+        if(e.target.closest("button,a,input,textarea,select,label,[role=button],[contenteditable],.id,.tile,.crow,.savings,.res")){ _dt=0; return; }
         const n=Date.now(); if(n-_dt<350){ _dt=0; window.parent.postMessage({type:"pangolin-back"},"*"); } else _dt=n;
       }, true);
     }

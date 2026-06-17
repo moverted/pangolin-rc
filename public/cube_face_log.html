@@ -61,6 +61,9 @@
     font-size:9px;letter-spacing:.02em;padding:4px 8px;border-radius:999px;cursor:pointer;transition:all .15s ease}
   .pierre .chip.on{color:var(--amber);border-color:var(--amber)}
   .pierre .chip.demo{border-style:dashed} .pierre .spacer{flex:1}
+  /* CURRENT-tab action buttons: grey until a show is selected, then orange */
+  .pierre .chip.act{color:var(--muted);border-color:var(--line)}
+  .pierre .chip.act.lit{color:var(--amber);border-color:var(--amber);box-shadow:0 0 6px rgba(233,162,60,.35)}
 
   .scroll{flex:1;overflow-y:auto;overflow-x:hidden;padding:12px 15px;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
   .scroll::-webkit-scrollbar{width:5px} .scroll::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
@@ -69,6 +72,7 @@
 
   /* Poster tiles (current / returning / completed) */
   .tile{aspect-ratio:1/1;border-radius:12px;overflow:hidden;position:relative;background:var(--base-2);cursor:pointer;border:1px solid var(--line)}
+  .tile.selected{border-color:var(--amber);box-shadow:0 0 0 2px var(--amber),0 0 16px rgba(233,162,60,.5)}
   .tile .poster,.pcell .poster{position:absolute;inset:0;background-size:cover;background-position:center top}
   .tile .scrim,.pcell .scrim{position:absolute;inset:0;background:linear-gradient(to top,rgba(10,7,5,.94) 0%,rgba(10,7,5,.55) 40%,rgba(10,7,5,.04) 72%)}
   .tile .body{position:absolute;left:0;right:0;bottom:0;padding:10px;display:flex;flex-direction:column;gap:7px}
@@ -166,7 +170,8 @@
       <button class="chip" data-q="watching">watching now</button>
       <span class="spacer"></span>
       <button class="chip demo" id="finishBtn">&#8629; finished</button>
-      <button class="chip demo" id="stopBtn">&#10005; stop</button>
+      <button class="chip act" id="watchNextBtn">&#9654; watch next</button>
+      <button class="chip act" id="stopBtn">&#10005; stop watching</button>
     </div>
   </div>
 
@@ -211,8 +216,19 @@ const SUBS=[
 const TOTAL_SAVED=SUBS.reduce((a,s)=>a+(s.full-s.paid)*s.months,0);
 
 const NOW=new Date();
-let LOG=[], activeTab="current", pierreQ="last", addSeq=0;
+let LOG=[], activeTab="current", pierreQ="last", addSeq=0, selectedId=null;
 const face=document.getElementById("face");
+
+// DEMO = showcase build (dummy savings + "finished" chip); MVP = clean product.
+const DEMO = location.hostname.split('.').includes('demo') || new URLSearchParams(location.search).has('demo');
+if(!DEMO){
+  const fb=document.getElementById("finishBtn"); if(fb) fb.style.display="none";   // MVP finishes via the Episode finale tap
+  const sb=document.getElementById("savingsBtn"); if(sb) sb.style.display="none";  // MVP drops the savings object
+}
+// Member persistence: the Log is the single writer to the account. Signed-in
+// members load their tracked shows on open and we POST each show on change.
+const API = location.hostname==='localhost' ? 'http://localhost:8787' : 'https://pangolin-rc.edward-m-willett.workers.dev';
+const acct = () => { try{ return localStorage.getItem('pg_user')||''; }catch(_){ return ''; } };
 const fmtDate=(iso)=>new Date(iso).toLocaleDateString("en-US",{month:"short",day:"numeric"});
 const daysTo=(iso)=>Math.round((new Date(iso)-NOW)/86400000);
 const money=(n)=>"$"+n.toFixed(2);
@@ -358,12 +374,10 @@ function render(){
   publishLog();
   const grid=document.getElementById("grid");
   if(activeTab==="comfort"){
-    grid.classList.add("list");
-    const list=LOG.filter(s=>bucketOf(s)==="comfort");
-    grid.innerHTML=list.length?list.map(crowFor).join(""):'<div class="state">no comfort shows</div>';
-    grid.querySelectorAll(".crow").forEach(r=>r.addEventListener("click",()=>{
-      const s=LOG.find(x=>x.id===r.dataset.id); if(s)cube.rotateTo("episodes",episodesPayload(s));
-    }));
+    // Comfort is being reworked: show an under-construction notice and do NOT
+    // route to the Episode face (the rewatch-plan handoff isn't wired yet).
+    grid.classList.remove("list");
+    grid.innerHTML='<div class="state">&#128679; under construction</div>';
     return;
   }
   grid.classList.remove("list");
@@ -387,8 +401,30 @@ function render(){
   grid.querySelectorAll(".tile").forEach(t=>t.addEventListener("click",()=>{
     if(t.classList.contains("stopped"))return;
     const s=LOG.find(x=>x.id===t.dataset.id); if(!s||s.failed)return;
+    if(activeTab==="current"){ selectCurrent(s.id); return; }                       // tap selects; WATCH NEXT routes
+    const fromStart = bucketOf(s)==="completed";                                    // completed restarts at S01E01
     if(s.isNew){ s.isNew=false; s.lastDate=new Date().toISOString().slice(0,10); }  // watched it: drops the NEW flag
-    cube.rotateTo("episodes",episodesPayload(s)); render(); renderPierre();}));
+    cube.rotateTo("episodes",episodesPayload(s,fromStart)); render(); renderPierre();}));
+  // Re-apply the gold selection rim after a re-render on the CURRENT tab.
+  if(activeTab==="current" && selectedId){
+    const t=grid.querySelector('.tile[data-id="'+selectedId+'"]');
+    if(t) t.classList.add("selected"); else selectedId=null;
+  }
+  updateActionChips();
+}
+
+/* CURRENT-tab selection: tap a tile to select (gold rim), tap again to clear.
+   Selecting lights the WATCH NEXT / STOP WATCHING action chips orange. */
+function selectCurrent(id){
+  selectedId = (selectedId===id) ? null : id;
+  document.querySelectorAll(".tile").forEach(t=>t.classList.toggle("selected", t.dataset.id===selectedId));
+  updateActionChips();
+}
+function updateActionChips(){
+  const lit = !!selectedId && activeTab==="current";
+  const wn=document.getElementById("watchNextBtn"), st=document.getElementById("stopBtn");
+  if(wn) wn.classList.toggle("lit", lit);
+  if(st) st.classList.toggle("lit", lit);
 }
 
 /* Cross-face contract. In production the cube shell provides window.cube and
@@ -465,13 +501,73 @@ function publishLog(){
   }))}, "*");
 }
 
+/* ---- Account persistence (signed-in members) ----------------------------- */
+// POST one show's state. Fire-and-forget; show_id is the stable TVMaze id.
+function persistShow(s){
+  const email=acct(); if(!email || !s || !s.tvmazeId) return;
+  fetch(API+"/profile/"+encodeURIComponent(email)+"/watch",{method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({
+      show_id:String(s.tvmazeId), show_name:s.name, status:bucketOf(s),
+      watched:s.watched||0,
+      last_season:s.lastWatched?s.lastWatched.season:null,
+      last_number:s.lastWatched?s.lastWatched.number:null,
+      last_minute:s.lastMinute||0, started_at:s.startedAt||null,
+      episodes:s.epDetail||{}
+    })}).catch(()=>{});
+}
+
+// Rebuild a LOG record from a saved watch row + live TVMaze data.
+async function hydrateSaved(row){
+  try{
+    const r=await fetch("https://api.tvmaze.com/shows/"+row.show_id+"?embed=episodes"); if(!r.ok) throw 0;
+    const sh=await r.json();
+    const eps=(sh._embedded?.episodes||[]).filter(e=>e.season>=1).sort((a,b)=>a.season-b.season||a.number-b.number);
+    const rel=eps.filter(e=>e.airdate&&new Date(e.airdate)<=NOW);
+    const watched=Math.min(row.watched||0, rel.length);
+    const lw=(row.last_season&&row.last_number) ? rel.find(e=>e.season===row.last_season&&e.number===row.last_number) : (watched>0?rel[watched-1]:null);
+    const today=new Date(row.updated_at||Date.now()).toISOString().slice(0,10);
+    return { id:"acct-"+row.show_id, tvmazeId:Number(row.show_id), q:row.show_name, name:sh.name||row.show_name,
+      poster:sh.image?.original||sh.image?.medium||null, status:sh.status||"Unknown", failed:false,
+      episodes:eps, total:eps.length, released:rel.length, watched,
+      lastWatched: lw?{season:lw.season,number:lw.number,title:lw.name,at:today}:null,
+      lastDate:today, returnDate:null, comfort:row.status==="comfort",
+      forceCompleted:row.status==="completed", stopped:row.status==="stopped", plan:null,
+      isNew:false, addedSeq:0, lastMinute:row.last_minute||0, startedAt:row.started_at||null, epDetail:row.episodes||{} };
+  }catch(e){ return null; }
+}
+
+// Load the signed-in member's tracked shows.
+async function loadAccount(email){
+  try{
+    const r=await fetch(API+"/profile/"+encodeURIComponent(email)+"/watch"); if(!r.ok) return [];
+    const data=await r.json();
+    return (await Promise.all((data.shows||[]).map(hydrateSaved))).filter(Boolean);
+  }catch(e){ return []; }
+}
+
+// Episode face reported progress within an episode (minutes / done / BP).
+function applyProgress(pr){
+  const s=LOG.find(x=>x.tvmazeId===pr.tvmazeId); if(!s) return;
+  s.epDetail=s.epDetail||{};
+  s.epDetail[pr.season+"-"+pr.number]={ min:pr.minute||0, done:!!pr.done, bp:!!pr.bp };
+  const idx=s.episodes.findIndex(e=>e.season===pr.season&&e.number===pr.number);
+  if(pr.done && idx>=0) s.watched=Math.max(s.watched, idx+1);
+  if(idx>=0) s.lastWatched={season:pr.season,number:pr.number,title:s.episodes[idx].name||"",at:new Date().toISOString().slice(0,10)};
+  s.lastMinute = pr.done ? 0 : (pr.minute||0);
+  if(pr.started_at!=null) s.startedAt=pr.started_at;
+  s.lastDate=new Date().toISOString().slice(0,10); s.isNew=false;
+  render(); renderPierre(); persistShow(s);
+}
+
 /* Selecting a show on Log loads it on Episodes at the user's position
    (resume to last watched if there is one, otherwise from the beginning). */
-function episodesPayload(s){
-  const pat = (!s.comfort && s.lastWatched && s.watched>0)
+function episodesPayload(s, fromStart){
+  const pat = (!fromStart && !s.comfort && s.lastWatched && s.watched>0)
     ? {kind:"resume", season:s.lastWatched.season, number:s.lastWatched.number}
     : {kind:"beginning"};
-  return {show: s.tvmazeId?{id:s.tvmazeId,name:s.name}:null, pattern:pat};
+  return {show: s.tvmazeId?{id:s.tvmazeId,name:s.name}:null, pattern:pat,
+    minute:s.lastMinute||0, startedAt:s.startedAt||null, episodes:s.epDetail||{}};
 }
 
 /* Pierre's add flow asks the shell to add the picked show here too, so a new
@@ -480,7 +576,7 @@ async function addToLog(show, pattern){
   const norm=(show.name||"").toLowerCase();
   const existing=LOG.find(s=>(s.tvmazeId&&s.tvmazeId===show.id)||(s.name&&s.name.toLowerCase()===norm));
   const today=new Date().toISOString().slice(0,10);
-  if(existing){ if(existing.stopped)existing.stopped=false; existing.lastDate=today; render(); renderPierre(); return; }
+  if(existing){ if(existing.stopped)existing.stopped=false; existing.lastDate=today; render(); renderPierre(); persistShow(existing); return; }
   try{
     const r=await fetch("https://api.tvmaze.com/shows/"+show.id+"?embed=episodes"); if(!r.ok) throw 0;
     const sh=await r.json();
@@ -490,13 +586,14 @@ async function addToLog(show, pattern){
     let watched = p.kind==="live" ? rel.length : 0;
     if(p.kind==="resume" && p.season){ const i=rel.findIndex(e=>e.season===p.season&&e.number===p.number); watched=i>=0?i+1:0; }
     const lw=watched>0?rel[watched-1]:null;
-    LOG.unshift({ id:"add-"+show.id, tvmazeId:show.id, q:sh.name, name:sh.name||show.name,
+    const rec={ id:"add-"+show.id, tvmazeId:show.id, q:sh.name, name:sh.name||show.name,
       poster:sh.image?.original||sh.image?.medium||null, status:sh.status||"Unknown", failed:false,
       episodes:eps, total:eps.length, released:rel.length, watched,
       lastWatched: lw?{season:lw.season,number:lw.number,title:lw.name,at:today}:null,
       lastDate:today, returnDate:null, comfort:false, forceCompleted:false, stopped:false, plan:null,
-      isNew:true, addedSeq:++addSeq });
-    render(); renderPierre();
+      isNew:true, addedSeq:++addSeq, lastMinute:0, startedAt:null, epDetail:{} };
+    LOG.unshift(rec);
+    render(); renderPierre(); persistShow(rec);
   }catch(e){ /* Pierre validated the show; ignore if the detail fetch fails */ }
 }
 
@@ -504,6 +601,15 @@ window.addEventListener("message",(e)=>{
   if(e.data && e.data.type==="cube:payload" && e.data.face==="log"){
     const p=e.data.payload||{};
     if(p.addShow && p.addShow.id) addToLog(p.addShow, p.pattern);
+    if(p.progress && p.progress.tvmazeId) applyProgress(p.progress);   // Episode minute log
+    // Episode finale tap (MVP): finish the matching show and land back on CURRENT.
+    if(p.finishShow && p.finishShow.tvmazeId){
+      const s=LOG.find(x=>x.tvmazeId===p.finishShow.tvmazeId);
+      if(s && bucketOf(s)!=="completed"){
+        if(activeTab!=="current") switchTab("current");
+        setTimeout(()=>finishShow(s.id,"current"),80);
+      }
+    }
   }
 });
 
@@ -521,7 +627,7 @@ function dustParticles(rect,fr){const fx=document.getElementById("fx");
     p.style.setProperty("--dx",(Math.random()*30-15)+"px");p.style.setProperty("--dy",(50+Math.random()*120)+"px");p.style.setProperty("--dur",(0.7+Math.random()*0.6)+"s");
     fx.appendChild(p);setTimeout(()=>p.remove(),1500);}}
 
-function finishShow(id){
+function finishShow(id, land){
   const tileEl=document.querySelector('.tile[data-id="'+id+'"]'),s=LOG.find(x=>x.id===id); if(!s)return;
   const fr=face.getBoundingClientRect();
   if(tileEl){const tr=tileEl.getBoundingClientRect();
@@ -530,26 +636,36 @@ function finishShow(id){
     tileEl.style.transition="transform .75s cubic-bezier(.5,0,.2,1),opacity .75s ease";
     tileEl.style.transform="translate("+((tab.left+tab.width/2)-(tr.left+tr.width/2))+"px,"+((tab.top+tab.height/2)-(tr.top+tr.height/2))+"px) scale(.1)";
     tileEl.style.opacity="0";}else burst(fr.width/2,fr.height/2);
-  s.forceCompleted=true;s.watched=s.total;
+  s.forceCompleted=true;s.watched=s.total; persistShow(s);
   const tabEl=document.querySelector('.tab[data-tab="completed"]');tabEl.classList.add("pulse");setTimeout(()=>tabEl.classList.remove("pulse"),700);
-  setTimeout(()=>{render();renderPierre();},780); setTimeout(()=>switchTab("completed"),1300);
+  setTimeout(()=>{render();renderPierre();},780); setTimeout(()=>switchTab(land||"completed"),1300);
 }
 function stopShow(id){
   const tileEl=document.querySelector('.tile[data-id="'+id+'"]'),s=LOG.find(x=>x.id===id); if(!s)return;
   const fr=face.getBoundingClientRect();
   if(tileEl){dustParticles(tileEl.getBoundingClientRect(),fr);tileEl.classList.add("dusting");}
-  s.stopped=true; setTimeout(()=>{render();renderPierre();},640);
+  s.stopped=true; persistShow(s); setTimeout(()=>{render();renderPierre();},640);
 }
 
-function switchTab(name){activeTab=name;
-  document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("on",x.dataset.tab===name));render();}
+function switchTab(name){activeTab=name; selectedId=null;
+  document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("on",x.dataset.tab===name));render();updateActionChips();}
 document.querySelectorAll(".tab").forEach(t=>t.addEventListener("click",()=>switchTab(t.dataset.tab)));
 document.querySelectorAll(".chip[data-q]").forEach(c=>c.addEventListener("click",()=>{
   document.querySelectorAll(".chip[data-q]").forEach(x=>x.classList.remove("on"));c.classList.add("on");pierreQ=c.dataset.q;renderPierre();}));
 function firstCurrent(){return LOG.filter(s=>bucketOf(s)==="current"&&!s.failed&&!s.forceCompleted&&!s.stopped&&s.watched<s.released)[0]
   || LOG.filter(s=>bucketOf(s)==="current"&&!s.failed&&!s.forceCompleted&&!s.stopped)[0];}
 document.getElementById("finishBtn").addEventListener("click",()=>{const t=firstCurrent();if(t){if(activeTab!=="current")switchTab("current");setTimeout(()=>finishShow(t.id),60);}});
-document.getElementById("stopBtn").addEventListener("click",()=>{const t=firstCurrent();if(t){if(activeTab!=="current")switchTab("current");setTimeout(()=>stopShow(t.id),60);}});
+// STOP WATCHING + WATCH NEXT act on the selected CURRENT show.
+document.getElementById("stopBtn").addEventListener("click",()=>{
+  if(!selectedId)return; if(activeTab!=="current")switchTab("current");
+  const id=selectedId; selectedId=null; updateActionChips();
+  setTimeout(()=>stopShow(id),60);
+});
+document.getElementById("watchNextBtn").addEventListener("click",()=>{
+  if(!selectedId)return; const s=LOG.find(x=>x.id===selectedId); if(!s)return;
+  if(s.isNew){ s.isNew=false; s.lastDate=new Date().toISOString().slice(0,10); }
+  cube.rotateTo("episodes",episodesPayload(s));     // resume at next unwatched
+});
 
 function buildSavings(){
   document.getElementById("savings").textContent=money(TOTAL_SAVED);
@@ -563,8 +679,23 @@ document.getElementById("addBtn").addEventListener("click",e=>{e.stopPropagation
 document.getElementById("savingsBtn").addEventListener("click",e=>{e.stopPropagation();document.getElementById("savpop").classList.add("show");});
 document.getElementById("savpop").addEventListener("click",()=>document.getElementById("savpop").classList.remove("show"));
 
-(async function(){buildSavings();LOG=await Promise.all(SEED.map(hydrate));
+(async function(){buildSavings();
+  // DEMO is always the showcase seed. Otherwise a signed-in member loads their
+  // saved shows from the account; a signed-out MVP visitor starts empty.
+  const email=acct();
+  if(DEMO)        LOG = await Promise.all(SEED.map(hydrate));
+  else if(email)  LOG = await loadAccount(email);
+  else            LOG = [];
   LOG.sort((a,b)=>new Date(b.lastDate)-new Date(a.lastDate));render();renderPierre();})();
+
+// Re-hydrate when the session changes (login/logout in another face).
+window.addEventListener("storage", async (e)=>{
+  if(e.key!=="pg_user" && e.key!=="pg_refresh") return;
+  const email=acct();
+  if(DEMO) return;
+  LOG = email ? await loadAccount(email) : [];
+  LOG.sort((a,b)=>new Date(b.lastDate)-new Date(a.lastDate)); render(); renderPierre();
+});
 
 /* Pinch to contract back to the cube. The face overlay captures touches when
    active, so it needs its own way out, like the other faces. */
