@@ -312,6 +312,10 @@ let seasonStatus='', score='', curShowId=null, curShowName='', curService='';
 // Per-episode minute progress. epMin[i]=logged minutes, epDone[i]=watched,
 // epBp[i]=force-advanced (end stamp "BP"), startedAt[i]=on-device start ts.
 let epMin={}, epDone={}, epBp={}, startedAt={}, avgRuntime=45, minPreview=null, awaitingLog=false, pendingRestore=null;
+// preApp: watched before the app existed (seed / Pierre catch-up / pick / BP).
+// These are data, not behavior — they never count toward binge. Real in-app
+// watches (logging the minute bar to the end) set preApp=false.
+let epPreApp={};
 
 // DEMO = showcase build; MVP = clean product. The "Episodes" 6-dot indicator is DEMO-only.
 const DEMO = location.hostname.split('.').includes('demo') || new URLSearchParams(location.search).has('demo');
@@ -351,8 +355,9 @@ function boot(show,list,isDefault){
   avgRuntime = show.averageRuntime || show.runtime || 45;
   watched=Math.min(2,eps.filter(released).length);
   watchTs=[]; watchDate={}; binged={}; ranks={}; notes={}; cooled=false;
-  epMin={}; epDone={}; epBp={}; startedAt={}; minPreview=null; awaitingLog=false;
-  for(let i=0;i<watched;i++){ const t=Date.now()-(watched-i)*45*6e4; watchTs.push(t); watchDate[i]=new Date(t); epDone[i]=true; epMin[i]=runtimeOf(i); }
+  epMin={}; epDone={}; epBp={}; startedAt={}; epPreApp={}; minPreview=null; awaitingLog=false;
+  // Seed watches are pre-app data: dark green on the bar, but never binge.
+  for(let i=0;i<watched;i++){ const t=Date.now()-(watched-i)*45*6e4; watchTs.push(t); watchDate[i]=new Date(t); epDone[i]=true; epMin[i]=runtimeOf(i); epPreApp[i]=true; }
   focus=Math.min(watched, eps.length-1);
   paint();
   // If the Episode is showing a real show, make sure the Log is tracking it too
@@ -361,7 +366,15 @@ function boot(show,list,isDefault){
     window.parent.postMessage({type:'episode:track', tvmazeId:curShowId, name:curShowName}, '*');
 }
 
-const isBinge=()=>watchTs.length>=3 && (watchTs[watchTs.length-1]-watchTs[watchTs.length-3])<=DAY;
+// Timestamps of real in-app watches only (preApp false). Pre-app data is skipped.
+function inAppTimes(){
+  const t=[];
+  for(const k in epDone){ if(epDone[k] && epPreApp[k]===false && watchDate[k]) t.push(+watchDate[k]); }
+  return t.sort((a,b)=>a-b);
+}
+// Binge: three in-app watches within 24h. The flame only ever fires on real
+// in-app behavior, never on seed / catch-up / pick / BP.
+const isBinge=()=>{ const t=inAppTimes(); return t.length>=3 && (t[t.length-1]-t[t.length-3])<=DAY; };
 const bingeLive=()=>isBinge() && !cooled;
 
 function runtimeOf(i){ return (eps[i]&&eps[i].runtime) || avgRuntime || 45; }
@@ -375,9 +388,9 @@ function finaleCheck(){
 }
 function markWatchedThrough(i){
   if(i+1>watched) watched=i+1;
-  if(!watchDate[i]){ const t=Date.now(); watchTs.push(t); watchDate[i]=new Date(t); }
-  if(isBinge()){ const latest=watchTs[watchTs.length-1];
-    for(let k=0;k<watched;k++){ if(latest-watchTs[k]<=DAY) binged[k]=true; } }
+  if(!watchDate[i]) watchDate[i]=new Date();
+  if(isBinge()){ const t=inAppTimes(), latest=t[t.length-1];
+    for(const k in epDone){ if(epDone[k] && epPreApp[k]===false && watchDate[k] && latest-(+watchDate[k])<=DAY) binged[k]=true; } }
 }
 function advanceFocus(){ if(focus<eps.length-1) focus++; }
 
@@ -397,7 +410,7 @@ function logMinute(){
   epMin[focus]=val; minPreview=null; awaitingLog=false; cooled=false;
   try{ localStorage.removeItem('pg_launch'); }catch(_){}   // launch guess consumed
   const done=val>=rt-1;
-  if(done){ epDone[focus]=true; epBp[focus]=false; markWatchedThrough(focus); }
+  if(done){ epDone[focus]=true; epBp[focus]=false; epPreApp[focus]=false; markWatchedThrough(focus); }  // real in-app watch
   emitProgress(focus, done, false, val);
   if(done){ finaleCheck(); advanceFocus(); }
   paint();
@@ -407,7 +420,7 @@ function logMinute(){
 // "BP" (Before PangolinRC) end stamp and we jump to the next one.
 function forceAdvance(){
   const rt=runtimeOf(focus);
-  epDone[focus]=true; epBp[focus]=true; epMin[focus]=rt; minPreview=null; awaitingLog=false; cooled=false;
+  epDone[focus]=true; epBp[focus]=true; epPreApp[focus]=true; epMin[focus]=rt; minPreview=null; awaitingLog=false; cooled=false;  // BP = pre-app
   markWatchedThrough(focus);
   emitProgress(focus, true, true, 0);
   finaleCheck(); advanceFocus(); paint();
@@ -454,7 +467,7 @@ function paint(){
     const partial = !epDone[i] && epMin[i]>0;
     const stamp = epBp[i] ? 'BP' : (epMin[i]>0 ? Math.round(epMin[i])+'m' : fmt(watchDate[i]));
     row.innerHTML=`<span class="wt">${e.name||('Episode '+(i+1))}${partial?' · watching':''}</span>
-      <span class="wdate${epBp[i]?' binged':''}">${stamp}</span>
+      <span class="wdate${binged[i]?' binged':''}">${stamp}</span>
       <span class="wscore">${ranks[i]!==undefined?ranks[i]+'/10':''}</span>`;
     row.onclick=()=>{ focus=i; awaitingLog=false; minPreview=null; paint(); };
     wl.appendChild(row);
@@ -496,8 +509,9 @@ function paintMinute(){
 $('comment').addEventListener('input',e=>{ notes[focus]=e.target.value; });
 $('cool').onclick=()=>{ cooled=true; paint(); };
 $('reset').onclick=()=>{
+  // Clear to zero so the binge sequence can be replayed fresh from real in-app taps.
   watched=0; watchTs=[]; watchDate={}; binged={}; cooled=false;
-  epMin={}; epDone={}; epBp={}; startedAt={}; minPreview=null; awaitingLog=false;
+  epMin={}; epDone={}; epBp={}; startedAt={}; epPreApp={}; minPreview=null; awaitingLog=false;
   eps=allEps.filter(e=>sNum(e)===1); if(!eps.length) eps=allEps;
   focus=0; paint();
 };
@@ -528,8 +542,8 @@ function bgo(clientX){
 }
 function goToEpisode(idx){
   idx=Math.max(0,Math.min(eps.length-1, idx));
-  for(let k=0;k<idx;k++){ if(!epDone[k]){ epDone[k]=true; epBp[k]=true; epMin[k]=runtimeOf(k);
-    markWatchedThrough(k); emitProgress(k,true,true,0); } }     // forced skips → BP
+  for(let k=0;k<idx;k++){ if(!epDone[k]){ epDone[k]=true; epBp[k]=true; epPreApp[k]=true; epMin[k]=runtimeOf(k);
+    markWatchedThrough(k); emitProgress(k,true,true,0); } }     // forced skips → BP (pre-app)
   focus=idx; awaitingLog=false; minPreview=null; paint();
 }
 $('bar').addEventListener('click',e=>{ e.stopPropagation(); bgo(e.clientX); });
@@ -571,12 +585,13 @@ function applyPattern(p){
     watched=0;
   }
   watchTs=[]; watchDate={}; binged={}; ranks={}; notes={}; cooled=false;
-  epMin={}; epDone={}; epBp={}; startedAt={}; minPreview=null; awaitingLog=false;
-  for(let i=0;i<watched;i++){ const t=Date.now()-(watched-i)*45*6e4; watchTs.push(t); watchDate[i]=new Date(t); epDone[i]=true; epMin[i]=runtimeOf(i); }
+  epMin={}; epDone={}; epBp={}; startedAt={}; epPreApp={}; minPreview=null; awaitingLog=false;
+  // Pierre "Catch up live" / "Pick an episode" pre-mark watches: pre-app, never binge.
+  for(let i=0;i<watched;i++){ const t=Date.now()-(watched-i)*45*6e4; watchTs.push(t); watchDate[i]=new Date(t); epDone[i]=true; epMin[i]=runtimeOf(i); epPreApp[i]=true; }
   // Restore saved per-episode detail (minutes / done / BP) from the account.
   const det=pendingRestore&&pendingRestore.episodes;
   if(det) eps.forEach((e,i)=>{ const d=det[sNum(e)+'-'+e.number]; if(!d) return;
-    if(d.done){ epDone[i]=true; if(i+1>watched) watched=i+1; }
+    if(d.done){ epDone[i]=true; epPreApp[i]=true; if(i+1>watched) watched=i+1; }   // restored history: not a fresh binge
     if(typeof d.min==='number') epMin[i]=d.min;
     if(d.bp) epBp[i]=true; });
   focus=Math.min(watched, eps.length-1);

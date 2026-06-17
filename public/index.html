@@ -801,12 +801,40 @@ function serviceLink(service, q){
   return 'https://www.justwatch.com/us/search?q=' + enc;   // unknown streamer → where-to-watch aggregator
 }
 let currentEpisode = null;   // {tvmazeId, name, season, number, runtime, service} from the Episode face
+
+// Episode-end nudge: when a live watch starts (play), set a timer for the
+// episode runtime; at the end fire an OS notification calling the user back to
+// rank it. Browser ceiling: the timer only runs while the browser is alive —
+// closing it kills the timer. We derive runtime from TVMaze each time, store nothing.
+let _epEndTimer = null;
+function scheduleEpisodeEnd(ep) {
+  if (!ep || !ep.runtime || !('Notification' in window)) return;
+  clearTimeout(_epEndTimer);
+  _epEndTimer = setTimeout(() => {
+    if (Notification.permission !== 'granted') return;
+    const n = new Notification('Your episode finished. Come rank it.', {
+      body: ep.name + ' · EP ' + ep.number,
+      tag: 'pangolin-episode-end'
+    });
+    n.onclick = () => {                                  // open that show's Episode face at that episode
+      window.focus();
+      const cfg = FACE_OVERLAYS[FACE_INDEX.episodes];
+      if (cfg && cfg.frame && cfg.frame.contentWindow)
+        cfg.frame.contentWindow.postMessage({ type: 'cube:launch', launch: {
+          tvmazeId: ep.tvmazeId, name: ep.name, season: ep.season, number: ep.number, runtime: ep.runtime
+        } }, '*');
+      rotateToFace(FACE_INDEX.episodes);
+    };
+  }, ep.runtime * 60 * 1000);
+}
 {
   const btn = document.getElementById('btn-play');
   btn.addEventListener('click', () => {
     if (!currentEpisode || !currentEpisode.name) return;   // nothing loaded → nothing to play
     btn.classList.add('sent');
     setTimeout(() => btn.classList.remove('sent'), 180);
+    try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch {}
+    scheduleEpisodeEnd(currentEpisode);                    // live-watch session begins
     try { localStorage.setItem('pg_launch', JSON.stringify({ ...currentEpisode, startedAt: Date.now() })); } catch {}
     window.location.href = serviceLink(currentEpisode.service, currentEpisode.name);
   });
