@@ -355,6 +355,10 @@ function boot(show,list,isDefault){
   for(let i=0;i<watched;i++){ const t=Date.now()-(watched-i)*45*6e4; watchTs.push(t); watchDate[i]=new Date(t); epDone[i]=true; epMin[i]=runtimeOf(i); }
   focus=Math.min(watched, eps.length-1);
   paint();
+  // If the Episode is showing a real show, make sure the Log is tracking it too
+  // (so its progress can be saved). MVP only — DEMO's Log is a curated showcase.
+  if(!DEMO && curShowId && window.parent!==window)
+    window.parent.postMessage({type:'episode:track', tvmazeId:curShowId, name:curShowName}, '*');
 }
 
 const isBinge=()=>watchTs.length>=3 && (watchTs[watchTs.length-1]-watchTs[watchTs.length-3])<=DAY;
