@@ -306,7 +306,6 @@
 
 <script>
 const NOW=new Date(); const DAY=864e5;
-const DEFAULT_ID=79390;              // Widow's Bay
 let allEps=[], eps=[], watched=0, watchTs=[], watchDate={}, binged={}, ranks={}, notes={}, focus=0, cooled=false;
 let seasonStatus='', score='', curShowId=null, curShowName='', curService='';
 // Per-episode minute progress. epMin[i]=logged minutes, epDone[i]=watched,
@@ -326,12 +325,6 @@ const strip=s=>{const d=document.createElement('div');d.innerHTML=s||'';return (
 const fmt=d=>d?new Date(typeof d==='string'?d+'T12:00:00':d).toLocaleDateString('en-US',{month:'short',day:'numeric'}):'';
 const released=e=>e.airdate && new Date(e.airdate+'T23:59:59')<=NOW;
 const sNum=e=>e.season||1;
-
-async function load(url,isDefault){
-  try{ const r=await fetch(url); if(!r.ok) throw 0;
-    const s=await r.json(); boot(s,(s._embedded&&s._embedded.episodes)||[],isDefault);
-  }catch(e){ if(isDefault) fallback(); else $('name').textContent='Show not found'; }
-}
 
 function boot(show,list,isDefault){
   hideEmpty();                       // a show is loading — clear the empty state
@@ -614,24 +607,8 @@ window.addEventListener('message',(e)=>{
   if(e.data && e.data.type==='cube:launch' && e.data.launch) launchShow(e.data.launch);
 });
 
-function fallback(){
-  const d=[['Welcome to Widow\u2019s Bay!','2026-04-29','We hope you enjoyed the three-hour ferry to New England\u2019s best-kept secret. Ignore the warnings about the fog. Everything\u2019s fine.'],
-   ['Lodging','2026-04-29','Cherish the historical charm of our local inn, which Mayor Loftis will prove is safe by spending a night there alone.'],
-   ['The Inaugural Swim','2026-05-06','It\u2019s time for the annual beach opening. Lay out a towel as the mayor tests the waters. Unrelated: do not pick up hitchhikers.'],
-   ['Beach Reads','2026-05-13','Make sure you pack a good read for the beach. (We do not recommend self-help books on the island.)'],
-   ['What to Expect on Your Trip','2026-05-20','We apologize for the curfew. Please remain calm as we determine what\u2019s happening. Keep your teenagers inside after dark.'],
-   ['Our History','2026-05-27','The history of Widow\u2019s Bay is a beautiful tale of marriage, loyalty, and a love that endures beyond lifetimes. That\u2019s all.'],
-   ['Seasickness','2026-05-27','Set out to sea with Mayor Loftis and cherished local figure, Wyck. They are attending to some business.'],
-   ['Your Baggage','2026-06-03','Don\u2019t worry about misplaced luggage. Old baggage always resurfaces in Widow\u2019s Bay.'],
-   ['Emergency Shelter','2026-06-10','Please seek shelter should a centuries-old storm rage toward the island and plunge us into darkness. Enjoy a card game.'],
-   ['We Hope You Enjoyed Your Time!','2026-06-19','Season finale.']]
-   .map((e,i)=>({name:e[0],airdate:e[1],summary:e[2],season:1,number:i+1}));
-  boot({name:'Widow\u2019s Bay',premiered:'2026',webChannel:{name:'Apple TV'},genres:['Horror'],image:null,_embedded:{episodes:d}}, d, true);
-}
-
-// Deep-link test: if the play button launched a title (and marked a start time),
-// load that show at S1E1 so the minute bar can guess your position from elapsed
-// wall-clock time. Cleared once you log a minute. Otherwise load the default.
+// Deep-link launch: load the launched title at the episode that was playing so
+// the minute bar can guess your position from elapsed time. Cleared once you log.
 function launchShow(L){
   if(!L || !L.tvmazeId) return;
   pendingRestore = { minute:0, startedAt:L.startedAt, episodes:{} };
@@ -653,11 +630,10 @@ $('emPierre').onclick=()=>{ if(window.parent===window) return;
   if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('pierre',{intent:'add'});
   else window.parent.postMessage({type:'cube:rotateTo',face:'pierre',payload:{intent:'add'}},'*'); };
 
-// MVP shows nothing until the Log/Pierre hands over a show (empty Log → empty
-// Episode). DEMO keeps the showcase default; a deep-link launch overrides both.
+// No default show. The Episode stays empty until the Log/Pierre hands one over
+// (or a deep-link launch loads one), on both builds.
 const _launch = (()=>{ try{ return JSON.parse(localStorage.getItem('pg_launch')||'null'); }catch(_){ return null; } })();
 if(_launch && _launch.tvmazeId) launchShow(_launch);
-else if(DEMO) load(`https://api.tvmaze.com/shows/${DEFAULT_ID}?embed=episodes`, true);
 else showEmpty();
 
 // Double-tap the hero image area to return to cube
