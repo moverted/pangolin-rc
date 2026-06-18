@@ -805,11 +805,14 @@ function serviceLink(service, q){
 }
 let currentEpisode = null;   // {tvmazeId, name, season, number, runtime, service} from the Episode face
 
-// Grey the play button when the current show's streamer can't be deep-linked.
+// Grey the play button when the current show's streamer can't be deep-linked,
+// and tell the Episode face whether its lit streamer name should act as a button.
 function updatePlayState() {
-  const btn = document.getElementById('btn-play');
   const ok = !!(currentEpisode && currentEpisode.name && serviceLink(currentEpisode.service, currentEpisode.name));
-  btn.classList.toggle('dimmed', !ok);
+  document.getElementById('btn-play').classList.toggle('dimmed', !ok);
+  const cfg = FACE_OVERLAYS[FACE_INDEX.episodes];
+  if (cfg && cfg.frame && cfg.frame.contentWindow)
+    cfg.frame.contentWindow.postMessage({ type: 'cube:launchable', ok }, '*');
 }
 
 // Episode-end nudge: when a live watch starts (play), set a timer for the
@@ -837,20 +840,21 @@ function scheduleEpisodeEnd(ep) {
     };
   }, ep.runtime * 60 * 1000);
 }
-{
+// Launch the current show on its streamer + start the episode-end timer. Driven
+// by the play button and by tapping the lit streamer name on the Episode face.
+function launchCurrent() {
+  if (!currentEpisode || !currentEpisode.name) return;   // nothing loaded
+  const url = serviceLink(currentEpisode.service, currentEpisode.name);
+  if (!url) return;                                      // no known streamer → nothing to launch
   const btn = document.getElementById('btn-play');
-  btn.addEventListener('click', () => {
-    if (!currentEpisode || !currentEpisode.name) return;   // nothing loaded → nothing to play
-    const url = serviceLink(currentEpisode.service, currentEpisode.name);
-    if (!url) return;                                      // no known streamer → nothing to launch
-    btn.classList.add('sent');
-    setTimeout(() => btn.classList.remove('sent'), 180);
-    try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch {}
-    scheduleEpisodeEnd(currentEpisode);                    // live-watch session begins
-    try { localStorage.setItem('pg_launch', JSON.stringify({ ...currentEpisode, startedAt: Date.now() })); } catch {}
-    window.location.href = url;
-  });
+  btn.classList.add('sent');
+  setTimeout(() => btn.classList.remove('sent'), 180);
+  try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch {}
+  scheduleEpisodeEnd(currentEpisode);                    // live-watch session begins
+  try { localStorage.setItem('pg_launch', JSON.stringify({ ...currentEpisode, startedAt: Date.now() })); } catch {}
+  window.location.href = url;
 }
+document.getElementById('btn-play').addEventListener('click', launchCurrent);
 updatePlayState();   // start dimmed until a launchable show is loaded
 
 // On return from the launched app, surface the minute guess: rotate to the
@@ -883,6 +887,8 @@ window.addEventListener('message', (e) => {
   // Episode loaded a show → make sure the Log is tracking it too (Log dedupes).
   if (e.data?.type === 'episode:track' && e.data.tvmazeId)
     addToLogFace({ id: e.data.tvmazeId, name: e.data.name });
+  // Tapping the lit streamer name on the Episode face launches it (same as play).
+  if (e.data?.type === 'episode:launch') launchCurrent();
   // Episode reported in-episode progress (minutes / done / BP): forward to the
   // Log, which is the single writer to the member's account.
   if (e.data?.type === 'episode:progress') {

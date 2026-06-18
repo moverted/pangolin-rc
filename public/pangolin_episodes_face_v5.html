@@ -65,6 +65,9 @@
     letter-spacing:.05em; margin-bottom:12px; text-shadow:0 1px 10px rgba(0,0,0,.7); }
   .ymeta .sep{ color:rgba(255,255,255,.35); margin:0 7px; }
   .ymeta .svc-lit{ color:var(--amber); font-weight:700; text-shadow:0 0 10px rgba(240,169,59,.5); }
+  /* when the streamer can be launched, it becomes a tappable pill button */
+  .ymeta .svc-lit.live{ cursor:pointer; padding:2px 9px; border:1px solid var(--amber); border-radius:999px; text-shadow:none; }
+  .ymeta .svc-lit.live:active{ background:rgba(240,169,59,.18); }
 
   .scorepill{ display:inline-flex; align-items:center; gap:7px; cursor:pointer;
     background:rgba(0,0,0,.36); border:1px solid rgba(255,255,255,.14); border-radius:999px;
@@ -306,7 +309,7 @@
 <script>
 const NOW=new Date(); const DAY=864e5;
 let allEps=[], eps=[], watched=0, watchTs=[], watchDate={}, binged={}, ranks={}, notes={}, focus=0, cooled=false;
-let seasonStatus='', score='', curShowId=null, curShowName='', curService='';
+let seasonStatus='', score='', curShowId=null, curShowName='', curService='', svcLaunchable=false;
 // Per-episode minute progress. epMin[i]=logged minutes, epDone[i]=watched,
 // epBp[i]=force-advanced (end stamp "BP"), startedAt[i]=on-device start ts.
 let epMin={}, epDone={}, epBp={}, startedAt={}, avgRuntime=45, minPreview=null, awaitingLog=false, pendingRestore=null;
@@ -344,6 +347,7 @@ function boot(show,list,isDefault){
   // The streamer lights up so the platform is always clear (especially when the
   // play button can't deep-link it and is greyed out).
   $('ymeta').innerHTML=[yr, svc?'<span class="svc-lit">'+svc+'</span>':'', g].filter(Boolean).join('<span class="sep">|</span>');
+  applySvcState();   // re-apply the launch-button state to the new streamer span
 
   score = '';                                    // tap the pill to enter the @betterscreenscore value
   avgRuntime = show.averageRuntime || show.runtime || 45;
@@ -563,7 +567,7 @@ $('bar').addEventListener('click',e=>{ e.stopPropagation(); bgo(e.clientX); });
 // "tap anywhere to log it": one tap outside the controls commits the staged minute.
 document.querySelector('.face').addEventListener('click',e=>{
   if(!awaitingLog) return;
-  if(e.target.closest('.minbar,.minhandle,.bar,.addpill,.scorepill,.rank,.comment,.ctl,.wrow,.seasondots')) return;
+  if(e.target.closest('.minbar,.minhandle,.bar,.addpill,.scorepill,.rank,.comment,.ctl,.wrow,.seasondots,.svc-lit')) return;
   e.stopPropagation(); logMinute();
 }, true);
 
@@ -624,6 +628,15 @@ window.addEventListener('message',(e)=>{
   }
   // Deep-link return: load the launched title at S1E1 with the minute guess.
   if(e.data && e.data.type==='cube:launch' && e.data.launch) launchShow(e.data.launch);
+  // Shell tells us whether the current streamer can be launched (deep-linked).
+  if(e.data && e.data.type==='cube:launchable'){ svcLaunchable=!!e.data.ok; applySvcState(); }
+});
+
+// The lit streamer name acts as a launch button when it's deep-linkable.
+function applySvcState(){ const b=document.querySelector('#ymeta .svc-lit'); if(b) b.classList.toggle('live', svcLaunchable); }
+$('ymeta').addEventListener('click',(ev)=>{
+  if(svcLaunchable && ev.target.closest('.svc-lit') && window.parent!==window)
+    window.parent.postMessage({type:'episode:launch'}, '*');   // open the app + start the episode timer
 });
 
 // Deep-link launch: load the launched title at the episode that was playing so
