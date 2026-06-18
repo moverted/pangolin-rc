@@ -156,9 +156,15 @@
     padding:11px; border-radius:10px; cursor:pointer; background:rgba(0,0,0,.32);
     border:1px solid rgba(255,255,255,.16); color:var(--dim); }
   .sfbtn:active{ transform:translateY(1px); }
-  .sfbtn.start{ border-color:var(--amber); color:var(--amber); }
-  .sfbtn.logit{ border-color:var(--dim); color:var(--text); }
-  .sfbtn.finish{ border-color:var(--green); color:var(--green); }
+  .sfbtn.start{ --accent:var(--amber); --flipfg:var(--amber-deep); border-color:var(--accent); color:var(--accent); }
+  .sfbtn.logit{ --accent:var(--text);  --flipfg:#1a1206;          border-color:var(--accent); color:var(--accent); }
+  .sfbtn.finish{ --accent:var(--green); --flipfg:#06140b;         border-color:var(--accent); color:var(--accent); }
+  /* tap feedback: flip the button to a filled state, then flip back */
+  @keyframes sfflip{
+    0%,100%{ background:rgba(0,0,0,.32); color:var(--accent); box-shadow:none; }
+    35%,65%{ background:var(--accent);   color:var(--flipfg); box-shadow:0 0 16px -3px var(--accent); }
+  }
+  .sfbtn.flip{ animation:sfflip .52s ease both; }
 
   /* MVP empty state: no shows in the Log → nothing on the Episode side yet */
   .emptyface{ position:absolute; inset:0; z-index:6; display:none; flex-direction:column;
@@ -230,6 +236,15 @@
   .wdate.binged{ background:rgba(126,42,36,.92); color:#f4c9c4; }
   .wscore{ font-family:var(--mono); font-size:11px; color:var(--amber); font-weight:700; width:34px; text-align:right; }
   .empty{ font-family:var(--mono); font-size:11px; color:var(--faint); padding:6px 0 2px; }
+  /* live row. WATCHING = orange bubble, full marker. WAITING = muted, static. */
+  .wrow.live .wt{ color:var(--amber); }
+  .wdate.live{ background:rgba(240,169,59,.92); color:var(--amber-deep); font-weight:700; letter-spacing:.08em; }
+  .wdate.live.waiting{ background:rgba(120,108,92,.5); color:var(--text); }
+  .live-dots::after{ content:'>>>'; }          /* watching, steady state = built up */
+  .wait-dots::after{ content:'...'; letter-spacing:.08em; }   /* waiting, static */
+  /* the build-up plays once, only when the START/CONTINUE button is tapped */
+  .live-dots.building::after{ animation:build .6s steps(1,end) both; }
+  @keyframes build{ 0%{content:'>..'} 33%{content:'>>.'} 66%,100%{content:'>>>'} }
 </style>
 </head>
 <body>
@@ -329,7 +344,11 @@ let allEps=[], eps=[], watched=0, watchTs=[], watchDate={}, binged={}, ranks={},
 let seasonStatus='', score='', curShowId=null, curShowName='', curService='', svcLaunchable=false;
 // Per-episode minute progress. epMin[i]=logged minutes, epDone[i]=watched,
 // epBp[i]=force-advanced (end stamp "BP"), startedAt[i]=on-device start ts.
-let epMin={}, epDone={}, epBp={}, startedAt={}, avgRuntime=45, minPreview=null, awaitingLog=false, pendingRestore=null;
+let epMin={}, epDone={}, epBp={}, startedAt={}, avgRuntime=45, minPreview=null, awaitingLog=false, pendingRestore=null, scrollToLive=false;
+// watchingLive[i]=true → episode i is in the animated "watching" state (set ONLY by
+// the START/CONTINUE button). animateLive = one-shot flag: the build-up plays on the
+// next paint after a start/continue tap, never on a plain re-render or a log action.
+let watchingLive={}, animateLive=false;
 // Per-episode viewing-session log entries: [{date,minutes,finished,bp,startTs,finishTs}].
 // sessionBase[i] = the scrubber position when the current START session began.
 let epSessions={}, sessionBase={};
@@ -373,7 +392,7 @@ function boot(show,list,isDefault){
   avgRuntime = show.averageRuntime || show.runtime || 45;
   watched=Math.min(2,eps.filter(released).length);
   watchTs=[]; watchDate={}; binged={}; ranks={}; notes={}; cooled=false;
-  epMin={}; epDone={}; epBp={}; startedAt={}; epPreApp={}; epSessions={}; sessionBase={}; minPreview=null; awaitingLog=false;
+  epMin={}; epDone={}; epBp={}; startedAt={}; epPreApp={}; epSessions={}; sessionBase={}; minPreview=null; awaitingLog=false; watchingLive={}; animateLive=false;
   // Seed watches are pre-app data: dark green on the bar, but never binge.
   for(let i=0;i<watched;i++){ const t=Date.now()-(watched-i)*45*6e4; watchTs.push(t); watchDate[i]=new Date(t); epDone[i]=true; epMin[i]=runtimeOf(i); epPreApp[i]=true; }
   focus=Math.min(watched, eps.length-1);
@@ -447,6 +466,7 @@ function logMinute(){
   epMin[focus]=val; minPreview=null; awaitingLog=false; cooled=false; epPreApp[focus]=false;
   try{ localStorage.removeItem('pg_launch'); }catch(_){}
   const done=val>=rt-1;
+  watchingLive[focus]=false;   // logging pauses the watch → "waiting" (static), never animates
   if(done){ epDone[focus]=true; epBp[focus]=false; markWatchedThrough(focus); logSession(focus,{minutes:rt,finished:true,bp:false}); }
   else logSession(focus,{minutes:val,finished:false,bp:false});
   emitProgress(focus, done, false, val);
@@ -465,16 +485,19 @@ function forceAdvance(){
   finaleCheck(); advanceFocus(); paint();
 }
 
-// START marks a watch beginning (date + time) so the guess has a reference point.
+// START / CONTINUE: begin (or resume) a watch. This is the ONLY entry point that
+// puts the episode into the animated "watching" state and plays the build-up.
 function startEpisode(){
   startedAt[focus]=Date.now(); sessionBase[focus]=epMin[focus]||0; minPreview=null; awaitingLog=false;
+  watchingLive[focus]=true; animateLive=true;   // watching + play the build-up once
+  scrollToLive=true;   // surface the live "WATCHING…" row in the log below
   emitProgress(focus, false, false, Math.round(epMin[focus]||0));
   paint();
 }
 // FINISH: logs the episode fully watched (a real in-app watch) and advances.
 function finishEpisode(){
   const rt=runtimeOf(focus);
-  epMin[focus]=rt; epDone[focus]=true; epBp[focus]=false; epPreApp[focus]=false; minPreview=null; awaitingLog=false; cooled=false;
+  epMin[focus]=rt; epDone[focus]=true; epBp[focus]=false; epPreApp[focus]=false; minPreview=null; awaitingLog=false; cooled=false; watchingLive[focus]=false;
   try{ localStorage.removeItem('pg_launch'); }catch(_){}
   markWatchedThrough(focus);
   logSession(focus,{minutes:rt,finished:true,bp:false});
@@ -523,12 +546,27 @@ function paint(){
     else if(epDone[i]) rows.push({i,e,s:{ date: watchDate[i]?mdFmt(+watchDate[i]):'',
       minutes:Math.round(epMin[i]||0), finished:true, bp:!!epBp[i], startTs:null, finishTs: watchDate[i]?+watchDate[i]:0 }});
   }
+  // Live row for the focused episode once started and not finished. watchingLive
+  // distinguishes the animated "watching" state from the static "waiting" state.
+  if(startedAt[focus] && !epDone[focus]) rows.push({ i:focus, e:eps[focus]||{},
+    s:{ live:true, watching:!!watchingLive[focus], startTs:startedAt[focus], finishTs:Number.MAX_SAFE_INTEGER } });
   rows.sort((a,b)=>(b.s.finishTs||0)-(a.s.finishTs||0));
   $('wlLabel').textContent='Watched · '+watched;
   const wl=$('watchlist'); wl.innerHTML='';
   if(!rows.length) wl.innerHTML='<div class="empty">Nothing logged yet.</div>';
+  let liveRowEl=null;
   rows.forEach(({i,e,s})=>{
-    const row=document.createElement('div'); row.className='wrow';
+    const row=document.createElement('div'); row.className='wrow'+(s.live?' live':'');
+    if(s.live){
+      const bubble = s.watching
+        ? `<span class="wdate live">WATCHING<span class="live-dots${animateLive?' building':''}"></span></span>`
+        : `<span class="wdate live waiting">WAITING<span class="wait-dots"></span></span>`;
+      row.innerHTML=`<div class="wmain"><span class="wt">${escHtml(epCode(e)+' '+(e.name||('Episode '+(i+1))))}</span>
+        ${bubble}<span class="wscore"></span></div>
+        <div class="wdetail">started ${hmFmt(s.startTs)} · ${s.watching?'watching':'paused'}</div>`;
+      row.onclick=()=>row.classList.toggle('open');
+      wl.appendChild(row); liveRowEl=row; return;
+    }
     const stamp = s.bp ? '(BP)' : (s.finished ? '('+s.date+' ✅)' : '('+s.date+', '+s.minutes+'m)');
     row.innerHTML=`<div class="wmain"><span class="wt">${escHtml(epCode(e)+' '+(e.name||('Episode '+(i+1))))}</span>
       <span class="wdate${(binged[i]&&!s.bp)?' binged':''}">${stamp}</span>
@@ -537,6 +575,13 @@ function paint(){
     row.onclick=()=>row.classList.toggle('open');
     wl.appendChild(row);
   });
+  animateLive=false;   // one-shot consumed: later re-renders won't replay the build-up
+  // Leftmost button reads CONTINUE while paused mid-episode, START otherwise.
+  const stBtn=$('startEpBtn');
+  if(stBtn) stBtn.textContent=(startedAt[focus] && !epDone[focus] && !watchingLive[focus]) ? 'CONTINUE' : 'START';
+  // After a START tap, scroll the live row into view so the ticking line is visible.
+  if(scrollToLive && liveRowEl){ scrollToLive=false;
+    requestAnimationFrame(()=>liveRowEl.scrollIntoView({behavior:'smooth', block:'center'})); }
   reportCurrent();
 }
 
@@ -594,7 +639,7 @@ $('cool').onclick=()=>{ cooled=true; paint(); };
 $('reset').onclick=()=>{
   // Clear to zero so the binge sequence can be replayed fresh from real in-app taps.
   watched=0; watchTs=[]; watchDate={}; binged={}; cooled=false;
-  epMin={}; epDone={}; epBp={}; startedAt={}; epPreApp={}; epSessions={}; sessionBase={}; minPreview=null; awaitingLog=false;
+  epMin={}; epDone={}; epBp={}; startedAt={}; epPreApp={}; epSessions={}; sessionBase={}; minPreview=null; awaitingLog=false; watchingLive={}; animateLive=false;
   eps=allEps.filter(e=>sNum(e)===1); if(!eps.length) eps=allEps;
   focus=0; paint();
 };
@@ -604,9 +649,12 @@ $('addShowBtn').onclick=()=>{ if(window.parent===window) return;
   if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('pierre',{intent:'add'});
   else window.parent.postMessage({type:'cube:rotateTo',face:'pierre',payload:{intent:'add'}},'*'); };
 
-$('startEpBtn').onclick=startEpisode;
-$('logItBtn').onclick=logIt;
-$('finishEpBtn').onclick=finishEpisode;
+// Tap feedback: flip the button's colors and let them flip back.
+function flashBtn(el){ if(!el) return; el.classList.remove('flip'); void el.offsetWidth;
+  el.classList.add('flip'); el.addEventListener('animationend',()=>el.classList.remove('flip'),{once:true}); }
+$('startEpBtn').onclick=()=>{ flashBtn($('startEpBtn')); startEpisode(); };
+$('logItBtn').onclick=()=>{ flashBtn($('logItBtn')); logIt(); };
+$('finishEpBtn').onclick=()=>{ flashBtn($('finishEpBtn')); finishEpisode(); };
 
 // Stop-and-return: when the tab is shown again during an open session, guess the
 // stopped position from elapsed time (where you were at START + minutes since).
@@ -681,7 +729,7 @@ function applyPattern(p){
     watched=0;
   }
   watchTs=[]; watchDate={}; binged={}; ranks={}; notes={}; cooled=false;
-  epMin={}; epDone={}; epBp={}; startedAt={}; epPreApp={}; epSessions={}; sessionBase={}; minPreview=null; awaitingLog=false;
+  epMin={}; epDone={}; epBp={}; startedAt={}; epPreApp={}; epSessions={}; sessionBase={}; minPreview=null; awaitingLog=false; watchingLive={}; animateLive=false;
   // Pierre "Catch up live" / "Pick an episode" pre-mark watches: pre-app, never binge.
   for(let i=0;i<watched;i++){ const t=Date.now()-(watched-i)*45*6e4; watchTs.push(t); watchDate[i]=new Date(t); epDone[i]=true; epMin[i]=runtimeOf(i); epPreApp[i]=true; }
   // Restore saved per-episode detail (minutes / done / BP) from the account.
