@@ -340,18 +340,36 @@
   // row (real stored devices replace it once an account has any).
   const DEMO_DEVICES=[{type:'Fire TV', location:'Home Gym'}];
   const MVP_DEFAULT_DEVICES=[{type:'mobile', location:'This Phone'}];
+  // SHOWS / EPISODES / MINUTES from the member's watch data (MVP only; DEMO keeps
+  // its showcase numbers). EPISODES = sum of watched counts; MINUTES = sum of the
+  // logged minute position across every tracked episode.
+  async function loadStats(email){
+    if(DEMO) return;
+    try{
+      const r=await fetch(API+'/profile/'+encodeURIComponent(email)+'/watch');
+      if(!r.ok) return;
+      const shows=(await r.json()).shows||[];
+      let eps=0, mins=0;
+      shows.forEach(s=>{ eps+=(s.watched||0); const ep=s.episodes||{}; for(const k in ep) mins+=Math.round(ep[k].min||0); });
+      $('stShows').textContent=String(shows.length);
+      $('stEps').textContent=eps.toLocaleString();
+      $('stThird').textContent=mins.toLocaleString(); $('stThirdLbl').textContent='MINUTES';
+    }catch(_){}
+  }
   async function refresh(){
     const email=session();
     if(DEMO) renderDevices(DEMO_DEVICES);
     if(!email){
       $('pname').textContent='Guest'; $('phandle').textContent='not signed in';
       $('authBtn').textContent='log in'; $('authBtn').onclick=()=>nav('pierre',{intent:'join'});
-      if(!DEMO) renderDevices(MVP_DEFAULT_DEVICES);
+      if(!DEMO){ renderDevices(MVP_DEFAULT_DEVICES);
+        $('stShows').textContent='0'; $('stEps').textContent='0'; $('stThird').textContent='0'; }  // signed out → zeros
       return;
     }
     $('authBtn').textContent='log out';
     $('authBtn').onclick=()=>{ try{localStorage.removeItem('pg_user');}catch(_){} refresh(); };
     $('phandle').textContent=email;
+    if(!DEMO) loadStats(email);
     try{
       const r=await fetch(API+'/profile/'+encodeURIComponent(email));
       if(r.status===404){ try{localStorage.removeItem('pg_user');}catch(_){} return refresh(); }  // account gone -> sign out
