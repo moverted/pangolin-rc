@@ -38,14 +38,14 @@
     -webkit-overflow-scrolling:touch; overscroll-behavior:contain; }
   .scroll::-webkit-scrollbar{ width:0; }
 
-  /* fixed top bar (like the Feed face): EPISODE · SEASONS · + Show — never scrolls */
+  /* fixed top bar (like the Feed face): WATCH · SEASONS — never scrolls */
   .topbar{ position:relative; z-index:2; flex:none; padding:13px 16px 11px;
     background:linear-gradient(180deg, rgba(8,6,4,.88) 0%, rgba(8,6,4,.5) 72%, transparent 100%); }
   .seasonlabel{ font-family:var(--mono); font-size:10px; letter-spacing:.18em;
     text-transform:uppercase; color:var(--faint); flex:0 0 auto; }
 
   .hero{ padding:16px 18px 18px; min-height:50%; display:flex; flex-direction:column; }
-  /* one row: EPISODE (left) · SEASONS (centered) · + Show (right) */
+  /* one row: WATCH (left) · SEASONS (centered) */
   .facebar{ display:flex; align-items:center; gap:8px;
     font-family:var(--mono); font-size:10px; letter-spacing:.14em;
     text-transform:uppercase; color:var(--faint); }
@@ -170,16 +170,12 @@
     border-color:rgba(255,255,255,.12); color:var(--faint); box-shadow:none; }
   .sfbtn:disabled:active{ transform:none; }
 
-  /* MVP empty state: no shows in the Log → nothing on the Episode side yet */
+  /* Empty state: nothing has ever been watched. One line; tap swings to the Log. */
   .emptyface{ position:absolute; inset:0; z-index:6; display:none; flex-direction:column;
-    align-items:center; justify-content:center; gap:16px; text-align:center; padding:34px;
+    align-items:center; justify-content:center; text-align:center; padding:34px; cursor:pointer;
     background:radial-gradient(120% 90% at 50% 18%, #1b1410 0%, #0c0a08 70%); }
   .emptyface.show{ display:flex; }
   .emptyface .emsg{ font-family:var(--display); font-weight:700; font-size:21px; line-height:1.35; color:var(--text); }
-  .emptyface .esub{ font-family:var(--mono); font-size:10.5px; letter-spacing:.16em; color:var(--faint); text-transform:uppercase; }
-  .emptyface .empill{ background:var(--amber); color:var(--amber-deep); border:none; border-radius:999px;
-    font-family:var(--mono); font-weight:700; font-size:12px; letter-spacing:.04em; padding:11px 22px; cursor:pointer; }
-  .emptyface .empill:active{ transform:translateY(1px); }
 
   .sheet{ background:var(--sheet); backdrop-filter:blur(16px);
     -webkit-backdrop-filter:blur(16px); border-top:1px solid rgba(255,255,255,.08);
@@ -196,10 +192,6 @@
     border-radius:9px; padding:9px 14px; font-family:var(--mono); font-size:11px;
     font-weight:700; cursor:pointer; }
   .catalog button:active{ transform:translateY(1px); }
-  .addpill{ background:rgba(0,0,0,.34); border:1px solid rgba(255,255,255,.18); color:var(--amber);
-    font-family:var(--mono); font-size:11px; font-weight:500; letter-spacing:.04em; line-height:1;
-    padding:5px 10px; border-radius:999px; cursor:pointer; }
-  .addpill:active{ transform:translateY(1px); }
 
   .epline{ font-family:var(--mono); font-size:11px; letter-spacing:.06em; color:var(--amber);
     text-transform:uppercase; margin-bottom:9px; display:flex; gap:9px; align-items:baseline; }
@@ -266,24 +258,21 @@
   <div class="topbar">
     <div class="facebar">
       <div class="fb-left">
-        <span class="facelabel">EPISODE</span>
+        <span class="facelabel">WATCH</span>
         <span class="dots" id="epDots"><i></i><i></i><i></i><i class="on"></i><i></i><i></i></span>
       </div>
       <!-- season dots (display-only): dark-green done · 🍿 current · green future-available · grey unaired -->
       <div class="fb-mid" id="seasonInd"></div>
-      <div class="fb-right">
-        <button id="addShowBtn" class="addpill">+ Show</button>
-      </div>
+      <div class="fb-right"></div>
     </div>
   </div>
 
   <div class="scroll">
 
-    <!-- MVP: shown when the Log is empty (nothing handed to the Episode face) -->
+    <!-- Shown only when nothing has ever been watched. Tapping (or simply landing
+         on this face) swings over to the Log so you can log a show. -->
     <div class="emptyface" id="emptyFace">
-      <div class="emsg">Nothing on yet</div>
-      <div class="esub">your room is empty</div>
-      <button class="empill" id="emPierre">See Pierre</button>
+      <div class="emsg">Log a show to watch</div>
     </div>
 
     <div class="hero">
@@ -665,10 +654,6 @@ $('reset').onclick=()=>{
 };
 $('scorePill').onclick=()=>{ const v=prompt('Screen Score from @betterscreenscore (e.g. 87):', score);
   if(v!==null){ score=v.trim(); paint(); } };
-$('addShowBtn').onclick=()=>{ if(window.parent===window) return;
-  if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('pierre',{intent:'add'});
-  else window.parent.postMessage({type:'cube:rotateTo',face:'pierre',payload:{intent:'add'}},'*'); };
-
 // Tap feedback: flip the button's colors and let them flip back.
 function flashBtn(el){ if(!el) return; el.classList.remove('flip'); void el.offsetWidth;
   el.classList.add('flip'); el.addEventListener('animationend',()=>el.classList.remove('flip'),{once:true}); }
@@ -715,7 +700,7 @@ $('bar').addEventListener('click',e=>{ e.stopPropagation(); bgo(e.clientX); });
 // "tap anywhere to log it": one tap outside the controls commits the staged minute.
 document.querySelector('.face').addEventListener('click',e=>{
   if(!awaitingLog) return;
-  if(e.target.closest('.minbar,.minhandle,.bar,.addpill,.scorepill,.rank,.comment,.ctl,.wrow,.seasondots,.svc-lit')) return;
+  if(e.target.closest('.minbar,.minhandle,.bar,.scorepill,.rank,.comment,.ctl,.wrow,.seasondots,.svc-lit')) return;
   e.stopPropagation(); logMinute();
 }, true);
 
@@ -777,6 +762,8 @@ window.addEventListener('message',(e)=>{
   }
   // Deep-link return: load the launched title at S1E1 with the minute guess.
   if(e.data && e.data.type==='cube:launch' && e.data.launch) launchShow(e.data.launch);
+  // Shell has no last-watched show to resume → fall back to the empty prompt.
+  if(e.data && e.data.type==='cube:noLast') showEmpty();
   // Shell tells us whether the current streamer can be launched (deep-linked).
   if(e.data && e.data.type==='cube:launchable'){ svcLaunchable=!!e.data.ok; applySvcState(); }
 });
@@ -807,14 +794,23 @@ function reportCurrent(){
     tvmazeId:curShowId, name:curShowName, season:sNum(e), number:e.number, runtime:runtimeOf(focus), service:curService
   } : null}, '*');
 }
-$('emPierre').onclick=()=>{ if(window.parent===window) return;
-  if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('pierre',{intent:'add'});
-  else window.parent.postMessage({type:'cube:rotateTo',face:'pierre',payload:{intent:'add'}},'*'); };
+// Tapping the empty prompt swings over to the Log so you can log something.
+function gotoLog(){ if(window.parent===window) return;
+  if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('log',{});
+  else window.parent.postMessage({type:'cube:rotateTo',face:'log',payload:{}},'*'); }
+$('emptyFace').onclick=gotoLog;
 
-// No default show. The Episode stays empty until the Log/Pierre hands one over
-// (or a deep-link launch loads one), on both builds.
+// On open, resume the last thing watched. A deep-link launch wins; otherwise ask
+// the shell for the most-recently-watched show (it owns the Log snapshot) and the
+// shell answers with a cube:payload or cube:noLast. Standalone preview just shows
+// the empty prompt.
 const _launch = (()=>{ try{ return JSON.parse(localStorage.getItem('pg_launch')||'null'); }catch(_){ return null; } })();
 if(_launch && _launch.tvmazeId) launchShow(_launch);
+else if(window.parent!==window){
+  window.parent.postMessage({type:'episode:requestLast'}, '*');
+  // Fallback: if the shell never answers, settle on the empty prompt.
+  setTimeout(()=>{ if(!curShowId) showEmpty(); }, 4000);
+}
 else showEmpty();
 
 // Double-tap the hero image area to return to cube

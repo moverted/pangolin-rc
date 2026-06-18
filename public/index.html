@@ -338,6 +338,7 @@ function lock() {
   pinchHint.textContent = 'pinch to unlock';
   pinchHint.classList.remove('hide');
   if (fi === PIERRE_FACE) focusPierre();
+  bounceFromEmptyWatch(fi);
 }
 
 function unlock() {
@@ -377,6 +378,33 @@ function focusPierreBlur() {
 // 'cube:rotateTo' message and this maps the face name to its cube index.
 const FACE_INDEX = { episodes: 0, feed: 1, pierre: 2, log: 3, profile: 4, join: 5 };
 let viewingStore = [];   // snapshot of the Log face's records, shared with Pierre/Episodes
+let lastResume = null;        // Episodes payload for the most-recently-watched show (or null)
+let logLoaded = false;        // the Log has published at least once
+let episodesWantsLast = false;// the Watch face asked before the Log was ready
+let episodesEmpty = false;    // the Watch face currently has no show loaded
+
+// Hand the Watch face the last thing watched, or tell it there's nothing to resume.
+function sendEpisodesLast() {
+  const cfg = FACE_OVERLAYS[FACE_INDEX.episodes];
+  if (!cfg || !cfg.frame || !cfg.frame.contentWindow) return;
+  if (lastResume && lastResume.show) {
+    episodesEmpty = false;   // a show is on its way — don't bounce while it loads
+    cfg.frame.contentWindow.postMessage({ type: 'cube:payload', face: 'episodes', payload: lastResume }, '*');
+  } else {
+    cfg.frame.contentWindow.postMessage({ type: 'cube:noLast' }, '*');
+  }
+}
+
+// Landing on the Watch face with nothing to watch → animate over to the Log so the
+// user can log a show. Delayed so the Watch face is seen first, and guarded so a
+// show arriving in the meantime (episodesEmpty flips false) cancels the bounce.
+function bounceFromEmptyWatch(fi) {
+  if (fi !== FACE_INDEX.episodes) return;
+  setTimeout(() => {
+    if (locked && activeFace === FACE_INDEX.episodes && episodesEmpty)
+      cubeRotateTo('log', {});
+  }, 520);
+}
 function rotateToFace(fi) {
   if (typeof fi !== 'number' || fi < 0 || fi > 5) return;
   locked = true;
@@ -386,6 +414,7 @@ function rotateToFace(fi) {
   pinchHint.textContent = 'pinch to unlock';
   pinchHint.classList.remove('hide');
   if (fi === PIERRE_FACE) focusPierre(); else focusPierreBlur();
+  bounceFromEmptyWatch(fi);
 }
 
 // Faces call this DIRECTLY (same-origin) rather than postMessage so the tap's
@@ -397,6 +426,8 @@ function cubeRotateTo(face, payload) {
   if (fi === undefined) return;
   rotateToFace(fi);
   payload = payload || {};
+  // A show is being handed to the Watch face → it won't be empty; suppress the bounce.
+  if (face === 'episodes' && payload.show) episodesEmpty = false;
   if (face === 'pierre' && payload.intent === 'add') payload = { ...payload, history: viewingStore };
   const cfg = FACE_OVERLAYS[fi];
   if (cfg && cfg.frame && cfg.frame.contentWindow)
@@ -508,6 +539,7 @@ canvas.addEventListener('pointerup', (e) => {
       showFaceInfo(next);
       if (next === PIERRE_FACE) focusPierre();
       else focusPierreBlur();
+      bounceFromEmptyWatch(next);
     }
   }
 });
@@ -669,10 +701,16 @@ let t = 0;
   if (chatMode !== _chatPrev) { _chatPrev = chatMode; layout(); }                 // keyboard toggle → re-gate rotation
 
   // While the Pierre chat is selected, hide the media buttons so they sit
-  // underneath the chat instead of floating on top of it.
+  // underneath the chat instead of floating on top of it. The cube canvas and
+  // the unlock hint are hidden too: the iOS keyboard pans the page, which drags
+  // the 3D cube (the grey box) around behind the pinned chat. With the chat
+  // owning the screen, the cube serves no purpose — and exit still works via the
+  // in-iframe pinch / double-tap, which posts 'pangolin-back'.
   if (pierreActive !== _ctrlHidden) {
     controlsEl.style.opacity = pierreActive ? '0' : '';
     controlsEl.style.pointerEvents = pierreActive ? 'none' : '';
+    canvas.style.visibility = pierreActive ? 'hidden' : '';
+    pinchHint.style.visibility = pierreActive ? 'hidden' : '';
     _ctrlHidden = pierreActive;
   }
 
@@ -847,6 +885,7 @@ function scheduleEpisodeEnd(ep) {
         cfg.frame.contentWindow.postMessage({ type: 'cube:launch', launch: {
           tvmazeId: ep.tvmazeId, name: ep.name, season: ep.season, number: ep.number, runtime: ep.runtime
         } }, '*');
+      episodesEmpty = false;   // a launched show is loading — don't bounce to the Log
       rotateToFace(FACE_INDEX.episodes);
     };
   }, ep.runtime * 60 * 1000);
@@ -879,6 +918,7 @@ function resumeLaunch() {
   const cfg = FACE_OVERLAYS[FACE_INDEX.episodes];
   if (cfg && cfg.frame && cfg.frame.contentWindow)
     cfg.frame.contentWindow.postMessage({ type: 'cube:launch', launch: L }, '*');
+  episodesEmpty = false;   // a launched show is loading — don't bounce to the Log
   rotateToFace(FACE_INDEX.episodes);
 }
 window.addEventListener('pageshow', resumeLaunch);
@@ -889,12 +929,29 @@ window.addEventListener('message', (e) => {
   if (e.data?.type === 'pangolin-back') unlock();
   // Pierre chat reports input focus so we can pin it above the keyboard.
   if (e.data?.type === 'pierre-chat-focus') chatFocused = !!e.data.focused;
-  // The Log face published its current records; keep a snapshot for the others.
-  if (e.data?.type === 'log:data') viewingStore = e.data.shows || [];
+  // The Log face published its current records; keep a snapshot for the others,
+  // plus a ready-to-load payload for the most-recently-watched show.
+  if (e.data?.type === 'log:data') {
+    viewingStore = e.data.shows || [];
+    lastResume = e.data.resume || null;
+    logLoaded = true;
+    if (episodesWantsLast) { episodesWantsLast = false; sendEpisodesLast(); }
+  }
+  // The Watch face opened and is asking for the last thing watched.
+  if (e.data?.type === 'episode:requestLast') {
+    if (logLoaded) sendEpisodesLast();
+    else episodesWantsLast = true;   // answer once the Log publishes
+  }
   // postMessage fallback for a face asking to rotate (no keyboard activation).
   if (e.data?.type === 'cube:rotateTo') cubeRotateTo(e.data.face, e.data.payload);
   // Episode face reports the show/episode it currently has loaded (drives the play button).
-  if (e.data?.type === 'episode:current') { currentEpisode = e.data.show || null; updatePlayState(); }
+  // No show loaded → the Watch face is empty; if we're sitting on it, swing to the Log.
+  if (e.data?.type === 'episode:current') {
+    currentEpisode = e.data.show || null;
+    episodesEmpty = !e.data.show;
+    updatePlayState();
+    if (episodesEmpty) bounceFromEmptyWatch(FACE_INDEX.episodes);
+  }
   // Episode loaded a show → make sure the Log is tracking it too (Log dedupes).
   if (e.data?.type === 'episode:track' && e.data.tvmazeId)
     addToLogFace({ id: e.data.tvmazeId, name: e.data.name });
