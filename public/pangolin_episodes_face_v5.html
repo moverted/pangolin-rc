@@ -64,6 +64,7 @@
   .ymeta{ font-family:var(--mono); font-size:11px; color:var(--dim);
     letter-spacing:.05em; margin-bottom:12px; text-shadow:0 1px 10px rgba(0,0,0,.7); }
   .ymeta .sep{ color:rgba(255,255,255,.35); margin:0 7px; }
+  .ymeta .svc-lit{ color:var(--amber); font-weight:700; text-shadow:0 0 10px rgba(240,169,59,.5); }
 
   .scorepill{ display:inline-flex; align-items:center; gap:7px; cursor:pointer;
     background:rgba(0,0,0,.36); border:1px solid rgba(255,255,255,.14); border-radius:999px;
@@ -340,7 +341,9 @@ function boot(show,list,isDefault){
   const svc=(show.webChannel&&show.webChannel.name)||(show.network&&show.network.name)||'';
   curService=svc;   // the streamer to launch from the play button
   const g=(show.genres&&show.genres[0])||'';
-  $('ymeta').innerHTML=[yr,svc,g].filter(Boolean).join('<span class="sep">|</span>');
+  // The streamer lights up so the platform is always clear (especially when the
+  // play button can't deep-link it and is greyed out).
+  $('ymeta').innerHTML=[yr, svc?'<span class="svc-lit">'+svc+'</span>':'', g].filter(Boolean).join('<span class="sep">|</span>');
 
   score = '';                                    // tap the pill to enter the @betterscreenscore value
   avgRuntime = show.averageRuntime || show.runtime || 45;

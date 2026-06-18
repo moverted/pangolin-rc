@@ -89,6 +89,9 @@
     }
     .media-btn.primary:active { transform: scale(0.92); filter: brightness(1.06); }
     .media-btn.sent { border-color: #e89f3d; color: #e89f3d; }
+    /* greyed when the current show's streamer can't be deep-linked */
+    .media-btn.dimmed { opacity: 0.4; filter: grayscale(0.85); box-shadow: none; cursor: default; }
+    .media-btn.dimmed:active { transform: none; filter: grayscale(0.85); }
 
     /* ── "rotate to use this face" (keyboard faces held sideways) ── */
     #rotate-msg {
@@ -802,6 +805,13 @@ function serviceLink(service, q){
 }
 let currentEpisode = null;   // {tvmazeId, name, season, number, runtime, service} from the Episode face
 
+// Grey the play button when the current show's streamer can't be deep-linked.
+function updatePlayState() {
+  const btn = document.getElementById('btn-play');
+  const ok = !!(currentEpisode && currentEpisode.name && serviceLink(currentEpisode.service, currentEpisode.name));
+  btn.classList.toggle('dimmed', !ok);
+}
+
 // Episode-end nudge: when a live watch starts (play), set a timer for the
 // episode runtime; at the end fire an OS notification calling the user back to
 // rank it. Browser ceiling: the timer only runs while the browser is alive —
@@ -841,6 +851,7 @@ function scheduleEpisodeEnd(ep) {
     window.location.href = url;
   });
 }
+updatePlayState();   // start dimmed until a launchable show is loaded
 
 // On return from the launched app, surface the minute guess: rotate to the
 // Episode face and hand it the launch. Runs on pageshow + visibility so it works
@@ -868,7 +879,7 @@ window.addEventListener('message', (e) => {
   // postMessage fallback for a face asking to rotate (no keyboard activation).
   if (e.data?.type === 'cube:rotateTo') cubeRotateTo(e.data.face, e.data.payload);
   // Episode face reports the show/episode it currently has loaded (drives the play button).
-  if (e.data?.type === 'episode:current') currentEpisode = e.data.show || null;
+  if (e.data?.type === 'episode:current') { currentEpisode = e.data.show || null; updatePlayState(); }
   // Episode loaded a show → make sure the Log is tracking it too (Log dedupes).
   if (e.data?.type === 'episode:track' && e.data.tvmazeId)
     addToLogFace({ id: e.data.tvmazeId, name: e.data.name });
