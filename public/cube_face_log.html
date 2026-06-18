@@ -550,7 +550,7 @@ async function loadAccount(email){
 function applyProgress(pr){
   const s=LOG.find(x=>x.tvmazeId===pr.tvmazeId); if(!s) return;
   s.epDetail=s.epDetail||{};
-  s.epDetail[pr.season+"-"+pr.number]={ min:pr.minute||0, done:!!pr.done, bp:!!pr.bp };
+  s.epDetail[pr.season+"-"+pr.number]={ min:pr.minute||0, done:!!pr.done, bp:!!pr.bp, sessions:pr.sessions||[] };
   const idx=s.episodes.findIndex(e=>e.season===pr.season&&e.number===pr.number);
   if(pr.done && idx>=0) s.watched=Math.max(s.watched, idx+1);
   if(idx>=0) s.lastWatched={season:pr.season,number:pr.number,title:s.episodes[idx].name||"",at:new Date().toISOString().slice(0,10)};

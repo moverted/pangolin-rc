@@ -157,6 +157,7 @@
     border:1px solid rgba(255,255,255,.16); color:var(--dim); }
   .sfbtn:active{ transform:translateY(1px); }
   .sfbtn.start{ border-color:var(--amber); color:var(--amber); }
+  .sfbtn.logit{ border-color:var(--dim); color:var(--text); }
   .sfbtn.finish{ border-color:var(--green); color:var(--green); }
 
   /* MVP empty state: no shows in the Log → nothing on the Episode side yet */
@@ -218,8 +219,10 @@
   .ctl:hover{ color:var(--amber); }
   .ctl.cool{ display:none; color:#ff9d5c; }
   .binge .ctl.cool{ display:inline; }
-  .wrow{ display:flex; align-items:center; gap:11px; padding:9px 0;
-    border-bottom:1px solid rgba(255,255,255,.06); cursor:pointer; }
+  .wrow{ border-bottom:1px solid rgba(255,255,255,.06); cursor:pointer; }
+  .wrow .wmain{ display:flex; align-items:center; gap:11px; padding:9px 0; }
+  .wrow .wdetail{ display:none; font-family:var(--mono); font-size:10px; color:var(--faint); padding:0 0 9px; }
+  .wrow.open .wdetail{ display:block; }
   .wrow .wt{ flex:1; min-width:0; font-family:var(--display); font-weight:500; font-size:13.5px;
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .wdate{ font-family:var(--mono); font-size:10px; background:rgba(46,107,69,.9);
@@ -287,9 +290,10 @@
             <span class="center" id="minMid">— min</span>
             <span class="d faint" id="minRem">— min</span>
           </div>
-          <!-- manual log fallback for when the episode-end timer doesn't fire -->
+          <!-- manual session logging: start a watch, log a partial, or finish -->
           <div class="startfin">
             <button class="sfbtn start" id="startEpBtn">START</button>
+            <button class="sfbtn logit" id="logItBtn">LOG IT</button>
             <button class="sfbtn finish" id="finishEpBtn">FINISH</button>
           </div>
         </div>
@@ -326,6 +330,9 @@ let seasonStatus='', score='', curShowId=null, curShowName='', curService='', sv
 // Per-episode minute progress. epMin[i]=logged minutes, epDone[i]=watched,
 // epBp[i]=force-advanced (end stamp "BP"), startedAt[i]=on-device start ts.
 let epMin={}, epDone={}, epBp={}, startedAt={}, avgRuntime=45, minPreview=null, awaitingLog=false, pendingRestore=null;
+// Per-episode viewing-session log entries: [{date,minutes,finished,bp,startTs,finishTs}].
+// sessionBase[i] = the scrubber position when the current START session began.
+let epSessions={}, sessionBase={};
 // preApp: watched before the app existed (seed / Pierre catch-up / pick / BP).
 // These are data, not behavior — they never count toward binge. Real in-app
 // watches (logging the minute bar to the end) set preApp=false.
@@ -366,7 +373,7 @@ function boot(show,list,isDefault){
   avgRuntime = show.averageRuntime || show.runtime || 45;
   watched=Math.min(2,eps.filter(released).length);
   watchTs=[]; watchDate={}; binged={}; ranks={}; notes={}; cooled=false;
-  epMin={}; epDone={}; epBp={}; startedAt={}; epPreApp={}; minPreview=null; awaitingLog=false;
+  epMin={}; epDone={}; epBp={}; startedAt={}; epPreApp={}; epSessions={}; sessionBase={}; minPreview=null; awaitingLog=false;
   // Seed watches are pre-app data: dark green on the bar, but never binge.
   for(let i=0;i<watched;i++){ const t=Date.now()-(watched-i)*45*6e4; watchTs.push(t); watchDate[i]=new Date(t); epDone[i]=true; epMin[i]=runtimeOf(i); epPreApp[i]=true; }
   focus=Math.min(watched, eps.length-1);
@@ -410,46 +417,67 @@ function emitProgress(i, done, bp, minute){
   const e=eps[i]; if(!e) return;
   window.parent.postMessage({type:'episode:progress', tvmazeId:curShowId,
     season:sNum(e), number:e.number, minute:minute||0, done:!!done, bp:!!bp,
-    started_at: startedAt[i]||null}, '*');
+    started_at: startedAt[i]||null, sessions: epSessions[i]||[]}, '*');
 }
 
-// Log your minute position in the focused episode. Reaching the runtime marks it
-// done and advances to the next episode.
+// ---- viewing-session helpers ----
+const escHtml=(s)=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function epCode(e){ return 'S'+String(e.season||1).padStart(2,'0')+'E'+String(e.number||0).padStart(2,'0'); }
+const mdFmt=(ts)=>{ const d=new Date(ts); return (d.getMonth()+1)+'/'+d.getDate(); };
+const dayKey=(ts)=>{ const d=new Date(ts); return d.getFullYear()+'-'+d.getMonth()+'-'+d.getDate(); };
+const hmFmt=(ts)=> ts ? new Date(ts).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}) : '—';
+// Add or update a session entry for episode i. A partial (LOG IT) rolls up into
+// today's open entry; FINISH / skip(BP) append a new closed entry.
+function logSession(i, opts){
+  epSessions[i]=epSessions[i]||[];
+  const now=Date.now(), startTs=startedAt[i]||null, dk=dayKey(now);
+  if(!opts.finished){
+    const last=epSessions[i][epSessions[i].length-1];
+    if(last && !last.finished && !last.bp && last.dk===dk){ last.minutes=opts.minutes; last.finishTs=now; }
+    else epSessions[i].push({dk, date:mdFmt(now), minutes:opts.minutes, finished:false, bp:false, startTs, finishTs:now});
+  } else {
+    epSessions[i].push({dk, date:mdFmt(now), minutes:opts.minutes, finished:true, bp:!!opts.bp, startTs, finishTs:now});
+  }
+}
+
+// LOG IT: record the current scrubber position. Reaching the runtime finishes it.
 function logMinute(){
   const rt=runtimeOf(focus);
-  const val=Math.round(minPreview!=null?minPreview:(epMin[focus]||0));
-  epMin[focus]=val; minPreview=null; awaitingLog=false; cooled=false;
-  try{ localStorage.removeItem('pg_launch'); }catch(_){}   // launch guess consumed
+  const val=Math.round(Math.min(rt, minPreview!=null?minPreview:(epMin[focus]||0)));
+  epMin[focus]=val; minPreview=null; awaitingLog=false; cooled=false; epPreApp[focus]=false;
+  try{ localStorage.removeItem('pg_launch'); }catch(_){}
   const done=val>=rt-1;
-  if(done){ epDone[focus]=true; epBp[focus]=false; epPreApp[focus]=false; markWatchedThrough(focus); }  // real in-app watch
+  if(done){ epDone[focus]=true; epBp[focus]=false; markWatchedThrough(focus); logSession(focus,{minutes:rt,finished:true,bp:false}); }
+  else logSession(focus,{minutes:val,finished:false,bp:false});
   emitProgress(focus, done, false, val);
   if(done){ finaleCheck(); advanceFocus(); }
   paint();
 }
+const logIt=logMinute;
 
-// Force-advance: skip precise logging — the episode is marked watched with a
-// "BP" (Before PangolinRC) end stamp and we jump to the next one.
+// Force-advance / skip: the episode is logged "BP" (Before PangolinRC) and we jump on.
 function forceAdvance(){
   const rt=runtimeOf(focus);
   epDone[focus]=true; epBp[focus]=true; epPreApp[focus]=true; epMin[focus]=rt; minPreview=null; awaitingLog=false; cooled=false;  // BP = pre-app
   markWatchedThrough(focus);
+  logSession(focus,{minutes:rt,finished:true,bp:true});
   emitProgress(focus, true, true, 0);
   finaleCheck(); advanceFocus(); paint();
 }
 
-// Manual log fallback (the episode-end timer is browser-only and can miss).
-// START marks the watch beginning so the minute guess has a reference; FINISH
-// logs the episode fully watched (a real in-app watch) and advances.
+// START marks a watch beginning (date + time) so the guess has a reference point.
 function startEpisode(){
-  startedAt[focus]=Date.now(); epMin[focus]=0; minPreview=null; awaitingLog=false;
-  emitProgress(focus, false, false, 0);   // session started — records started_at
+  startedAt[focus]=Date.now(); sessionBase[focus]=epMin[focus]||0; minPreview=null; awaitingLog=false;
+  emitProgress(focus, false, false, Math.round(epMin[focus]||0));
   paint();
 }
+// FINISH: logs the episode fully watched (a real in-app watch) and advances.
 function finishEpisode(){
   const rt=runtimeOf(focus);
   epMin[focus]=rt; epDone[focus]=true; epBp[focus]=false; epPreApp[focus]=false; minPreview=null; awaitingLog=false; cooled=false;
   try{ localStorage.removeItem('pg_launch'); }catch(_){}
   markWatchedThrough(focus);
+  logSession(focus,{minutes:rt,finished:true,bp:false});
   emitProgress(focus, true, false, rt);
   finaleCheck(); advanceFocus(); paint();
 }
@@ -485,21 +513,30 @@ function paint(){
     b.onclick=()=>{ ranks[focus]=n; paint(); }; rk.appendChild(b); }
   $('comment').value=notes[focus]||'';
 
-  // List anything with progress — completed AND in-progress (partial) episodes —
-  // so a partial can be tapped to resume its minute marker.
-  const logged=[]; for(let i=0;i<eps.length;i++){ if(epDone[i] || epMin[i]>0) logged.push(i); }
+  // Watchlist: one row per viewing session, newest first. Episodes watched
+  // without a session (pre-app / restored) get a single fallback row. Each row
+  // shows the episode code + title and a (date, minutes) / (date ✅) / (BP) stamp;
+  // clicking it expands the session's start / finish timestamps.
+  const rows=[];
+  for(let i=0;i<eps.length;i++){ const e=eps[i];
+    if(epSessions[i] && epSessions[i].length) epSessions[i].forEach(s=>rows.push({i,e,s}));
+    else if(epDone[i]) rows.push({i,e,s:{ date: watchDate[i]?mdFmt(+watchDate[i]):'',
+      minutes:Math.round(epMin[i]||0), finished:true, bp:!!epBp[i], startTs:null, finishTs: watchDate[i]?+watchDate[i]:0 }});
+  }
+  rows.sort((a,b)=>(b.s.finishTs||0)-(a.s.finishTs||0));
   $('wlLabel').textContent='Watched · '+watched;
   const wl=$('watchlist'); wl.innerHTML='';
-  if(!logged.length) wl.innerHTML='<div class="empty">Nothing logged yet.</div>';
-  for(let x=logged.length-1;x>=0;x--){ const i=logged[x], e=eps[i]; const row=document.createElement('div'); row.className='wrow';
-    const partial = !epDone[i] && epMin[i]>0;
-    const stamp = epBp[i] ? 'BP' : (epMin[i]>0 ? Math.round(epMin[i])+'m' : fmt(watchDate[i]));
-    row.innerHTML=`<span class="wt">${e.name||('Episode '+(i+1))}${partial?' · watching':''}</span>
-      <span class="wdate${binged[i]?' binged':''}">${stamp}</span>
-      <span class="wscore">${ranks[i]!==undefined?ranks[i]+'/10':''}</span>`;
-    row.onclick=()=>{ focus=i; awaitingLog=false; minPreview=null; paint(); };
+  if(!rows.length) wl.innerHTML='<div class="empty">Nothing logged yet.</div>';
+  rows.forEach(({i,e,s})=>{
+    const row=document.createElement('div'); row.className='wrow';
+    const stamp = s.bp ? '(BP)' : (s.finished ? '('+s.date+' ✅)' : '('+s.date+', '+s.minutes+'m)');
+    row.innerHTML=`<div class="wmain"><span class="wt">${escHtml(epCode(e)+' '+(e.name||('Episode '+(i+1))))}</span>
+      <span class="wdate${(binged[i]&&!s.bp)?' binged':''}">${stamp}</span>
+      <span class="wscore">${ranks[i]!==undefined?ranks[i]+'/10':''}</span></div>
+      <div class="wdetail">started ${hmFmt(s.startTs)} · finished ${hmFmt(s.finishTs)}</div>`;
+    row.onclick=()=>row.classList.toggle('open');
     wl.appendChild(row);
-  }
+  });
   reportCurrent();
 }
 
@@ -557,7 +594,7 @@ $('cool').onclick=()=>{ cooled=true; paint(); };
 $('reset').onclick=()=>{
   // Clear to zero so the binge sequence can be replayed fresh from real in-app taps.
   watched=0; watchTs=[]; watchDate={}; binged={}; cooled=false;
-  epMin={}; epDone={}; epBp={}; startedAt={}; epPreApp={}; minPreview=null; awaitingLog=false;
+  epMin={}; epDone={}; epBp={}; startedAt={}; epPreApp={}; epSessions={}; sessionBase={}; minPreview=null; awaitingLog=false;
   eps=allEps.filter(e=>sNum(e)===1); if(!eps.length) eps=allEps;
   focus=0; paint();
 };
@@ -568,7 +605,17 @@ $('addShowBtn').onclick=()=>{ if(window.parent===window) return;
   else window.parent.postMessage({type:'cube:rotateTo',face:'pierre',payload:{intent:'add'}},'*'); };
 
 $('startEpBtn').onclick=startEpisode;
+$('logItBtn').onclick=logIt;
 $('finishEpBtn').onclick=finishEpisode;
+
+// Stop-and-return: when the tab is shown again during an open session, guess the
+// stopped position from elapsed time (where you were at START + minutes since).
+document.addEventListener('visibilitychange', ()=>{
+  if(document.hidden || epDone[focus] || !startedAt[focus]) return;
+  const rt=runtimeOf(focus);
+  const guess=Math.min(rt,(sessionBase[focus]||0)+(Date.now()-startedAt[focus])/60000);
+  if(guess>(epMin[focus]||0)){ epMin[focus]=guess; paint(); }
+});
 
 // ----- minute bar interaction -----
 const minBar=$('minBar');
@@ -634,7 +681,7 @@ function applyPattern(p){
     watched=0;
   }
   watchTs=[]; watchDate={}; binged={}; ranks={}; notes={}; cooled=false;
-  epMin={}; epDone={}; epBp={}; startedAt={}; epPreApp={}; minPreview=null; awaitingLog=false;
+  epMin={}; epDone={}; epBp={}; startedAt={}; epPreApp={}; epSessions={}; sessionBase={}; minPreview=null; awaitingLog=false;
   // Pierre "Catch up live" / "Pick an episode" pre-mark watches: pre-app, never binge.
   for(let i=0;i<watched;i++){ const t=Date.now()-(watched-i)*45*6e4; watchTs.push(t); watchDate[i]=new Date(t); epDone[i]=true; epMin[i]=runtimeOf(i); epPreApp[i]=true; }
   // Restore saved per-episode detail (minutes / done / BP) from the account.
@@ -642,7 +689,8 @@ function applyPattern(p){
   if(det) eps.forEach((e,i)=>{ const d=det[sNum(e)+'-'+e.number]; if(!d) return;
     if(d.done){ epDone[i]=true; epPreApp[i]=true; if(i+1>watched) watched=i+1; }   // restored history: not a fresh binge
     if(typeof d.min==='number') epMin[i]=d.min;
-    if(d.bp) epBp[i]=true; });
+    if(d.bp) epBp[i]=true;
+    if(Array.isArray(d.sessions)) epSessions[i]=d.sessions; });   // restore the session log
   focus=Math.min(watched, eps.length-1);
   // Restore the partial current episode (saved minutes, or an on-device guess).
   if(pendingRestore && !epDone[focus]){
