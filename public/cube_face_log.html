@@ -258,6 +258,7 @@ async function hydrate(seed){
     let watched=seed.watchedAll?released.length:Math.min(seed.watched||0,released.length);
     const lw=watched>0?released[watched-1]:null;
     return {...base,name:show.name||seed.q,tvmazeId:show.id,poster:show.image?.original||show.image?.medium||null,
+      platform:show.webChannel?.name||show.network?.name||"",
       status:show.status||"Unknown",episodes:eps,total,released:released.length,watched,
       lastWatched:lw?{season:lw.season,number:lw.number,title:lw.name,at:seed.lastDate}:null};
   }catch(e){return {...base,failed:true};}
@@ -531,7 +532,8 @@ async function hydrateSaved(row){
     const lw=(row.last_season&&row.last_number) ? rel.find(e=>e.season===row.last_season&&e.number===row.last_number) : (watched>0?rel[watched-1]:null);
     const today=new Date(row.updated_at||Date.now()).toISOString().slice(0,10);
     return { id:"acct-"+row.show_id, tvmazeId:Number(row.show_id), q:row.show_name, name:sh.name||row.show_name,
-      poster:sh.image?.original||sh.image?.medium||null, status:sh.status||"Unknown", failed:false,
+      poster:sh.image?.original||sh.image?.medium||null, platform:sh.webChannel?.name||sh.network?.name||"",
+      status:sh.status||"Unknown", failed:false,
       episodes:eps, total:eps.length, released:rel.length, watched,
       lastWatched: lw?{season:lw.season,number:lw.number,title:lw.name,at:today}:null,
       lastDate:today, returnDate:null, comfort:row.status==="comfort",
@@ -590,7 +592,8 @@ async function addToLog(show, pattern){
     if(p.kind==="resume" && p.season){ const i=rel.findIndex(e=>e.season===p.season&&e.number===p.number); watched=i>=0?i+1:0; }
     const lw=watched>0?rel[watched-1]:null;
     const rec={ id:"add-"+show.id, tvmazeId:show.id, q:sh.name, name:sh.name||show.name,
-      poster:sh.image?.original||sh.image?.medium||null, status:sh.status||"Unknown", failed:false,
+      poster:sh.image?.original||sh.image?.medium||null, platform:sh.webChannel?.name||sh.network?.name||"",
+      status:sh.status||"Unknown", failed:false,
       episodes:eps, total:eps.length, released:rel.length, watched,
       lastWatched: lw?{season:lw.season,number:lw.number,title:lw.name,at:today}:null,
       lastDate:today, returnDate:null, comfort:false, forceCompleted:false, stopped:false, plan:null,
@@ -630,6 +633,105 @@ function dustParticles(rect,fr){const fx=document.getElementById("fx");
     p.style.setProperty("--dx",(Math.random()*30-15)+"px");p.style.setProperty("--dy",(50+Math.random()*120)+"px");p.style.setProperty("--dur",(0.7+Math.random()*0.6)+"s");
     fx.appendChild(p);setTimeout(()=>p.remove(),1500);}}
 
+// ---- Finale share card ----------------------------------------------------
+// When a show is finished (after the popcorn burst), build a square PNG card
+// — Pierre in the lower-left, the profile picture circle in the upper-right —
+// and hand it to the native share sheet, falling back to a download.
+const PIERRE_IMG=new Image(); PIERRE_IMG.src="pierre.png";
+function avatarURL(){ try{ return localStorage.getItem("pg_avatar")||""; }catch(_){ return ""; } }
+function userInitial(){ try{ return (localStorage.getItem("pg_username")||"").trim().charAt(0).toUpperCase(); }catch(_){ return ""; } }
+function loadImg(src,cors){ return new Promise(res=>{ if(!src) return res(null);
+  const im=new Image(); if(cors) im.crossOrigin="anonymous";
+  im.onload=()=>res(im); im.onerror=()=>res(null); im.src=src; }); }
+// rounded-rect path helper for the poster card
+function rrect(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+function wrapLines(ctx,text,maxW){ const words=text.split(" "),lines=[]; let line="";
+  for(const w of words){ const t=line?line+" "+w:w;
+    if(ctx.measureText(t).width>maxW && line){ lines.push(line); line=w; } else line=t; }
+  if(line) lines.push(line); return lines; }
+
+async function buildFinaleCard(title,posterUrl,platform){
+  const S=1080,c=document.createElement("canvas"); c.width=c.height=S;
+  const ctx=c.getContext("2d");
+  ctx.fillStyle="#ffffff"; ctx.fillRect(0,0,S,S);
+  const rg=ctx.createRadialGradient(S*0.5,S*0.14,40,S*0.5,S*0.14,S*0.8);
+  rg.addColorStop(0,"rgba(233,162,60,.10)"); rg.addColorStop(1,"rgba(233,162,60,0)");
+  ctx.fillStyle=rg; ctx.fillRect(0,0,S,S);
+
+  // profile picture circle, upper-right
+  const av=await loadImg(avatarURL());
+  const R=86,cx=S-70-R,cy=72+R;
+  ctx.save(); ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2); ctx.closePath();
+  ctx.fillStyle="#efe7df"; ctx.fill(); ctx.clip();
+  if(av) ctx.drawImage(av,cx-R,cy-R,R*2,R*2);
+  else { ctx.fillStyle="#E9A23C"; ctx.font='700 82px "Space Grotesk",sans-serif';
+    ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillText(userInitial()||"?",cx,cy+4); }
+  ctx.restore();
+  ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2); ctx.lineWidth=5; ctx.strokeStyle="#E9A23C"; ctx.stroke();
+
+  // headline
+  ctx.textAlign="left"; ctx.textBaseline="top";
+  ctx.fillStyle="#1b1714"; ctx.font='700 68px "Space Grotesk",sans-serif';
+  const lines=wrapLines(ctx,"I just finished watching "+title+" with Pierre!",S-140);
+  let y=300; for(const ln of lines){ ctx.fillText(ln,70,y); y+=84; }
+
+  // platform pill — "ON {PLATFORM}"
+  if(platform){
+    const label="ON "+platform.toUpperCase();
+    ctx.font='500 26px "JetBrains Mono",monospace';
+    const tw=ctx.measureText(label).width, padX=22, ph2=50, pill_y=y+10;
+    rrect(ctx,70,pill_y,tw+padX*2,ph2,ph2/2);
+    ctx.fillStyle="rgba(233,162,60,.14)"; ctx.fill();
+    rrect(ctx,70,pill_y,tw+padX*2,ph2,ph2/2); ctx.lineWidth=2; ctx.strokeStyle="rgba(233,162,60,.55)"; ctx.stroke();
+    ctx.fillStyle="#b07d22"; ctx.textBaseline="middle"; ctx.fillText(label,70+padX,pill_y+ph2/2+2);
+    ctx.textBaseline="top"; y=pill_y+ph2+12;
+  }
+  ctx.fillStyle="#E9A23C"; ctx.font='600 52px "Space Grotesk",sans-serif';
+  ctx.fillText("Have you seen it?",70,y+18);
+
+  // show poster, lower-right (rounded card with a soft shadow)
+  const poster=await loadImg(posterUrl,true);
+  if(poster){
+    const pw=300,ph=pw*1.47,px=S-70-pw,py=S-64-ph,rad=22;
+    ctx.save();
+    ctx.shadowColor="rgba(0,0,0,.55)"; ctx.shadowBlur=34; ctx.shadowOffsetY=14;
+    rrect(ctx,px,py,pw,ph,rad); ctx.fillStyle="#000"; ctx.fill();
+    ctx.restore();
+    ctx.save(); rrect(ctx,px,py,pw,ph,rad); ctx.clip();
+    const s=Math.max(pw/poster.naturalWidth,ph/poster.naturalHeight);   // cover
+    const dw=poster.naturalWidth*s,dh=poster.naturalHeight*s;
+    ctx.drawImage(poster,px+(pw-dw)/2,py+(ph-dh)/2,dw,dh);
+    ctx.restore();
+    rrect(ctx,px,py,pw,ph,rad); ctx.lineWidth=3; ctx.strokeStyle="rgba(233,162,60,.55)"; ctx.stroke();
+  }
+
+  // Pierre, lower-left
+  if(PIERRE_IMG.complete && PIERRE_IMG.naturalWidth){
+    const pw=440,ph=pw*(PIERRE_IMG.naturalHeight/PIERRE_IMG.naturalWidth);
+    ctx.drawImage(PIERRE_IMG,30,S-ph-36,pw,ph);
+  }
+  return c;
+}
+
+async function shareFinale(title,poster,platform){
+  let canvas; try{ if(document.fonts) await document.fonts.ready; }catch(_){}
+  try{ canvas=await buildFinaleCard(title,poster,platform); }catch(_){ return; }
+  const text="I just finished watching "+title+" with Pierre! Have you seen it?";
+  canvas.toBlob(async(blob)=>{ if(!blob) return;
+    const file=new File([blob],"pangolin-finale.png",{type:"image/png"});
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      try{ await navigator.share({files:[file],text}); return; }
+      catch(err){ if(err && err.name==="AbortError") return; }   // cancelled — don't also download
+    }
+    const url=URL.createObjectURL(blob);                          // fallback: download the card
+    const a=document.createElement("a"); a.href=url; a.download="pangolin-finale.png";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),4000);
+  },"image/png");
+}
+
 function finishShow(id, land){
   const tileEl=document.querySelector('.tile[data-id="'+id+'"]'),s=LOG.find(x=>x.id===id); if(!s)return;
   const fr=face.getBoundingClientRect();
@@ -642,6 +744,7 @@ function finishShow(id, land){
   s.forceCompleted=true;s.watched=s.total; persistShow(s);
   const tabEl=document.querySelector('.tab[data-tab="completed"]');tabEl.classList.add("pulse");setTimeout(()=>tabEl.classList.remove("pulse"),700);
   setTimeout(()=>{render();renderPierre();},780); setTimeout(()=>switchTab(land||"completed"),1300);
+  setTimeout(()=>shareFinale(s.name,s.poster,s.platform),900);   // after the popcorn: share the finale card
 }
 function stopShow(id){
   const tileEl=document.querySelector('.tile[data-id="'+id+'"]'),s=LOG.find(x=>x.id===id); if(!s)return;

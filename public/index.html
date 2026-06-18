@@ -640,6 +640,7 @@ for (const cfg of Object.values(FACE_OVERLAYS)) {
   const el = document.createElement('div');
   el.className = 'face-overlay';
   const frame = document.createElement('iframe');
+  frame.allow = 'web-share';   // let a face (Log finale card) invoke navigator.share
   frame.src = cfg.src + (DEMO ? '?demo=1' : '');
   el.appendChild(frame);
   appEl.appendChild(el);
