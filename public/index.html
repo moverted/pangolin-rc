@@ -848,7 +848,9 @@ function serviceLink(service, q){
   if (s.includes('disney'))                   return 'https://www.disneyplus.com/search?q=' + enc;
   if (s.includes('prime') || s.includes('amazon')) return 'https://www.amazon.com/s?k=' + enc + '&i=instant-video';
   if (s.includes('apple'))                    return 'https://tv.apple.com/search?term=' + enc;
-  if (s.includes('peacock'))                  return 'https://www.peacocktv.com/search?q=' + enc;
+  // NBC broadcast / NBCUniversal cable (USA, Bravo, Syfy, CNBC…) all stream on Peacock.
+  // Peacock's search page takes no query param, so we can only land on it — no title prefill.
+  if (s.includes('peacock') || s.includes('nbc')) return 'https://www.peacocktv.com/watch/search';
   if (s.includes('paramount'))                return 'https://www.paramountplus.com/search/?query=' + enc;
   return '';   // unknown streamer → no launch
 }
@@ -892,7 +894,7 @@ function scheduleEpisodeEnd(ep) {
 }
 // Launch the current show on its streamer + start the episode-end timer. Driven
 // by the play button and by tapping the lit streamer name on the Episode face.
-function launchCurrent() {
+async function launchCurrent() {
   if (!currentEpisode || !currentEpisode.name) return;   // nothing loaded
   const url = serviceLink(currentEpisode.service, currentEpisode.name);
   if (!url) return;                                      // no known streamer → nothing to launch
@@ -902,6 +904,12 @@ function launchCurrent() {
   try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch {}
   scheduleEpisodeEnd(currentEpisode);                    // live-watch session begins
   try { localStorage.setItem('pg_launch', JSON.stringify({ ...currentEpisode, startedAt: Date.now() })); } catch {}
+  // When the streamer's search page can't carry the title in the URL (e.g. Peacock),
+  // copy it to the clipboard so the user can just paste into the search box. Await so
+  // the write lands before navigation unloads the page.
+  if (!url.includes(encodeURIComponent(currentEpisode.name))) {
+    try { await navigator.clipboard.writeText(currentEpisode.name); } catch {}
+  }
   window.location.href = url;
 }
 document.getElementById('btn-play').addEventListener('click', launchCurrent);
