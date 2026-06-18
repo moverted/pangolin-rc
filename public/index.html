@@ -664,6 +664,7 @@ let t = 0;
   const kbOpen = !!vv && (vv.offsetTop > 1 || innerHeight - vv.height > 60);
   const pierreActive = locked && activeFace === PIERRE_FACE;
   chatMode = pierreActive && chatFocused && kbOpen;
+  const kbActive = locked && kbOpen;   // any locked face with the keyboard up → pin to top
 
   if (chatMode !== _chatPrev) { _chatPrev = chatMode; layout(); }                 // keyboard toggle → re-gate rotation
 
@@ -686,9 +687,9 @@ let t = 0;
         return { x: (_fP.x + 1) / 2 * VW, y: (1 - _fP.y) / 2 * VH };
       });
       const tx = faceCssMatrix3d(pts);
-      // In chat mode the Pierre square is positioned by the keyboard handler;
-      // don't overwrite it with the cube-face projection.
-      if (!(chatMode && +fi === PIERRE_FACE) && cfg._tx !== tx) {
+      // The active locked face is positioned by the pin below (centered / top),
+      // not the cube-face projection — so don't overwrite it here.
+      if (!(locked && +fi === activeFace) && cfg._tx !== tx) {
         cfg.frame.style.transform = tx; cfg._tx = tx;
       }
       const opacity = (locked && activeFace === +fi) ? 1 : dot;
@@ -708,18 +709,28 @@ let t = 0;
     }
   }
 
-  // Pin the Pierre square to the top of the visible viewport, sized to fit
-  // above the keyboard. Done every frame so any browser pan is corrected within
-  // ~16ms instead of letting the square slide off the top.
-  if (chatMode) {
-    const cfg = FACE_OVERLAYS[PIERRE_FACE];
-    const margin = 12;
-    const size  = Math.min(vv.width, vv.height) - margin * 2;
-    const scale = size / IFRAME_SZ;
-    const x = (vv.offsetLeft || 0) + (vv.width - size) / 2;
-    const y = vv.offsetTop + margin;            // glue to top of visible band
-    cfg.frame.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
-    cfg._tx = '';                               // force projection to re-apply on exit
+  // A locked face has exactly two positions: centered, or pinned to the top when
+  // the keyboard is up. Re-applied every frame, so a browser pan / rubber-band can
+  // never move the frame — vertical swipes only scroll the content inside it.
+  if (locked) {
+    const cfg = FACE_OVERLAYS[activeFace];
+    if (cfg && cfg.frame) {
+      const margin = 10;
+      let size, scale, x, y;
+      if (kbActive && vv) {                       // keyboard up (portrait): top of the visible band
+        size  = Math.min(vv.width, vv.height) - margin * 2;
+        scale = size / IFRAME_SZ;
+        x = (vv.offsetLeft || 0) + (vv.width - size) / 2;
+        y = vv.offsetTop + margin;
+      } else {                                    // centered in the logical viewport (rotation-aware)
+        size  = Math.min(VW, VH) - margin * 2;
+        scale = size / IFRAME_SZ;
+        x = (VW - size) / 2;
+        y = (VH - size) / 2;
+      }
+      cfg.frame.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+      cfg._tx = '';                               // force projection to re-apply when unlocked
+    }
   }
 })();
 
