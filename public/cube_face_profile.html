@@ -118,51 +118,82 @@
   /* scroll region inside the square */
   .scroll{
     flex:1;overflow-y:auto;padding:6px 22px 26px;-webkit-overflow-scrolling:touch;
-    scrollbar-width:none;
+    scrollbar-width:none;display:flex;flex-direction:column;
   }
   .scroll::-webkit-scrollbar{display:none;}
 
-  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px;}
-  .stat{
-    background:var(--card);border:1px solid var(--card-line);border-radius:13px;
-    padding:15px 4px;text-align:center;
-  }
-  .stat .num{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:26px;color:var(--amber);line-height:1;}
-  .stat .lbl{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.16em;color:var(--muted);margin-top:8px;}
+  /* the device picker is the focal point: it sits centered in the active area
+     (pbody auto-margins center it vertically when the content is short, and
+     pin to the top once devices overflow). Inline rows, no cards / sheets —
+     mirrors the name-plate edit: minimal borders, underline fields. */
+  .pbody{margin:auto 0;width:100%;padding:8px 0;}
 
-  .section{margin-top:24px;}
-  .section h2{
-    font-family:'JetBrains Mono',monospace;letter-spacing:.24em;
-    font-size:14px;color:var(--muted);text-transform:uppercase;font-weight:400;margin:0;
-  }
-  .section .rule{height:1px;background:var(--line);margin-top:11px;}
+  .devices{margin:0;}
+  .dhead{display:flex;justify-content:space-between;align-items:baseline;margin:0 0 2px;}
+  .dhead h2{font-family:'JetBrains Mono',monospace;letter-spacing:.24em;
+    font-size:13px;color:var(--muted);text-transform:uppercase;font-weight:400;margin:0;}
+  .dhint{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.12em;color:var(--muted-2);text-transform:uppercase;}
+  .dhead-rule{height:1px;background:var(--line);margin:9px 0 0;}
 
-  .row{display:flex;align-items:center;gap:12px;padding:13px 0;border-bottom:1px solid var(--line-soft);}
-  .row:last-child{border-bottom:none;}
-  .dot{width:9px;height:9px;border-radius:2px;background:var(--amber);flex:none;}
-  .row .label{font-size:16px;color:var(--text);flex:1;}
-  .row .val{font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--muted);}
+  .dev{border-bottom:1px solid var(--line-soft);}
+  .dev:last-of-type{border-bottom:none;}
+  .dev-main{width:100%;display:flex;align-items:center;gap:13px;background:none;border:none;
+    padding:14px 2px;text-align:left;color:inherit;font:inherit;cursor:pointer;}
+  .dev-main:active{opacity:.6;}
+  .dev-ic{width:26px;flex:none;display:flex;align-items:center;justify-content:center;}
+  .dev-ic svg{width:21px;height:21px;fill:none;stroke:var(--muted);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;}
+  .dev.sel .dev-ic svg{stroke:var(--amber);}
+  .dev .meta{flex:1;min-width:0;display:flex;flex-direction:column;}
+  .dev .nm{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:17px;color:var(--text);line-height:1.15;}
+  .dev.sel .nm{color:var(--amber);}
+  .dev .sub{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);margin-top:3px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .dev .state{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.16em;color:var(--amber);text-transform:uppercase;flex:none;}
+  .dev .caret{flex:none;width:7px;height:7px;border-right:1.5px solid var(--muted-2);border-bottom:1.5px solid var(--muted-2);
+    transform:rotate(45deg);transition:transform .18s ease;margin:-3px 3px 0;}
+  .dev.open .caret{transform:rotate(-135deg);margin-top:2px;}
 
-  .dev-row{width:100%;background:none;border:none;border-bottom:1px solid var(--line-soft);
-    padding:13px 0;text-align:left;cursor:pointer;color:inherit;font:inherit;
-    display:flex;align-items:center;gap:12px;}
-  .dev-row:active{opacity:.6;}
-  .dev-row .label{font-size:16px;color:var(--text);flex:1;}
-  .dev-row .val{font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--amber-dim);}
-  .add-row{display:flex;align-items:center;gap:12px;padding:13px 0;width:100%;
-    background:none;border:none;text-align:left;cursor:pointer;color:inherit;font:inherit;}
+  /* inline action strip + edit, revealed under a tapped row (text links, no boxes) */
+  .dev-actions{display:none;gap:24px;padding:0 2px 15px 39px;}
+  .dev.open .dev-actions{display:flex;}
+  .dev.editing .dev-actions{display:none;}
+  .dev-act{background:none;border:none;padding:0;cursor:pointer;font-family:'JetBrains Mono',monospace;
+    font-size:13px;letter-spacing:.06em;color:var(--amber);}
+  .dev-act:active{opacity:.5;}
+  .dev-act.danger{color:#d8765c;}
+  .dev-act.muted{color:var(--muted);}
+  .dev-note{font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.06em;color:var(--muted-2);}
+
+  .dev-edit{display:none;padding:2px 2px 16px 39px;}
+  .dev.editing .dev-edit{display:block;}
+  .de-field{margin-bottom:14px;}
+  .de-lbl{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.16em;color:var(--muted-2);text-transform:uppercase;margin-bottom:3px;}
+  .de-in{width:100%;background:none;border:none;border-bottom:1px solid var(--line);color:var(--text);
+    font-family:'Inter',sans-serif;font-size:16px;padding:5px 0;outline:none;}
+  .de-in:focus{border-bottom-color:var(--amber);}
+  .de-types{display:flex;gap:22px;padding-top:6px;}
+  .de-type{background:none;border:none;padding:0;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--muted);}
+  .de-type.on{color:var(--amber);}
+  .de-row{display:flex;gap:26px;align-items:center;margin-top:4px;}
+  .de-save{background:none;border:none;padding:0;cursor:pointer;
+    font-family:'JetBrains Mono',monospace;font-size:13px;letter-spacing:.1em;color:var(--amber);text-transform:uppercase;}
+
+  /* add device — simple inline row, no box */
+  .add-row{display:flex;align-items:center;gap:13px;width:100%;background:none;border:none;
+    padding:16px 2px 4px;text-align:left;cursor:pointer;color:inherit;font:inherit;}
   .add-row:active{opacity:.6;}
-  .plus{width:9px;height:9px;position:relative;flex:none;}
-  .plus::before,.plus::after{content:"";position:absolute;background:var(--amber);}
-  .plus::before{left:3.5px;top:0;width:2px;height:9px;}
-  .plus::after{top:3.5px;left:0;height:2px;width:9px;}
-  .add-row .label{font-size:15px;color:var(--muted);font-family:'JetBrains Mono',monospace;letter-spacing:.04em;}
+  .add-row .plus{width:26px;flex:none;position:relative;height:18px;}
+  .add-row .plus::before,.add-row .plus::after{content:"";position:absolute;background:var(--amber);}
+  .add-row .plus::before{left:12px;top:3px;width:2px;height:12px;}
+  .add-row .plus::after{top:8px;left:7px;height:2px;width:12px;}
+  .add-row .label{font-family:'JetBrains Mono',monospace;font-size:14px;letter-spacing:.04em;color:var(--muted);}
 
-  .placeholder{
-    text-align:center;font-family:'JetBrains Mono',monospace;
-    font-size:12px;letter-spacing:.18em;color:var(--muted-2);
-    margin-top:24px;text-transform:uppercase;
-  }
+  /* secondary stat strip under the picker */
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:28px;}
+  .stat{text-align:center;padding:8px 4px;}
+  .stat .num{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:20px;color:var(--amber-dim);line-height:1;}
+  .stat .lbl{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.16em;color:var(--muted-2);margin-top:7px;}
+  .hidden{display:none;}
 
   /* dock : persistent cube chrome, outside the face */
   .dock{padding:0 26px calc(20px + env(safe-area-inset-bottom));}
@@ -227,32 +258,28 @@
           <div class="hero-rule"></div>
         </div>
 
-        <!-- content scrolls inside the square -->
+        <!-- content scrolls inside the square; the device picker is the focal point -->
         <div class="scroll">
-          <div class="stats">
-            <div class="stat"><div class="num" id="stShows">128</div><div class="lbl">SHOWS</div></div>
-            <div class="stat"><div class="num" id="stEps">1,340</div><div class="lbl">EPISODES</div></div>
-            <div class="stat"><div class="num" id="stThird">$284</div><div class="lbl" id="stThirdLbl">SAVED</div></div>
-          </div>
+          <div class="pbody">
+            <div class="devices">
+              <div class="dhead">
+                <h2>Your Devices</h2>
+                <span class="dhint">tap to manage</span>
+              </div>
+              <div class="dhead-rule"></div>
+              <div id="deviceList"></div>
+              <button class="add-row" id="addDevice">
+                <span class="plus"></span>
+                <span class="label">add device</span>
+              </button>
+            </div>
 
-          <div class="section">
-            <h2>Stored Devices</h2>
-            <div class="rule"></div>
-            <div id="deviceList"></div>
-            <button class="add-row" id="addDevice">
-              <span class="plus"></span>
-              <span class="label">add device</span>
-            </button>
+            <div class="stats">
+              <div class="stat"><div class="num" id="stShows">128</div><div class="lbl">SHOWS</div></div>
+              <div class="stat"><div class="num" id="stEps">1,340</div><div class="lbl">EPISODES</div></div>
+              <div class="stat"><div class="num" id="stThird">$284</div><div class="lbl" id="stThirdLbl">SAVED</div></div>
+            </div>
           </div>
-
-          <div class="section">
-            <h2>Status</h2>
-            <div class="rule"></div>
-            <div class="row"><span class="dot"></span><span class="label">Pangolin Score contributor</span><span class="val">tier 2</span></div>
-            <div class="row"><span class="dot"></span><span class="label">Subsidy active</span><span class="val">5 services</span></div>
-          </div>
-
-          <div class="placeholder">DUMMY . profile face placeholder</div>
         </div>
 
       </div>
@@ -325,21 +352,64 @@
     if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo(face, payload||{});
     else window.parent.postMessage({type:'cube:rotateTo', face, payload:payload||{}}, '*');
   }
-  function renderDevices(devices){
+  // The devices we can actually drive today. "Other" devices are collected
+  // against the profile (supported:false) but kept out of this picker until we
+  // add support and reach out to the people who asked for them.
+  const SUPPORTED_TYPES=['LG TV','Amazon Fire Cube'];
+  // DEMO shows a static device alongside the always-present This Phone.
+  const DEMO_DEVICES=[{id:'demo-fire', type:'Amazon Fire Cube', location:'Home Gym', ip:'192.168.1.50'}];
+
+  // Device-picker state. `selected` is a device id or the 'phone' sentinel for
+  // the always-present This Phone (one selection at a time).
+  const state={ email:'', devices:[], selected:'phone' };
+
+  function devIcon(type){
+    const t=(type||'').toLowerCase();
+    if(t==='phone'||t.includes('mobile')||t.includes('this phone'))
+      return '<svg viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><line x1="11" y1="18.6" x2="13" y2="18.6"/></svg>';
+    if(t.includes('fire')||t.includes('cube'))
+      return '<svg viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5"/><line x1="12" y1="12" x2="12" y2="21"/></svg>';
+    return '<svg viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="12" rx="2"/><line x1="8" y1="20" x2="16" y2="20"/></svg>';
+  }
+  // This Phone is always first; stored devices follow in order.
+  function deviceCards(){
+    return [{id:'phone', isPhone:true, type:'This Phone', location:'This Phone'},
+            ...state.devices.map(d=>({...d, isPhone:false}))];
+  }
+  function isSelected(dv){ return dv.isPhone ? (state.selected==='phone'||!state.selected) : state.selected===dv.id; }
+  // Each device is an inline row; tapping it expands an inline action strip
+  // (Select · Edit · Delete as text links) directly beneath — no popout sheet.
+  function renderDevices(){
     const list=$('deviceList'); list.innerHTML='';
-    (devices||[]).forEach(dv=>{
-      const b=document.createElement('button'); b.className='dev-row';
-      b.innerHTML='<span class="dot"></span><span class="label"></span><span class="val"></span>';
-      b.querySelector('.label').textContent = dv.location || dv.type;
-      b.querySelector('.val').textContent = dv.type;
-      b.onclick=()=>showToast(dv.type+(dv.location?(' . '+dv.location):'')+' . manage in Pierre');
-      list.appendChild(b);
+    deviceCards().forEach(dv=>{
+      const sel=isSelected(dv);
+      const row=document.createElement('div'); row.className='dev'+(sel?' sel':'');
+
+      const main=document.createElement('button'); main.className='dev-main';
+      main.innerHTML='<span class="dev-ic">'+devIcon(dv.isPhone?'phone':dv.type)+'</span>'
+        +'<span class="meta"><span class="nm"></span><span class="sub"></span></span>'
+        +(sel?'<span class="state">active</span>':'<span class="caret"></span>');
+      main.querySelector('.nm').textContent = dv.isPhone ? 'This Phone' : (dv.location || dv.type);
+      main.querySelector('.sub').textContent = dv.isPhone ? 'this device'
+        : (dv.type + (dv.ip ? (' · '+dv.ip) : ''));
+      main.onclick=()=>{ const open=row.classList.contains('open'); closeAllRows(); if(!open) row.classList.add('open'); };
+      row.appendChild(main);
+
+      const acts=document.createElement('div'); acts.className='dev-actions';
+      if(!sel) acts.appendChild(devAct('Select', ()=>doSelect(dv)));
+      if(!dv.isPhone){
+        acts.appendChild(devAct('Edit', ()=>{ row.classList.add('editing'); row.querySelector('.de-in').focus(); }));
+        acts.appendChild(devAct('Delete', ()=>doDelete(dv), 'danger'));
+      }
+      if(!acts.children.length){
+        const n=document.createElement('span'); n.className='dev-note'; n.textContent='your active device'; acts.appendChild(n);
+      }
+      row.appendChild(acts);
+
+      if(!dv.isPhone) row.appendChild(buildEdit(dv, row));
+      list.appendChild(row);
     });
   }
-  // DEMO shows a static "Home Gym" device; MVP defaults to a single "This Phone"
-  // row (real stored devices replace it once an account has any).
-  const DEMO_DEVICES=[{type:'Fire TV', location:'Home Gym'}];
-  const MVP_DEFAULT_DEVICES=[{type:'mobile', location:'This Phone'}];
   // SHOWS / EPISODES / MINUTES from the member's watch data (MVP only; DEMO keeps
   // its showcase numbers). EPISODES = sum of watched counts; MINUTES = sum of the
   // logged minute position across every tracked episode.
@@ -357,12 +427,12 @@
     }catch(_){}
   }
   async function refresh(){
-    const email=session();
-    if(DEMO) renderDevices(DEMO_DEVICES);
+    const email=session(); state.email=email;
+    if(DEMO){ state.devices=DEMO_DEVICES; state.selected='phone'; renderDevices(); }
     if(!email){
       $('pname').textContent='Guest'; $('phandle').textContent='not signed in';
       $('authBtn').textContent='log in'; $('authBtn').onclick=()=>nav('pierre',{intent:'join'});
-      if(!DEMO){ renderDevices(MVP_DEFAULT_DEVICES);
+      if(!DEMO){ state.devices=[]; state.selected='phone'; renderDevices();
         $('stShows').textContent='0'; $('stEps').textContent='0'; $('stThird').textContent='0'; }  // signed out → zeros
       return;
     }
@@ -374,9 +444,59 @@
       const r=await fetch(API+'/profile/'+encodeURIComponent(email));
       if(r.status===404){ try{localStorage.removeItem('pg_user');}catch(_){} return refresh(); }  // account gone -> sign out
       if(r.ok){ const d=await r.json(); if(d.user&&d.user.username) $('pname').textContent=d.user.username;
-        if(!DEMO) renderDevices((d.devices&&d.devices.length)?d.devices:MVP_DEFAULT_DEVICES); }
+        if(!DEMO){ state.devices=d.devices||[]; state.selected=(d.user&&d.user.selected_device)||'phone'; renderDevices(); } }
     }catch(_){}
   }
+
+  // ---- inline device actions: select / edit / delete --------------------
+  function closeAllRows(){ document.querySelectorAll('.dev.open,.dev.editing').forEach(r=>r.classList.remove('open','editing')); }
+  function devAct(label, onClick, cls){
+    const b=document.createElement('button'); b.className='dev-act'+(cls?(' '+cls):''); b.textContent=label;
+    b.onclick=(e)=>{ e.stopPropagation(); onClick(); }; return b;
+  }
+  // Inline edit, mirroring the name-plate edit: underline fields, no boxes.
+  function buildEdit(dv, row){
+    const ed=document.createElement('div'); ed.className='dev-edit';
+    ed.innerHTML=
+       '<div class="de-field"><div class="de-lbl">Label</div><input class="de-in lbl" placeholder="e.g. living room" autocomplete="off"></div>'
+      +'<div class="de-field"><div class="de-lbl">IP address</div><input class="de-in ip" placeholder="e.g. 192.168.1.42" inputmode="decimal" autocomplete="off"></div>'
+      +'<div class="de-field"><div class="de-lbl">Device</div><div class="de-types"></div></div>'
+      +'<div class="de-row"><button class="de-save">Save</button><button class="dev-act muted cancel">Cancel</button></div>';
+    const lbl=ed.querySelector('.lbl'), ip=ed.querySelector('.ip'), types=ed.querySelector('.de-types');
+    lbl.value=dv.location||''; ip.value=dv.ip||'';
+    let chosen=dv.type;
+    SUPPORTED_TYPES.forEach(t=>{
+      const b=document.createElement('button'); b.className='de-type'+(t===chosen?' on':''); b.textContent=t;
+      b.onclick=()=>{ chosen=t; [...types.children].forEach(c=>c.classList.toggle('on',c===b)); };
+      types.appendChild(b);
+    });
+    ed.querySelector('.cancel').onclick=()=>row.classList.remove('editing');
+    ed.querySelector('.de-save').onclick=()=>saveEdit(dv,{location:lbl.value.trim(), ip:ip.value.trim(), type:chosen});
+    return ed;
+  }
+  async function doSelect(dv){
+    state.selected=dv.id; renderDevices();
+    const label=dv.isPhone?'This Phone':(dv.location||dv.type);
+    if(!DEMO && state.email){
+      try{ await fetch(API+'/profile/'+encodeURIComponent(state.email)+'/select',{method:'POST',
+        headers:{'Content-Type':'application/json'},body:JSON.stringify({device:dv.id})}); }catch(_){}
+    }
+    showToast(label+' · selected');
+  }
+  async function doDelete(dv){
+    if(DEMO || !state.email){ closeAllRows(); showToast('Not available in the demo'); return; }
+    closeAllRows();
+    try{ await fetch(API+'/profile/'+encodeURIComponent(state.email)+'/devices/'+encodeURIComponent(dv.id),{method:'DELETE'}); }catch(_){}
+    showToast('Removed'); refresh();
+  }
+  async function saveEdit(dv, body){
+    if(DEMO || !state.email){ closeAllRows(); showToast('Not available in the demo'); return; }
+    closeAllRows();
+    try{ await fetch(API+'/profile/'+encodeURIComponent(state.email)+'/devices/'+encodeURIComponent(dv.id),{method:'PATCH',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); }catch(_){}
+    showToast('Saved'); refresh();
+  }
+
   $('addDevice').addEventListener('click', ()=> nav('pierre', session()?{intent:'device'}:{intent:'join'}) );
   window.addEventListener('storage', e=>{ if(e.key==='pg_user'||e.key==='pg_refresh') refresh(); });
   refresh();

@@ -10,7 +10,7 @@ const safeParse = (s: string) => { try { return JSON.parse(s); } catch { return 
 const int = (v: unknown, min = -Infinity) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(min, Math.trunc(v)) : null);
 
 // Columns safe to return to the client (never the password salt/hash).
-const SAFE = 'email, username, phone, photo_url, created_at, updated_at';
+const SAFE = 'email, username, phone, photo_url, selected_device, created_at, updated_at';
 
 // PBKDF2 password hashing via Web Crypto.
 const _enc = new TextEncoder();
@@ -91,18 +91,20 @@ profileRoutes.post('/login', async (c) => {
   return c.json({ ok: true, user });
 });
 
-// Get a user plus their devices.
+// Get a user plus their devices. Only supported devices come back in the list
+// (unsupported "Other" devices are collected silently to size demand).
 profileRoutes.get('/:email', async (c) => {
   const email = c.req.param('email').toLowerCase();
   const user = await c.env.DB.prepare(`SELECT ${SAFE} FROM users WHERE email = ?`).bind(email).first();
   if (!user) return c.json({ error: 'not found' }, 404);
   const devices = await c.env.DB
-    .prepare('SELECT id, type, location, ip, model, created_at FROM devices WHERE user_email = ? ORDER BY created_at')
+    .prepare('SELECT id, type, location, ip, model, created_at FROM devices WHERE user_email = ? AND supported = 1 ORDER BY created_at')
     .bind(email).all();
   return c.json({ user, devices: devices.results || [] });
 });
 
-// Add a device to a user.
+// Add a device to a user. `supported` defaults on; Pierre passes supported:false
+// for an "Other" device so we keep it on file without showing it in the picker.
 profileRoutes.post('/:email/devices', async (c) => {
   const email = c.req.param('email').toLowerCase();
   const exists = await c.env.DB.prepare('SELECT email FROM users WHERE email = ?').bind(email).first();
@@ -113,19 +115,70 @@ profileRoutes.post('/:email/devices', async (c) => {
   const location = str(body.location, 80);
   const ip = str(body.ip, 64) || null;
   const model = str(body.model, 80) || null;
+  const supported = body.supported === false ? 0 : 1;
   if (!type) return c.json({ error: 'type required' }, 400);
   const id = crypto.randomUUID();
   await c.env.DB
-    .prepare('INSERT INTO devices (id, user_email, type, location, ip, model, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .bind(id, email, type, location, ip, model, Date.now()).run();
-  return c.json({ device: { id, type, location, ip, model } });
+    .prepare('INSERT INTO devices (id, user_email, type, location, ip, model, supported, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .bind(id, email, type, location, ip, model, supported, Date.now()).run();
+  return c.json({ device: { id, type, location, ip, model, supported } });
 });
 
-// List a user's devices.
+// Edit a device: label (location), IP, or the device itself (type/model).
+// Only provided fields change; omitted fields are left as-is.
+profileRoutes.patch('/:email/devices/:id', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  const id = c.req.param('id');
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const sets: string[] = [];
+  const vals: any[] = [];
+  if (body.type !== undefined)     { const t = str(body.type, 60); if (!t) return c.json({ error: 'type required' }, 400); sets.push('type = ?');     vals.push(t); }
+  if (body.location !== undefined) { sets.push('location = ?'); vals.push(str(body.location, 80) || null); }
+  if (body.ip !== undefined)       { sets.push('ip = ?');       vals.push(str(body.ip, 64) || null); }
+  if (body.model !== undefined)    { sets.push('model = ?');    vals.push(str(body.model, 80) || null); }
+  if (!sets.length) return c.json({ error: 'nothing to update' }, 400);
+  vals.push(email, id);
+  const res = await c.env.DB
+    .prepare(`UPDATE devices SET ${sets.join(', ')} WHERE user_email = ? AND id = ?`)
+    .bind(...vals).run();
+  if (!res.meta.changes) return c.json({ error: 'not found' }, 404);
+  const device = await c.env.DB
+    .prepare('SELECT id, type, location, ip, model, created_at FROM devices WHERE user_email = ? AND id = ?')
+    .bind(email, id).first();
+  return c.json({ device });
+});
+
+// Delete a device. If it was the selected one, fall back to This Phone.
+profileRoutes.delete('/:email/devices/:id', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  const id = c.req.param('id');
+  await c.env.DB.prepare('DELETE FROM devices WHERE user_email = ? AND id = ?').bind(email, id).run();
+  await c.env.DB.prepare("UPDATE users SET selected_device = 'phone' WHERE email = ? AND selected_device = ?").bind(email, id).run();
+  return c.json({ ok: true });
+});
+
+// Point the remote at a device. `device` is a device id or the 'phone' sentinel.
+profileRoutes.post('/:email/select', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const device = str(body.device, 64);
+  if (!device) return c.json({ error: 'device required' }, 400);
+  if (device !== 'phone') {
+    const owned = await c.env.DB.prepare('SELECT id FROM devices WHERE user_email = ? AND id = ?').bind(email, device).first();
+    if (!owned) return c.json({ error: 'unknown device' }, 404);
+  }
+  const res = await c.env.DB.prepare('UPDATE users SET selected_device = ? WHERE email = ?').bind(device, email).run();
+  if (!res.meta.changes) return c.json({ error: 'unknown user' }, 404);
+  return c.json({ ok: true, selected: device });
+});
+
+// List a user's (supported) devices.
 profileRoutes.get('/:email/devices', async (c) => {
   const email = c.req.param('email').toLowerCase();
   const devices = await c.env.DB
-    .prepare('SELECT id, type, location, ip, model, created_at FROM devices WHERE user_email = ? ORDER BY created_at')
+    .prepare('SELECT id, type, location, ip, model, created_at FROM devices WHERE user_email = ? AND supported = 1 ORDER BY created_at')
     .bind(email).all();
   return c.json({ devices: devices.results || [] });
 });
