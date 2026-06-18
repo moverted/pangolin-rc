@@ -128,6 +128,7 @@
   .seasondots .sd.avail{ background:var(--green); }
   .seasondots .sd.cur{ background:transparent; width:16px; height:16px; }
   .seasondots .sd.cur::after{ content:"🍿"; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); font-size:14px; line-height:1; }
+  .scorn{ font-size:13px; }   /* popcorn inside the ">6 seasons" count indicator */
 
   /* minute bar: position inside the current episode (yellow track, elapsed darkens L→R) */
   .minzone{ margin-top:4px; }
@@ -229,10 +230,7 @@
         <span class="dots" id="epDots"><i></i><i></i><i></i><i class="on"></i><i></i><i></i></span>
       </div>
       <!-- season dots (display-only): dark-green done · 🍿 current · green future-available · grey unaired -->
-      <div class="fb-mid">
-        <span class="seasonlabel" id="seasonLabel">SEASONS</span>
-        <div class="seasondots" id="seasonDots"></div>
-      </div>
+      <div class="fb-mid" id="seasonInd"></div>
       <div class="fb-right">
         <button id="addShowBtn" class="addpill">+ Show</button>
       </div>
@@ -424,7 +422,7 @@ function paint(){
   $('face').classList.toggle('binge', bingeLive());
 
   // ----- season dots (display-only) -----
-  renderSeasonDots();
+  renderSeasons();
 
   // ----- score pill -----
   $('scoreVal').textContent=score||'—';
@@ -469,20 +467,38 @@ function paint(){
 }
 
 // Season dots, colored by the episode convention.
-function renderSeasonDots(){
-  const el=$('seasonDots'); if(!el) return; el.innerHTML='';
-  const seasons=[...new Set(allEps.map(sNum))].sort((a,b)=>a-b);
-  const lab=$('seasonLabel'); if(lab) lab.textContent = seasons.length===1 ? 'SEASON' : 'SEASONS';
-  const curSeason = eps.length ? sNum(eps[0]) : (seasons[0]||1);
-  const airedBy={}; allEps.filter(released).forEach(e=>airedBy[sNum(e)]=(airedBy[sNum(e)]||0)+1);
-  seasons.forEach(se=>{
-    const d=document.createElement('span'); d.className='sd';
-    if(se===curSeason)      d.classList.add('cur');     // 🍿 current
-    else if(se<curSeason)   d.classList.add('done');    // dark green: completed
-    else if(airedBy[se]>0)  d.classList.add('avail');   // green: future, aired
-    // else grey (unaired) — default background
-    el.appendChild(d);
-  });
+function renderSeasons(){
+  const host=$('seasonInd'); if(!host) return;
+  const seasons=[...new Set(allEps.map(sNum))].filter(s=>s>=1).sort((a,b)=>a-b);
+  const N=seasons.length;
+  if(N===0){ host.innerHTML=''; return; }
+  const curSeason = eps.length ? sNum(eps[0]) : seasons[0];
+
+  // 1 season: grey "1 SEASON", no counter / no dots.
+  if(N===1){ host.innerHTML='<span class="seasonlabel">1 SEASON</span>'; return; }
+
+  // 2-6 seasons: "SEASONS" + one colored dot per season.
+  if(N<=6){
+    const airedBy={}; allEps.filter(released).forEach(e=>airedBy[sNum(e)]=(airedBy[sNum(e)]||0)+1);
+    const dots=seasons.map(se=>{
+      let c='sd';
+      if(se===curSeason)     c+=' cur';     // 🍿 current
+      else if(se<curSeason)  c+=' done';    // dark green: completed
+      else if(airedBy[se]>0) c+=' avail';   // green: future, aired
+      return '<span class="'+c+'"></span>'; // else grey (unaired)
+    }).join('');
+    host.innerHTML='<span class="seasonlabel">SEASONS</span><span class="seasondots">'+dots+'</span>';
+    return;
+  }
+
+  // >6 seasons: count + the popcorn positioned by which third the current season
+  // falls in (e.g. 18 seasons -> 1-6 left, 7-12 middle, 13-18 right).
+  const third=Math.min(3, Math.max(1, Math.ceil(curSeason/(N/3))));
+  const corn='<span class="scorn">🍿</span>';
+  const inner = third===1 ? corn+N+' SEASONS'
+              : third===2 ? N+corn+'SEASONS'
+              :             N+' SEASONS'+corn;
+  host.innerHTML='<span class="seasonlabel">'+inner+'</span>';
 }
 
 // Minute bar for the focused episode (yellow track, elapsed darkens left→right).
