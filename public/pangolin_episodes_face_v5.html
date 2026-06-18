@@ -165,6 +165,10 @@
     35%,65%{ background:var(--accent);   color:var(--flipfg); box-shadow:0 0 16px -3px var(--accent); }
   }
   .sfbtn.flip{ animation:sfflip .52s ease both; }
+  /* inactive button: greyed out, not clickable, no flip */
+  .sfbtn:disabled{ opacity:.32; cursor:default; background:rgba(0,0,0,.32);
+    border-color:rgba(255,255,255,.12); color:var(--faint); box-shadow:none; }
+  .sfbtn:disabled:active{ transform:none; }
 
   /* MVP empty state: no shows in the Log → nothing on the Episode side yet */
   .emptyface{ position:absolute; inset:0; z-index:6; display:none; flex-direction:column;
@@ -201,7 +205,13 @@
     text-transform:uppercase; margin-bottom:9px; display:flex; gap:9px; align-items:baseline; }
   .epline .sep{ color:rgba(255,255,255,.3); }
   .epline .ttl{ color:var(--text); text-transform:none; font-family:var(--display);
-    font-weight:600; font-size:15px; letter-spacing:0; }
+    font-weight:600; font-size:15px; letter-spacing:0;
+    min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  /* live status, right-aligned on the EP line (replaces the old bottom-list badge) */
+  .epline .epstatus{ margin-left:auto; padding-left:9px; white-space:nowrap; font-size:10px;
+    letter-spacing:.06em; font-weight:700; align-self:center; }
+  .epline .epstatus.watching{ color:var(--amber); }
+  .epline .epstatus.waiting{ color:var(--faint); }
   .syn{ font-size:13.5px; color:var(--dim); margin:0 0 18px; line-height:1.55; }
 
   .block-label{ font-family:var(--mono); font-size:9.5px; letter-spacing:.16em;
@@ -236,10 +246,6 @@
   .wdate.binged{ background:rgba(126,42,36,.92); color:#f4c9c4; }
   .wscore{ font-family:var(--mono); font-size:11px; color:var(--amber); font-weight:700; width:34px; text-align:right; }
   .empty{ font-family:var(--mono); font-size:11px; color:var(--faint); padding:6px 0 2px; }
-  /* live row. WATCHING = orange bubble, full marker. WAITING = muted, static. */
-  .wrow.live .wt{ color:var(--amber); }
-  .wdate.live{ background:rgba(240,169,59,.92); color:var(--amber-deep); font-weight:700; letter-spacing:.08em; }
-  .wdate.live.waiting{ background:rgba(120,108,92,.5); color:var(--text); }
   /* WATCHING continuously cycles the build-up marker; WAITING is static. */
   .live-dots::after{ content:'>..'; animation:build 1.6s steps(1,end) infinite; }
   .wait-dots::after{ content:'...'; letter-spacing:.08em; }
@@ -320,7 +326,7 @@
     </div>
 
     <div class="sheet">
-      <div class="epline"><span id="epNo">EP — / —</span><span class="sep">|</span><span class="ttl" id="epTtl"></span></div>
+      <div class="epline"><span id="epNo">EP — / —</span><span class="sep">|</span><span class="ttl" id="epTtl"></span><span class="epstatus" id="epStatus"></span></div>
       <p class="syn" id="syn"></p>
 
       <div class="block-label">Your rank</div>
@@ -348,7 +354,7 @@ let allEps=[], eps=[], watched=0, watchTs=[], watchDate={}, binged={}, ranks={},
 let seasonStatus='', score='', curShowId=null, curShowName='', curService='', svcLaunchable=false;
 // Per-episode minute progress. epMin[i]=logged minutes, epDone[i]=watched,
 // epBp[i]=force-advanced (end stamp "BP"), startedAt[i]=on-device start ts.
-let epMin={}, epDone={}, epBp={}, startedAt={}, avgRuntime=45, minPreview=null, awaitingLog=false, pendingRestore=null, scrollToLive=false;
+let epMin={}, epDone={}, epBp={}, startedAt={}, avgRuntime=45, minPreview=null, awaitingLog=false, pendingRestore=null;
 // watchingLive[i]=true → episode i is in the animated "watching" state, entered ONLY
 // by the START/CONTINUE button. A plain log action drops it to static "waiting".
 let watchingLive={};
@@ -489,17 +495,18 @@ function forceAdvance(){
 }
 
 // START / CONTINUE: begin (or resume) a watch. This is the ONLY entry point that
-// puts the episode into the animated "watching" state and plays the build-up.
+// puts the episode into the animated "watching" state.
 function startEpisode(){
   startedAt[focus]=Date.now(); sessionBase[focus]=epMin[focus]||0; minPreview=null; awaitingLog=false;
   watchingLive[focus]=true;   // enter the animated "watching" state
-  scrollToLive=true;   // surface the live "WATCHING…" row in the log below
   emitProgress(focus, false, false, Math.round(epMin[focus]||0));
   paint();
 }
-// FINISH: logs the episode fully watched (a real in-app watch) and advances.
+// FINISH: logs the episode fully watched (a real in-app watch) and advances. If the
+// watch was never STARTed, assume one sitting: out time = now, start = now − runtime.
 function finishEpisode(){
   const rt=runtimeOf(focus);
+  if(!startedAt[focus]) startedAt[focus]=Date.now()-rt*60000;   // single-sitting: back-date the start
   epMin[focus]=rt; epDone[focus]=true; epBp[focus]=false; epPreApp[focus]=false; minPreview=null; awaitingLog=false; cooled=false; watchingLive[focus]=false;
   try{ localStorage.removeItem('pg_launch'); }catch(_){}
   markWatchedThrough(focus);
@@ -539,60 +546,62 @@ function paint(){
     b.onclick=()=>{ ranks[focus]=n; paint(); }; rk.appendChild(b); }
   $('comment').value=notes[focus]||'';
 
-  // Watchlist: ONE row per episode, newest activity first. The collapsed line
-  // shows a status badge (WATCHING / WAITING / finish stamp); tapping expands the
-  // children — every viewing session for that episode plus the episode's note.
+  // Live status sits inline on the EP line (right side), not in the list below.
+  const watching = !!watchingLive[focus];
+  const inProgress = !epDone[focus] && (startedAt[focus] || (epMin[focus]||0)>0);
+  const st=$('epStatus');
+  if(st){
+    if(watching){ st.className='epstatus watching'; st.innerHTML='(WATCHING<span class="live-dots"></span>)'; }
+    else if(inProgress){ st.className='epstatus waiting'; st.innerHTML='(WAITING<span class="wait-dots"></span>)'; }
+    else { st.className='epstatus'; st.textContent=''; }
+  }
+  // Button states:
+  //  · START active when fresh; relabels CONTINUE once started (until the scrubber
+  //    returns to 0 or a new episode loads) and greys out while actively watching.
+  //  · LOG IT is active only while actively watching.
+  //  · FINISH is always available.
+  const stBtn=$('startEpBtn');
+  if(stBtn){ stBtn.textContent = (!epDone[focus] && (watching || (epMin[focus]||0)>0)) ? 'CONTINUE' : 'START';
+    stBtn.disabled = watching; }
+  const lgBtn=$('logItBtn'); if(lgBtn) lgBtn.disabled = !watching;
+  const fnBtn=$('finishEpBtn'); if(fnBtn) fnBtn.disabled = false;
+
+  // Watchlist: ONE row per episode (history only), newest activity first. Tapping a
+  // row expands its children — every viewing session for that episode plus the note.
   const epRows=[];
   for(let i=0;i<eps.length;i++){
     const sess=epSessions[i]||[];
-    const isLive = (i===focus && startedAt[i] && !epDone[i]);
-    if(!sess.length && !epDone[i] && !isLive) continue;
+    if(!sess.length && !epDone[i]) continue;
     let lastTs=0; sess.forEach(s=>{ if((s.finishTs||0)>lastTs) lastTs=s.finishTs||0; });
     if(epDone[i] && watchDate[i]) lastTs=Math.max(lastTs,+watchDate[i]);
-    if(isLive) lastTs=Number.MAX_SAFE_INTEGER;   // the live episode floats to the top
-    epRows.push({ i, e:eps[i]||{}, sess, isLive, lastTs });
+    epRows.push({ i, e:eps[i]||{}, sess, lastTs });
   }
   epRows.sort((a,b)=>b.lastTs-a.lastTs);
   $('wlLabel').textContent='Watched · '+watched;
   const wl=$('watchlist'); wl.innerHTML='';
   if(!epRows.length) wl.innerHTML='<div class="empty">Nothing logged yet.</div>';
-  let liveRowEl=null;
-  epRows.forEach(({i,e,sess,isLive})=>{
+  epRows.forEach(({i,e,sess})=>{
     const row=document.createElement('div'); row.className='wrow';
-    // ----- collapsed badge -----
     let badge;
-    if(isLive && watchingLive[i]){ row.classList.add('live');
-      badge=`<span class="wdate live">WATCHING<span class="live-dots"></span></span>`; }
-    else if(isLive){ row.classList.add('live');
-      badge=`<span class="wdate live waiting">WAITING<span class="wait-dots"></span></span>`; }
-    else if(epDone[i]){ const fin=sess.filter(s=>s.finished).pop();
+    if(epDone[i]){ const fin=sess.filter(s=>s.finished).pop();
       const stamp = epBp[i] ? '(BP)' : '('+(fin?fin.date:(watchDate[i]?mdFmt(+watchDate[i]):''))+' ✅)';
       badge=`<span class="wdate${(binged[i]&&!epBp[i])?' binged':''}">${stamp}</span>`; }
     else { const last=sess[sess.length-1];
       badge=`<span class="wdate">(${last?last.date+', '+last.minutes+'m':'in progress'})</span>`; }
     const score = ranks[i]!==undefined ? ranks[i]+'/10' : '';
-    // ----- expandable children: sessions + note -----
     let kids;
     if(sess.length){ kids=sess.map(s=>{
       const lbl = s.bp ? 'skipped · BP' : (s.finished ? 'finished · '+s.minutes+'m' : 'logged · '+s.minutes+'m');
       const ts = s.startTs ? ' · '+hmFmt(s.startTs)+'→'+hmFmt(s.finishTs) : '';
       return `<div class="sess">${s.date} · ${lbl}<span class="ts">${ts}</span></div>`; }).join(''); }
-    else if(epDone[i]) kids=`<div class="sess">${watchDate[i]?mdFmt(+watchDate[i]):''} · finished</div>`;
-    else kids=`<div class="sess">no sessions yet</div>`;
+    else kids=`<div class="sess">${watchDate[i]?mdFmt(+watchDate[i]):''} · finished</div>`;
     const note = (notes[i]&&notes[i].trim()) ? `<div class="note">“${escHtml(notes[i].trim())}”</div>` : '';
     row.innerHTML=`<div class="wmain"><span class="wt">${escHtml(epCode(e)+' '+(e.name||('Episode '+(i+1))))}</span>
       ${badge}<span class="wscore">${score}</span></div>
       <div class="wdetail">${kids}${note}</div>`;
     row.onclick=()=>row.classList.toggle('open');
     wl.appendChild(row);
-    if(isLive) liveRowEl=row;
   });
-  // Leftmost button reads CONTINUE while paused mid-episode, START otherwise.
-  const stBtn=$('startEpBtn');
-  if(stBtn) stBtn.textContent=(startedAt[focus] && !epDone[focus] && !watchingLive[focus]) ? 'CONTINUE' : 'START';
-  // After a START tap, scroll the live row into view so the ticking line is visible.
-  if(scrollToLive && liveRowEl){ scrollToLive=false;
-    requestAnimationFrame(()=>liveRowEl.scrollIntoView({behavior:'smooth', block:'center'})); }
   reportCurrent();
 }
 
