@@ -150,6 +150,14 @@
   .minfoot .d.bp{ color:#ff9d5c; font-weight:700; letter-spacing:.1em; }
   .minfoot .center{ flex:1; text-align:center; padding:0 8px; color:var(--dim); }
   .minfoot .center.phrase{ color:var(--amber); font-size:9px; letter-spacing:.03em; }
+  /* manual Start / Finish (fallback when the episode-end timer doesn't fire) */
+  .startfin{ display:flex; gap:10px; margin-top:14px; }
+  .sfbtn{ flex:1; font-family:var(--mono); font-size:11px; font-weight:700; letter-spacing:.1em;
+    padding:11px; border-radius:10px; cursor:pointer; background:rgba(0,0,0,.32);
+    border:1px solid rgba(255,255,255,.16); color:var(--dim); }
+  .sfbtn:active{ transform:translateY(1px); }
+  .sfbtn.start{ border-color:var(--amber); color:var(--amber); }
+  .sfbtn.finish{ border-color:var(--green); color:var(--green); }
 
   /* MVP empty state: no shows in the Log → nothing on the Episode side yet */
   .emptyface{ position:absolute; inset:0; z-index:6; display:none; flex-direction:column;
@@ -278,6 +286,11 @@
             <span class="d" id="minElapsed">0 min</span>
             <span class="center" id="minMid">— min</span>
             <span class="d faint" id="minRem">— min</span>
+          </div>
+          <!-- manual log fallback for when the episode-end timer doesn't fire -->
+          <div class="startfin">
+            <button class="sfbtn start" id="startEpBtn">START</button>
+            <button class="sfbtn finish" id="finishEpBtn">FINISH</button>
           </div>
         </div>
       </div>
@@ -424,6 +437,23 @@ function forceAdvance(){
   finaleCheck(); advanceFocus(); paint();
 }
 
+// Manual log fallback (the episode-end timer is browser-only and can miss).
+// START marks the watch beginning so the minute guess has a reference; FINISH
+// logs the episode fully watched (a real in-app watch) and advances.
+function startEpisode(){
+  startedAt[focus]=Date.now(); epMin[focus]=0; minPreview=null; awaitingLog=false;
+  emitProgress(focus, false, false, 0);   // session started — records started_at
+  paint();
+}
+function finishEpisode(){
+  const rt=runtimeOf(focus);
+  epMin[focus]=rt; epDone[focus]=true; epBp[focus]=false; epPreApp[focus]=false; minPreview=null; awaitingLog=false; cooled=false;
+  try{ localStorage.removeItem('pg_launch'); }catch(_){}
+  markWatchedThrough(focus);
+  emitProgress(focus, true, false, rt);
+  finaleCheck(); advanceFocus(); paint();
+}
+
 function paint(){
   const total=eps.length, rel=eps.filter(released).length;
   $('face').classList.toggle('binge', bingeLive());
@@ -536,6 +566,9 @@ $('scorePill').onclick=()=>{ const v=prompt('Screen Score from @betterscreenscor
 $('addShowBtn').onclick=()=>{ if(window.parent===window) return;
   if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('pierre',{intent:'add'});
   else window.parent.postMessage({type:'cube:rotateTo',face:'pierre',payload:{intent:'add'}},'*'); };
+
+$('startEpBtn').onclick=startEpisode;
+$('finishEpBtn').onclick=finishEpisode;
 
 // ----- minute bar interaction -----
 const minBar=$('minBar');
