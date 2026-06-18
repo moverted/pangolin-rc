@@ -798,7 +798,7 @@ function serviceLink(service, q){
   if (s.includes('apple'))                    return 'https://tv.apple.com/search?term=' + enc;
   if (s.includes('peacock'))                  return 'https://www.peacocktv.com/search?q=' + enc;
   if (s.includes('paramount'))                return 'https://www.paramountplus.com/search/?query=' + enc;
-  return 'https://www.justwatch.com/us/search?q=' + enc;   // unknown streamer → where-to-watch aggregator
+  return '';   // unknown streamer → no launch
 }
 let currentEpisode = null;   // {tvmazeId, name, season, number, runtime, service} from the Episode face
 
@@ -831,12 +831,14 @@ function scheduleEpisodeEnd(ep) {
   const btn = document.getElementById('btn-play');
   btn.addEventListener('click', () => {
     if (!currentEpisode || !currentEpisode.name) return;   // nothing loaded → nothing to play
+    const url = serviceLink(currentEpisode.service, currentEpisode.name);
+    if (!url) return;                                      // no known streamer → nothing to launch
     btn.classList.add('sent');
     setTimeout(() => btn.classList.remove('sent'), 180);
     try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch {}
     scheduleEpisodeEnd(currentEpisode);                    // live-watch session begins
     try { localStorage.setItem('pg_launch', JSON.stringify({ ...currentEpisode, startedAt: Date.now() })); } catch {}
-    window.location.href = serviceLink(currentEpisode.service, currentEpisode.name);
+    window.location.href = url;
   });
 }
 
