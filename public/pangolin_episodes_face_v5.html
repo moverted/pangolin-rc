@@ -307,7 +307,7 @@
           <!-- manual session logging: start a watch, log a partial, or finish -->
           <div class="startfin">
             <button class="sfbtn start" id="startEpBtn">START</button>
-            <button class="sfbtn logit" id="logItBtn">LOG IT</button>
+            <button class="sfbtn logit" id="logItBtn">LOG PARTIAL</button>
             <button class="sfbtn finish" id="finishEpBtn">FINISH</button>
           </div>
         </div>
@@ -545,12 +545,12 @@ function paint(){
     else { st.className='epstatus'; st.textContent=''; }
   }
   // Button states:
-  //  · START active when fresh; relabels CONTINUE once started (until the scrubber
-  //    returns to 0 or a new episode loads) and greys out while actively watching.
-  //  · LOG IT is active only while actively watching.
+  //  · START only at minute 0 / before a session; becomes CONTINUE the moment a
+  //    watch is STARTed (in-progress) and greys out while actively watching.
+  //  · LOG PARTIAL is active only while actively watching.
   //  · FINISH is always available.
   const stBtn=$('startEpBtn');
-  if(stBtn){ stBtn.textContent = (!epDone[focus] && (watching || (epMin[focus]||0)>0)) ? 'CONTINUE' : 'START';
+  if(stBtn){ stBtn.textContent = (watching || inProgress) ? 'CONTINUE' : 'START';
     stBtn.disabled = watching; }
   const lgBtn=$('logItBtn'); if(lgBtn) lgBtn.disabled = !watching;
   const fnBtn=$('finishEpBtn'); if(fnBtn) fnBtn.disabled = false;
