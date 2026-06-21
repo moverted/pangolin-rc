@@ -35,7 +35,7 @@
     /* ── pinch hint (free mode) ── */
     #pinch-hint {
       position: fixed;
-      bottom: 128px; left: 0; right: 0;
+      bottom: 196px; left: 0; right: 0;
       text-align: center;
       font-family: 'Comic Neue', cursive;
       font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase;
@@ -65,9 +65,29 @@
       z-index: 30;
       padding: 20px 24px 44px;
       background: linear-gradient(to top, rgba(12,9,7,0.97) 55%, transparent);
-      display: flex; justify-content: center; align-items: center;
+      display: flex; flex-direction: column; gap: 14px; justify-content: center; align-items: center;
     }
     #media-controls { display: flex; gap: 32px; align-items: center; }
+
+    /* device + streamer indicator: what the play button launches, and where.
+       Device comes from the Profile picker (pg_device); streamer from the show
+       the Watch face has loaded. Tap to jump to the Profile device picker. */
+    #device-chip {
+      display: none; align-items: center; gap: 7px; max-width: 82vw;
+      padding: 5px 13px; border-radius: 999px;
+      border: 1px solid #3a2f22; background: rgba(33,26,19,0.85);
+      font-family: 'Comic Neue', cursive; font-size: 12px; font-weight: 700;
+      letter-spacing: 0.02em; line-height: 1; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis;
+      cursor: pointer; -webkit-tap-highlight-color: transparent;
+      transition: opacity 0.15s, border-color 0.15s;
+    }
+    #device-chip.show { display: inline-flex; }
+    #device-chip:active { border-color: #e89f3d; }
+    #device-chip .dc-dev { color: #f3ebe0; }
+    #device-chip .dc-sep { color: #a7967f; opacity: 0.6; }
+    #device-chip .dc-svc { color: #e89f3d; }
+    #device-chip.dimmed { opacity: 0.78; }
 
     .media-btn {
       width: 52px; height: 52px; border-radius: 50%;
@@ -124,6 +144,7 @@
 
 
 <div id="controls">
+  <div id="device-chip" role="button" aria-label="Playback device — tap to change"></div>
   <div id="media-controls">
     <button class="media-btn" id="btn-rw" aria-label="Rewind">
       <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
@@ -888,7 +909,46 @@ function updatePlayState() {
   const cfg = FACE_OVERLAYS[FACE_INDEX.episodes];
   if (cfg && cfg.frame && cfg.frame.contentWindow)
     cfg.frame.contentWindow.postMessage({ type: 'cube:launchable', ok }, '*');
+  updateDeviceChip();
 }
+
+// ── Device + streamer chip ────────────────────────────────────────────────
+// Friendly streamer name for the chip (serviceLink does the linking; this just
+// labels). Falls back to the raw service string from TVMaze.
+function streamerLabel(service) {
+  const s = (service || '').toLowerCase();
+  if (s.includes('netflix'))                  return 'Netflix';
+  if (s.includes('hulu'))                     return 'Hulu';
+  if (s.includes('max') || s.includes('hbo')) return 'Max';
+  if (s.includes('disney'))                   return 'Disney+';
+  if (s.includes('prime') || s.includes('amazon')) return 'Prime Video';
+  if (s.includes('apple'))                    return 'Apple TV';
+  if (s.includes('peacock') || s.includes('nbc')) return 'Peacock';
+  if (s.includes('paramount'))                return 'Paramount+';
+  return service || '';
+}
+// The device the remote is pointed at, cached by the Profile face. Default phone.
+function selectedDeviceLabel() {
+  try { const d = localStorage.getItem('pg_device'); if (d) return d; } catch {}
+  return 'This Phone';
+}
+function updateDeviceChip() {
+  const chip = document.getElementById('device-chip');
+  if (!chip) return;
+  const esc = (x) => String(x).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+  const dev = selectedDeviceLabel();
+  const svc = currentEpisode ? streamerLabel(currentEpisode.service) : '';
+  const launchable = !!(currentEpisode && currentEpisode.name && serviceLink(currentEpisode.service, currentEpisode.name));
+  const icon = /phone/i.test(dev) ? '📱' : '📺';
+  chip.innerHTML = '<span class="dc-ic">' + icon + '</span><span class="dc-dev">' + esc(dev) + '</span>' +
+    (launchable && svc ? '<span class="dc-sep">·</span><span class="dc-svc">' + esc(svc) + '</span>' : '');
+  chip.classList.toggle('dimmed', !(launchable && svc));
+  chip.classList.add('show');
+}
+document.getElementById('device-chip').addEventListener('click', () => cubeRotateTo('profile'));
+// The Profile face writes pg_device in its own iframe; the top window hears it as
+// a storage event. Re-read so the chip reflects a device change immediately.
+window.addEventListener('storage', (e) => { if (e.key === 'pg_device') updateDeviceChip(); });
 
 // Episode-end nudge: when a live watch starts (play), set a timer for the
 // episode runtime; at the end fire an OS notification calling the user back to
@@ -953,8 +1013,8 @@ function resumeLaunch() {
   episodesEmpty = false;   // a launched show is loading — don't bounce to the Log
   rotateToFace(FACE_INDEX.episodes);
 }
-window.addEventListener('pageshow', resumeLaunch);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) resumeLaunch(); });
+window.addEventListener('pageshow', () => { resumeLaunch(); updateDeviceChip(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { resumeLaunch(); updateDeviceChip(); } });
 
 // any face iframe can send pangolin-back to unlock the cube
 window.addEventListener('message', (e) => {

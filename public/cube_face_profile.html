@@ -443,6 +443,15 @@
       if(!dv.isPhone) row.appendChild(buildEdit(dv, row));
       list.appendChild(row);
     });
+    cacheSelectedDevice();
+  }
+  // Mirror the selected device's short name into localStorage so the cube shell
+  // can label its play button ("📺 Fire Cube · Peacock") without re-fetching the
+  // profile. The shell hears the write as a storage event and re-renders the chip.
+  function cacheSelectedDevice(){
+    const sel=deviceCards().find(dv=>isSelected(dv));
+    const label=(sel && !sel.isPhone) ? (sel.type||'Device').replace(/^Amazon\s+/,'') : 'This Phone';
+    try{ localStorage.setItem('pg_device', label); }catch(_){}
   }
   // SHOWS / EPISODES / MINUTES from the member's watch data (MVP only; DEMO keeps
   // its showcase numbers). EPISODES = sum of watched counts; MINUTES = sum of the
