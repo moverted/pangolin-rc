@@ -265,10 +265,26 @@
   }
 
   function parseRoute(text){
-    const m = text.match(/\[ROUTE:\s*([^|\]]+)\|\s*([^\]]+)\]/i);
+    // [ROUTE: Face | Chip label] with an optional third field carrying the exact
+    // show title, so a "put it on" handoff can load that show on the show face.
+    const m = text.match(/\[ROUTE:\s*([^|\]]+)\|\s*([^|\]]+)(?:\|\s*([^\]]+))?\]/i);
     if(!m) return {clean:text.trim(), route:null};
     const clean = text.replace(m[0], '').trim();
-    return {clean, route:{face:m[1].trim(), label:m[2].trim()}};
+    return {clean, route:{face:m[1].trim(), label:m[2].trim(), show:(m[3]||'').trim()}};
+  }
+
+  // Map Pierre's ROUTE face names to the cube's face ids.
+  const ROUTE_FACE = {'episodes':'episodes', 'show detail':'episodes', 'log':'log',
+                      'feed':'feed', 'profile':'profile', 'join':'join'};
+  // Act on a tapped route chip. A show-specific handoff runs the deterministic add
+  // flow (validate → pattern chips → pop over loaded/highlighted); a plain face
+  // handoff just rotates the cube; Letterboxd lives off the cube.
+  function takeRoute(route){
+    const key=(route.face||'').toLowerCase();
+    if(route.show && (key==='episodes' || key==='show detail')){ input.blur(); resolveShowName(route.show); return; }
+    const face=ROUTE_FACE[key];
+    if(face){ if(window.parent!==window) window.parent.postMessage({type:'cube:rotateTo', face, payload:{}}, '*'); return; }
+    showToast('→ '+route.face+' lives off the cube');
   }
 
   function addPierre(text){
@@ -283,7 +299,7 @@
       const b = document.createElement('button');
       b.className = 'chip';
       b.textContent = route.label;
-      b.onclick = ()=>showToast('\u2192 ' + route.face + '  (wired up in the full cube)');
+      b.onclick = ()=>{ chips.querySelectorAll('button').forEach(x=>x.disabled=true); takeRoute(route); };
       chips.appendChild(b);
       wrap.appendChild(chips);
     }
@@ -453,13 +469,37 @@
     } else if(h && (h.forceCompleted||h.bucket==='completed'||h.comfort)){
       pierreSay("You have finished "+show.name+" before. A rewatch? From the top, or pick episodes?", [
         {label:'From the top', onClick:()=>handoff(show,{kind:'beginning'})},
-        {label:'Pick episodes', onClick:()=>handoff(show,{kind:'pick'})}]);
+        {label:'Pick episodes', onClick:()=>pickEpisodeFlow(show)}]);
     } else {
       pierreSay(show.name+", new to you. From the start, a specific episode, or catch up to live?", [
         {label:'From the beginning', onClick:()=>handoff(show,{kind:'beginning'})},
-        {label:'Pick an episode', onClick:()=>handoff(show,{kind:'pick'})},
+        {label:'Pick an episode', onClick:()=>pickEpisodeFlow(show)},
         {label:'Catch up live', onClick:()=>handoff(show,{kind:'live'})}]);
     }
+  }
+
+  // "Pick an episode": pull the show's episodes and let Ted choose season then
+  // episode. Hands off landing ON that episode (kind:'at' — earlier ones in the
+  // season count as already seen, the pick is the current/partial one).
+  async function pickEpisodeFlow(show){
+    showTyping();
+    let list=[];
+    try{ const r=await fetch('https://api.tvmaze.com/shows/'+show.id+'/episodes');
+      list = r.ok ? await r.json() : []; }
+    catch(e){ list=[]; }
+    clearTyping();
+    list=(list||[]).filter(e=>e&&e.season>=1);
+    if(!list.length){ handoff(show,{kind:'beginning'}); return; }  // no episode data → just start it
+    const seasons=[...new Set(list.map(e=>e.season))].sort((a,b)=>a-b);
+    const askEpisode=(season)=>{
+      const eps=list.filter(e=>e.season===season).sort((a,b)=>(a.number||0)-(b.number||0));
+      pierreSay("Season "+season+" — which episode?",
+        eps.map(e=>({label:'E'+e.number+(e.name?' · '+e.name:''),
+          onClick:()=>handoff(show,{kind:'at', season:season, number:e.number})})));
+    };
+    if(seasons.length===1){ askEpisode(seasons[0]); return; }
+    pierreSay("Which season of "+show.name+"?",
+      seasons.map(s=>({label:'Season '+s, onClick:()=>askEpisode(s)})));
   }
 
   function handoff(show, pattern){

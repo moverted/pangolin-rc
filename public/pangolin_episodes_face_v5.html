@@ -350,6 +350,9 @@ let watchingLive={};
 // Per-episode viewing-session log entries: [{date,minutes,finished,bp,startTs,finishTs}].
 // sessionBase[i] = the scrubber position when the current START session began.
 let epSessions={}, sessionBase={};
+// The full saved per-episode detail (keyed "season-number") for THIS show, kept
+// so a season-wrap can re-apply the next season's history. Null = none saved.
+let savedDetail=null;
 // preApp: watched before the app existed (seed / Pierre catch-up / pick / BP).
 // These are data, not behavior — they never count toward binge. Real in-app
 // watches (logging the minute bar to the end) set preApp=false.
@@ -391,6 +394,7 @@ function boot(show,list,isDefault){
   watched=Math.min(2,eps.filter(released).length);
   watchTs=[]; watchDate={}; binged={}; ranks={}; notes={}; cooled=false;
   epMin={}; epDone={}; epBp={}; startedAt={}; epPreApp={}; epSessions={}; sessionBase={}; minPreview=null; awaitingLog=false; watchingLive={};
+  savedDetail=null;                  // a fresh boot; applyPattern sets the real detail
   // Seed watches are pre-app data: dark green on the bar, but never binge.
   for(let i=0;i<watched;i++){ const t=Date.now()-(watched-i)*45*6e4; watchTs.push(t); watchDate[i]=new Date(t); epDone[i]=true; epMin[i]=runtimeOf(i); epPreApp[i]=true; }
   focus=Math.min(watched, eps.length-1);
@@ -414,10 +418,19 @@ const bingeLive=()=>isBinge() && !cooled;
 
 function runtimeOf(i){ return (eps[i]&&eps[i].runtime) || avgRuntime || 45; }
 
+// Does the show have a season after the one currently loaded? If so, finishing
+// this season wraps onward rather than ending the show.
+function hasLaterSeason(){
+  if(!eps.length) return false;
+  const cur=sNum(eps[0]);
+  return allEps.some(e=>sNum(e)>cur);
+}
 // Logging the last episode of a fully-aired current season = the season finale.
-// MVP hands off to the Log to finish the show; DEMO keeps the Log's own chip.
+// With more seasons ahead this wraps to the next season; only the LAST season's
+// finale hands off to the Log to finish the show. MVP only; DEMO keeps its chip.
 function finaleCheck(){
   const total=eps.length;
+  if(total>0 && watched>=total && hasLaterSeason()) return;   // season finale → wrap, not show finale
   if(!DEMO && window.parent!==window && total>0 && watched>=total && curShowId)
     window.parent.postMessage({type:'episode:finishedFinale', tvmazeId:curShowId, name:curShowName}, '*');
 }
@@ -427,7 +440,39 @@ function markWatchedThrough(i){
   if(isBinge()){ const t=inAppTimes(), latest=t[t.length-1];
     for(const k in epDone){ if(epDone[k] && epPreApp[k]===false && watchDate[k] && latest-(+watchDate[k])<=DAY) binged[k]=true; } }
 }
-function advanceFocus(){ if(focus<eps.length-1) focus++; }
+// Apply the saved per-episode detail (keyed "season-number") onto the loaded eps.
+function applySavedDetail(){
+  if(!savedDetail) return;
+  eps.forEach((e,i)=>{ const d=savedDetail[sNum(e)+'-'+e.number]; if(!d) return;
+    if(d.done){ epDone[i]=true; epPreApp[i]=true; if(i+1>watched) watched=i+1; }   // restored history: not a fresh binge
+    if(typeof d.min==='number') epMin[i]=d.min;
+    if(d.bp) epBp[i]=true;
+    if(Array.isArray(d.sessions)) epSessions[i]=d.sessions; });                     // restore the session log
+}
+function advanceFocus(){
+  if(focus<eps.length-1){ focus++; return; }
+  loadNextSeason();                  // past the last episode of this season → wrap onward
+}
+// Load the next season of the show into the face, carrying its saved history.
+function loadNextSeason(){
+  if(!eps.length) return false;
+  const cur=sNum(eps[0]);
+  const later=[...new Set(allEps.map(sNum))].filter(s=>s>cur).sort((a,b)=>a-b);
+  if(!later.length) return false;    // already the last season — real finale
+  switchToSeason(later[0]);
+  return true;
+}
+function switchToSeason(season){
+  const next=allEps.filter(e=>sNum(e)===season);
+  if(!next.length) return;
+  eps=next; watched=0;
+  watchTs=[]; watchDate={}; binged={}; ranks={}; notes={}; cooled=false;
+  epMin={}; epDone={}; epBp={}; startedAt={}; epPreApp={}; epSessions={}; sessionBase={};
+  minPreview=null; awaitingLog=false; watchingLive={};
+  applySavedDetail();                // bring back any saved progress for this season
+  focus=Math.min(watched, eps.length-1);
+  paint();
+}
 
 function emitProgress(i, done, bp, minute){
   if(window.parent===window || !curShowId) return;
@@ -443,18 +488,48 @@ function epCode(e){ return 'S'+String(e.season||1).padStart(2,'0')+'E'+String(e.
 const mdFmt=(ts)=>{ const d=new Date(ts); return (d.getMonth()+1)+'/'+d.getDate(); };
 const dayKey=(ts)=>{ const d=new Date(ts); return d.getFullYear()+'-'+d.getMonth()+'-'+d.getDate(); };
 const hmFmt=(ts)=> ts ? new Date(ts).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}) : '—';
-// Add or update a session entry for episode i. A partial (LOG IT) rolls up into
-// today's open entry; FINISH / skip(BP) append a new closed entry.
+// A Viewing record: one watch of a fraction-to-full episode, with time in/out, a
+// state (watching | paused | done) and a validated flag. Validated = the viewer
+// deliberately confirmed it (LOG IT / FINISH / skip); unvalidated = the timer's
+// own placement offer, pending confirmation.
+//
+// Open a watching viewing for episode i (the live, ticking one). One per episode.
+function openWatchViewing(i){
+  epSessions[i]=epSessions[i]||[];
+  const arr=epSessions[i], last=arr[arr.length-1];
+  if(last && last.state==='watching') return;      // already open
+  const now=Date.now();
+  arr.push({dk:dayKey(now), date:mdFmt(now), minutes:Math.round(epMin[i]||0),
+            finished:false, bp:false, state:'watching', validated:false, startTs:now, finishTs:null});
+}
+// Close (or append) a viewing for episode i. opts.validated defaults true (a user
+// action); the timer's placement passes false.
 function logSession(i, opts){
   epSessions[i]=epSessions[i]||[];
-  const now=Date.now(), startTs=startedAt[i]||null, dk=dayKey(now);
-  if(!opts.finished){
-    const last=epSessions[i][epSessions[i].length-1];
-    if(last && !last.finished && !last.bp && last.dk===dk){ last.minutes=opts.minutes; last.finishTs=now; }
-    else epSessions[i].push({dk, date:mdFmt(now), minutes:opts.minutes, finished:false, bp:false, startTs, finishTs:now});
-  } else {
-    epSessions[i].push({dk, date:mdFmt(now), minutes:opts.minutes, finished:true, bp:!!opts.bp, startTs, finishTs:now});
+  const arr=epSessions[i], now=Date.now(), dk=dayKey(now);
+  const validated = opts.validated!==false, finished=!!opts.finished;
+  const state = finished ? 'done' : 'paused';
+  const last=arr[arr.length-1];
+  // 1) Close the open live (watching) viewing in place.
+  if(last && last.state==='watching'){
+    last.minutes=opts.minutes; last.finishTs=now;
+    last.finished=finished; last.bp=!!opts.bp; last.state=state; last.validated=validated;
+    return;
   }
+  // 2) A user confirmation upgrades this episode's latest unvalidated placement
+  //    in place, rather than stacking a duplicate next to the offer.
+  if(validated && last && last.state!=='watching' && last.validated===false && !last.bp){
+    last.minutes=opts.minutes; last.finishTs=now;
+    last.finished=finished; last.bp=!!opts.bp; last.state=state; last.validated=true;
+    return;
+  }
+  // 3) Roll up today's still-open partial of the same validation.
+  if(!finished && last && last.state==='paused' && !last.bp && last.dk===dk && last.validated===validated){
+    last.minutes=opts.minutes; last.finishTs=now; return;
+  }
+  // 4) Otherwise append a fresh viewing.
+  arr.push({dk, date:mdFmt(now), minutes:opts.minutes, finished, bp:!!opts.bp,
+            state, validated, startTs:startedAt[i]||null, finishTs:now});
 }
 
 // LOG IT: record the current scrubber position. Reaching the runtime finishes it.
@@ -488,6 +563,7 @@ function forceAdvance(){
 function startEpisode(){
   startedAt[focus]=Date.now(); sessionBase[focus]=epMin[focus]||0; minPreview=null; awaitingLog=false;
   watchingLive[focus]=true;   // enter the animated "watching" state
+  openWatchViewing(focus);    // persist the open watching viewing (survives reload)
   emitProgress(focus, false, false, Math.round(epMin[focus]||0));
   paint();
 }
@@ -580,8 +656,9 @@ function paint(){
     const score = ranks[i]!==undefined ? ranks[i]+'/10' : '';
     let kids;
     if(sess.length){ kids=sess.map(s=>{
-      const lbl = s.bp ? 'skipped · BP' : (s.finished ? 'finished · '+s.minutes+'m' : 'logged · '+s.minutes+'m');
-      const ts = s.startTs ? ' · '+hmFmt(s.startTs)+'→'+hmFmt(s.finishTs) : '';
+      const base = s.bp ? 'skipped · BP' : (s.state==='watching' ? 'watching' : (s.finished ? 'finished · '+s.minutes+'m' : 'paused · '+s.minutes+'m'));
+      const lbl = base + (s.validated===false ? ' · offered' : '');   // offered = the timer's placement, not yet confirmed
+      const ts = s.startTs ? ' · '+hmFmt(s.startTs)+'→'+(s.finishTs?hmFmt(s.finishTs):'…') : '';
       return `<div class="sess">${s.date} · ${lbl}<span class="ts">${ts}</span></div>`; }).join(''); }
     else kids=`<div class="sess">${watchDate[i]?mdFmt(+watchDate[i]):''} · finished</div>`;
     const note = (notes[i]&&notes[i].trim()) ? `<div class="note">“${escHtml(notes[i].trim())}”</div>` : '';
@@ -661,13 +738,45 @@ $('startEpBtn').onclick=()=>{ flashBtn($('startEpBtn')); startEpisode(); };
 $('logItBtn').onclick=()=>{ flashBtn($('logItBtn')); logIt(); };
 $('finishEpBtn').onclick=()=>{ flashBtn($('finishEpBtn')); finishEpisode(); };
 
-// Stop-and-return: when the tab is shown again during an open session, guess the
-// stopped position from elapsed time (where you were at START + minutes since).
+// Stop-and-return: when the phone IS the device, time away from the app is time
+// spent watching. On return we OFFER a placement for all of that missing time,
+// walking it forward across episode boundaries: a long gap can complete several
+// episodes and land you partway into a later one. Every viewing the walk creates
+// is UNVALIDATED — an offer you confirm with LOG IT / FINISH. The live timer then
+// stops; CONTINUE re-arms it from where the offer left you.
+//
+// Walk `awayMin` of viewing forward from the focused episode's current position.
+function placeAwayTime(awayMin){
+  if(!(awayMin>0) || !eps.length) return;
+  let i=focus, remaining=awayMin, pos=(epMin[i]||0);
+  while(i<eps.length){
+    const rt=runtimeOf(i), needed=Math.max(0, rt-pos);
+    if(remaining>=needed){
+      epMin[i]=rt; epDone[i]=true; epBp[i]=false; epPreApp[i]=false;
+      markWatchedThrough(i);
+      logSession(i, {minutes:Math.round(rt), finished:true, validated:false});  // offered completion
+      emitProgress(i, true, false, Math.round(rt));
+      remaining-=needed;
+      if(i>=eps.length-1){ break; }     // ran out of episodes this season → stop at the finale
+      i++; pos=0;
+    } else {
+      pos=Math.min(rt, pos+remaining); epMin[i]=pos; epPreApp[i]=false;
+      logSession(i, {minutes:Math.round(pos), finished:false, validated:false});  // offered partial
+      emitProgress(i, false, false, Math.round(pos));
+      break;
+    }
+  }
+  focus=Math.min(i, eps.length-1);
+  watchingLive[focus]=false; startedAt[focus]=null; sessionBase[focus]=epMin[focus]||0;  // live timer stops; CONTINUE re-arms
+  emitProgress(focus, !!epDone[focus], false, Math.round(epMin[focus]||0));               // persist the stop (started_at cleared)
+  paint();
+}
+let hiddenAt=null;
 document.addEventListener('visibilitychange', ()=>{
-  if(document.hidden || epDone[focus] || !startedAt[focus]) return;
-  const rt=runtimeOf(focus);
-  const guess=Math.min(rt,(sessionBase[focus]||0)+(Date.now()-startedAt[focus])/60000);
-  if(guess>(epMin[focus]||0)){ epMin[focus]=guess; paint(); }
+  if(document.hidden){ hiddenAt=Date.now(); return; }
+  const wasHidden=hiddenAt; hiddenAt=null;
+  if(!watchingLive[focus] || !startedAt[focus] || !wasHidden) return;
+  placeAwayTime((Date.now()-wasHidden)/60000);
 });
 
 // ----- minute bar interaction -----
@@ -737,20 +846,20 @@ function applyPattern(p){
   epMin={}; epDone={}; epBp={}; startedAt={}; epPreApp={}; epSessions={}; sessionBase={}; minPreview=null; awaitingLog=false; watchingLive={};
   // Pierre "Catch up live" / "Pick an episode" pre-mark watches: pre-app, never binge.
   for(let i=0;i<watched;i++){ const t=Date.now()-(watched-i)*45*6e4; watchTs.push(t); watchDate[i]=new Date(t); epDone[i]=true; epMin[i]=runtimeOf(i); epPreApp[i]=true; }
-  // Restore saved per-episode detail (minutes / done / BP) from the account.
-  const det=pendingRestore&&pendingRestore.episodes;
-  if(det) eps.forEach((e,i)=>{ const d=det[sNum(e)+'-'+e.number]; if(!d) return;
-    if(d.done){ epDone[i]=true; epPreApp[i]=true; if(i+1>watched) watched=i+1; }   // restored history: not a fresh binge
-    if(typeof d.min==='number') epMin[i]=d.min;
-    if(d.bp) epBp[i]=true;
-    if(Array.isArray(d.sessions)) epSessions[i]=d.sessions; });   // restore the session log
+  // Restore saved per-episode detail (minutes / done / BP) from the account, and
+  // keep it so a later season-wrap can re-apply the next season's history.
+  savedDetail=(pendingRestore&&pendingRestore.episodes)||null;
+  applySavedDetail();
   focus=Math.min(watched, eps.length-1);
-  // Restore the partial current episode (saved minutes, or an on-device guess).
+  // Restore the partial current episode, then — if a watch was left open (saved
+  // started_at) — offer placement for all the time since, exactly like a return:
+  // it can span episodes and is unvalidated until confirmed.
   if(pendingRestore && !epDone[focus]){
     if(typeof pendingRestore.minute==='number' && pendingRestore.minute>0) epMin[focus]=pendingRestore.minute;
-    if(pendingRestore.startedAt){ startedAt[focus]=pendingRestore.startedAt;
-      const guess=Math.min(runtimeOf(focus),(Date.now()-pendingRestore.startedAt)/60000);
-      if(guess>(epMin[focus]||0)) epMin[focus]=guess; }
+    if(pendingRestore.startedAt){
+      startedAt[focus]=pendingRestore.startedAt; watchingLive[focus]=true;
+      placeAwayTime((Date.now()-pendingRestore.startedAt)/60000);
+    }
   }
   pendingRestore=null;
   paint();

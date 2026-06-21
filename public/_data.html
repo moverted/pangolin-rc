@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>pangolinRC · data viewer</title>
+<style>
+  :root{ --bg:#0c0d10; --panel:#15171c; --line:#262a32; --ink:#e7e9ee; --dim:#8b919c;
+         --acc:#ffd24a; --good:#5fd08a; --bp:#9aa0ad; --prog:#6aa9ff; }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:var(--bg); color:var(--ink);
+        font:14px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  header{ position:sticky; top:0; background:var(--bg); border-bottom:1px solid var(--line);
+          padding:12px 16px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; z-index:5; }
+  header h1{ font-size:14px; margin:0 8px 0 0; color:var(--acc); letter-spacing:.5px; }
+  input{ background:var(--panel); border:1px solid var(--line); color:var(--ink);
+         padding:6px 9px; border-radius:6px; min-width:240px; font:inherit; }
+  button{ background:var(--panel); border:1px solid var(--line); color:var(--ink);
+          padding:6px 10px; border-radius:6px; cursor:pointer; font:inherit; }
+  button:hover{ border-color:var(--acc); }
+  button.quick{ color:var(--dim); }
+  main{ padding:16px; max-width:1100px; }
+  .panel{ background:var(--panel); border:1px solid var(--line); border-radius:10px;
+          padding:14px 16px; margin:0 0 16px; }
+  .panel h2{ font-size:12px; text-transform:uppercase; letter-spacing:1px; color:var(--dim);
+             margin:0 0 10px; }
+  table{ width:100%; border-collapse:collapse; }
+  th,td{ text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th{ color:var(--dim); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.5px; }
+  td.num{ text-align:right; font-variant-numeric:tabular-nums; }
+  .pill{ display:inline-block; padding:1px 7px; border-radius:999px; font-size:11px; border:1px solid var(--line); }
+  .s-current{ color:var(--prog); border-color:var(--prog); }
+  .s-completed{ color:var(--good); border-color:var(--good); }
+  .s-returning{ color:var(--acc); border-color:var(--acc); }
+  .s-stopped,.s-comfort{ color:var(--dim); }
+  .kv{ display:grid; grid-template-columns:140px 1fr; gap:4px 12px; }
+  .kv .k{ color:var(--dim); }
+  .muted{ color:var(--dim); }
+  .warn{ color:var(--acc); }
+  .erow{ cursor:pointer; }
+  .erow:hover td{ background:#1b1e24; }
+  .detail td{ background:#0f1116; }
+  .ep{ display:grid; grid-template-columns:64px 60px 60px 60px 1fr; gap:6px 12px; padding:2px 0;
+       border-bottom:1px dashed var(--line); }
+  .ep:last-child{ border-bottom:0; }
+  .ep .code{ color:var(--acc); }
+  .tag{ font-size:11px; padding:0 5px; border-radius:4px; }
+  .tag.done{ color:var(--good); }
+  .tag.prog{ color:var(--prog); }
+  .tag.bp{ color:var(--bp); }
+  .tag.empty{ color:var(--dim); }
+  .sess{ color:var(--dim); font-size:12px; }
+  .err{ color:#ff7b7b; }
+  .badge{ font-size:11px; color:var(--dim); margin-left:6px; }
+  .hint{ color:var(--dim); font-size:12px; margin:-6px 0 14px; }
+  details summary{ cursor:pointer; color:var(--dim); }
+  pre{ white-space:pre-wrap; word-break:break-word; margin:6px 0 0; color:var(--dim); font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>pangolinRC · data</h1>
+  <input id="email" placeholder="member email" spellcheck="false">
+  <button id="go">Load</button>
+  <button class="quick" data-email="edward.m.willett@gmail.com">Ted</button>
+  <button class="quick" data-email="demo@pangolinrc.com">Demo</button>
+  <span id="api" class="muted"></span>
+</header>
+<main>
+  <p class="hint">Read-only view straight off the Worker API. Click a show row to expand its episodes — each <b>Viewing</b> shows state (watching / paused / done), minutes, <b>valid</b> vs <b>offered</b> (timer placement, unconfirmed), and time in→out.</p>
+  <div id="out"></div>
+</main>
+<script>
+const API = location.hostname === 'localhost' ? 'http://localhost:8787'
+                                              : 'https://pangolin-rc.edward-m-willett.workers.dev';
+document.getElementById('api').textContent = API.replace(/^https?:\/\//,'');
+const $ = id => document.getElementById(id);
+const esc = s => (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const ts = v => v ? new Date(v).toLocaleString() : '—';
+const hm = v => v ? new Date(v).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}) : '—';
+
+async function load(email){
+  email = (email||'').trim().toLowerCase();
+  if(!email) return;
+  $('email').value = email;
+  history.replaceState(null,'', '?email='+encodeURIComponent(email));
+  $('out').innerHTML = '<p class="muted">Loading…</p>';
+  try{
+    const [profRes, watchRes] = await Promise.all([
+      fetch(API+'/profile/'+encodeURIComponent(email)),
+      fetch(API+'/profile/'+encodeURIComponent(email)+'/watch'),
+    ]);
+    if(profRes.status === 404){ $('out').innerHTML = '<p class="err">No such member: '+esc(email)+'</p>'; return; }
+    const prof = await profRes.json();
+    const watch = watchRes.ok ? await watchRes.json() : {shows:[]};
+    render(email, prof, watch.shows||[]);
+  }catch(e){ $('out').innerHTML = '<p class="err">'+esc(e.message||e)+'</p>'; }
+}
+
+function render(email, prof, shows){
+  const u = prof.user||{}, devices = prof.devices||[];
+  const sel = u.selected_device || 'phone';
+  let h = '';
+
+  // ---- member ----
+  h += '<div class="panel"><h2>Member</h2><div class="kv">'
+     + row('email', u.email) + row('username', u.username) + row('phone', u.phone)
+     + row('selected_device', sel === 'phone' ? 'This Phone' : sel)
+     + row('created_at', ts(u.created_at)) + row('updated_at', ts(u.updated_at))
+     + '</div></div>';
+
+  // ---- devices ----
+  h += '<div class="panel"><h2>Devices <span class="badge">'+devices.length+' supported</span></h2>';
+  if(!devices.length) h += '<p class="muted">No supported devices. (Unsupported "Other" devices are stored but hidden.)</p>';
+  else{
+    h += '<table><tr><th>type</th><th>location</th><th>ip</th><th>model</th><th>selected</th></tr>';
+    devices.forEach(d=>{
+      const isSel = d.id === sel;
+      h += '<tr><td>'+esc(d.type)+'</td><td>'+esc(d.location||'—')+'</td><td>'+esc(d.ip||'—')
+         + '</td><td>'+esc(d.model||'—')+'</td><td>'+(isSel?'<span class="warn">◉ remote here</span>':'')+'</td></tr>';
+    });
+    h += '</table>';
+  }
+  h += '</div>';
+
+  // ---- watch ----
+  let totalEps = 0; shows.forEach(s=> totalEps += (s.watched||0));
+  h += '<div class="panel"><h2>Watch <span class="badge">'+shows.length+' shows · '+totalEps+' eps</span></h2>';
+  if(!shows.length) h += '<p class="muted">No tracked shows.</p>';
+  else{
+    h += '<table><tr><th>show</th><th>status</th><th class="num">watched</th><th>last S-E</th>'
+       + '<th class="num">last min</th><th>episodes</th></tr>';
+    shows.forEach((s,i)=>{
+      const eps = s.episodes && typeof s.episodes==='object' ? s.episodes : {};
+      const keys = Object.keys(eps);
+      const se = (s.last_season!=null) ? ('S'+s.last_season+'E'+(s.last_number??'?')) : '—';
+      const shape = describeShape(eps, s);
+      h += '<tr class="erow" data-i="'+i+'">'
+         + '<td>'+esc(s.show_name||s.show_id)+'</td>'
+         + '<td><span class="pill s-'+esc(s.status||'')+'">'+esc(s.status||'—')+'</span></td>'
+         + '<td class="num">'+(s.watched||0)+'</td>'
+         + '<td>'+se+'</td>'
+         + '<td class="num">'+(s.last_minute||0)+'</td>'
+         + '<td>'+(keys.length? keys.length+' keys' : '<span class="muted">{}</span>')+' '+shape+'</td>'
+         + '</tr>';
+      h += '<tr class="detail" id="d'+i+'" style="display:none"><td colspan="6">'+renderEpisodes(eps,s)+'</td></tr>';
+    });
+    h += '</table>';
+  }
+  h += '</div>';
+
+  $('out').innerHTML = h;
+  document.querySelectorAll('.erow').forEach(r=> r.onclick = ()=>{
+    const d = $('d'+r.dataset.i); d.style.display = d.style.display==='none' ? '' : 'none';
+  });
+}
+
+// Flag which of the three coexisting encodings a show uses — the likely source of
+// "right in one face, wrong in another".
+function describeShape(eps, s){
+  const keys = Object.keys(eps);
+  if(!keys.length) return '<span class="badge warn">count-only</span>';
+  const anySessions = keys.some(k=> Array.isArray(eps[k].sessions) && eps[k].sessions.length);
+  return anySessions ? '<span class="badge">rich+sessions</span>'
+                     : '<span class="badge warn">legacy (no sessions)</span>';
+}
+
+function renderEpisodes(eps, s){
+  const keys = Object.keys(eps).sort((a,b)=>{
+    const [as,an]=a.split('-').map(Number), [bs,bn]=b.split('-').map(Number);
+    return as-bs || an-bn;
+  });
+  if(!keys.length){
+    return '<div class="muted">No per-episode detail — progress lives only in '
+         + '<code>watched='+(s.watched||0)+'</code>, <code>last_season='+s.last_season
+         + '</code>, <code>last_number='+s.last_number+'</code>.</div>';
+  }
+  let out = '<div class="ep"><span class="code">ep</span><span class="muted">min</span>'
+          + '<span class="muted">done</span><span class="muted">bp</span><span class="muted">viewings (state · mins · valid · in→out)</span></div>';
+  keys.forEach(k=>{
+    const e = eps[k]||{};
+    const sess = Array.isArray(e.sessions) ? e.sessions : [];
+    // Each viewing as its own line: state, minutes, validated/offered, time in→out.
+    const sessTxt = sess.length
+      ? sess.map(x=>{
+          const st = x.state || (x.bp ? 'done' : (x.finished ? 'done' : 'paused'));
+          const stClass = st==='done' ? 'done' : (st==='watching' ? 'prog' : 'empty');
+          const valid = x.validated===false
+            ? '<span class="tag bp">offered</span>'
+            : '<span class="tag done">✓ valid</span>';
+          const io = x.startTs ? hm(x.startTs)+'→'+(x.finishTs?hm(x.finishTs):'…')
+                               : (x.finishTs ? '→'+hm(x.finishTs) : '<span class="muted">no ts</span>');
+          return '<span class="tag '+stClass+'">'+st+'</span> '+(x.minutes??'?')+'m '
+               + valid+(x.bp?' <span class="tag bp">BP</span>':'')+' <span class="muted">'+io+'</span>';
+        }).join('<br>')
+      : (e.sessions ? '<span class="muted">[] no viewings</span>' : '<span class="warn">— field absent —</span>');
+    out += '<div class="ep">'
+         + '<span class="code">S'+k.replace('-','E')+'</span>'
+         + '<span>'+(e.min??0)+'</span>'
+         + '<span class="tag '+(e.done?'done':'empty')+'">'+(e.done?'done':'—')+'</span>'
+         + '<span class="tag '+(e.bp?'bp':'empty')+'">'+(e.bp?'BP':'—')+'</span>'
+         + '<span class="sess">'+sessTxt+'</span>'
+         + '</div>';
+  });
+  out += '<details><summary>raw JSON</summary><pre>'+esc(JSON.stringify(eps,null,2))+'</pre></details>';
+  return out;
+}
+
+function row(k,v){ return '<div class="k">'+esc(k)+'</div><div>'+esc(v??'—')+'</div>'; }
+
+$('go').onclick = ()=> load($('email').value);
+$('email').addEventListener('keydown', e=>{ if(e.key==='Enter') load($('email').value); });
+document.querySelectorAll('.quick').forEach(b=> b.onclick = ()=> load(b.dataset.email));
+
+const initial = new URLSearchParams(location.search).get('email') || 'edward.m.willett@gmail.com';
+load(initial);
+</script>
+</body>
+</html>
