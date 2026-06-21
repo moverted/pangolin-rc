@@ -306,7 +306,7 @@
   <div class="topbar">
     <div class="facebar">
       <div class="fb-left">
-        <span class="facelabel">WATCH</span>
+        <span class="facelabel">LOG</span>
         <span class="dots" id="epDots"><i></i><i></i><i></i><i class="on"></i><i></i><i></i></span>
       </div>
       <!-- season dots (display-only): dark-green done · 🍿 current · green future-available · grey unaired -->
@@ -786,6 +786,22 @@ function paintMinute(){
 }
 
 $('comment').addEventListener('input',e=>{ notes[focus]=e.target.value; });
+// Auto-journal the note to Pierre: on commit, write it to a shared same-origin
+// journal keyed by show+episode (one note per episode). Pierre reads pg_journal as
+// recall context, so the note stops being a dead-end — no navigation, no interruption.
+function journalNote(){
+  const e=eps[focus], txt=(notes[focus]||'').trim();
+  if(!curShowId || !e || !txt) return;
+  const ep=epCode(e);
+  try{
+    let j=JSON.parse(localStorage.getItem('pg_journal')||'[]'); if(!Array.isArray(j)) j=[];
+    j=j.filter(n=>!(String(n.showId)===String(curShowId) && n.ep===ep));   // replace this episode's note
+    j.push({showId:curShowId, show:curShowName, ep, text:txt, ts:Date.now()});
+    if(j.length>50) j=j.slice(-50);
+    localStorage.setItem('pg_journal', JSON.stringify(j));
+  }catch(_){}
+}
+$('comment').addEventListener('blur', journalNote);
 $('cool').onclick=()=>{ cooled=true; paint(); };
 $('reset').onclick=()=>{
   // Clear to zero so the binge sequence can be replayed fresh from real in-app taps.

@@ -128,6 +128,36 @@
   .back:hover{color:var(--text)}
 
   .stub{font-family:var(--mono);font-size:9.5px;color:#7d7060;margin-top:10px;flex:0 0 auto}
+
+  /* ---- BROWSE (shown once this device has an account; JOIN flips to this) ---- */
+  .browse{position:absolute;inset:0;display:none;flex-direction:column;overflow:hidden}
+  .browse.show{display:flex}
+  /* top bar matched to FEED / LOG / WATCH: mono face label + pill badge */
+  .head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px 8px;flex-shrink:0}
+  .label{font-family:var(--mono);font-size:12px;letter-spacing:.18em;color:var(--muted)}
+  .badge{font-family:var(--mono);font-size:8.5px;letter-spacing:.1em;color:var(--amber);
+    border:1px solid var(--line);padding:3px 8px;border-radius:999px}
+  .bscroll{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;
+    padding:0 16px 12px;display:flex;flex-direction:column}
+  .rail{margin-top:15px;flex:0 0 auto}
+  .rail h2{font-family:var(--display);font-size:14px;font-weight:700;margin:0;
+    display:flex;justify-content:space-between;align-items:baseline}
+  .rail h2 em{font-family:var(--mono);font-style:normal;font-size:9px;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--muted)}
+  .rail .why{font-family:var(--mono);font-size:10px;color:var(--muted);margin:2px 0 8px}
+  .cards{display:flex;gap:9px;overflow-x:auto;-webkit-overflow-scrolling:touch;
+    scrollbar-width:none;padding-bottom:2px}
+  .cards::-webkit-scrollbar{display:none}
+  .bcard{flex:0 0 auto;width:86px;cursor:pointer}
+  .bcard .pi{width:86px;height:120px;border-radius:9px;background:#000 center/cover;border:1px solid var(--line)}
+  .bcard .nm{font-size:11px;margin-top:5px;line-height:1.2;color:var(--text)}
+  .bcard:active{opacity:.7}
+  .bempty{border:1px dashed var(--line);border-radius:11px;padding:13px;color:var(--muted);
+    font-size:12px;line-height:1.5}
+  .bempty b{color:var(--text)}
+  .signout{margin-top:auto;padding-top:14px;font-family:var(--mono);font-size:10px;
+    letter-spacing:.06em;color:#7d7060;text-align:center;flex:0 0 auto}
+  .signout button{background:none;border:0;color:var(--amber-soft);cursor:pointer;font:inherit;text-decoration:underline}
 </style>
 </head>
 <body>
@@ -150,6 +180,8 @@
     <section class="panel pierre" id="pierre"></section>
 
   </div>
+
+  <section class="browse" id="browse"></section>
 </div>
 
 <script>
@@ -172,10 +204,77 @@ const mark = `<div class="mark"><svg viewBox="0 0 24 24" fill="none">
   <path d="M9 9.5l2-1M9.5 12l2.2-1M10 14.5l2.3-1" stroke="#1a130b" stroke-width="1.3" stroke-linecap="round"/>
   <circle cx="15.4" cy="10.6" r="1" fill="#1a130b"/></svg></div>`;
 
+const DEMO = location.hostname.split('.').includes('demo') || new URLSearchParams(location.search).has('demo');
 // Demo build (remote.demo.pangolinrc.com, or ?demo=1 preview): hide the Join button.
-if (location.hostname.split('.').includes('demo') || new URLSearchParams(location.search).has('demo')) {
-  const jb = document.getElementById('joinBtn'); if (jb) jb.style.display = 'none';
+if (DEMO) { const jb = document.getElementById('joinBtn'); if (jb) jb.style.display = 'none'; }
+
+// ---- Trunk: JOIN before this device has an account, BROWSE after ----
+// Login is remembered per-device: Pierre writes pg_user (email) + pg_username on
+// signup, and faces share an origin, so reading it here is enough. The session
+// persists until "not you?" clears it.
+function isMember(){ try{ return !!localStorage.getItem('pg_user'); }catch(_){ return false; } }
+function memberName(){ try{ return localStorage.getItem('pg_username') || ''; }catch(_){ return ''; } }
+// Preview/testing convenience: ?member=1 on the shell forces BROWSE without a real
+// signup. The iframe reads the parent's query (same-origin); falls back to its own.
+function forcedMember(){
+  try{ const s = (window.parent !== window ? window.parent.location.search : location.search);
+    return new URLSearchParams(s).has('member'); }
+  catch(_){ return new URLSearchParams(location.search).has('member'); }
 }
+
+// Pierre's picks rail — real shows pulled live from TVMaze (posters + ids), so a
+// tap can open the actual show on the Watch face. Friends/Following stay honest
+// empties until that data is real.
+const PICKS_SEED = ['Severance','The Bear','Shogun','Slow Horses','Fallout','The Penguin'];
+
+async function fetchShow(name){
+  try{
+    const r = await fetch('https://api.tvmaze.com/singlesearch/shows?q=' + encodeURIComponent(name));
+    if(!r.ok) return null; const d = await r.json();
+    return { id:d.id, name:d.name, img:(d.image && (d.image.medium || d.image.original)) || '' };
+  }catch(_){ return null; }
+}
+function openShow(id, name){
+  if (window.parent !== window){
+    if (typeof window.parent.cubeRotateTo === 'function') window.parent.cubeRotateTo('episodes', { show:{ id, name } });
+    else window.parent.postMessage({ type:'cube:rotateTo', face:'episodes', payload:{ show:{ id, name } } }, '*');
+  }
+}
+async function renderBrowse(){
+  document.querySelector('.track').style.display = 'none';
+  const b = document.getElementById('browse'); b.classList.add('show');
+  const name = memberName();
+  b.innerHTML = `
+    <div class="head"><span class="label">BROWSE</span><span class="badge">DISCOVER</span></div>
+    <div class="bscroll">
+      <div class="rail">
+        <h2>Pierre's picks <em>live</em></h2>
+        <div class="why">shows worth your night</div>
+        <div class="cards" id="cardsPierre"><div class="why">loading…</div></div>
+      </div>
+      <div class="rail">
+        <h2>From friends <em>soon</em></h2>
+        <div class="bempty"><b>When your friends are here, their picks show up.</b><br>No friend activity yet. Nothing faked.</div>
+      </div>
+      <div class="rail">
+        <h2>People you follow <em>soon</em></h2>
+        <div class="bempty"><b>Follow a few TV voices and their picks land here.</b><br>No one followed yet. Nothing faked.</div>
+      </div>
+      <div class="signout">signed in${name?(' as '+esc(name)):''} &middot; <button id="signout">not you?</button></div>
+    </div>`;
+  document.getElementById('signout').onclick = () => {
+    try{ localStorage.removeItem('pg_user'); localStorage.removeItem('pg_username'); }catch(_){}
+    b.classList.remove('show'); document.querySelector('.track').style.display = '';
+  };
+  const wrap = document.getElementById('cardsPierre');
+  const shows = (await Promise.all(PICKS_SEED.map(fetchShow))).filter(Boolean);
+  if (!shows.length){ wrap.innerHTML = `<div class="why">couldn't reach the guide just now</div>`; return; }
+  wrap.innerHTML = shows.map(s => `<div class="bcard" data-id="${s.id}" data-name="${esc(s.name)}">
+    <div class="pi" style="${s.img?`background-image:url('${s.img}')`:''}"></div>
+    <div class="nm">${esc(s.name)}</div></div>`).join('');
+  wrap.querySelectorAll('.bcard').forEach(el => el.onclick = () => openShow(+el.dataset.id, el.dataset.name));
+}
+if ((isMember() || forcedMember()) && !DEMO) renderBrowse();
 
 document.getElementById("joinBtn").onclick = () => {
   // In the cube, hand the intake to the real Pierre face. Standalone, run the
@@ -345,7 +444,7 @@ if (window.parent !== window) {
     faceEl.addEventListener("touchend", () => { _pinchActive = false; }, { passive: true });
     let _dt=0;
     document.addEventListener("click", e=>{
-      if(e.target.closest("button,a,input,textarea,select,label,[role=button],.tile,.crow,.savings,.res")){ _dt=0; return; }
+      if(e.target.closest("button,a,input,textarea,select,label,[role=button],.tile,.crow,.savings,.res,.bcard,.cards")){ _dt=0; return; }
       const n=Date.now(); if(n-_dt<350){ _dt=0; window.parent.postMessage({type:"pangolin-back"},"*"); } else _dt=n;
     }, true);
   }

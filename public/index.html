@@ -120,7 +120,7 @@
 <div id="demoband"><span>DEMO &middot; you're on the waitlist</span><button id="textteam">Text the team</button></div>
 
 
-<div id="pinch-hint">pinch to lock</div>
+<div id="pinch-hint">double-tap to open</div>
 
 
 <div id="controls">
@@ -161,11 +161,11 @@ await document.fonts.ready;
 // ─── face definitions ──────────────────────────────────────────────────────
 // BoxGeometry material order: 0=+X, 1=-X, 2=+Y, 3=-Y, 4=+Z(front), 5=-Z(back)
 const FACES = [
-  { label: 'EPISODE', bg: '#FF6B35', fg: '#fff',    sub: "What's on right now"  },
   { label: 'FEED',    bg: '#22BB44', fg: '#fff',    sub: 'The latest drops'      },
+  { label: 'WATCH',   bg: '#FF6B35', fg: '#fff',    sub: 'Decide what to watch'  },
   { label: 'PIERRE',  bg: '#BB00FF', fg: '#FFE600', sub: 'Your host'             },
-  { label: 'LOG',     bg: '#FFD600', fg: '#000',    sub: 'Your viewing log'      },
   { label: 'PROFILE', bg: '#EE1122', fg: '#fff',    sub: "That's you"            },
+  { label: 'LOG',     bg: '#FFD600', fg: '#000',    sub: 'Your viewing log'      },
   { label: 'JOIN',    bg: '#00BBEE', fg: '#000',    sub: 'Get in on it'          },
 ];
 
@@ -303,7 +303,7 @@ function showFaceInfo(fi) {
 function hideFaceInfo() {
   pinchHint.classList.remove('hide');
   // swap hint text
-  pinchHint.textContent = 'pinch to lock';
+  pinchHint.textContent = 'double-tap to open';
 }
 
 function nearestFace() {
@@ -335,7 +335,7 @@ function lock() {
   snapToFace(fi);
   camTargetZ = 4.6;
   showFaceInfo(fi);
-  pinchHint.textContent = 'pinch to unlock';
+  pinchHint.textContent = 'double-tap or pinch to exit';
   pinchHint.classList.remove('hide');
   if (fi === PIERRE_FACE) focusPierre();
   bounceFromEmptyWatch(fi);
@@ -376,7 +376,11 @@ function focusPierreBlur() {
 // Cross-face navigation: a face asks the shell to rotate to another face
 // (e.g. a Log tile tap -> Episodes). The shell owns routing; faces post a
 // 'cube:rotateTo' message and this maps the face name to its cube index.
-const FACE_INDEX = { episodes: 0, feed: 1, pierre: 2, log: 3, profile: 4, join: 5 };
+// Visible labels: face 1 (cube_face_log, the show list) shows WATCH — "decide what
+// to watch"; face 4 (pangolin_episodes, the tracker) shows LOG — "log your progress".
+// The routing keys below still name the CONTENT (episodes/log), so the data flow
+// (episode progress -> the log writer) is unchanged; only positions + labels moved.
+const FACE_INDEX = { feed: 0, log: 1, pierre: 2, profile: 3, episodes: 4, join: 5 };
 let viewingStore = [];   // snapshot of the Log face's records, shared with Pierre/Episodes
 let lastResume = null;        // Episodes payload for the most-recently-watched show (or null)
 let logLoaded = false;        // the Log has published at least once
@@ -411,7 +415,7 @@ function rotateToFace(fi) {
   camTargetZ = 4.6;
   snapToFace(fi);                 // sets activeFace and starts the snap
   showFaceInfo(fi);
-  pinchHint.textContent = 'pinch to unlock';
+  pinchHint.textContent = 'double-tap or pinch to exit';
   pinchHint.classList.remove('hide');
   if (fi === PIERRE_FACE) focusPierre(); else focusPierreBlur();
   bounceFromEmptyWatch(fi);
@@ -469,21 +473,9 @@ canvas.addEventListener('pointermove', (e) => {
   const p = toLogical(e.clientX, e.clientY);
   ptrs.set(e.pointerId, { x: p.x, y: p.y });
 
-  if (ptrs.size >= 2) {
-    if (!pinchTriggered) {
-      const [a, b] = [...ptrs.values()];
-      const dist = Math.hypot(b.x - a.x, b.y - a.y);
-      const scale = dist / pinchStartDist;
-      if (!locked && scale > 1.22) {
-        pinchTriggered = true;
-        lock();
-      } else if (locked && scale < 0.78) {
-        pinchTriggered = true;
-        unlock();
-      }
-    }
-    return; // don't drag-rotate while two fingers are down
-  }
+  // Two fingers down: do nothing. Pinch-to-lock was removed — double-tap is the
+  // single transport in/out of a face. (Native pinch-zoom is blocked separately.)
+  if (ptrs.size >= 2) return;
 
   // Single-finger drag
   if (!dragging) return;
@@ -570,8 +562,8 @@ function faceCssMatrix3d(pts) {
 
 // Keyed by BoxGeometry material index; corners in TL→TR→BR→BL order (local cube space)
 const FACE_OVERLAYS = {
-  0: {                                       // +X face: EPISODE
-    src: '/pangolin_episodes_face_v5.html',
+  0: {                                       // +X face (side): FEED
+    src: '/cube_feed.html',
     normal: new THREE.Vector3(1, 0, 0),
     corners: [
       new THREE.Vector3(0.9,  0.9,  0.9),   // TL
@@ -590,8 +582,8 @@ const FACE_OVERLAYS = {
       new THREE.Vector3(-0.9, 0.9,  0.9),   // BL
     ],
   },
-  3: {                                       // -Y face: LOG
-    src: '/cube_face_log.html',
+  3: {                                       // -Y face (bottom): PROFILE
+    src: '/cube_face_profile.html',
     normal: new THREE.Vector3(0, -1, 0),
     corners: [
       new THREE.Vector3(-0.9, -0.9,  0.9),  // TL
@@ -610,8 +602,8 @@ const FACE_OVERLAYS = {
       new THREE.Vector3( 0.9, -0.9, -0.9),  // BL
     ],
   },
-  1: {                                       // -X face: FEED (dummy)
-    src: '/cube_feed.html',
+  1: {                                       // -X face (side): WATCH — the show list (cube_face_log content)
+    src: '/cube_face_log.html',
     normal: new THREE.Vector3(-1, 0, 0),
     corners: [
       new THREE.Vector3(-0.9,  0.9, -0.9),  // TL
@@ -620,8 +612,8 @@ const FACE_OVERLAYS = {
       new THREE.Vector3(-0.9, -0.9, -0.9),  // BL
     ],
   },
-  4: {                                       // +Z face (front): PROFILE (dummy)
-    src: '/cube_face_profile.html',
+  4: {                                       // +Z face (side): LOG — the episode tracker (pangolin_episodes content)
+    src: '/pangolin_episodes_face_v5.html',
     normal: new THREE.Vector3(0, 0, 1),
     corners: [
       new THREE.Vector3(-0.9,  0.9,  0.9),  // TL
@@ -645,6 +637,27 @@ for (const cfg of Object.values(FACE_OVERLAYS)) {
   el.appendChild(frame);
   appEl.appendChild(el);
   cfg.el = el; cfg.frame = frame; cfg._op = 0; cfg._active = false; cfg._tx = '';
+  frame.addEventListener('load', () => attachShellBack(frame));
+}
+
+// An open face is a same-origin iframe that captures every touch, so the shell's
+// own double-tap (on the cube canvas) can't see it. Attach a capture-phase tap
+// watcher to each face's document so a double-tap anywhere on the side exits to
+// the cube — making double-tap a symmetric in/out transport. Pinch-back already
+// lives inside each face. Pierre is skipped: it owns its in-chat gestures and a
+// textarea double-tap is text-selection, not "exit".
+function attachShellBack(frame) {
+  let doc; try { doc = frame.contentWindow && frame.contentWindow.document; } catch (_) { return; }
+  if (!doc) return;
+  if (FACE_OVERLAYS[PIERRE_FACE] && frame === FACE_OVERLAYS[PIERRE_FACE].frame) return;
+  let last = 0, sx = 0, sy = 0;
+  doc.addEventListener('pointerdown', e => { sx = e.clientX; sy = e.clientY; }, { capture: true, passive: true });
+  doc.addEventListener('pointerup', e => {
+    if (!locked) return;
+    if (Math.hypot(e.clientX - sx, e.clientY - sy) > 16) { last = 0; return; }  // a scroll/drag, not a tap
+    const now = performance.now();
+    if (now - last < 340) { last = 0; unlock(); } else last = now;
+  }, { capture: true, passive: true });
 }
 
 // Pierre (+Y, material index 2) is a chat window. While its input is focused
@@ -675,7 +688,7 @@ let t = 0;
     // Inertia + gentle auto-drift — same world-axis approach
     velX *= 0.94;
     velY *= 0.94;
-    const qH = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), velX + 0.004);
+    const qH = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), velX - 0.004);
     const qV = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), velY);
     cube.quaternion.premultiply(qH).premultiply(qV);
   }
@@ -715,7 +728,10 @@ let t = 0;
     _ctrlHidden = pierreActive;
   }
 
-  // Face overlays — perspective-correct matrix3d tracking
+  // Face overlays — perspective-correct matrix3d tracking. The real iframe rides
+  // the cube face as it spins (looks identical in nav), but it is INERT there:
+  // pointer-events stay off until the face is the locked/active one, so touches in
+  // navigation mode drive the cube (drag / double-tap), never the side's content.
   for (const [fi, cfg] of Object.entries(FACE_OVERLAYS)) {
     _fN.copy(cfg.normal).applyQuaternion(cube.quaternion);
     const dot = _fN.z;
@@ -736,6 +752,8 @@ let t = 0;
         cfg.el.style.opacity = opacity.toFixed(3);
         cfg._op = opacity;
       }
+      // Only the locked/active face is interactive — every other face stays inert
+      // while it rides the spinning cube.
       const active = locked && activeFace === +fi;
       if (cfg._active !== active) {
         cfg.el.style.pointerEvents = active ? 'all' : 'none';
@@ -808,6 +826,11 @@ function toLogical(px, py) {
 }
 window.addEventListener('resize', layout);
 window.addEventListener('orientationchange', layout);
+// Block iOS Safari pinch-zoom (it ignores maximum-scale). Double-tap is the only
+// gesture that does anything; the page itself must never zoom.
+document.addEventListener('gesturestart',  e => e.preventDefault());
+document.addEventListener('gesturechange', e => e.preventDefault());
+document.addEventListener('dblclick',      e => e.preventDefault());
 if (screen.orientation && screen.orientation.addEventListener)
   screen.orientation.addEventListener('change', layout);
 layout();
@@ -945,6 +968,10 @@ window.addEventListener('message', (e) => {
     lastResume = e.data.resume || null;
     logLoaded = true;
     if (episodesWantsLast) { episodesWantsLast = false; sendEpisodesLast(); }
+    // Nudge FEED to re-pull the member's real activity now that the log changed.
+    const feedCfg = FACE_OVERLAYS[FACE_INDEX.feed];
+    if (feedCfg && feedCfg.frame && feedCfg.frame.contentWindow)
+      feedCfg.frame.contentWindow.postMessage({ type: 'feed:refresh' }, '*');
   }
   // The Watch face opened and is asking for the last thing watched.
   if (e.data?.type === 'episode:requestLast') {

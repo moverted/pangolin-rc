@@ -317,8 +317,20 @@
   }
   function clearTyping(){ const t=document.getElementById('typing'); if(t) t.remove(); }
 
+  // Recall: notes the member auto-journaled on the WATCH/LOG face live in a shared
+  // same-origin journal (pg_journal). Surface the recent ones to Pierre once, as
+  // background on the first turn, so he can bring them up when relevant.
+  function journalContext(){
+    let j; try{ j = JSON.parse(localStorage.getItem('pg_journal')||'[]'); }catch(_){ return ''; }
+    if(!Array.isArray(j) || !j.length) return '';
+    const lines = j.slice(-6).reverse()
+      .map(n => `• ${n.show||'a show'}${n.ep?(' '+n.ep):''}: "${String(n.text||'').replace(/"/g,'”')}"`).join('\n');
+    return `(Background — notes I jotted while watching; weave in only if relevant, don't recite them:\n${lines}\n)\n\n`;
+  }
+
   async function ask(text){
-    history.push({role:'user', content:text});
+    const content = (history.length === 0) ? (journalContext() + text) : text;
+    history.push({role:'user', content});
     busy = true; send.disabled = true;
     showTyping();
     try{
