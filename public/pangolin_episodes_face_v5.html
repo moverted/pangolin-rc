@@ -60,7 +60,10 @@
 
   .herofoot{ margin-top:auto; }
   .name{ font-family:var(--display); font-weight:700; font-size:33px; line-height:1.0;
-    letter-spacing:-.02em; margin:0 0 8px; text-shadow:0 2px 22px rgba(0,0,0,.85), 0 0 4px rgba(0,0,0,.5); }
+    letter-spacing:-.02em; margin:0 0 8px; text-shadow:0 2px 22px rgba(0,0,0,.85), 0 0 4px rgba(0,0,0,.5);
+    transition:color .25s, opacity .25s; }
+  /* greyed when you're watching on a streamer other than the one the show lists */
+  .name.offsvc{ color:#857c72; opacity:.78; text-shadow:0 2px 16px rgba(0,0,0,.7); }
   .ymeta{ font-family:var(--mono); font-size:11px; color:var(--dim);
     letter-spacing:.05em; margin-bottom:12px; text-shadow:0 1px 10px rgba(0,0,0,.7); }
   .ymeta .sep{ color:rgba(255,255,255,.35); margin:0 7px; }
@@ -247,6 +250,51 @@
   .wrow .wdetail .sess{ padding:1px 0; }
   .wrow .wdetail .ts{ color:var(--faint); }
   .wrow .wdetail .note{ margin-top:6px; color:var(--dim); font-family:var(--body); font-style:italic; font-size:11.5px; }
+
+  /* ===== streamer guesser / picker ===== */
+  /* A logo is a brand-coloured wordmark chip — self-contained, no image assets. */
+  .svclogo{ display:inline-flex; align-items:center; justify-content:center;
+    font-family:var(--display); line-height:1; white-space:nowrap;
+    padding:.34em .58em; border-radius:.42em; font-size:13px;
+    box-shadow:0 1px 4px rgba(0,0,0,.45); }
+  /* the best-guess badge that lives in the top-right corner */
+  .svccorner{ display:inline-flex; align-items:center; gap:6px; cursor:pointer;
+    -webkit-user-select:none; user-select:none; -webkit-tap-highlight-color:transparent; }
+  .svccorner .cap{ font-family:var(--mono); font-size:8px; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--faint); }
+  .svccorner .svclogo{ font-size:11px; transition:transform .12s, box-shadow .12s; }
+  .svccorner:active .svclogo{ transform:scale(.94); }
+  .svccorner.holding .svclogo{ box-shadow:0 0 0 2px var(--amber), 0 1px 7px rgba(0,0,0,.5);
+    transform:scale(1.04); }
+
+  /* the rolling wheel overlay */
+  .svcwheel{ position:absolute; inset:0; z-index:9; display:none; }
+  .svcwheel.show{ display:block; }
+  .swback{ position:absolute; inset:0; background:rgba(6,5,3,.74);
+    backdrop-filter:blur(7px); -webkit-backdrop-filter:blur(7px); }
+  .swpanel{ position:absolute; left:0; right:0; bottom:0; padding:22px 18px 24px;
+    background:linear-gradient(180deg, transparent, rgba(10,8,6,.55) 16%, var(--sheet) 38%);
+    display:flex; flex-direction:column; align-items:center; gap:14px; }
+  .swcap{ font-family:var(--display); font-weight:700; font-size:17px; color:var(--text);
+    text-align:center; text-shadow:0 1px 10px rgba(0,0,0,.7); }
+  .swcap small{ display:block; font-family:var(--mono); font-weight:400; font-size:9px;
+    letter-spacing:.14em; text-transform:uppercase; color:var(--faint); margin-top:6px; }
+  .swwin{ position:relative; width:100%; max-width:262px; height:220px; overflow:hidden;
+    touch-action:none; -webkit-tap-highlight-color:transparent;
+    -webkit-mask-image:linear-gradient(180deg, transparent, #000 26%, #000 74%, transparent);
+    mask-image:linear-gradient(180deg, transparent, #000 26%, #000 74%, transparent); }
+  .swreel{ position:absolute; left:0; right:0; top:0; will-change:transform; }
+  .switem{ height:44px; display:flex; align-items:center; justify-content:center; }
+  /* the fixed centre window where the chosen streamer settles */
+  .swsel{ position:absolute; left:8px; right:8px; top:88px; height:44px; pointer-events:none;
+    border-radius:11px; border:1px solid rgba(240,169,59,.6); background:rgba(240,169,59,.07);
+    box-shadow:0 0 18px rgba(240,169,59,.18) inset; }
+  .swset{ font-family:var(--mono); font-weight:700; font-size:12px; letter-spacing:.14em;
+    padding:12px 34px; border-radius:999px; cursor:pointer; border:none;
+    background:var(--amber); color:var(--amber-deep); }
+  .swset:active{ transform:translateY(1px); }
+  .swcancel{ font-family:var(--mono); font-size:10px; letter-spacing:.12em; text-transform:uppercase;
+    color:var(--faint); cursor:pointer; padding:4px 10px; }
 </style>
 </head>
 <body>
@@ -263,7 +311,8 @@
       </div>
       <!-- season dots (display-only): dark-green done · 🍿 current · green future-available · grey unaired -->
       <div class="fb-mid" id="seasonInd"></div>
-      <div class="fb-right"></div>
+      <!-- best-guess streamer; hold it to roll the picker wheel -->
+      <div class="fb-right"><div class="svccorner" id="svcCorner" style="display:none"></div></div>
     </div>
   </div>
 
@@ -335,6 +384,20 @@
     </div>
 
   </div>
+
+  <!-- Streamer picker: hold the corner badge to roll this wheel to where you watch. -->
+  <div class="svcwheel" id="svcWheel">
+    <div class="swback" id="svcBack"></div>
+    <div class="swpanel">
+      <div class="swcap">Where are you watching?<small>roll to your streamer</small></div>
+      <div class="swwin" id="svcWin">
+        <div class="swreel" id="svcReel"></div>
+        <div class="swsel"></div>
+      </div>
+      <button class="swset" id="svcSet">SET</button>
+      <div class="swcancel" id="svcCancel">cancel</div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -383,6 +446,8 @@ function boot(show,list,isDefault){
   const yr=(show.premiered||'').slice(0,4);
   const svc=(show.webChannel&&show.webChannel.name)||(show.network&&show.network.name)||'';
   curService=svc;   // the streamer to launch from the play button
+  setServiceGuess(svc);   // light up the corner with the viewer's pin, else the data network
+  resolveCrowdGuess();    // then adopt the crowd's latest pick if they haven't pinned one
   const g=(show.genres&&show.genres[0])||'';
   // The streamer lights up so the platform is always clear (especially when the
   // play button can't deep-link it and is greyed out).
@@ -900,7 +965,7 @@ function reportCurrent(){
   if(window.parent===window) return;
   const e=eps[focus];
   window.parent.postMessage({type:'episode:current', show:(curShowId && e) ? {
-    tvmazeId:curShowId, name:curShowName, season:sNum(e), number:e.number, runtime:runtimeOf(focus), service:curService
+    tvmazeId:curShowId, name:curShowName, season:sNum(e), number:e.number, runtime:runtimeOf(focus), service:viewServiceName()
   } : null}, '*');
 }
 // Tapping the empty prompt swings over to the Log so you can log something.
@@ -959,6 +1024,169 @@ document.querySelector('.face').addEventListener('touchmove', (e) => {
   }
 }, { passive: true });
 document.querySelector('.face').addEventListener('touchend', () => { _pinchActive = false; }, { passive: true });
+
+// ===================== Streamer guesser / picker =====================
+// Brand-coloured wordmark "logos" — no image assets, fully self-contained. `aka`
+// holds the lowercase fragments matched against the show's webChannel/network name.
+const SERVICES = [
+  {label:'NETFLIX',     bg:'#000000', fg:'#E50914', wght:800, ls:'-.04em', aka:['netflix']},
+  {label:'max',         bg:'#0046FF', fg:'#ffffff', wght:800, ls:'-.05em', aka:['hbo max','max']},
+  {label:'HBO',         bg:'#000000', fg:'#ffffff', wght:800, ls:'.02em',  aka:['hbo']},
+  {label:'Disney+',     bg:'#0B1A6E', fg:'#ffffff', wght:700, ls:'-.01em', aka:['disney']},
+  {label:'hulu',        bg:'#1CE783', fg:'#0a0a0a', wght:800, ls:'-.04em', aka:['hulu']},
+  {label:'prime video', bg:'#1399FF', fg:'#ffffff', wght:700, ls:'-.02em', aka:['prime','amazon']},
+  {label:'tv+',         bg:'#000000', fg:'#ffffff', wght:700, ls:'-.02em', aka:['apple']},
+  {label:'peacock',     bg:'#050505', fg:'#ffffff', wght:700, ls:'-.02em', aka:['peacock','nbc']},
+  {label:'P+',          bg:'#0064FF', fg:'#ffffff', wght:800, ls:'0',      aka:['paramount','cbs','showtime','mtv','comedy central','nickelodeon']},
+  {label:'AMC+',        bg:'#000000', fg:'#ffffff', wght:800, ls:'.02em',  aka:['amc']},
+  {label:'STARZ',       bg:'#000000', fg:'#ffffff', wght:800, ls:'.06em',  aka:['starz']},
+  {label:'crunchyroll', bg:'#F47521', fg:'#ffffff', wght:700, ls:'-.02em', aka:['crunchyroll','funimation']},
+  {label:'FX',          bg:'#101018', fg:'#ffffff', wght:800, ls:'.02em',  aka:['fx','fxx']},
+  {label:'YouTube',     bg:'#ffffff', fg:'#FF0000', wght:800, ls:'-.03em', aka:['youtube']},
+  {label:'abc',         bg:'#000000', fg:'#ffffff', wght:600, ls:'-.03em', aka:['abc']},
+  {label:'FOX',         bg:'#16162a', fg:'#ffffff', wght:800, ls:'.04em',  aka:['fox']},
+  {label:'BBC',         bg:'#000000', fg:'#ffffff', wght:800, ls:'.06em',  aka:['bbc']},
+  {label:'PBS',         bg:'#2638C4', fg:'#ffffff', wght:800, ls:'.04em',  aka:['pbs']},
+];
+function svcMatch(name){
+  const n=(name||'').toLowerCase().trim(); if(!n) return null;
+  for(const s of SERVICES){ for(const a of s.aka){ if(n.includes(a)) return s; } }
+  return null;
+}
+// Worker API base (mirrors the shell): crowd-guess streamer lives server-side.
+const API_BASE = location.hostname==='localhost'
+  ? 'http://localhost:8787'
+  : 'https://pangolin-rc.edward-m-willett.workers.dev';
+
+let guessSvc=null,        // the streamer the show's own data points at (the ymeta word)
+    chosenSvc=null,       // what the corner shows = user pin · crowd guess · data
+    userPinned=false;     // this viewer SET their own streamer for this show
+function svcLogoHTML(s){
+  return '<span class="svclogo" style="background:'+s.bg+';color:'+s.fg
+    +';font-weight:'+(s.wght||700)+';letter-spacing:'+(s.ls||0)+'">'+escHtml(s.label)+'</span>';
+}
+// Build a streamer object from a saved/crowd label: a catalogue match if we know it,
+// else a neutral chip so any label still renders and is pickable.
+function svcByLabel(label){
+  if(!label) return null;
+  const m=SERVICES.find(s=>s.label===label); if(m) return m;
+  return {label, bg:'#26201a', fg:'#F0A93B', wght:700, ls:'.02em', aka:[label.toLowerCase()], _raw:true};
+}
+const svcKey=()=>curShowId ? 'pg_svc:'+curShowId : null;   // per-viewer pin (this device)
+
+// Pick the corner's starting streamer the moment a show loads: the viewer's own
+// saved pin wins; otherwise the show's data network. The crowd guess arrives async
+// (resolveCrowdGuess) and only fills in when the viewer hasn't pinned their own.
+function setServiceGuess(name){
+  const m=svcMatch(name);
+  guessSvc = m || (name ? {label:name, bg:'#26201a', fg:'#F0A93B', wght:700, ls:'.02em', aka:[(name||'').toLowerCase()], _raw:true} : null);
+  let pinned=null; const k=svcKey();
+  if(k){ try{ const lbl=localStorage.getItem(k); if(lbl) pinned=svcByLabel(lbl); }catch(_){} }
+  userPinned=!!pinned;
+  chosenSvc = pinned || guessSvc;
+  renderSvcCorner();
+}
+// Adopt the crowd's latest pick as the default — but never override the viewer's own
+// pin, and never touch a show that's already been swapped out from under us.
+async function resolveCrowdGuess(){
+  const id=curShowId; if(!id || userPinned) return;
+  try{
+    const r=await fetch(API_BASE+'/streamer/'+encodeURIComponent(id)); if(!r.ok) return;
+    const j=await r.json();
+    if(j && j.service && !userPinned && curShowId===id){
+      chosenSvc=svcByLabel(j.service); renderSvcCorner(); reportCurrent();
+    }
+  }catch(_){}
+}
+const viewServiceName=()=>(chosenSvc&&chosenSvc.label) || curService || '';
+// The streamer the show's data lists (the lit word under the title).
+const dataServiceLabel=()=>{ const m=svcMatch(curService); return m?m.label:(curService||''); };
+// Grey the title when the chosen streamer differs from that data word.
+function applyTitleTint(){
+  const n=$('name'); if(!n) return;
+  n.classList.toggle('offsvc', !!(chosenSvc && curService && chosenSvc.label!==dataServiceLabel()));
+}
+function renderSvcCorner(){
+  const host=$('svcCorner'); if(!host){ applyTitleTint(); return; }
+  if(!chosenSvc){ host.style.display='none'; host.innerHTML=''; applyTitleTint(); return; }
+  host.style.display='inline-flex';
+  host.innerHTML='<span class="cap">on</span>'+svcLogoHTML(chosenSvc);
+  applyTitleTint();
+}
+
+// ----- the rolling reel -----
+const SW_ITEM=44, SW_C=2, SW_COPIES=5;   // 5 visible rows, selection centred at row 2
+let reelList=[], reelLen=0, reelY=0, swDragging=false, swStartY=0, swBaseY=0, swMoved=false;
+// An unrecognised streamer rides at the head of the catalogue so it stays pickable.
+function reelServices(){ return (guessSvc&&guessSvc._raw) ? [guessSvc, ...SERVICES] : SERVICES.slice(); }
+const reelIdxToY=i=>SW_ITEM*(SW_C-i);
+function setReelY(y, anim, dur){ const r=$('svcReel');
+  r.style.transition = anim ? 'transform '+(dur||220)+'ms cubic-bezier(.18,.7,.2,1)' : 'none';
+  r.style.transform='translateY('+y+'px)'; reelY=y; }
+function buildReel(){
+  reelList=reelServices(); reelLen=reelList.length;
+  let h=''; for(let c=0;c<SW_COPIES;c++) for(let i=0;i<reelLen;i++) h+='<div class="switem">'+svcLogoHTML(reelList[i])+'</div>';
+  $('svcReel').innerHTML=h;
+}
+// Which catalogue entry is under the centre window right now.
+function currentRealIdx(){ const i=Math.round(SW_C - reelY/SW_ITEM); return ((i%reelLen)+reelLen)%reelLen; }
+// Snap back to the middle copy (without animating) so there's always room to drag.
+function recenter(){ const real=currentRealIdx(); setReelY(reelIdxToY(2*reelLen+real), false); }
+function openWheel(){
+  if(!chosenSvc) return;
+  buildReel();
+  let gi=reelList.findIndex(s=>s.label===chosenSvc.label); if(gi<0) gi=0;
+  $('svcWheel').classList.add('show');
+  // Start a couple of copies up, then roll down through ~2 full sets onto the guess.
+  setReelY(reelIdxToY(gi), false);
+  void $('svcReel').offsetWidth;
+  setReelY(reelIdxToY(2*reelLen+gi), true, 1100);
+  setTimeout(()=>{ if($('svcWheel').classList.contains('show')) recenter(); }, 1160);
+}
+function closeWheel(){ $('svcWheel').classList.remove('show'); }
+function setFromWheel(){
+  chosenSvc=reelList[currentRealIdx()]; userPinned=true;
+  const k=svcKey(); if(k){ try{ localStorage.setItem(k, chosenSvc.label); }catch(_){} }   // stays for this viewer
+  if(curShowId){ try{ fetch(API_BASE+'/streamer/'+encodeURIComponent(curShowId),     // becomes the next viewer's guess
+    {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({service:chosenSvc.label})}); }catch(_){} }
+  renderSvcCorner(); reportCurrent(); closeWheel();
+}
+
+const swWin=$('svcWin');
+swWin.addEventListener('pointerdown',e=>{ swDragging=true; swMoved=false; swStartY=e.clientY; swBaseY=reelY;
+  setReelY(reelY,false); try{ swWin.setPointerCapture(e.pointerId); }catch(_){} });
+swWin.addEventListener('pointermove',e=>{ if(!swDragging) return; const dy=e.clientY-swStartY;
+  if(Math.abs(dy)>4) swMoved=true; setReelY(swBaseY+dy,false); });
+swWin.addEventListener('pointerup',e=>{ if(!swDragging) return; swDragging=false;
+  const lim=reelLen*SW_COPIES-1;
+  if(!swMoved){
+    // tap a logo to roll it to the centre
+    const rect=swWin.getBoundingClientRect();
+    const idx=Math.max(0,Math.min(lim, Math.floor(((e.clientY-rect.top)-reelY)/SW_ITEM)));
+    setReelY(reelIdxToY(idx),true,260); setTimeout(recenter,270); return;
+  }
+  // released after a drag → snap to the nearest row
+  const idx=Math.max(0,Math.min(lim, Math.round(SW_C - reelY/SW_ITEM)));
+  setReelY(reelIdxToY(idx),true,200); setTimeout(recenter,210);
+});
+swWin.addEventListener('pointercancel',()=>{ swDragging=false; });
+
+$('svcSet').onclick=e=>{ e.stopPropagation(); setFromWheel(); };
+$('svcCancel').onclick=e=>{ e.stopPropagation(); closeWheel(); };
+$('svcBack').onclick=e=>{ e.stopPropagation(); closeWheel(); };
+
+// Hold (or tap) the corner badge to open the picker.
+let _holdT=null, _holdFired=false;
+const svcCorner=$('svcCorner');
+function holdCancel(){ if(_holdT){ clearTimeout(_holdT); _holdT=null; } svcCorner.classList.remove('holding'); }
+svcCorner.addEventListener('pointerdown',e=>{ if(!chosenSvc) return; e.stopPropagation();
+  _holdFired=false; svcCorner.classList.add('holding');
+  _holdT=setTimeout(()=>{ _holdFired=true; holdCancel(); openWheel(); }, 420); });
+svcCorner.addEventListener('pointerup',e=>{ e.stopPropagation(); const fired=_holdFired; holdCancel();
+  if(!fired && chosenSvc) openWheel(); });           // a plain tap opens it too
+svcCorner.addEventListener('pointerleave',holdCancel);
+svcCorner.addEventListener('pointercancel',holdCancel);
+svcCorner.addEventListener('click',e=>e.stopPropagation());   // never trip the log-it tap handler
 
 // When running inside the cube face overlay, fill the iframe completely
 if (window.parent !== window) {
