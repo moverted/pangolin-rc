@@ -31,8 +31,12 @@
     letter-spacing:.06em;color:#6b5f4f;text-align:center;flex:0 0 auto;padding:2px 0}
   .c-av{width:44px;height:44px;border-radius:12px;flex:0 0 auto;align-self:center;background:linear-gradient(160deg,#caa46f,#7a5a3a)
     center/cover;display:flex;align-items:center;justify-content:center;font-family:var(--display);font-weight:700;font-size:16px;color:#1c1a17}
-  .c-body{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:6px}
-  .c-head{font-family:var(--display);font-weight:700;font-size:13.5px;line-height:1.18;letter-spacing:-.01em}
+  .c-body{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:4px}
+  .c-who{font-family:var(--display);font-weight:700;font-size:14px;line-height:1.1;display:flex;align-items:center;gap:7px;letter-spacing:-.01em}
+  .c-rel{font-family:var(--mono);font-size:8px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+    color:#6b5f4f;border:1px solid #d8c7ad;border-radius:999px;padding:1px 6px}
+  .c-rel.friend{color:#1c1a17;border-color:#caa46f;background:#f0e2cb}
+  .c-head{font-family:var(--display);font-weight:600;font-size:12.5px;line-height:1.2;color:#3a342b}
   .c-quote{font-family:var(--display);font-weight:700;font-size:12.5px;line-height:1.2}
   .c-poster{width:42px;height:58px;border-radius:6px;flex:0 0 auto;align-self:center;background:#16110d center/cover;
     box-shadow:0 5px 12px rgba(0,0,0,.28)}
@@ -74,11 +78,14 @@ function fmtDate(ts){
 }
 function feedCard(it){
   const ep = it.ep ? (_esc(it.ep) + ' of ') : '';
+  const chip = it.rel === 'friend' ? '<span class="c-rel friend">friend</span>'
+             : it.rel === 'following' ? '<span class="c-rel">following</span>' : '';
   return `<div class="card">
     <div class="c-date">${_esc(it.date)}</div>
     <div class="c-av">${_esc((it.who||'?').charAt(0).toUpperCase())}</div>
     <div class="c-body">
-      <div class="c-head">${_esc(it.who)} ${_esc(it.verb)} ${ep}<b>${_esc(it.show)}</b><span class="c-where"></span></div>
+      <div class="c-who">${_esc(it.who)}${chip}</div>
+      <div class="c-head">${_esc(it.verb)} ${ep}<b>${_esc(it.show)}</b><span class="c-where"></span></div>
     </div>
     <div class="c-poster"></div>
   </div>`;
@@ -105,16 +112,17 @@ async function loadFeed(){
   _loading = true;
   try{
     const email = acct();
-    if(!email){ el.innerHTML = emptyState('Sign in and the shows you watch show up here.'); return; }
-    let shows = [];
-    try{ const r = await fetch(API + '/profile/' + encodeURIComponent(email) + '/watch');
-      if(r.ok){ const d = await r.json(); shows = (d && d.shows) || []; } }catch(_){}
-    if(!shows.length){ el.innerHTML = emptyState('No activity yet. Finish, start, or log a show and it lands here. Nothing faked.'); return; }
-    const who = uname() || 'You';
-    const items = shows.map(s => ({
-      who, verb: verbFor(s.status),
-      ep: (s.last_season && s.last_number) ? ('S' + pad2(s.last_season) + 'E' + pad2(s.last_number)) : '',
-      show: s.show_name || 'a show', date: fmtDate(s.updated_at), id: s.show_id
+    if(!email){ el.innerHTML = emptyState('Sign in and your feed — yours, friends’, and people you follow — shows up here.'); return; }
+    let feed = [];
+    try{ const r = await fetch(API + '/profile/' + encodeURIComponent(email) + '/feed');
+      if(r.ok){ const d = await r.json(); feed = (d && d.feed) || []; } }catch(_){}
+    if(!feed.length){ el.innerHTML = emptyState('No activity yet. Follow people in Profile, or log a show — yours and theirs lands here. Nothing faked.'); return; }
+    const me = uname() || 'You';
+    const items = feed.map(row => ({
+      who: row.relationship === 'self' ? me : (row.actor || String(row.actor_email||'').split('@')[0] || 'Someone'),
+      rel: row.relationship, verb: verbFor(row.status),
+      ep: (row.last_season && row.last_number) ? ('S' + pad2(row.last_season) + 'E' + pad2(row.last_number)) : '',
+      show: row.show_name || 'a show', date: fmtDate(row.updated_at), id: row.show_id
     }));
     el.innerHTML = items.map(feedCard).join('');
     const cards = el.querySelectorAll('.card');

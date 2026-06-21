@@ -241,3 +241,74 @@ profileRoutes.delete('/:email/watch/:show_id', async (c) => {
   await c.env.DB.prepare('DELETE FROM watch WHERE user_email = ? AND show_id = ?').bind(email, show_id).run();
   return c.json({ ok: true });
 });
+
+// ─── Social graph: follows (a mutual pair = a "friend") ──────────────────────
+
+// Who I follow, each flagged friend = they follow me back.
+profileRoutes.get('/:email/follows', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  const following = await c.env.DB.prepare(
+    `SELECT f.followee_email AS email, u.username
+       FROM follows f LEFT JOIN users u ON u.email = f.followee_email
+      WHERE f.follower_email = ? ORDER BY f.created_at DESC`).bind(email).all();
+  const followers = await c.env.DB
+    .prepare('SELECT follower_email AS email FROM follows WHERE followee_email = ?').bind(email).all();
+  const back = new Set((followers.results || []).map((r: any) => r.email));
+  const out = (following.results || []).map((r: any) => ({
+    email: r.email, username: r.username || null, friend: back.has(r.email),
+  }));
+  return c.json({ following: out, friends: out.filter((x: any) => x.friend) });
+});
+
+// Follow a member by email (idempotent). Target must be an existing member.
+profileRoutes.post('/:email/follow', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  let body: any; try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const target = String(body.target || '').toLowerCase().trim();
+  if (!EMAIL_RE.test(target)) return c.json({ error: 'valid target email required' }, 400);
+  if (target === email) return c.json({ error: "can't follow yourself" }, 400);
+  const exists = await c.env.DB.prepare('SELECT email, username FROM users WHERE email = ?').bind(target).first<any>();
+  if (!exists) return c.json({ error: 'no such member' }, 404);
+  await c.env.DB.prepare(
+    'INSERT OR IGNORE INTO follows (follower_email, followee_email, created_at) VALUES (?, ?, ?)')
+    .bind(email, target, Date.now()).run();
+  const reciprocal = await c.env.DB
+    .prepare('SELECT 1 FROM follows WHERE follower_email = ? AND followee_email = ?').bind(target, email).first();
+  return c.json({ ok: true, target, username: exists.username || null, friend: !!reciprocal });
+});
+
+// Unfollow.
+profileRoutes.delete('/:email/follow/:target', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  const target = c.req.param('target').toLowerCase();
+  await c.env.DB.prepare('DELETE FROM follows WHERE follower_email = ? AND followee_email = ?')
+    .bind(email, target).run();
+  return c.json({ ok: true });
+});
+
+// Aggregated activity feed: the member's own activity + everyone they follow,
+// newest first, each row tagged actor + relationship (self / friend / following).
+profileRoutes.get('/:email/feed', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  const following = await c.env.DB
+    .prepare('SELECT followee_email AS e FROM follows WHERE follower_email = ?').bind(email).all();
+  const followers = await c.env.DB
+    .prepare('SELECT follower_email AS e FROM follows WHERE followee_email = ?').bind(email).all();
+  const followees = (following.results || []).map((r: any) => r.e);
+  const back = new Set((followers.results || []).map((r: any) => r.e));
+  const actors = [email, ...followees];
+  const placeholders = actors.map(() => '?').join(',');
+  const rows = await c.env.DB.prepare(
+    `SELECT w.user_email, w.show_id, w.show_name, w.status, w.last_season, w.last_number, w.updated_at, u.username
+       FROM watch w LEFT JOIN users u ON u.email = w.user_email
+      WHERE w.user_email IN (${placeholders})
+      ORDER BY w.updated_at DESC LIMIT 40`).bind(...actors).all();
+  const feed = (rows.results || []).map((r: any) => ({
+    actor_email: r.user_email,
+    actor: r.username || null,
+    relationship: r.user_email === email ? 'self' : (back.has(r.user_email) ? 'friend' : 'following'),
+    show_id: r.show_id, show_name: r.show_name, status: r.status,
+    last_season: r.last_season, last_number: r.last_number, updated_at: r.updated_at,
+  }));
+  return c.json({ feed });
+});

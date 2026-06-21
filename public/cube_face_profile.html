@@ -135,6 +135,29 @@
   .dhint{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.12em;color:var(--muted-2);text-transform:uppercase;}
   .dhead-rule{height:1px;background:var(--line);margin:9px 0 0;}
 
+  /* ---- Following (follow members by email; mutual = friend) ---- */
+  .following{margin-top:22px;}
+  .fl-add{display:flex;gap:8px;margin-top:11px;}
+  .fl-add input{flex:1;min-width:0;background:var(--card);border:1px solid var(--card-line);border-radius:10px;
+    color:var(--text);padding:10px 12px;font-size:14px;font-family:inherit;}
+  .fl-add input::placeholder{color:var(--muted-2);}
+  .fl-add input:focus{outline:none;border-color:var(--amber);}
+  .fl-add button{flex:0 0 auto;background:var(--amber);color:#1a130b;border:0;border-radius:10px;padding:0 16px;
+    font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;cursor:pointer;}
+  .fl-add button:disabled{opacity:.45;cursor:default;}
+  .fl-msg{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.04em;color:var(--muted);margin-top:8px;min-height:12px;}
+  .fl-msg.err{color:var(--amber);}
+  .fl-row{display:flex;align-items:center;gap:11px;padding:11px 0;border-bottom:1px solid var(--line-soft);}
+  .fl-av{width:32px;height:32px;border-radius:50%;flex:0 0 auto;background:linear-gradient(160deg,#caa46f,#7a5a3a);
+    display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:#1a130b;}
+  .fl-name{flex:1;min-width:0;font-size:14px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .fl-name small{display:block;color:var(--muted-2);font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:.04em;}
+  .fl-friend{flex:0 0 auto;font-family:'JetBrains Mono',monospace;font-size:8px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--amber);border:1px solid var(--card-line);border-radius:999px;padding:2px 7px;}
+  .fl-x{flex:0 0 auto;background:none;border:0;color:var(--muted-2);font-size:17px;line-height:1;cursor:pointer;padding:0 4px;}
+  .fl-x:hover{color:var(--amber);}
+  .fl-empty{color:var(--muted);font-size:12.5px;line-height:1.5;padding:10px 0;}
+
   .dev{border-bottom:1px solid var(--line-soft);}
   .dev:last-of-type{border-bottom:none;}
   .dev-main{width:100%;display:flex;align-items:center;gap:13px;background:none;border:none;
@@ -278,6 +301,17 @@
               <div class="stat"><div class="num" id="stShows">128</div><div class="lbl">SHOWS</div></div>
               <div class="stat"><div class="num" id="stEps">1,340</div><div class="lbl">EPISODES</div></div>
               <div class="stat"><div class="num" id="stThird">$284</div><div class="lbl" id="stThirdLbl">SAVED</div></div>
+            </div>
+
+            <div class="following">
+              <div class="dhead"><h2>Following</h2><span class="dhint">mutual = friend</span></div>
+              <div class="dhead-rule"></div>
+              <div id="followList"></div>
+              <div class="fl-add">
+                <input id="followEmail" type="email" inputmode="email" placeholder="follow by email" autocomplete="off">
+                <button id="followBtn">Follow</button>
+              </div>
+              <div class="fl-msg" id="followMsg"></div>
             </div>
           </div>
         </div>
@@ -498,6 +532,51 @@
   }
 
   $('addDevice').addEventListener('click', ()=> nav('pierre', session()?{intent:'device'}:{intent:'join'}) );
+
+  // ---- Following: follow members by email; a mutual pair is a friend ----
+  const escF = s => String(s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  function flMsg(t, err){ const m=$('followMsg'); if(m){ m.textContent=t||''; m.classList.toggle('err', !!err); } }
+  function renderFollows(list){
+    const box=$('followList'); if(!box) return;
+    if(!session()){ box.innerHTML='<div class="fl-empty">Sign in to follow people.</div>'; return; }
+    if(!list || !list.length){ box.innerHTML='<div class="fl-empty">Not following anyone yet. Add a friend’s email below — once you follow each other, you’re friends.</div>'; return; }
+    box.innerHTML=list.map(f=>{
+      const nm=f.username||String(f.email).split('@')[0];
+      return `<div class="fl-row"><div class="fl-av">${escF(nm.charAt(0).toUpperCase())}</div>`
+        +`<div class="fl-name">${escF(nm)}<small>${escF(f.email)}</small></div>`
+        +(f.friend?'<span class="fl-friend">friend</span>':'')
+        +`<button class="fl-x" data-unfollow="${escF(f.email)}" aria-label="Unfollow">×</button></div>`;
+    }).join('');
+  }
+  async function loadFollows(){
+    if(!session()){ renderFollows(null); return; }
+    try{ const r=await fetch(API+'/profile/'+encodeURIComponent(session())+'/follows');
+      if(r.ok){ const d=await r.json(); renderFollows(d.following||[]); } }catch(_){}
+  }
+  async function doFollow(){
+    const email=session(), inp=$('followEmail'); if(!email){ flMsg('Sign in first', true); return; }
+    const target=((inp&&inp.value)||'').trim().toLowerCase(); if(!target) return;
+    const btn=$('followBtn'); if(btn) btn.disabled=true; flMsg('');
+    try{
+      const r=await fetch(API+'/profile/'+encodeURIComponent(email)+'/follow',{method:'POST',
+        headers:{'Content-Type':'application/json'},body:JSON.stringify({target})});
+      const d=await r.json().catch(()=>({}));
+      if(r.ok){ if(inp) inp.value='';
+        flMsg(d.friend ? ('You’re friends with '+(d.username||target)) : ('Following '+(d.username||target)));
+        loadFollows(); }
+      else flMsg(d.error||'Could not follow', true);
+    }catch(_){ flMsg('Could not follow', true); }
+    finally{ if(btn) btn.disabled=false; }
+  }
+  document.addEventListener('click', e=>{ const x=e.target.closest('[data-unfollow]'); if(!x||!session()) return;
+    fetch(API+'/profile/'+encodeURIComponent(session())+'/follow/'+encodeURIComponent(x.getAttribute('data-unfollow')),{method:'DELETE'})
+      .then(()=>loadFollows()).catch(()=>{}); });
+  (function wireFollow(){
+    const btn=$('followBtn'), inp=$('followEmail');
+    if(btn) btn.onclick=doFollow;
+    if(inp) inp.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); doFollow(); } });
+    loadFollows();
+  })();
   window.addEventListener('storage', e=>{ if(e.key==='pg_user'||e.key==='pg_refresh') refresh(); });
   refresh();
   try{ const u=localStorage.getItem('pg_username'); if(u && !session()) $('pname').textContent=u; }catch(_){}
