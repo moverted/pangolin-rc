@@ -372,11 +372,27 @@
       window.parent.postMessage({type:'episodeFinish:commit', choice:pend.choice, launch:pend.L}, '*');
   }
   // Persist a typed thought to the shared journal Pierre recalls (journalContext).
-  function saveJournalNote(L, text){
+  function pushJournal(show, ep, text){
     let j; try{ j=JSON.parse(localStorage.getItem('pg_journal')||'[]'); }catch(_){ j=[]; }
     if(!Array.isArray(j)) j=[];
-    j.push({show:L&&L.name||'', ep:epCodeOf(L), text:String(text||''), ts:Date.now()});
+    j.push({show:show||'', ep:ep||'', text:String(text||''), ts:Date.now()});
     try{ localStorage.setItem('pg_journal', JSON.stringify(j.slice(-50))); }catch(_){}
+  }
+  function saveJournalNote(L, text){ pushJournal(L&&L.name||'', epCodeOf(L), text); }
+
+  /* ---- Forced season-turn note ----------------------------------------------
+     When a season wraps on the Watch face, the shell routes here so Pierre asks
+     for a thought before the next season. Saved to the shared journal. */
+  let seasonNoteFlow=false, seasonNote=null;
+  function enterSeasonNoteFlow(p){
+    if(IS_DEMO) return;
+    addFlow=null; acctFlow=null; joinFlow=null; epNoteFlow=false; epFinishPending=null;
+    seasonNote={ show:(p&&p.show)||'that one', ep:(p&&p.ep)||'' };
+    seasonNoteFlow=true;
+    const where = seasonNote.show + (seasonNote.ep?(' '+seasonNote.ep):'');
+    pierreSay('You wrapped '+where+'. Any thoughts before the next season? Tell me, or skip.', [
+      {label:'Skip', onClick:()=>{ seasonNoteFlow=false; seasonNote=null; input.placeholder="Ask Pierre what to watch..."; }}]);
+    input.placeholder=''; input.focus();
   }
 
   async function ask(text){
@@ -418,6 +434,8 @@
     // Episode-finish thoughts: capture the line as a journal note, then commit
     // the chosen log + navigation. Not an LLM turn.
     if(epNoteFlow){ const L=epFinishPending&&epFinishPending.L; saveJournalNote(L, text); addPierre('Noted. Logged it.'); commitFinish(); return; }
+    // Season-turn note: save the thought to the journal. Not an LLM turn.
+    if(seasonNoteFlow){ pushJournal(seasonNote.show, seasonNote.ep, text); seasonNoteFlow=false; seasonNote=null; input.placeholder="Ask Pierre what to watch..."; addPierre('Noted. Onto the next season.'); return; }
     // Account flow (login / signup / add device): typed lines feed the step.
     if(acctFlow){ input.focus(); acctStep(text); return; }
     // Join / Login: the email step branches; the picking step searches shows.
@@ -812,6 +830,7 @@
       else if(p.intent==='device') enterDeviceFlow();
       else if(p.intent==='note') enterNoteFlow(p);
       else if(p.intent==='episode-finish') enterEpisodeFinishFlow(p.launch);
+      else if(p.intent==='season-note') enterSeasonNoteFlow(p);
     }
   });
 

@@ -560,7 +560,16 @@ function loadNextSeason(){
   const later=[...new Set(allEps.map(sNum))].filter(s=>s>cur).sort((a,b)=>a-b);
   if(!later.length) return false;    // already the last season — real finale
   switchToSeason(later[0]);
+  forceSeasonNote(cur);              // wrapped a season in-app → force a note in Pierre
   return true;
+}
+// A deliberate in-app season finish routes to Pierre for a forced thought on the
+// season just wrapped (reliable trigger; the return-from-launch prompt is not).
+function forceSeasonNote(finishedSeason){
+  if(window.parent===window || !curShowId) return;
+  const payload={ intent:'season-note', show:curShowName, ep:'Season '+finishedSeason };
+  if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('pierre', payload);
+  else window.parent.postMessage({type:'cube:rotateTo', face:'pierre', payload}, '*');
 }
 function switchToSeason(season){
   const next=allEps.filter(e=>sNum(e)===season);
