@@ -448,28 +448,7 @@ if (window.parent !== window) {
   document.body.style.alignItems = "stretch";
   const face = document.querySelector(".face");
   if (face) { face.style.width = "100%"; face.style.height = "100%"; face.style.borderRadius = "0"; face.style.border = "0"; }
-
-  let _pinchStart = 0, _pinchActive = false;
-  const faceEl = document.querySelector(".face");
-  if (faceEl) {
-    faceEl.addEventListener("touchstart", (e) => {
-      if (e.touches.length === 2) {
-        _pinchStart = Math.hypot(e.touches[1].clientX - e.touches[0].clientX, e.touches[1].clientY - e.touches[0].clientY);
-        _pinchActive = true;
-      }
-    }, { passive: true });
-    faceEl.addEventListener("touchmove", (e) => {
-      if (!_pinchActive || e.touches.length < 2) return;
-      const d = Math.hypot(e.touches[1].clientX - e.touches[0].clientX, e.touches[1].clientY - e.touches[0].clientY);
-      if (d < _pinchStart * 0.72) { _pinchActive = false; window.parent.postMessage({ type: "pangolin-back" }, "*"); }
-    }, { passive: true });
-    faceEl.addEventListener("touchend", () => { _pinchActive = false; }, { passive: true });
-    let _dt=0;
-    document.addEventListener("click", e=>{
-      if(e.target.closest("button,a,input,textarea,select,label,[role=button],.tile,.crow,.savings,.res,.bcard,.cards")){ _dt=0; return; }
-      const n=Date.now(); if(n-_dt<350){ _dt=0; window.parent.postMessage({type:"pangolin-back"},"*"); } else _dt=n;
-    }, true);
-  }
+  // Back navigation is the floating cube button only (double-tap / pinch removed).
 }
 // Floating cube → back to cube navigation (delegated so DOM order doesn't matter).
 document.addEventListener('click', function(e){

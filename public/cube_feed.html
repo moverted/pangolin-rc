@@ -170,15 +170,7 @@ if (window.parent !== window) {
   const face = document.querySelector(".face");
   if (face) {
     face.style.width = "100%"; face.style.height = "100%"; face.style.borderRadius = "0"; face.style.border = "0";
-    let s = 0, a = false;
-    face.addEventListener("touchstart", e => { if (e.touches.length === 2) { s = Math.hypot(e.touches[1].clientX - e.touches[0].clientX, e.touches[1].clientY - e.touches[0].clientY); a = true; } }, { passive: true });
-    face.addEventListener("touchmove", e => { if (!a || e.touches.length < 2) return; const d = Math.hypot(e.touches[1].clientX - e.touches[0].clientX, e.touches[1].clientY - e.touches[0].clientY); if (d < s * 0.72) { a = false; window.parent.postMessage({ type: "pangolin-back" }, "*"); } }, { passive: true });
-    face.addEventListener("touchend", () => { a = false; }, { passive: true });
-    let _dt=0;
-    document.addEventListener("click", e=>{
-      if(e.target.closest("button,a,input,textarea,select,label,[role=button],.tile,.crow,.savings,.res")){ _dt=0; return; }
-      const n=Date.now(); if(n-_dt<350){ _dt=0; window.parent.postMessage({type:"pangolin-back"},"*"); } else _dt=n;
-    }, true);
+    // Back navigation is the floating cube button only (double-tap / pinch removed).
   }
 }
 // Floating cube → back to cube navigation (delegated so DOM order doesn't matter).
