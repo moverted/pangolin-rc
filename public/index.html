@@ -671,6 +671,8 @@ function attachShellBack(frame) {
   let doc; try { doc = frame.contentWindow && frame.contentWindow.document; } catch (_) { return; }
   if (!doc) return;
   if (FACE_OVERLAYS[PIERRE_FACE] && frame === FACE_OVERLAYS[PIERRE_FACE].frame) return;
+  // The episodes (LOG) face has its own floating cube back-button — no double-tap-back.
+  if (FACE_OVERLAYS[FACE_INDEX.episodes] && frame === FACE_OVERLAYS[FACE_INDEX.episodes].frame) return;
   let last = 0, sx = 0, sy = 0;
   doc.addEventListener('pointerdown', e => { sx = e.clientX; sy = e.clientY; }, { capture: true, passive: true });
   doc.addEventListener('pointerup', e => {

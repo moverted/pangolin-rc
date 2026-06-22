@@ -202,12 +202,33 @@
   .epline .ttl{ color:var(--text); text-transform:none; font-family:var(--display);
     font-weight:600; font-size:15px; letter-spacing:0;
     min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .epline .aired{ color:var(--faint); font-family:var(--mono); font-size:10px;
+    letter-spacing:.04em; white-space:nowrap; flex:0 0 auto; }
+  .epline .aired:empty{ display:none; }
   /* live status, right-aligned on the EP line (replaces the old bottom-list badge) */
   .epline .epstatus{ margin-left:auto; padding-left:9px; white-space:nowrap; font-size:10px;
     letter-spacing:.06em; font-weight:700; align-self:center; }
   .epline .epstatus.watching{ color:var(--amber); }
   .epline .epstatus.waiting{ color:var(--faint); }
   .syn{ font-size:13.5px; color:var(--dim); margin:0 0 18px; line-height:1.55; }
+
+  /* Floating cube — back to cube navigation. Small isometric cube, bottom-right. */
+  .cubeback{ position:fixed; right:16px; bottom:16px; z-index:60;
+    width:46px; height:46px; border:0; background:rgba(10,12,16,.55);
+    border-radius:13px; backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
+    box-shadow:0 4px 14px rgba(0,0,0,.4); cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+    perspective:120px; -webkit-tap-highlight-color:transparent;
+    transition:transform .12s ease, background .12s ease; }
+  .cubeback:hover{ background:rgba(20,24,30,.7); }
+  .cubeback:active{ transform:scale(.9); }
+  .cb-cube{ position:relative; width:20px; height:20px; transform-style:preserve-3d;
+    transform:rotateX(-26deg) rotateY(-38deg); }
+  .cb-face{ position:absolute; width:20px; height:20px; box-sizing:border-box;
+    border:1.5px solid var(--amber); }
+  .cb-front{ transform:translateZ(10px); background:rgba(240,169,59,.14); }
+  .cb-top  { transform:rotateX(90deg) translateZ(10px); background:rgba(240,169,59,.26); }
+  .cb-right{ transform:rotateY(90deg) translateZ(10px); background:rgba(240,169,59,.05); }
 
   .block-label{ font-family:var(--mono); font-size:9.5px; letter-spacing:.16em;
     text-transform:uppercase; color:var(--faint); margin:0 0 10px; }
@@ -329,9 +350,6 @@
       <div class="herofoot">
         <h1 class="name" id="name">Loading…</h1>
         <div class="ymeta" id="ymeta"></div>
-        <span class="scorepill" id="scorePill" title="Tap to enter the @betterscreenscore value">
-          <span class="dot"></span><span class="v" id="scoreVal">—</span><small>Screen Score</small>
-        </span>
 
         <!-- episode progress: popcorn marks the current episode. tap the bar to force-advance (logs BP) -->
         <div class="barzone">
@@ -365,7 +383,7 @@
     </div>
 
     <div class="sheet">
-      <div class="epline"><span id="epNo">EP — / —</span><span class="sep">|</span><span class="ttl" id="epTtl"></span><span class="epstatus" id="epStatus"></span></div>
+      <div class="epline"><span id="epNo">S — EP — / —</span><span class="sep">|</span><span class="ttl" id="epTtl"></span><span class="aired" id="epAired"></span><span class="epstatus" id="epStatus"></span></div>
       <p class="syn" id="syn"></p>
 
       <div class="block-label">Your rank</div>
@@ -398,12 +416,21 @@
       <div class="swcancel" id="svcCancel">cancel</div>
     </div>
   </div>
+
+  <!-- Floating cube: back to cube navigation (replaces double-tap / pinch) -->
+  <button class="cubeback" id="cubeBack" aria-label="Back to cube">
+    <span class="cb-cube">
+      <span class="cb-face cb-top"></span>
+      <span class="cb-face cb-front"></span>
+      <span class="cb-face cb-right"></span>
+    </span>
+  </button>
 </div>
 
 <script>
 const NOW=new Date(); const DAY=864e5;
 let allEps=[], eps=[], watched=0, watchTs=[], watchDate={}, binged={}, ranks={}, notes={}, focus=0, cooled=false;
-let seasonStatus='', score='', curShowId=null, curShowName='', curService='', svcLaunchable=false;
+let seasonStatus='', curShowId=null, curShowName='', curService='', svcLaunchable=false;
 // Per-episode minute progress. epMin[i]=logged minutes, epDone[i]=watched,
 // epBp[i]=force-advanced (end stamp "BP"), startedAt[i]=on-device start ts.
 let epMin={}, epDone={}, epBp={}, startedAt={}, avgRuntime=45, minPreview=null, awaitingLog=false, pendingRestore=null;
@@ -454,7 +481,6 @@ function boot(show,list,isDefault){
   $('ymeta').innerHTML=[yr, svc?'<span class="svc-lit">'+svc+'</span>':'', g].filter(Boolean).join('<span class="sep">|</span>');
   applySvcState();   // re-apply the launch-button state to the new streamer span
 
-  score = '';                                    // tap the pill to enter the @betterscreenscore value
   avgRuntime = show.averageRuntime || show.runtime || 45;
   watched=Math.min(2,eps.filter(released).length);
   watchTs=[]; watchDate={}; binged={}; ranks={}; notes={}; cooled=false;
@@ -652,9 +678,6 @@ function paint(){
   // ----- season dots (display-only) -----
   renderSeasons();
 
-  // ----- score pill -----
-  $('scoreVal').textContent=score||'—';
-
   // ----- episode bar (popcorn marks the focused episode) -----
   $('segW').style.width=(watched/total*100)+'%';
   $('segA').style.left=(watched/total*100)+'%';
@@ -666,8 +689,9 @@ function paint(){
   paintMinute();
 
   const f=eps[focus]||{};
-  $('epNo').textContent=`EP ${focus+1} / ${total}`;
+  $('epNo').textContent=`S ${sNum(f)} EP ${focus+1} / ${total}`;
   $('epTtl').textContent=f.name||('Episode '+(focus+1));
+  $('epAired').textContent=f.airdate?fmt(f.airdate):'';
   $('syn').textContent=strip(f.summary)||'No synopsis available yet.';
 
   const rk=$('rank'); rk.innerHTML='';
@@ -797,14 +821,16 @@ function noteToPierre(){
 $('noteBtn').addEventListener('click', noteToPierre);
 $('cool').onclick=()=>{ cooled=true; paint(); };
 $('reset').onclick=()=>{
-  // Clear to zero so the binge sequence can be replayed fresh from real in-app taps.
-  watched=0; watchTs=[]; watchDate={}; binged={}; cooled=false;
+  // Full reset across ALL seasons: drop the saved per-episode detail too, so
+  // switching seasons later can't re-restore old progress, then reload season 1.
+  savedDetail=null;
+  watched=0; watchTs=[]; watchDate={}; binged={}; ranks={}; notes={}; cooled=false;
   epMin={}; epDone={}; epBp={}; startedAt={}; epPreApp={}; epSessions={}; sessionBase={}; minPreview=null; awaitingLog=false; watchingLive={};
-  eps=allEps.filter(e=>sNum(e)===1); if(!eps.length) eps=allEps;
+  const real=[...new Set(allEps.map(sNum))].filter(s=>s>=1);
+  const s1=real.length?Math.min(...real):1;
+  eps=allEps.filter(e=>sNum(e)===s1); if(!eps.length) eps=allEps;
   focus=0; paint();
 };
-$('scorePill').onclick=()=>{ const v=prompt('Screen Score from @betterscreenscore (e.g. 87):', score);
-  if(v!==null){ score=v.trim(); paint(); } };
 // Tap feedback: flip the button's colors and let them flip back.
 function flashBtn(el){ if(!el) return; el.classList.remove('flip'); void el.offsetWidth;
   el.classList.add('flip'); el.addEventListener('animationend',()=>el.classList.remove('flip'),{once:true}); }
@@ -820,10 +846,12 @@ $('finishEpBtn').onclick=()=>{ flashBtn($('finishEpBtn')); finishEpisode(); };
 // stops; CONTINUE re-arms it from where the offer left you.
 //
 // Walk `awayMin` of viewing forward from the focused episode's current position.
+// A long gap can finish the rest of a season AND cross into the next one, landing
+// you on S(N+1)E1 (or partway in) — not stalling at the season finale.
 function placeAwayTime(awayMin){
   if(!(awayMin>0) || !eps.length) return;
-  let i=focus, remaining=awayMin, pos=(epMin[i]||0);
-  while(i<eps.length){
+  let i=focus, remaining=awayMin, pos=(epMin[i]||0), guard=0;
+  while(remaining>0 && guard++ < 2000){
     const rt=runtimeOf(i), needed=Math.max(0, rt-pos);
     if(remaining>=needed){
       epMin[i]=rt; epDone[i]=true; epBp[i]=false; epPreApp[i]=false;
@@ -831,8 +859,14 @@ function placeAwayTime(awayMin){
       logSession(i, {minutes:Math.round(rt), finished:true, validated:false});  // offered completion
       emitProgress(i, true, false, Math.round(rt));
       remaining-=needed;
-      if(i>=eps.length-1){ break; }     // ran out of episodes this season → stop at the finale
-      i++; pos=0;
+      if(i < eps.length-1){ i++; pos=0; continue; }   // next episode, same season
+      // Season finale reached — cross into the next season if there is one.
+      const cur=sNum(eps[0]);
+      const later=[...new Set(allEps.map(sNum))].filter(s=>s>cur).sort((a,b)=>a-b);
+      if(!later.length) break;                          // last season — stop at the finale
+      switchToSeason(later[0]);                         // resets eps + per-episode state to S(N+1)
+      if(sNum(eps[0])===cur) break;                     // guard: season didn't actually change
+      i=0; pos=(epMin[0]||0);                           // continue the walk from S(N+1)E1
     } else {
       pos=Math.min(rt, pos+remaining); epMin[i]=pos; epPreApp[i]=false;
       logSession(i, {minutes:Math.round(pos), finished:false, validated:false});  // offered partial
@@ -883,7 +917,7 @@ $('bar').addEventListener('click',e=>{ e.stopPropagation(); bgo(e.clientX); });
 // "tap anywhere to log it": one tap outside the controls commits the staged minute.
 document.querySelector('.face').addEventListener('click',e=>{
   if(!awaitingLog) return;
-  if(e.target.closest('.minbar,.minhandle,.bar,.scorepill,.rank,.notebtn,.ctl,.wrow,.seasondots,.svc-lit')) return;
+  if(e.target.closest('.minbar,.minhandle,.bar,.rank,.notebtn,.ctl,.wrow,.seasondots,.svc-lit')) return;
   e.stopPropagation(); logMinute();
 }, true);
 
@@ -1012,43 +1046,12 @@ else if(window.parent!==window){
 }
 else showEmpty();
 
-// Double-tap the hero image area to return to cube
-let dblTapTime = 0;
-document.querySelector('.hero').addEventListener('click', (e) => {
-  if (window.parent === window) return;
-  if (e.target.closest('.facebar, .scorepill, .seasonsbar, .barzone, .herofoot')) return;
-  const now = Date.now();
-  if (now - dblTapTime < 350) {
-    window.parent.postMessage({type:'pangolin-back'}, '*');
-    dblTapTime = 0;
-  } else {
-    dblTapTime = now;
-  }
+// Back to cube navigation: a small floating cube button, bottom-right. This
+// replaces the old double-tap and pinch gestures on this face.
+const cubeBackBtn = document.getElementById('cubeBack');
+if (cubeBackBtn) cubeBackBtn.addEventListener('click', () => {
+  if (window.parent !== window) window.parent.postMessage({type:'pangolin-back'}, '*');
 });
-
-// Pinch-to-contract anywhere in the face returns to cube navigation
-let _pinchStart = 0, _pinchActive = false;
-document.querySelector('.face').addEventListener('touchstart', (e) => {
-  if (e.touches.length === 2) {
-    _pinchStart = Math.hypot(
-      e.touches[1].clientX - e.touches[0].clientX,
-      e.touches[1].clientY - e.touches[0].clientY
-    );
-    _pinchActive = true;
-  }
-}, { passive: true });
-document.querySelector('.face').addEventListener('touchmove', (e) => {
-  if (!_pinchActive || e.touches.length < 2 || window.parent === window) return;
-  const d = Math.hypot(
-    e.touches[1].clientX - e.touches[0].clientX,
-    e.touches[1].clientY - e.touches[0].clientY
-  );
-  if (d < _pinchStart * 0.72) {
-    _pinchActive = false;
-    window.parent.postMessage({type:'pangolin-back'}, '*');
-  }
-}, { passive: true });
-document.querySelector('.face').addEventListener('touchend', () => { _pinchActive = false; }, { passive: true });
 
 // ===================== Streamer guesser / picker =====================
 // Brand-coloured wordmark "logos" — no image assets, fully self-contained. `aka`
