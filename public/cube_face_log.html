@@ -65,7 +65,8 @@
   .pierre .chip.act{color:var(--muted);border-color:var(--line)}
   .pierre .chip.act.lit{color:var(--amber);border-color:var(--amber);box-shadow:0 0 6px rgba(233,162,60,.35)}
 
-  .scroll{flex:1;overflow-y:auto;overflow-x:hidden;padding:12px 15px;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+  .scroll{flex:1;overflow-y:auto;overflow-x:hidden;padding:12px 15px;scrollbar-width:thin;scrollbar-color:var(--line) transparent;
+    overscroll-behavior:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y}
   .scroll::-webkit-scrollbar{width:5px} .scroll::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   .grid.list{grid-template-columns:1fr;gap:12px}
@@ -92,6 +93,26 @@
     letter-spacing:.04em;color:var(--muted);background:transparent;border:1px solid var(--line);
     border-radius:8px;padding:6px 12px;cursor:pointer}
   .exp-row .ex-stop:active{color:#ff8a8a;border-color:#ff8a8a}
+  /* Selected-show expanded card: snaps to the top, poster left, two-line buttons. */
+  .exp-card{grid-column:1/-1;background:var(--base-2);border:1px solid var(--amber);border-radius:14px;
+    box-shadow:0 0 0 1px var(--amber),0 10px 26px -14px rgba(233,162,60,.7);padding:12px;
+    display:flex;flex-direction:column;gap:11px;cursor:pointer}
+  .exc-top{display:flex;gap:12px;align-items:flex-start}
+  .exc-poster{flex:0 0 84px;width:84px;height:84px;border-radius:10px;background-size:cover;
+    background-position:center top;background-color:#16100c}
+  .exc-info{min-width:0;display:flex;flex-direction:column;gap:5px}
+  .exc-title{font-family:var(--display);font-weight:700;font-size:17px;line-height:1.1;color:var(--text)}
+  .exc-meta{font-family:var(--mono);font-size:10px;letter-spacing:.05em;color:var(--muted)}
+  .exc-syn{font-size:11.5px;line-height:1.45;color:var(--muted);max-height:4.4em;overflow:hidden}
+  .exc-btns{display:flex;gap:10px}
+  .exc-btn{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;border:none;border-radius:11px;
+    padding:11px 8px;cursor:pointer;font-family:var(--display);font-weight:700;font-size:12.5px;line-height:1.05}
+  .exc-btn .ic{font-size:15px;line-height:1}
+  .exc-btn .lbl{text-align:left}
+  .exc-btn.watch{color:#1a130b;background:linear-gradient(135deg,#f2b457,#e89f3d);box-shadow:0 8px 20px -10px rgba(232,159,61,.85)}
+  .exc-btn.watch:active{transform:scale(.97)}
+  .exc-btn.stop{color:#e9b9b9;background:transparent;border:1px solid var(--line)}
+  .exc-btn.stop:active{color:#ff8a8a;border-color:#ff8a8a;transform:scale(.97)}
   .tile .poster,.pcell .poster{position:absolute;inset:0;background-size:cover;background-position:center top}
   .tile .scrim,.pcell .scrim{position:absolute;inset:0;background:linear-gradient(to top,rgba(10,7,5,.94) 0%,rgba(10,7,5,.55) 40%,rgba(10,7,5,.04) 72%)}
   .tile .body{position:absolute;left:0;right:0;bottom:0;padding:10px;display:flex;flex-direction:column;gap:7px}
@@ -389,33 +410,34 @@ function tileFor(s,asStopped){
     '<div class="body"><div class="title">'+titleHTML(s.name)+"</div>"+bars+footer+"</div></div>";
 }
 
-// CURRENT-tab action panel that opens next to the tapped tile (Watch · synopsis ·
-// stop watching). It is NOT a tile — it pairs with the real tile inside .exp-row.
-function panelFor(s){
+// Selected-show expanded card (CURRENT + COMPLETED). Snaps to the top of the grid
+// and expands in place — poster left, info right, two two-line action buttons.
+function expandedCard(s, mode){
   const syn = s.summary ? esc(s.summary) : 'No synopsis yet.';
-  return '<div class="ex-panel">'+
-      '<div class="ex-title">'+titleHTML(s.name)+'</div>'+
-      '<button class="ex-watch" data-act="watch" data-id="'+s.id+'">&#9654; Watch</button>'+
-      '<div class="ex-syn">'+syn+'</div>'+
-      '<button class="ex-stop" data-act="stop" data-id="'+s.id+'">&#10005; stop watching</button>'+
-    '</div>';
+  const pos = s.lastWatched ? ('S'+s.lastWatched.season+' E'+s.lastWatched.number) : '';
+  let metaTxt;
+  if(mode==='completed'){ metaTxt='&#10003; done &middot; '+(s.total||0)+' episodes'; }
+  else { const left=s.released-s.watched; metaTxt=(pos?pos+' &middot; ':'')+(left>0?left+' left':'caught up'); }
+  const poster = s.poster ? 'style="background-image:url('+s.poster+')"'
+                          : 'style="background:linear-gradient(150deg,#2a201a,#16100c)"';
+  const btn=(cls,act,ic,l1,l2)=>'<button class="exc-btn '+cls+'" data-act="'+act+'" data-id="'+s.id+'">'+
+    '<span class="ic">'+ic+'</span><span class="lbl">'+l1+'<br>'+l2+'</span></button>';
+  const btns = mode==='completed'
+    ? btn('watch','tryagain','&#9654;&#65039;','TRY','AGAIN')+btn('stop','remove','&#10060;','REMOVE','PERMANENTLY')
+    : btn('watch','watch','&#9654;&#65039;','WATCH','NEXT')+btn('stop','stop','&#128721;','STOP','WATCHING');
+  return '<div class="exp-card" data-id="'+s.id+'">'+
+      '<div class="exc-top"><div class="exc-poster" '+poster+'></div>'+
+        '<div class="exc-info"><div class="exc-title">'+titleHTML(s.name)+'</div>'+
+          '<div class="exc-meta">'+metaTxt+'</div><div class="exc-syn">'+syn+'</div></div></div>'+
+      '<div class="exc-btns">'+btns+'</div></div>';
 }
-// Build the CURRENT-tab grid HTML with the selected show paired to its panel in
-// its own full-width row, keeping the tile on its original column side. The row's
-// other tile (if any) is pushed below so nothing leaves a gap.
-function currentGridHTML(list){
-  const selIdx = selectedId ? list.findIndex(s=>s.id===selectedId) : -1;
-  if(selIdx<0){ selectedId=null; return list.map(s=>tileFor(s,false)).join(""); }
-  const leftIdx = selIdx - (selIdx%2);          // index of the left tile of this row
-  const rightIdx = leftIdx + 1;
-  const onLeft = (selIdx===leftIdx);            // tapped tile sits in the left column
-  const tile = tileFor(list[selIdx],false), panel = panelFor(list[selIdx]);
-  let html="";
-  for(let i=0;i<leftIdx;i++) html+=tileFor(list[i],false);     // full rows above, untouched
-  html += '<div class="exp-row">'+(onLeft ? tile+panel : panel+tile)+'</div>';
-  const sibIdx = onLeft ? rightIdx : leftIdx;                  // the row's other tile, pushed down
-  if(sibIdx<list.length && sibIdx!==selIdx) html+=tileFor(list[sibIdx],false);
-  for(let i=rightIdx+1;i<list.length;i++) html+=tileFor(list[i],false);
+// Grid for a selectable tab: the selected show becomes a full-width expanded card
+// at the top, the rest follow as tiles.
+function gridWithSelection(list, mode){
+  const sel = selectedId ? list.find(s=>s.id===selectedId) : null;
+  if(!sel){ if(selectedId) selectedId=null; return list.map(s=>tileFor(s,false)).join(""); }
+  let html = expandedCard(sel, mode);
+  list.forEach(s=>{ if(s.id!==sel.id) html+=tileFor(s,false); });
   return html;
 }
 
@@ -444,44 +466,44 @@ function render(){
   counts();
   publishLog();
   const grid=document.getElementById("grid");
-  if(activeTab==="comfort"){
-    // Comfort is being reworked: show an under-construction notice and do NOT
-    // route to the Episode face (the rewatch-plan handoff isn't wired yet).
+  if(activeTab==="comfort" || activeTab==="returning"){
+    // Comfort + Returning are being reworked: under-construction notice for now.
     grid.classList.remove("list");
     grid.innerHTML='<div class="state">&#128679; under construction</div>';
     return;
   }
   grid.classList.remove("list");
   if(activeTab==="completed"){
-    const done=LOG.filter(s=>bucketOf(s)==="completed"&&!s.stopped),stopped=LOG.filter(s=>s.stopped);
-    let html=done.map(s=>tileFor(s,false)).join("");
-    if(stopped.length){html+='<div class="divider">stopped watching</div>';html+=stopped.map(s=>tileFor(s,true)).join("");}
-    grid.innerHTML=(done.length||stopped.length)?html:'<div class="state">nothing finished yet</div>';
+    const list=LOG.filter(s=>bucketOf(s)==="completed");
+    grid.innerHTML=list.length?gridWithSelection(list,"completed"):'<div class="state">nothing finished yet</div>';
   }else{
     const list=LOG.filter(s=>bucketOf(s)===activeTab);
-    if(activeTab==="current") list.sort((a,b)=>{
+    list.sort((a,b)=>{
       const an=a.isNew?0:1, bn=b.isNew?0:1;
       if(an!==bn) return an-bn;                                 // NEW shows first
       if(an===0) return (a.addedSeq||0)-(b.addedSeq||0);        // NEW: order requested
       return new Date(b.lastDate)-new Date(a.lastDate);         // rest: recently active
     });
-    grid.innerHTML=list.length?currentGridHTML(list):'<div class="state">nothing here yet</div>';
+    grid.innerHTML=list.length?gridWithSelection(list,"current"):'<div class="state">nothing here yet</div>';
   }
-  grid.querySelectorAll(".tryagain").forEach(b=>b.addEventListener("click",ev=>{ev.stopPropagation();
-    const s=LOG.find(x=>x.id===b.dataset.id); if(s){s.stopped=false;render();renderPierre();}}));
+  // Tiles: CURRENT + COMPLETED tap to expand in place (other tabs handled above).
   grid.querySelectorAll(".tile").forEach(t=>t.addEventListener("click",()=>{
-    if(t.classList.contains("stopped"))return;
     const s=LOG.find(x=>x.id===t.dataset.id); if(!s||s.failed)return;
-    if(activeTab==="current"){ selectCurrent(s.id); return; }                       // tap opens (or closes) the panel beside it
-    const fromStart = bucketOf(s)==="completed";                                    // completed restarts at S01E01
-    if(s.isNew){ s.isNew=false; s.lastDate=new Date().toISOString().slice(0,10); }  // watched it: drops the NEW flag
-    cube.rotateTo("episodes",episodesPayload(s,fromStart)); render(); renderPierre();}));
-  // Action panel controls: Watch routes to the episode face, Stop dusts the show.
-  grid.querySelectorAll(".exp-row [data-act]").forEach(el=>el.addEventListener("click",ev=>{
+    selectCurrent(s.id);
+  }));
+  // Tap the expanded card (outside its buttons) to collapse it.
+  grid.querySelectorAll(".exp-card").forEach(c=>c.addEventListener("click",ev=>{
+    if(ev.target.closest("[data-act]"))return;
+    selectCurrent(c.dataset.id);
+  }));
+  // Expanded-card actions: Watch next / Stop watching (CURRENT) · Try again / Remove (COMPLETED).
+  grid.querySelectorAll(".exp-card [data-act]").forEach(el=>el.addEventListener("click",ev=>{
     ev.stopPropagation();
-    const act=el.dataset.act, id=el.dataset.id; const s=LOG.find(x=>x.id===id); if(!s)return;
+    const act=el.dataset.act, id=el.dataset.id, s=LOG.find(x=>x.id===id); if(!s)return;
     if(act==="watch"){ if(s.isNew){s.isNew=false;s.lastDate=new Date().toISOString().slice(0,10);} cube.rotateTo("episodes",episodesPayload(s)); render(); renderPierre(); }
     else if(act==="stop"){ selectedId=null; setTimeout(()=>stopShow(id),60); }
+    else if(act==="tryagain"){ tryAgain(id); }
+    else if(act==="remove"){ removePermanently(id); }
   }));
 }
 
@@ -490,6 +512,7 @@ function render(){
 function selectCurrent(id){
   selectedId = (selectedId===id) ? null : id;
   render();
+  if(selectedId){ const sc=document.querySelector(".scroll"); if(sc) sc.scrollTop=0; }   // snap the expanded card to the top
 }
 
 /* Cross-face contract. In production the cube shell provides window.cube and
@@ -817,6 +840,27 @@ function stopShow(id){
   s.stopped=true; persistShow(s); setTimeout(()=>{render();renderPierre();},640);
 }
 
+const OWNER_EMAIL='edward.m.willett@gmail.com';
+// COMPLETED → "try again": reset progress and send the show back to CURRENT.
+function tryAgain(id){
+  const s=LOG.find(x=>x.id===id); if(!s)return;
+  s.forceCompleted=false; s.stopped=false; s.watched=0; s.lastWatched=null;
+  s.lastMinute=0; s.startedAt=null; s.epDetail={}; s.isNew=false;
+  s.lastDate=new Date().toISOString().slice(0,10);
+  selectedId=null; persistShow(s); switchTab("current"); renderPierre();
+}
+// COMPLETED → "remove permanently": the owner account gets a real delete (show +
+// all its data); everyone else just hides it locally for the session.
+function removePermanently(id){
+  const s=LOG.find(x=>x.id===id); if(!s)return;
+  const i=LOG.indexOf(s); if(i>=0) LOG.splice(i,1);
+  selectedId=null;
+  const email=acct();
+  if(email && email.toLowerCase()===OWNER_EMAIL && s.tvmazeId)
+    fetch(API+"/profile/"+encodeURIComponent(email)+"/watch/"+encodeURIComponent(s.tvmazeId),{method:"DELETE"}).catch(()=>{});
+  render(); renderPierre();
+}
+
 function switchTab(name){activeTab=name; selectedId=null;
   document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("on",x.dataset.tab===name));render();}
 document.querySelectorAll(".tab").forEach(t=>t.addEventListener("click",()=>switchTab(t.dataset.tab)));
@@ -870,6 +914,14 @@ if(window.parent!==window){
   face.style.width="100%"; face.style.height="100%"; face.style.maxWidth="none";
   face.style.aspectRatio="unset"; face.style.borderRadius="0"; face.style.border="0";
   // Back navigation is the floating cube button only (double-tap / pinch removed).
+  // Keep native momentum scrolling responsive: nudge .scroll a hair off its top/
+  // bottom edge as each drag begins so the first up-swipe isn't eaten by overscroll
+  // chaining ("had to scroll down a little first").
+  const _sc=document.querySelector(".scroll");
+  if(_sc) document.addEventListener("touchstart",()=>{
+    const max=_sc.scrollHeight-_sc.clientHeight; if(max<=0) return;
+    if(_sc.scrollTop<=0) _sc.scrollTop=1; else if(_sc.scrollTop>=max) _sc.scrollTop=max-1;
+  },{passive:true});
 }
 // Floating cube → back to cube navigation (delegated so DOM order doesn't matter).
 document.addEventListener('click', function(e){
