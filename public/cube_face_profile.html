@@ -445,12 +445,15 @@
     });
     cacheSelectedDevice();
   }
-  // Mirror the selected device's short name into localStorage so the cube shell
-  // can label its play button ("📺 Fire Cube · Peacock") without re-fetching the
-  // profile. The shell hears the write as a storage event and re-renders the chip.
+  // Mirror the selected device's nickname into localStorage so the cube shell can
+  // label its play button ("📺 Living Room · Peacock") without re-fetching the
+  // profile. Uses the member's nickname (location); falls back to the device type
+  // only when unnamed. The shell hears the write as a storage event and re-renders.
   function cacheSelectedDevice(){
     const sel=deviceCards().find(dv=>isSelected(dv));
-    const label=(sel && !sel.isPhone) ? (sel.type||'Device').replace(/^Amazon\s+/,'') : 'This Phone';
+    const label=(sel && !sel.isPhone)
+      ? (sel.location || (sel.type||'Device').replace(/^Amazon\s+/,''))
+      : 'This Phone';
     try{ localStorage.setItem('pg_device', label); }catch(_){}
   }
   // SHOWS / EPISODES / MINUTES from the member's watch data (MVP only; DEMO keeps
