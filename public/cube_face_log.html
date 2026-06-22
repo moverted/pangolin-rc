@@ -770,7 +770,11 @@ const PIERRE_IMG=new Image(); PIERRE_IMG.src="pierre.png";
 function avatarURL(){ try{ return localStorage.getItem("pg_avatar")||""; }catch(_){ return ""; } }
 function userInitial(){ try{ return (localStorage.getItem("pg_username")||"").trim().charAt(0).toUpperCase(); }catch(_){ return ""; } }
 function loadImg(src,cors){ return new Promise(res=>{ if(!src) return res(null);
-  const im=new Image(); if(cors) im.crossOrigin="anonymous";
+  const im=new Image();
+  if(cors){ im.crossOrigin="anonymous";
+    // Distinct cache key from the plain CSS-background load of the same poster —
+    // otherwise the browser serves the cached non-CORS copy and taints the canvas.
+    src += (src.includes('?')?'&':'?') + '_cors=1'; }
   im.onload=()=>res(im); im.onerror=()=>res(null); im.src=src; }); }
 // rounded-rect path helper for the poster card
 function rrect(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y);

@@ -128,6 +128,15 @@ async function showMeta(id){
   if(id == null) return null;
   if(_meta[id] !== undefined) return _meta[id];
   try{
+    // A film: poster comes from TMDB (our proxy), not TVmaze.
+    if(String(id).startsWith('tmdb:')){
+      const rid = String(id).replace(/^tmdb:/, '');
+      const r = await fetch(API + '/tmdb/movie/' + encodeURIComponent(rid));
+      if(!r.ok){ _meta[id] = null; return null; }
+      const d = await r.json();
+      _meta[id] = { img:(d.movie && d.movie.poster) || '', where:'' };
+      return _meta[id];
+    }
     const r = await fetch('https://api.tvmaze.com/shows/' + encodeURIComponent(id));
     if(!r.ok){ _meta[id] = null; return null; }
     const d = await r.json();
