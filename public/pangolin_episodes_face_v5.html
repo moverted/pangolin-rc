@@ -960,12 +960,28 @@ $('ymeta').addEventListener('click',(ev)=>{
 
 // Deep-link launch: load the launched title at the episode that was playing so
 // the minute bar can guess your position from elapsed time. Cleared once you log.
-function launchShow(L){
+// Pierre's "Did you finish …?" choices set one of:
+//   L.autoFinish — "Log it": finish the launched episode outright and advance.
+//   L.partial    — "Partial Log": land on the scrubber staged at the elapsed
+//                  guess (capped below runtime) so the member sets the real minute.
+async function launchShow(L){
   if(!L || !L.tvmazeId) return;
-  pendingRestore = { minute:0, startedAt:L.startedAt, episodes:{} };
+  // autoFinish / partial both suppress the away-time walk (placeAwayTime) — it
+  // would over-fill a long gap to "done" and advance, which neither wants.
+  const suppressWalk = L.autoFinish || L.partial;
+  pendingRestore = { minute:0, startedAt:suppressWalk ? null : L.startedAt, episodes:{} };
   // Resume to the exact episode that was launched (the one you tapped play on).
   const pat = (L.season && L.number) ? {kind:'at', season:L.season, number:L.number} : {kind:'beginning'};
-  loadShowWithPattern(L.tvmazeId, pat);
+  await loadShowWithPattern(L.tvmazeId, pat);
+  if(L.autoFinish){ finishEpisode(); return; }   // full-finish the launched episode + advance focus
+  if(L.partial){
+    // Stage the elapsed-time guess on the scrubber, capped below runtime so it
+    // reads as a partial. "tap anywhere to log it" (awaitingLog) commits it.
+    const rt=runtimeOf(focus);
+    const guess=Math.max(0, Math.min(rt-1, Math.round((Date.now()-(L.startedAt||Date.now()))/60000)));
+    if(!startedAt[focus]) startedAt[focus]=L.startedAt||Date.now();
+    minPreview=guess; awaitingLog=true; paintMinute();
+  }
 }
 function showEmpty(){ const e=$('emptyFace'); if(e) e.classList.add('show'); reportCurrent(); }
 function hideEmpty(){ const e=$('emptyFace'); if(e) e.classList.remove('show'); }
