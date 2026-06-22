@@ -11,6 +11,7 @@ import { remoteRoutes }     from './handlers/remote';
 import { pierreRoutes }     from './handlers/pierre';
 import { profileRoutes }    from './handlers/profile';
 import { streamerRoutes }   from './handlers/streamer';
+import { tmdbRoutes }       from './handlers/tmdb';
 import { processQueue }     from './queue';
 
 export { ResourceCoordinator } from './do/resource-coordinator';
@@ -29,6 +30,7 @@ app.route('/remote',      remoteRoutes);
 app.route('/pierre',      pierreRoutes);
 app.route('/profile',     profileRoutes);
 app.route('/streamer',    streamerRoutes);
+app.route('/tmdb',        tmdbRoutes);
 
 app.notFound((c) => c.json({ error: 'Not found' }, 404));
 app.onError((err, c) => {

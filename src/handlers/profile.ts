@@ -191,7 +191,7 @@ profileRoutes.get('/:email/devices', async (c) => {
 profileRoutes.get('/:email/watch', async (c) => {
   const email = c.req.param('email').toLowerCase();
   const rows = await c.env.DB
-    .prepare(`SELECT show_id, show_name, status, watched, last_season, last_number,
+    .prepare(`SELECT show_id, show_name, kind, status, watched, last_season, last_number,
                      last_minute, started_at, episodes, updated_at
               FROM watch WHERE user_email = ? ORDER BY updated_at DESC`)
     .bind(email).all();
@@ -211,6 +211,7 @@ profileRoutes.post('/:email/watch', async (c) => {
   const show_id = str(body.show_id, 80);
   if (!show_id) return c.json({ error: 'show_id required' }, 400);
   const show_name = str(body.show_name, 200) || null;
+  const kind = str(body.kind, 20) === 'movie' ? 'movie' : 'show';
   const status = str(body.status, 40) || null;
   const watched = int(body.watched, 0) ?? 0;
   const last_season = int(body.last_season);
@@ -221,15 +222,15 @@ profileRoutes.post('/:email/watch', async (c) => {
     : (typeof body.episodes === 'string' ? body.episodes : JSON.stringify(body.episodes)).slice(0, 100000);
   const now = Date.now();
   await c.env.DB.prepare(
-    `INSERT INTO watch (user_email, show_id, show_name, status, watched, last_season, last_number,
+    `INSERT INTO watch (user_email, show_id, show_name, kind, status, watched, last_season, last_number,
                         last_minute, started_at, episodes, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(user_email, show_id) DO UPDATE SET
-       show_name=excluded.show_name, status=excluded.status, watched=excluded.watched,
+       show_name=excluded.show_name, kind=excluded.kind, status=excluded.status, watched=excluded.watched,
        last_season=excluded.last_season, last_number=excluded.last_number,
        last_minute=excluded.last_minute, started_at=excluded.started_at,
        episodes=excluded.episodes, updated_at=excluded.updated_at`
-  ).bind(email, show_id, show_name, status, watched, last_season, last_number,
+  ).bind(email, show_id, show_name, kind, status, watched, last_season, last_number,
          last_minute, started_at, episodes, now).run();
   return c.json({ ok: true });
 });
@@ -299,7 +300,7 @@ profileRoutes.get('/:email/feed', async (c) => {
   const actors = [email, ...followees];
   const placeholders = actors.map(() => '?').join(',');
   const rows = await c.env.DB.prepare(
-    `SELECT w.user_email, w.show_id, w.show_name, w.status, w.last_season, w.last_number, w.updated_at, u.username
+    `SELECT w.user_email, w.show_id, w.show_name, w.kind, w.status, w.last_season, w.last_number, w.updated_at, u.username
        FROM watch w LEFT JOIN users u ON u.email = w.user_email
       WHERE w.user_email IN (${placeholders})
       ORDER BY w.updated_at DESC LIMIT 40`).bind(...actors).all();
@@ -307,7 +308,7 @@ profileRoutes.get('/:email/feed', async (c) => {
     actor_email: r.user_email,
     actor: r.username || null,
     relationship: r.user_email === email ? 'self' : (back.has(r.user_email) ? 'friend' : 'following'),
-    show_id: r.show_id, show_name: r.show_name, status: r.status,
+    show_id: r.show_id, show_name: r.show_name, kind: r.kind || 'show', status: r.status,
     last_season: r.last_season, last_number: r.last_number, updated_at: r.updated_at,
   }));
   return c.json({ feed });

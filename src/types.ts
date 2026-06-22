@@ -88,6 +88,7 @@ export interface Env {
   ACCESS_SECRET:  string;
   ANTHROPIC_API_KEY: string; // secret — backs the Pierre chat proxy (SEAM:processing)
   TURNSTILE_SECRET_KEY?: string; // secret — bot gate on the Pierre chat (optional until set)
+  TMDB_API_KEY?: string; // secret — backs the TMDB movie search/detail proxy (optional until set)
   PROCESS_QUEUE:  Queue<ProcessingJob>;
   EVENTS_QUEUE:   Queue<unknown>;
 }

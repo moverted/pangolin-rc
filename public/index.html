@@ -451,20 +451,24 @@ function cubeRotateTo(face, payload) {
   if (fi === undefined) return;
   rotateToFace(fi);
   payload = payload || {};
-  // A show is being handed to the Watch face → it won't be empty; suppress the bounce.
-  if (face === 'episodes' && payload.show) episodesEmpty = false;
+  // A show (or film) is being handed to the Watch face → it won't be empty; suppress the bounce.
+  if (face === 'episodes' && (payload.show || payload.movie)) episodesEmpty = false;
   if (face === 'pierre' && payload.intent === 'add') payload = { ...payload, history: viewingStore };
   const cfg = FACE_OVERLAYS[fi];
   if (cfg && cfg.frame && cfg.frame.contentWindow)
     cfg.frame.contentWindow.postMessage({ type: 'cube:payload', face, payload }, '*');
   if (face === 'episodes' && payload.addToLog && payload.show) addToLogFace(payload.show, payload.pattern);
+  if (face === 'episodes' && payload.addToLog && payload.movie) {
+    const m = payload.movie;
+    addToLogFace({ id: 'tmdb:' + String(m.id).replace(/^tmdb:/, ''), name: m.title || m.name, kind: 'movie', poster: m.poster || null }, payload.pattern);
+  }
 }
 window.cubeRotateTo = cubeRotateTo;
 
 function addToLogFace(show, pattern) {
   const logCfg = FACE_OVERLAYS[FACE_INDEX.log];
   if (logCfg && logCfg.frame && logCfg.frame.contentWindow)
-    logCfg.frame.contentWindow.postMessage({ type: 'cube:payload', face: 'log', payload: { addShow: { id: show.id, name: show.name }, pattern } }, '*');
+    logCfg.frame.contentWindow.postMessage({ type: 'cube:payload', face: 'log', payload: { addShow: { id: show.id, name: show.name, kind: show.kind || 'show', poster: show.poster || null }, pattern } }, '*');
 }
 
 // ─── pointer events ───────────────────────────────────────────────────────
@@ -1070,7 +1074,7 @@ window.addEventListener('message', (e) => {
   }
   // Episode loaded a show → make sure the Log is tracking it too (Log dedupes).
   if (e.data?.type === 'episode:track' && e.data.tvmazeId)
-    addToLogFace({ id: e.data.tvmazeId, name: e.data.name });
+    addToLogFace({ id: e.data.tvmazeId, name: e.data.name, kind: e.data.kind || 'show', poster: e.data.poster || null });
   // Tapping the lit streamer name on the Episode face launches it (same as play).
   if (e.data?.type === 'episode:launch') launchCurrent();
   // Episode reported in-episode progress (minutes / done / BP): forward to the

@@ -221,7 +221,7 @@
     <div class="label">WATCH</div>
     <div class="headright">
       <div class="savings" id="savingsBtn"><div class="amt" id="savings">$0</div><div class="cap">SAVED IN PROGRAM</div></div>
-      <button class="addbtn" id="addBtn" aria-label="Add a show">+ Show</button>
+      <button class="addbtn" id="addBtn" aria-label="Add a show or movie">+ Show/Movie</button>
     </div>
   </div>
 
@@ -360,7 +360,8 @@ function renderPierre(){
   if(pierreQ==="last"){
     const s=Pierre.lastEpisodeWatched(); if(!s){el.innerHTML='<span class="q">nothing logged yet</span>';return;}
     const e=s.lastWatched;
-    el.innerHTML='<span class="q">Last:</span> <b>'+esc(s.name)+"</b> S"+e.season+" E"+e.number+' <span class="q">&middot; '+relDate(e.at)+"</span>";
+    const where = s.kind==='movie' ? ' <span class="q">&middot; film</span>' : (" S"+e.season+" E"+e.number);
+    el.innerHTML='<span class="q">Last:</span> <b>'+esc(s.name)+"</b>"+where+' <span class="q">&middot; '+relDate(e.at)+"</span>";
   }else{
     const list=Pierre.currentlyWatching(); if(!list.length){el.innerHTML='<span class="q">all caught up</span>';return;}
     const names=list.slice(0,2).map(s=>"<b>"+esc(s.name)+"</b>").join(", ");
@@ -388,6 +389,10 @@ function returnLine(s){const d=daysTo(s.returnDate);
   return '<div class="ret"><span>returns '+fmtDate(s.returnDate)+'</span><span>'+d+'d</span></div>';}
 function metaFor(s){
   if(s.failed)return '<span>data unavailable</span>';
+  if(s.kind==='movie'){
+    if(bucketOf(s)==="completed")return '<span class="done">&#10003; watched</span><span>film</span>';
+    return "<span>&#127909; film</span><span>"+(s.lastMinute>0?'in progress':'not started')+"</span>";
+  }
   if(bucketOf(s)==="completed")return '<span class="done">&#10003; done</span><span>'+s.total+'ep</span>';
   const left=s.released-s.watched,pos=s.lastWatched?"S"+s.lastWatched.season+" E"+s.lastWatched.number:"";
   return "<span>"+pos+"</span><span>"+(left>0?left+" left":"caught up")+"</span>";
@@ -414,9 +419,11 @@ function tileFor(s,asStopped){
 // and expands in place — poster left, info right, two two-line action buttons.
 function expandedCard(s, mode){
   const syn = s.summary ? esc(s.summary) : 'No synopsis yet.';
-  const pos = s.lastWatched ? ('S'+s.lastWatched.season+' E'+s.lastWatched.number) : '';
+  const isMovie = s.kind==='movie';
+  const pos = isMovie ? 'Film' : (s.lastWatched ? ('S'+s.lastWatched.season+' E'+s.lastWatched.number) : '');
   let metaTxt;
-  if(mode==='completed'){ metaTxt='&#10003; done &middot; '+(s.total||0)+' episodes'; }
+  if(mode==='completed'){ metaTxt = isMovie ? '&#10003; watched &middot; film' : ('&#10003; done &middot; '+(s.total||0)+' episodes'); }
+  else if(isMovie){ metaTxt = '&#127909; film &middot; '+(s.lastMinute>0?'in progress':'not started'); }
   else { const left=s.released-s.watched; metaTxt=(pos?pos+' &middot; ':'')+(left>0?left+' left':'caught up'); }
   const poster = s.poster ? 'style="background-image:url('+s.poster+')"'
                           : 'style="background:linear-gradient(150deg,#2a201a,#16100c)"';
@@ -424,7 +431,7 @@ function expandedCard(s, mode){
     '<span class="ic">'+ic+'</span><span class="lbl">'+l1+'<br>'+l2+'</span></button>';
   const btns = mode==='completed'
     ? btn('watch','tryagain','&#9654;&#65039;','TRY','AGAIN')+btn('stop','remove','&#10060;','REMOVE','PERMANENTLY')
-    : btn('watch','watch','&#9654;&#65039;','WATCH','NEXT')+btn('stop','stop','&#128721;','STOP','WATCHING');
+    : btn('watch','watch','&#9654;&#65039;',s.kind==='movie'?'WATCH':'WATCH',s.kind==='movie'?'FILM':'NEXT')+btn('stop','stop','&#128721;','STOP','WATCHING');
   return '<div class="exp-card" data-id="'+s.id+'">'+
       '<div class="exc-top"><div class="exc-poster" '+poster+'></div>'+
         '<div class="exc-info"><div class="exc-title">'+titleHTML(s.name)+'</div>'+
@@ -585,7 +592,7 @@ function publishLog(){
   // Watch face can resume the last thing watched when it opens.
   const last=Pierre.lastEpisodeWatched();
   window.parent.postMessage({type:"log:data", shows: LOG.map(s=>({
-    id:s.id, tvmazeId:s.tvmazeId||null, name:s.name, status:s.status,
+    id:s.id, tvmazeId:s.tvmazeId||null, kind:s.kind||'show', name:s.name, status:s.status,
     total:s.total, released:s.released, watched:s.watched, lastWatched:s.lastWatched,
     stopped:!!s.stopped, forceCompleted:!!s.forceCompleted, comfort:!!s.comfort,
     returnDate:s.returnDate||null, bucket:bucketOf(s)
@@ -599,7 +606,7 @@ function persistShow(s){
   fetch(API+"/profile/"+encodeURIComponent(email)+"/watch",{method:"POST",
     headers:{"Content-Type":"application/json"},
     body:JSON.stringify({
-      show_id:String(s.tvmazeId), show_name:s.name, status:bucketOf(s),
+      show_id:String(s.tvmazeId), show_name:s.name, kind:s.kind||'show', status:bucketOf(s),
       watched:s.watched||0,
       last_season:s.lastWatched?s.lastWatched.season:null,
       last_number:s.lastWatched?s.lastWatched.number:null,
@@ -610,6 +617,25 @@ function persistShow(s){
 
 // Rebuild a LOG record from a saved watch row + live TVMaze data.
 async function hydrateSaved(row){
+  // A FILM rehydrates from the row alone (no TVmaze); the "1-1" epDetail entry
+  // carries its watched/minute state back.
+  if(row.kind==='movie' || String(row.show_id).startsWith('tmdb:')){
+    const today=new Date(row.updated_at||Date.now()).toISOString().slice(0,10);
+    const watched=Math.min(row.watched||0,1);
+    // Poster isn't stored in the watch row — re-pull it from TMDB by id so the
+    // tile and detail card show the art on reload.
+    let poster=null;
+    try{ const rid=String(row.show_id).replace(/^tmdb:/,'');
+      const r=await fetch(API+"/tmdb/movie/"+encodeURIComponent(rid));
+      if(r.ok){ const d=await r.json(); poster=(d.movie&&d.movie.poster)||null; } }catch(_){}
+    return { id:"acct-"+row.show_id, tvmazeId:String(row.show_id), kind:'movie', q:row.show_name, name:row.show_name,
+      poster, platform:"", status:"Film", failed:false,
+      episodes:[{season:1,number:1,name:row.show_name}], total:1, released:1, watched,
+      lastWatched: watched>0?{season:1,number:1,title:row.show_name,at:today}:null,
+      lastDate:today, returnDate:null, comfort:false,
+      forceCompleted:row.status==="completed", stopped:row.status==="stopped", plan:null,
+      isNew:false, addedSeq:0, lastMinute:row.last_minute||0, startedAt:row.started_at||null, epDetail:row.episodes||{} };
+  }
   try{
     const r=await fetch("https://api.tvmaze.com/shows/"+row.show_id+"?embed=episodes"); if(!r.ok) throw 0;
     const sh=await r.json();
@@ -655,6 +681,12 @@ function applyProgress(pr){
 /* Selecting a show on Log loads it on Episodes at the user's position
    (resume to last watched if there is one, otherwise from the beginning). */
 function episodesPayload(s, fromStart){
+  // A FILM hands off as a movie payload so the Watch face loads it single-unit;
+  // its saved minute + the "1-1" epDetail restore where you were.
+  if(s.kind==='movie'){
+    return {movie:{id:String(s.tvmazeId).replace(/^tmdb:/,''), title:s.name, poster:s.poster||null},
+      pattern:{kind:"beginning"}, minute:s.lastMinute||0, startedAt:s.startedAt||null, episodes:s.epDetail||{}};
+  }
   const pat = (!fromStart && !s.comfort && s.lastWatched && s.watched>0)
     ? {kind:"resume", season:s.lastWatched.season, number:s.lastWatched.number}
     : {kind:"beginning"};
@@ -669,6 +701,16 @@ async function addToLog(show, pattern){
   const existing=LOG.find(s=>(s.tvmazeId&&s.tvmazeId===show.id)||(s.name&&s.name.toLowerCase()===norm));
   const today=new Date().toISOString().slice(0,10);
   if(existing){ if(existing.stopped)existing.stopped=false; existing.lastDate=today; render(); renderPierre(); persistShow(existing); return; }
+  // A FILM: no TVmaze, single unit. One synthetic episode carries it through the
+  // same progress/finish machinery as a show.
+  if(show.kind==='movie' || String(show.id).startsWith('tmdb:')){
+    const rec={ id:"add-"+show.id, tvmazeId:show.id, kind:'movie', q:show.name, name:show.name||"",
+      poster:show.poster||null, platform:"", status:"Film", failed:false,
+      episodes:[{season:1,number:1,name:show.name||""}], total:1, released:1, watched:0,
+      lastWatched:null, lastDate:today, returnDate:null, comfort:false, forceCompleted:false,
+      stopped:false, plan:null, isNew:true, addedSeq:++addSeq, lastMinute:0, startedAt:null, epDetail:{} };
+    LOG.unshift(rec); render(); renderPierre(); persistShow(rec); return;
+  }
   try{
     const r=await fetch("https://api.tvmaze.com/shows/"+show.id+"?embed=episodes"); if(!r.ok) throw 0;
     const sh=await r.json();
@@ -802,10 +844,13 @@ async function buildFinaleCard(title,posterUrl,platform){
   return c;
 }
 
-async function shareFinale(title,poster,platform){
+async function shareFinale(title,poster,platform,comment){
   let canvas; try{ if(document.fonts) await document.fonts.ready; }catch(_){}
   try{ canvas=await buildFinaleCard(title,poster,platform); }catch(_){ return; }
-  const text="I just finished watching "+title+" with Pierre! Have you seen it?";
+  const note=(comment||'').trim();
+  const text = note
+    ? '"'+note+'" — just finished '+title+' with Pierre. Have you seen it?'
+    : "I just finished watching "+title+" with Pierre! Have you seen it?";
   canvas.toBlob(async(blob)=>{ if(!blob) return;
     const file=new File([blob],"pangolin-finale.png",{type:"image/png"});
     if(navigator.canShare && navigator.canShare({files:[file]})){
@@ -831,7 +876,27 @@ function finishShow(id, land){
   s.forceCompleted=true;s.watched=s.total; persistShow(s);
   const tabEl=document.querySelector('.tab[data-tab="completed"]');tabEl.classList.add("pulse");setTimeout(()=>tabEl.classList.remove("pulse"),700);
   setTimeout(()=>{render();renderPierre();},780); setTimeout(()=>switchTab(land||"completed"),1300);
-  setTimeout(()=>shareFinale(s.name,s.poster,s.platform),900);   // after the popcorn: share the finale card
+  // After the popcorn: share the finale card. A FILM gets a skippable comment first
+  // (it rides along on the share); a series shares straight away as before.
+  if(s.kind==='movie')
+    setTimeout(()=>askFinaleComment(s.name, c=>shareFinale(s.name,s.poster,s.platform,c)),900);
+  else
+    setTimeout(()=>shareFinale(s.name,s.poster,s.platform),900);
+}
+
+// Skippable one-line comment before a movie's finale share. Resolves with the
+// typed text on Share, or '' on Skip / dismiss — either way the card still shares.
+function askFinaleComment(title, done){
+  const ov=document.getElementById('fcOverlay'); if(!ov){ done(''); return; }
+  const t=document.getElementById('fcTitle'), box=document.getElementById('fcText');
+  t.textContent='Finished '+title;
+  box.value='';
+  ov.classList.add('show'); setTimeout(()=>{ try{ box.focus(); }catch(_){} },60);
+  let settled=false;
+  const finish=(val)=>{ if(settled) return; settled=true; ov.classList.remove('show'); done(val); };
+  document.getElementById('fcShare').onclick=()=>finish(box.value||'');
+  document.getElementById('fcSkip').onclick=()=>finish('');
+  ov.onclick=e=>{ if(e.target===ov) finish(''); };   // tap the backdrop to skip
 }
 function stopShow(id){
   const tileEl=document.querySelector('.tile[data-id="'+id+'"]'),s=LOG.find(x=>x.id===id); if(!s)return;
@@ -937,5 +1002,36 @@ document.addEventListener('click', function(e){
       <span class="cb-face cb-top"></span><span class="cb-face cb-bottom"></span>
     </span>
   </button>
+
+  <!-- Movie finale: a skippable comment that rides along on the share card -->
+  <style>
+    #fcOverlay{ position:fixed; inset:0; z-index:60; display:none; align-items:center; justify-content:center;
+      background:rgba(8,5,2,.66); -webkit-backdrop-filter:blur(2px); backdrop-filter:blur(2px); padding:22px; }
+    #fcOverlay.show{ display:flex; }
+    #fcOverlay .fccard{ width:100%; max-width:320px; background:linear-gradient(165deg,#2a2017,#1a130c);
+      border:1px solid var(--line); border-radius:16px; padding:18px 16px 14px; box-shadow:0 18px 50px rgba(0,0,0,.5); }
+    #fcOverlay .fctitle{ font-family:var(--display,serif); font-weight:700; font-size:16px; color:var(--amber); margin-bottom:4px; }
+    #fcOverlay .fcsub{ font-family:var(--mono); font-size:10.5px; line-height:1.5; color:var(--muted); margin-bottom:11px; }
+    #fcOverlay .fctext{ width:100%; box-sizing:border-box; min-height:64px; resize:none; font-family:var(--body,sans-serif);
+      font-size:13.5px; color:var(--text); background:#120c07; border:1px solid var(--line); border-radius:10px; padding:9px 11px; }
+    #fcOverlay .fctext:focus{ outline:none; border-color:var(--amber); }
+    #fcOverlay .fcbtns{ display:flex; gap:9px; margin-top:12px; }
+    #fcOverlay .fcbtn{ flex:1; font-family:var(--mono); font-size:11px; font-weight:700; letter-spacing:.08em;
+      padding:10px; border-radius:10px; cursor:pointer; background:transparent; }
+    #fcOverlay .fcbtn.skip{ color:var(--muted); border:1px solid var(--line); }
+    #fcOverlay .fcbtn.share{ color:#1a1206; background:var(--amber); border:1px solid var(--amber); }
+    #fcOverlay .fcbtn:active{ transform:translateY(1px); }
+  </style>
+  <div class="fcoverlay" id="fcOverlay">
+    <div class="fccard">
+      <div class="fctitle" id="fcTitle">Finished the film</div>
+      <div class="fcsub">Say a word about it? It rides along on your share. Skip if you'd rather not.</div>
+      <textarea class="fctext" id="fcText" maxlength="180" placeholder="What did you make of it?"></textarea>
+      <div class="fcbtns">
+        <button class="fcbtn skip" id="fcSkip">Skip</button>
+        <button class="fcbtn share" id="fcShare">Share</button>
+      </div>
+    </div>
+  </div>
 </body>
 </html>

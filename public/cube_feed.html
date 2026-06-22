@@ -81,8 +81,17 @@ const _esc  = s => String(s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;
 const acct  = () => { try{ return localStorage.getItem('pg_user')||''; }catch(_){ return ''; } };
 const uname = () => { try{ return (localStorage.getItem('pg_username')||'').trim(); }catch(_){ return ''; } };
 function pad2(n){ n = parseInt(n,10); if(isNaN(n)) return ''; return (n<10?'0':'')+n; }
-function verbFor(status){
-  switch(String(status||'').toLowerCase()){
+function verbFor(status, kind){
+  const s = String(status||'').toLowerCase();
+  if(kind === 'movie'){
+    switch(s){
+      case 'completed': return 'watched';
+      case 'comfort':   return 'is rewatching';
+      case 'stopped':   return 'bailed on';
+      default:          return 'is watching';
+    }
+  }
+  switch(s){
     case 'completed': return 'finished';
     case 'comfort':   return 'is rewatching';
     case 'stopped':   return 'stopped';
@@ -142,9 +151,9 @@ async function loadFeed(){
     const me = uname() || 'You';
     const items = feed.map(row => ({
       who: row.relationship === 'self' ? me : (row.actor || String(row.actor_email||'').split('@')[0] || 'Someone'),
-      rel: row.relationship, verb: verbFor(row.status),
-      ep: (row.last_season && row.last_number) ? ('S' + pad2(row.last_season) + 'E' + pad2(row.last_number)) : '',
-      show: row.show_name || 'a show', date: fmtDate(row.updated_at), id: row.show_id
+      rel: row.relationship, verb: verbFor(row.status, row.kind),
+      ep: (row.kind !== 'movie' && row.last_season && row.last_number) ? ('S' + pad2(row.last_season) + 'E' + pad2(row.last_number)) : '',
+      show: row.show_name || (row.kind === 'movie' ? 'a film' : 'a show'), date: fmtDate(row.updated_at), id: row.show_id
     }));
     el.innerHTML = items.map(feedCard).join('');
     const cards = el.querySelectorAll('.card');

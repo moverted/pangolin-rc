@@ -162,6 +162,9 @@
   .sfbtn.start{ --accent:var(--amber); --flipfg:var(--amber-deep); border-color:var(--accent); color:var(--accent); }
   .sfbtn.logit{ --accent:var(--text);  --flipfg:#1a1206;          border-color:var(--accent); color:var(--accent); }
   .sfbtn.finish{ --accent:var(--green); --flipfg:#06140b;         border-color:var(--accent); color:var(--accent); }
+  /* Pierre-discuss: narrow, sits at the end of the logging row, jumps to a chat about this title */
+  .sfbtn.talk{ flex:0 0 auto; padding-left:15px; padding-right:15px; font-size:14px;
+    --accent:var(--amber); border-color:var(--accent); color:var(--accent); }
   /* tap feedback: flip the button to a filled state, then flip back */
   @keyframes sfflip{
     0%,100%{ background:rgba(0,0,0,.32); color:var(--accent); box-shadow:none; }
@@ -292,6 +295,8 @@
     text-transform:uppercase; color:var(--faint); }
   .svccorner .svclogo{ font-size:11px; transition:transform .12s, box-shadow .12s; }
   .svccorner:active .svclogo{ transform:scale(.94); }
+  .svccorner .svcpick{ font-family:var(--mono); font-size:10px; font-weight:700; letter-spacing:.06em;
+    color:var(--amber); border:1px dashed var(--amber); border-radius:999px; padding:2px 9px; }
   .svccorner.holding .svclogo{ box-shadow:0 0 0 2px var(--amber), 0 1px 7px rgba(0,0,0,.5);
     transform:scale(1.04); }
 
@@ -383,6 +388,7 @@
             <button class="sfbtn start" id="startEpBtn">START</button>
             <button class="sfbtn logit" id="logItBtn">LOG PARTIAL</button>
             <button class="sfbtn finish" id="finishEpBtn">FINISH</button>
+            <button class="sfbtn talk" id="talkBtn" aria-label="Talk to Pierre about this">&#128172;</button>
           </div>
         </div>
       </div>
@@ -440,6 +446,10 @@
 const NOW=new Date(); const DAY=864e5;
 let allEps=[], eps=[], watched=0, watchTs=[], watchDate={}, binged={}, ranks={}, notes={}, focus=0, cooled=false;
 let seasonStatus='', curShowId=null, curShowName='', curService='', svcLaunchable=false;
+// A film loads as a one-episode "show" so all the minute-bar / start-finish /
+// logging machinery works unchanged; isMovie just hides the season/episode chrome
+// and relabels. curShowId is then 'tmdb:<id>' and progress carries kind='movie'.
+let isMovie=false;
 // Per-episode minute progress. epMin[i]=logged minutes, epDone[i]=watched,
 // epBp[i]=force-advanced (end stamp "BP"), startedAt[i]=on-device start ts.
 let epMin={}, epDone={}, epBp={}, startedAt={}, avgRuntime=45, minPreview=null, awaitingLog=false, pendingRestore=null;
@@ -463,7 +473,7 @@ if(!DEMO){ const d=document.getElementById('epDots'); if(d) d.style.display='non
 
 const $=id=>document.getElementById(id);
 const strip=s=>{const d=document.createElement('div');d.innerHTML=s||'';return (d.textContent||'').trim();};
-const fmt=d=>d?new Date(typeof d==='string'?d+'T12:00:00':d).toLocaleDateString('en-US',{month:'short',day:'numeric'}):'';
+const fmt=d=>d?new Date(typeof d==='string'?d+'T12:00:00':d).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'';
 const released=e=>e.airdate && new Date(e.airdate+'T23:59:59')<=NOW;
 const sNum=e=>e.season||1;
 
@@ -502,7 +512,7 @@ function boot(show,list,isDefault){
   // If the Episode is showing a real show, make sure the Log is tracking it too
   // (so its progress can be saved). MVP only — DEMO's Log is a curated showcase.
   if(!DEMO && curShowId && window.parent!==window)
-    window.parent.postMessage({type:'episode:track', tvmazeId:curShowId, name:curShowName}, '*');
+    window.parent.postMessage({type:'episode:track', tvmazeId:curShowId, name:curShowName, kind:isMovie?'movie':'show', poster:img||null}, '*');
 }
 
 // Timestamps of real in-app watches only (preApp false). Pre-app data is skipped.
@@ -532,7 +542,7 @@ function finaleCheck(){
   const total=eps.length;
   if(total>0 && watched>=total && hasLaterSeason()) return;   // season finale → wrap, not show finale
   if(!DEMO && window.parent!==window && total>0 && watched>=total && curShowId)
-    window.parent.postMessage({type:'episode:finishedFinale', tvmazeId:curShowId, name:curShowName}, '*');
+    window.parent.postMessage({type:'episode:finishedFinale', tvmazeId:curShowId, name:curShowName, kind:isMovie?'movie':'show'}, '*');
 }
 function markWatchedThrough(i){
   if(i+1>watched) watched=i+1;
@@ -586,14 +596,14 @@ function switchToSeason(season){
 function emitProgress(i, done, bp, minute){
   if(window.parent===window || !curShowId) return;
   const e=eps[i]; if(!e) return;
-  window.parent.postMessage({type:'episode:progress', tvmazeId:curShowId,
-    season:sNum(e), number:e.number, minute:minute||0, done:!!done, bp:!!bp,
+  window.parent.postMessage({type:'episode:progress', tvmazeId:curShowId, kind:isMovie?'movie':'show',
+    name:curShowName, season:sNum(e), number:e.number, minute:minute||0, done:!!done, bp:!!bp,
     started_at: startedAt[i]||null, sessions: epSessions[i]||[]}, '*');
 }
 
 // ---- viewing-session helpers ----
 const escHtml=(s)=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-function epCode(e){ return 'S'+String(e.season||1).padStart(2,'0')+'E'+String(e.number||0).padStart(2,'0'); }
+function epCode(e){ return isMovie ? '🎬' : ('S'+String(e.season||1).padStart(2,'0')+'E'+String(e.number||0).padStart(2,'0')); }
 const mdFmt=(ts)=>{ const d=new Date(ts); return (d.getMonth()+1)+'/'+d.getDate(); };
 const dayKey=(ts)=>{ const d=new Date(ts); return d.getFullYear()+'-'+d.getMonth()+'-'+d.getDate(); };
 const hmFmt=(ts)=> ts ? new Date(ts).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}) : '—';
@@ -707,9 +717,9 @@ function paint(){
   paintMinute();
 
   const f=eps[focus]||{};
-  $('epNo').textContent=`S ${sNum(f)} EP ${focus+1} / ${total}`;
-  $('epTtl').textContent=f.name||('Episode '+(focus+1));
-  $('epAired').textContent=f.airdate?fmt(f.airdate):'';
+  $('epNo').textContent= isMovie ? 'FILM' : `S ${sNum(f)} EP ${focus+1} / ${total}`;
+  $('epTtl').textContent=f.name||(isMovie?'Film':('Episode '+(focus+1)));
+  $('epAired').textContent= isMovie ? (f.airdate?String(f.airdate).slice(0,4):'') : (f.airdate?fmt(f.airdate):'');
   $('syn').textContent=strip(f.summary)||'No synopsis available yet.';
 
   const rk=$('rank'); rk.innerHTML='';
@@ -780,6 +790,7 @@ function paint(){
 // Season dots, colored by the episode convention.
 function renderSeasons(){
   const host=$('seasonInd'); if(!host) return;
+  if(isMovie){ host.innerHTML='<span class="seasonlabel">FILM</span>'; return; }   // a film has no seasons
   const seasons=[...new Set(allEps.map(sNum))].filter(s=>s>=1).sort((a,b)=>a-b);
   const N=seasons.length;
   if(N===0){ host.innerHTML=''; return; }
@@ -855,6 +866,7 @@ function flashBtn(el){ if(!el) return; el.classList.remove('flip'); void el.offs
 $('startEpBtn').onclick=()=>{ flashBtn($('startEpBtn')); startEpisode(); };
 $('logItBtn').onclick=()=>{ flashBtn($('logItBtn')); logIt(); };
 $('finishEpBtn').onclick=()=>{ flashBtn($('finishEpBtn')); finishEpisode(); };
+$('talkBtn').onclick=()=>{ flashBtn($('talkBtn')); noteToPierre(); };   // shift to a Pierre chat about this episode/film
 
 // Stop-and-return: when the phone IS the device, time away from the app is time
 // spent watching. On return we OFFER a placement for all of that missing time,
@@ -941,9 +953,33 @@ document.querySelector('.face').addEventListener('click',e=>{
 
 // Pierre hands off a picked show + watch pattern. Load it and set the position.
 async function loadShowWithPattern(id,pattern){
+  isMovie=false;
   try{ const r=await fetch(`https://api.tvmaze.com/shows/${id}?embed=episodes`); if(!r.ok) throw 0;
     const s=await r.json(); boot(s,(s._embedded&&s._embedded.episodes)||[],false); applyPattern(pattern||{kind:'beginning'});
   }catch(e){ $('name').textContent='Show not found'; }
+}
+
+// Load a FILM as a single-unit "show": one synthetic episode carrying the film's
+// runtime. Search cards lack runtime, so fetch /tmdb/movie/:id to fill it in when
+// missing (also covers a bare resume payload that only kept the id + title).
+async function loadMovie(m,pattern){
+  if(!m || m.id==null){ $('name').textContent='Film not found'; return; }
+  let movie=m;
+  const rawId=String(m.id).replace(/^tmdb:/,'');
+  if(movie.runtime==null){
+    try{ const r=await fetch(`${API_BASE}/tmdb/movie/${encodeURIComponent(rawId)}`);
+      if(r.ok){ const d=await r.json(); if(d.movie) movie={...movie, ...d.movie}; } }catch(_){}
+  }
+  isMovie=true;
+  const rt=movie.runtime||120;
+  const day=(movie.year?String(movie.year):'2000')+'-01-01';
+  const show={ id:'tmdb:'+rawId, name:movie.title||movie.name||'',
+    image: movie.poster?{original:movie.poster, medium:movie.poster}:null,
+    premiered:day, genres:['Film'], averageRuntime:rt, runtime:rt };
+  const ep={ season:1, number:1, name:movie.title||movie.name||'', runtime:rt,
+    airdate:day, summary:movie.overview||'' };
+  boot(show,[ep],false);
+  applyPattern(pattern||{kind:'beginning'});
 }
 function applyPattern(p){
   const seasons=[...new Set(allEps.map(sNum))]; if(!seasons.length) return;
@@ -993,7 +1029,8 @@ function applyPattern(p){
 window.addEventListener('message',(e)=>{
   if(e.data && e.data.type==='cube:payload' && e.data.face==='episodes'){
     const p=e.data.payload||{};
-    if(p.show && p.show.id){ pendingRestore={minute:p.minute, startedAt:p.startedAt, episodes:p.episodes}; loadShowWithPattern(p.show.id, p.pattern); }
+    if(p.movie && p.movie.id!=null){ pendingRestore={minute:p.minute, startedAt:p.startedAt, episodes:p.episodes}; loadMovie(p.movie, p.pattern); }
+    else if(p.show && p.show.id){ pendingRestore={minute:p.minute, startedAt:p.startedAt, episodes:p.episodes}; loadShowWithPattern(p.show.id, p.pattern); }
   }
   // Deep-link return: load the launched title at S1E1 with the minute guess.
   if(e.data && e.data.type==='cube:launch' && e.data.launch) launchShow(e.data.launch);
@@ -1018,6 +1055,22 @@ $('ymeta').addEventListener('click',(ev)=>{
 //                  guess (capped below runtime) so the member sets the real minute.
 async function launchShow(L){
   if(!L || !L.tvmazeId) return;
+  // A FILM launched the same way (play → streamer → return): load it single-unit
+  // via loadMovie, not TVmaze, then apply the same autoFinish / partial behaviour.
+  if(L.kind==='movie' || String(L.tvmazeId).startsWith('tmdb:')){
+    const suppressWalkM = L.autoFinish || L.partial;
+    pendingRestore = { minute:0, startedAt:suppressWalkM ? null : L.startedAt, episodes:{} };
+    await loadMovie({ id:String(L.tvmazeId).replace(/^tmdb:/,''), title:L.name }, {kind:'beginning'});
+    if(L.autoFinish){ finishEpisode(); return; }
+    if(L.partial){
+      const rt=runtimeOf(focus);
+      const guess=Math.max(0, Math.min(rt-1, Math.round((Date.now()-(L.startedAt||Date.now()))/60000)));
+      if(!startedAt[focus]) startedAt[focus]=L.startedAt||Date.now();
+      minPreview=guess; awaitingLog=true; paintMinute();
+    }
+    return;
+  }
+  isMovie=false;   // deep-link launch is the TVmaze path; films load via loadMovie
   // autoFinish / partial both suppress the away-time walk (placeAwayTime) — it
   // would over-fill a long gap to "done" and advance, which neither wants.
   const suppressWalk = L.autoFinish || L.partial;
@@ -1042,7 +1095,7 @@ function reportCurrent(){
   if(window.parent===window) return;
   const e=eps[focus];
   window.parent.postMessage({type:'episode:current', show:(curShowId && e) ? {
-    tvmazeId:curShowId, name:curShowName, season:sNum(e), number:e.number, runtime:runtimeOf(focus), service:viewServiceName()
+    tvmazeId:curShowId, name:curShowName, kind:isMovie?'movie':'show', season:sNum(e), number:e.number, runtime:runtimeOf(focus), service:viewServiceName()
   } : null}, '*');
 }
 // Tapping the empty prompt swings over to the Log so you can log something.
@@ -1154,7 +1207,14 @@ function applyTitleTint(){
 }
 function renderSvcCorner(){
   const host=$('svcCorner'); if(!host){ applyTitleTint(); return; }
-  if(!chosenSvc){ host.style.display='none'; host.innerHTML=''; applyTitleTint(); return; }
+  if(!chosenSvc){
+    // A film carries no streamer from TMDB — still offer the picker so the viewer
+    // can pin where they're watching (which lights the play button). Shows with no
+    // data keep hiding the corner as before.
+    if(isMovie){ host.style.display='inline-flex'; host.innerHTML='<span class="cap">on</span><span class="svcpick">+ set</span>'; }
+    else { host.style.display='none'; host.innerHTML=''; }
+    applyTitleTint(); return;
+  }
   host.style.display='inline-flex';
   host.innerHTML='<span class="cap">on</span>'+svcLogoHTML(chosenSvc);
   applyTitleTint();
@@ -1179,9 +1239,9 @@ function currentRealIdx(){ const i=Math.round(SW_C - reelY/SW_ITEM); return ((i%
 // Snap back to the middle copy (without animating) so there's always room to drag.
 function recenter(){ const real=currentRealIdx(); setReelY(reelIdxToY(2*reelLen+real), false); }
 function openWheel(){
-  if(!chosenSvc) return;
+  if(!curShowId) return;            // nothing loaded; a film with no pin is fine (gi defaults to 0)
   buildReel();
-  let gi=reelList.findIndex(s=>s.label===chosenSvc.label); if(gi<0) gi=0;
+  let gi=chosenSvc?reelList.findIndex(s=>s.label===chosenSvc.label):0; if(gi<0) gi=0;
   $('svcWheel').classList.add('show');
   // Start a couple of copies up, then roll down through ~2 full sets onto the guess.
   setReelY(reelIdxToY(gi), false);
@@ -1225,11 +1285,11 @@ $('svcBack').onclick=e=>{ e.stopPropagation(); closeWheel(); };
 let _holdT=null, _holdFired=false;
 const svcCorner=$('svcCorner');
 function holdCancel(){ if(_holdT){ clearTimeout(_holdT); _holdT=null; } svcCorner.classList.remove('holding'); }
-svcCorner.addEventListener('pointerdown',e=>{ if(!chosenSvc) return; e.stopPropagation();
+svcCorner.addEventListener('pointerdown',e=>{ if(!chosenSvc && !isMovie) return; e.stopPropagation();
   _holdFired=false; svcCorner.classList.add('holding');
   _holdT=setTimeout(()=>{ _holdFired=true; holdCancel(); openWheel(); }, 420); });
 svcCorner.addEventListener('pointerup',e=>{ e.stopPropagation(); const fired=_holdFired; holdCancel();
-  if(!fired && chosenSvc) openWheel(); });           // a plain tap opens it too
+  if(!fired && (chosenSvc || isMovie)) openWheel(); });           // a plain tap opens it too
 svcCorner.addEventListener('pointerleave',holdCancel);
 svcCorner.addEventListener('pointercancel',holdCancel);
 svcCorner.addEventListener('click',e=>e.stopPropagation());   // never trip the log-it tap handler

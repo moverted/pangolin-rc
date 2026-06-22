@@ -275,12 +275,13 @@
 
   // Map Pierre's ROUTE face names to the cube's face ids.
   const ROUTE_FACE = {'episodes':'episodes', 'show detail':'episodes', 'log':'log',
-                      'feed':'feed', 'profile':'profile', 'join':'join'};
+                      'feed':'feed', 'profile':'profile', 'join':'join', 'movie':'episodes'};
   // Act on a tapped route chip. A show-specific handoff runs the deterministic add
   // flow (validate → pattern chips → pop over loaded/highlighted); a plain face
   // handoff just rotates the cube; Letterboxd lives off the cube.
   function takeRoute(route){
     const key=(route.face||'').toLowerCase();
+    if(route.show && key==='movie'){ input.blur(); resolveMovieName(route.show); return; }
     if(route.show && (key==='episodes' || key==='show detail')){ input.blur(); resolveShowName(route.show); return; }
     const face=ROUTE_FACE[key];
     if(face){ if(window.parent!==window) window.parent.postMessage({type:'cube:rotateTo', face, payload:{}}, '*'); return; }
@@ -443,9 +444,11 @@
     if(joinFlow==='login-pw'){ joinLoginPw(text); return; }
     if(joinFlow==='set-pw'){ joinSetPw(text); return; }
     if(joinFlow==='picking'){ input.focus(); joinSearch(text); return; }
-    // Add flow, name step: the typed line is a show name, not a chat turn.
-    // Drop the keyboard so the result + choice chips show on the full face.
-    if(addFlow==='name'){ input.blur(); resolveShowName(text); return; }
+    // Add flow: if they type before tapping Series/Movie, assume a series.
+    if(addFlow==='kind'){ input.blur(); addKind='show'; addFlow='name'; resolveShowName(text); return; }
+    // Name step: the typed line is a title, not a chat turn. Route by kind (TMDB
+    // for a film, TVmaze for a series). Drop the keyboard so results show full-face.
+    if(addFlow==='name'){ input.blur(); (addKind==='movie'?resolveMovieName:resolveShowName)(text); return; }
     input.focus();   // keep the keyboard up / stay pinned in the chat
     ask(text);
   }
@@ -468,7 +471,7 @@
      pattern is captured with chips, so nothing here is guessed. Pierre's free
      chat (the LLM) is untouched; this only runs when the cube hands over an add
      intent. If a lookup fails, Pierre owns it as a pangolin and offers Ted. */
-  let addFlow=null, addHistory=[], addFailCount=0;
+  let addFlow=null, addHistory=[], addFailCount=0, addKind='show';   // addKind: series vs film, chosen first
 
   function tod(){ const h=new Date().getHours();
     if(h<5||h>=22) return "Late one"; if(h<12) return "Morning"; if(h<17) return "Afternoon"; return "Evening"; }
@@ -493,10 +496,20 @@
 
   function enterAddFlow(vlog){
     addHistory=Array.isArray(vlog)?vlog:[];
-    addFlow='name'; addFailCount=0; joinFlow=null; acctFlow=null;
+    addFlow='kind'; addKind='show'; addFailCount=0; joinFlow=null; acctFlow=null;
     history.length=0;                 // fresh slate for the LLM history too
     log.innerHTML='';
-    pierreSay(tod()+". What do you want to add, or just put on right now?");
+    // First thing: series or movie. The pick routes the name lookup (TVmaze vs TMDB).
+    pierreSay(tod()+". A series or a movie?", [
+      {label:'Series', onClick:()=>chooseAddKind('show')},
+      {label:'Movie',  onClick:()=>chooseAddKind('movie')},
+    ]);
+  }
+  function chooseAddKind(kind){
+    addKind=kind; addFlow='name';
+    pierreSay(kind==='movie'
+      ? "A movie. Which one, or just put one on now?"
+      : "A series. What do you want to add, or just put on right now?");
   }
 
   function candLabel(s){
@@ -592,6 +605,39 @@
     if(window.parent!==window)
       window.parent.postMessage({type:'cube:rotateTo', face:'episodes',
         payload:{show:{id:show.id,name:show.name}, pattern, addToLog:true}}, '*');
+  }
+
+  // FILM handoff: TMDB instead of TVmaze, single unit, loads via the movie payload.
+  async function resolveMovieName(text){
+    showTyping();
+    let results=[];
+    try{ const r=await fetch(`${API}/tmdb/search?q=`+encodeURIComponent(text));
+      results = r.ok ? ((await r.json()).results||[]) : []; }
+    catch(e){ results=null; }
+    clearTyping();
+    if(results===null){
+      pierreSay("Something hiccuped looking that film up. I am a pangolin working a remote, so it is a small miracle this works at all. Try again?", tedChip());
+      return;
+    }
+    if(!results.length){
+      addFailCount++;
+      if(addFailCount>=2){ pierreSay("Still cannot place that film, and I will not pretend I can. Let me get Ted.", tedChip()); return; }
+      pierreSay("I cannot find that film. Try the full title?");
+      return;
+    }
+    addFailCount=0;
+    const cands=results.slice(0,4);
+    if(cands.length===1){ handoffMovie(cands[0]); return; }
+    pierreSay("More than one of those. Which?",
+      cands.map(m=>({label:m.title+(m.year?' ('+m.year+')':''), onClick:()=>handoffMovie(m)})));
+  }
+  function handoffMovie(m){
+    addFlow=null;
+    pierreSay("Putting on "+m.title+". Over to the screen.");
+    if(window.parent!==window)
+      window.parent.postMessage({type:'cube:rotateTo', face:'episodes',
+        payload:{movie:{id:m.id,title:m.title,year:m.year,poster:m.poster,overview:m.overview,runtime:m.runtime},
+                 pattern:{kind:'beginning'}, addToLog:true}}, '*');
   }
 
   /* ---- Join / Login flow -----------------------------------------------------
