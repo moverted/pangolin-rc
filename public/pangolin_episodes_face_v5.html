@@ -218,11 +218,12 @@
     color:var(--dim); cursor:pointer; transition:.12s; }
   .rank b:hover{ border-color:var(--amber); color:var(--text); }
   .rank b.sel{ background:var(--amber); color:var(--amber-deep); border-color:var(--amber); }
-  .comment{ width:100%; min-height:54px; resize:vertical; background:rgba(0,0,0,.32);
-    border:1px solid rgba(255,255,255,.1); border-radius:12px; padding:11px 13px;
-    color:var(--text); font-family:var(--body); font-size:13px; line-height:1.5; margin-bottom:24px; }
-  .comment::placeholder{ color:var(--faint); }
-  .comment:focus{ outline:none; border-color:var(--amber); box-shadow:0 0 0 3px rgba(240,169,59,.12); }
+  .notebtn{ display:inline-flex; align-items:center; gap:9px; margin-bottom:24px;
+    background:rgba(0,0,0,.32); border:1px solid rgba(240,169,59,.4); border-radius:12px;
+    padding:11px 18px; color:var(--amber); font-family:var(--display); font-weight:600;
+    font-size:14px; cursor:pointer; -webkit-tap-highlight-color:transparent;
+    transition:background .15s, border-color .15s, transform .1s; }
+  .notebtn:active{ transform:scale(.97); background:rgba(240,169,59,.12); border-color:var(--amber); }
 
   .wlhead{ display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
   .wlctl{ display:flex; gap:14px; }
@@ -370,8 +371,7 @@
       <div class="block-label">Your rank</div>
       <div class="rank" id="rank"></div>
 
-      <div class="block-label">Note</div>
-      <textarea class="comment" id="comment" placeholder="what won the room? (optional)"></textarea>
+      <button class="notebtn" id="noteBtn">&#9998; Note to Pierre</button>
 
       <div class="wlhead">
         <div class="block-label" style="margin:0" id="wlLabel">Watched · 0</div>
@@ -674,7 +674,6 @@ function paint(){
   for(let n=0;n<=10;n++){ const b=document.createElement('b'); b.textContent=n;
     if(ranks[focus]===n) b.classList.add('sel');
     b.onclick=()=>{ ranks[focus]=n; paint(); }; rk.appendChild(b); }
-  $('comment').value=notes[focus]||'';
 
   // Live status sits inline on the EP line (right side), not in the list below.
   const watching = !!watchingLive[focus];
@@ -785,23 +784,17 @@ function paintMinute(){
   else { mid.classList.remove('phrase'); mid.textContent = epBp[focus] ? 'BP' : (Math.round(rt)+' min'); }
 }
 
-$('comment').addEventListener('input',e=>{ notes[focus]=e.target.value; });
-// Auto-journal the note to Pierre: on commit, write it to a shared same-origin
-// journal keyed by show+episode (one note per episode). Pierre reads pg_journal as
-// recall context, so the note stops being a dead-end — no navigation, no interruption.
-function journalNote(){
-  const e=eps[focus], txt=(notes[focus]||'').trim();
-  if(!curShowId || !e || !txt) return;
-  const ep=epCode(e);
-  try{
-    let j=JSON.parse(localStorage.getItem('pg_journal')||'[]'); if(!Array.isArray(j)) j=[];
-    j=j.filter(n=>!(String(n.showId)===String(curShowId) && n.ep===ep));   // replace this episode's note
-    j.push({showId:curShowId, show:curShowName, ep, text:txt, ts:Date.now()});
-    if(j.length>50) j=j.slice(-50);
-    localStorage.setItem('pg_journal', JSON.stringify(j));
-  }catch(_){}
+// Note → Pierre: jotting a thought isn't a textarea dead-end. The button hands
+// off to the Pierre face with the current show/episode so he opens ready to take
+// it as a conversation (he asks, you answer in chat).
+function noteToPierre(){
+  if(window.parent===window) return;
+  const e=eps[focus];
+  const payload={ intent:'note', show:curShowName, ep:(e?epCode(e):'') };
+  if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('pierre',payload);
+  else window.parent.postMessage({type:'cube:rotateTo',face:'pierre',payload},'*');
 }
-$('comment').addEventListener('blur', journalNote);
+$('noteBtn').addEventListener('click', noteToPierre);
 $('cool').onclick=()=>{ cooled=true; paint(); };
 $('reset').onclick=()=>{
   // Clear to zero so the binge sequence can be replayed fresh from real in-app taps.
@@ -890,7 +883,7 @@ $('bar').addEventListener('click',e=>{ e.stopPropagation(); bgo(e.clientX); });
 // "tap anywhere to log it": one tap outside the controls commits the staged minute.
 document.querySelector('.face').addEventListener('click',e=>{
   if(!awaitingLog) return;
-  if(e.target.closest('.minbar,.minhandle,.bar,.scorepill,.rank,.comment,.ctl,.wrow,.seasondots,.svc-lit')) return;
+  if(e.target.closest('.minbar,.minhandle,.bar,.scorepill,.rank,.notebtn,.ctl,.wrow,.seasondots,.svc-lit')) return;
   e.stopPropagation(); logMinute();
 }, true);
 

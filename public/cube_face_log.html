@@ -73,6 +73,25 @@
   /* Poster tiles (current / returning / completed) */
   .tile{aspect-ratio:1/1;border-radius:12px;overflow:hidden;position:relative;background:var(--base-2);cursor:pointer;border:1px solid var(--line)}
   .tile.selected{border-color:var(--amber);box-shadow:0 0 0 2px var(--amber),0 0 16px rgba(233,162,60,.5)}
+  /* CURRENT-tab tap: the tapped tile stays put; a panel (buttons + synopsis)
+     opens in the OTHER column of its row. The synopsis grows the row and pushes
+     the tiles below it down. Tile keeps its side: left tile → panel right, and
+     right tile → panel left (panel rendered first in source for that case). */
+  .exp-row{grid-column:1/-1;display:flex;gap:10px;align-items:flex-start}
+  .exp-row > .tile{flex:0 0 calc(50% - 5px);aspect-ratio:1/1;
+    border-color:var(--amber);box-shadow:0 0 0 2px var(--amber),0 0 16px rgba(233,162,60,.5)}
+  .exp-row > .ex-panel{flex:1;min-width:0;display:flex;flex-direction:column;gap:9px;padding:2px 2px 4px}
+  .exp-row .ex-title{font-family:var(--display);font-weight:700;font-size:16px;line-height:1.1;color:var(--text)}
+  .exp-row .ex-watch{align-self:flex-start;display:inline-flex;align-items:center;gap:8px;
+    font-family:var(--display);font-weight:700;font-size:15px;color:#1a130b;
+    background:linear-gradient(135deg,#f2b457,#e89f3d);border:none;border-radius:10px;padding:10px 22px;
+    cursor:pointer;box-shadow:0 8px 20px -10px rgba(232,159,61,.85)}
+  .exp-row .ex-watch:active{transform:scale(.96)}
+  .exp-row .ex-syn{font-size:11.5px;line-height:1.45;color:var(--muted)}
+  .exp-row .ex-stop{align-self:flex-start;margin-top:2px;font-family:var(--mono);font-size:11px;
+    letter-spacing:.04em;color:var(--muted);background:transparent;border:1px solid var(--line);
+    border-radius:8px;padding:6px 12px;cursor:pointer}
+  .exp-row .ex-stop:active{color:#ff8a8a;border-color:#ff8a8a}
   .tile .poster,.pcell .poster{position:absolute;inset:0;background-size:cover;background-position:center top}
   .tile .scrim,.pcell .scrim{position:absolute;inset:0;background:linear-gradient(to top,rgba(10,7,5,.94) 0%,rgba(10,7,5,.55) 40%,rgba(10,7,5,.04) 72%)}
   .tile .body{position:absolute;left:0;right:0;bottom:0;padding:10px;display:flex;flex-direction:column;gap:7px}
@@ -170,8 +189,6 @@
       <button class="chip" data-q="watching">watching now</button>
       <span class="spacer"></span>
       <button class="chip demo" id="finishBtn">&#8629; finished</button>
-      <button class="chip act" id="watchNextBtn">&#9654; watch next</button>
-      <button class="chip act" id="stopBtn">&#10005; stop watching</button>
     </div>
   </div>
 
@@ -259,6 +276,7 @@ async function hydrate(seed){
     const lw=watched>0?released[watched-1]:null;
     return {...base,name:show.name||seed.q,tvmazeId:show.id,poster:show.image?.original||show.image?.medium||null,
       platform:show.webChannel?.name||show.network?.name||"",
+      summary:(show.summary||"").replace(/<[^>]*>/g,"").trim(),
       status:show.status||"Unknown",episodes:eps,total,released:released.length,watched,
       lastWatched:lw?{season:lw.season,number:lw.number,title:lw.name,at:seed.lastDate}:null};
   }catch(e){return {...base,failed:true};}
@@ -349,6 +367,36 @@ function tileFor(s,asStopped){
     '<div class="body"><div class="title">'+titleHTML(s.name)+"</div>"+bars+footer+"</div></div>";
 }
 
+// CURRENT-tab action panel that opens next to the tapped tile (Watch · synopsis ·
+// stop watching). It is NOT a tile — it pairs with the real tile inside .exp-row.
+function panelFor(s){
+  const syn = s.summary ? esc(s.summary) : 'No synopsis yet.';
+  return '<div class="ex-panel">'+
+      '<div class="ex-title">'+titleHTML(s.name)+'</div>'+
+      '<button class="ex-watch" data-act="watch" data-id="'+s.id+'">&#9654; Watch</button>'+
+      '<div class="ex-syn">'+syn+'</div>'+
+      '<button class="ex-stop" data-act="stop" data-id="'+s.id+'">&#10005; stop watching</button>'+
+    '</div>';
+}
+// Build the CURRENT-tab grid HTML with the selected show paired to its panel in
+// its own full-width row, keeping the tile on its original column side. The row's
+// other tile (if any) is pushed below so nothing leaves a gap.
+function currentGridHTML(list){
+  const selIdx = selectedId ? list.findIndex(s=>s.id===selectedId) : -1;
+  if(selIdx<0){ selectedId=null; return list.map(s=>tileFor(s,false)).join(""); }
+  const leftIdx = selIdx - (selIdx%2);          // index of the left tile of this row
+  const rightIdx = leftIdx + 1;
+  const onLeft = (selIdx===leftIdx);            // tapped tile sits in the left column
+  const tile = tileFor(list[selIdx],false), panel = panelFor(list[selIdx]);
+  let html="";
+  for(let i=0;i<leftIdx;i++) html+=tileFor(list[i],false);     // full rows above, untouched
+  html += '<div class="exp-row">'+(onLeft ? tile+panel : panel+tile)+'</div>';
+  const sibIdx = onLeft ? rightIdx : leftIdx;                  // the row's other tile, pushed down
+  if(sibIdx<list.length && sibIdx!==selIdx) html+=tileFor(list[sibIdx],false);
+  for(let i=rightIdx+1;i<list.length;i++) html+=tileFor(list[i],false);
+  return html;
+}
+
 function barcode(s,sel){
   if(!s.episodes.length)return '<div class="barcode"></div>';
   const ticks=s.episodes.map(e=>'<i class="tk'+(sel.has(e.season+"-"+e.number)?" on":"")+'"></i>').join("");
@@ -395,37 +443,31 @@ function render(){
       if(an===0) return (a.addedSeq||0)-(b.addedSeq||0);        // NEW: order requested
       return new Date(b.lastDate)-new Date(a.lastDate);         // rest: recently active
     });
-    grid.innerHTML=list.length?list.map(s=>tileFor(s,false)).join(""):'<div class="state">nothing here yet</div>';
+    grid.innerHTML=list.length?currentGridHTML(list):'<div class="state">nothing here yet</div>';
   }
   grid.querySelectorAll(".tryagain").forEach(b=>b.addEventListener("click",ev=>{ev.stopPropagation();
     const s=LOG.find(x=>x.id===b.dataset.id); if(s){s.stopped=false;render();renderPierre();}}));
   grid.querySelectorAll(".tile").forEach(t=>t.addEventListener("click",()=>{
     if(t.classList.contains("stopped"))return;
     const s=LOG.find(x=>x.id===t.dataset.id); if(!s||s.failed)return;
-    if(activeTab==="current"){ selectCurrent(s.id); return; }                       // tap selects; WATCH NEXT routes
+    if(activeTab==="current"){ selectCurrent(s.id); return; }                       // tap opens (or closes) the panel beside it
     const fromStart = bucketOf(s)==="completed";                                    // completed restarts at S01E01
     if(s.isNew){ s.isNew=false; s.lastDate=new Date().toISOString().slice(0,10); }  // watched it: drops the NEW flag
     cube.rotateTo("episodes",episodesPayload(s,fromStart)); render(); renderPierre();}));
-  // Re-apply the gold selection rim after a re-render on the CURRENT tab.
-  if(activeTab==="current" && selectedId){
-    const t=grid.querySelector('.tile[data-id="'+selectedId+'"]');
-    if(t) t.classList.add("selected"); else selectedId=null;
-  }
-  updateActionChips();
+  // Action panel controls: Watch routes to the episode face, Stop dusts the show.
+  grid.querySelectorAll(".exp-row [data-act]").forEach(el=>el.addEventListener("click",ev=>{
+    ev.stopPropagation();
+    const act=el.dataset.act, id=el.dataset.id; const s=LOG.find(x=>x.id===id); if(!s)return;
+    if(act==="watch"){ if(s.isNew){s.isNew=false;s.lastDate=new Date().toISOString().slice(0,10);} cube.rotateTo("episodes",episodesPayload(s)); render(); renderPierre(); }
+    else if(act==="stop"){ selectedId=null; setTimeout(()=>stopShow(id),60); }
+  }));
 }
 
-/* CURRENT-tab selection: tap a tile to select (gold rim), tap again to clear.
-   Selecting lights the WATCH NEXT / STOP WATCHING action chips orange. */
+/* CURRENT-tab selection: tap a show to open its action panel in place, tap its
+   poster (or the show again) to collapse. Re-render swaps tile ⇄ expanded card. */
 function selectCurrent(id){
   selectedId = (selectedId===id) ? null : id;
-  document.querySelectorAll(".tile").forEach(t=>t.classList.toggle("selected", t.dataset.id===selectedId));
-  updateActionChips();
-}
-function updateActionChips(){
-  const lit = !!selectedId && activeTab==="current";
-  const wn=document.getElementById("watchNextBtn"), st=document.getElementById("stopBtn");
-  if(wn) wn.classList.toggle("lit", lit);
-  if(st) st.classList.toggle("lit", lit);
+  render();
 }
 
 /* Cross-face contract. In production the cube shell provides window.cube and
@@ -754,24 +796,14 @@ function stopShow(id){
 }
 
 function switchTab(name){activeTab=name; selectedId=null;
-  document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("on",x.dataset.tab===name));render();updateActionChips();}
+  document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("on",x.dataset.tab===name));render();}
 document.querySelectorAll(".tab").forEach(t=>t.addEventListener("click",()=>switchTab(t.dataset.tab)));
 document.querySelectorAll(".chip[data-q]").forEach(c=>c.addEventListener("click",()=>{
   document.querySelectorAll(".chip[data-q]").forEach(x=>x.classList.remove("on"));c.classList.add("on");pierreQ=c.dataset.q;renderPierre();}));
 function firstCurrent(){return LOG.filter(s=>bucketOf(s)==="current"&&!s.failed&&!s.forceCompleted&&!s.stopped&&s.watched<s.released)[0]
   || LOG.filter(s=>bucketOf(s)==="current"&&!s.failed&&!s.forceCompleted&&!s.stopped)[0];}
 document.getElementById("finishBtn").addEventListener("click",()=>{const t=firstCurrent();if(t){if(activeTab!=="current")switchTab("current");setTimeout(()=>finishShow(t.id),60);}});
-// STOP WATCHING + WATCH NEXT act on the selected CURRENT show.
-document.getElementById("stopBtn").addEventListener("click",()=>{
-  if(!selectedId)return; if(activeTab!=="current")switchTab("current");
-  const id=selectedId; selectedId=null; updateActionChips();
-  setTimeout(()=>stopShow(id),60);
-});
-document.getElementById("watchNextBtn").addEventListener("click",()=>{
-  if(!selectedId)return; const s=LOG.find(x=>x.id===selectedId); if(!s)return;
-  if(s.isNew){ s.isNew=false; s.lastDate=new Date().toISOString().slice(0,10); }
-  cube.rotateTo("episodes",episodesPayload(s));     // resume at next unwatched
-});
+// Watch + stop watching now live inline on each CURRENT show's expanded card.
 
 function buildSavings(){
   document.getElementById("savings").textContent=money(TOTAL_SAVED);

@@ -328,6 +328,17 @@
     return `(Background — notes I jotted while watching; weave in only if relevant, don't recite them:\n${lines}\n)\n\n`;
   }
 
+  // Note → Pierre: the Watch face's "Note to Pierre" button hands off the current
+  // show/episode. Pierre opens the door — names it and asks — then takes whatever
+  // you type as a normal chat turn.
+  function enterNoteFlow(p){
+    if(IS_DEMO) return;
+    const where = p && p.show ? (p.show + (p.ep ? (' '+p.ep) : '')) : 'what you just watched';
+    addPierre('Noting ' + where + '. What did you make of it?');
+    input.placeholder = '';   // blank — the "what to watch" hint conflicts with a note
+    input.focus();
+  }
+
   async function ask(text){
     const content = (history.length === 0) ? (journalContext() + text) : text;
     history.push({role:'user', content});
@@ -756,6 +767,7 @@
       else if(p.intent==='join') enterJoinFlow();
       else if(p.intent==='login') enterJoinFlow();
       else if(p.intent==='device') enterDeviceFlow();
+      else if(p.intent==='note') enterNoteFlow(p);
     }
   });
 
