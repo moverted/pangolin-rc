@@ -1,9 +1,15 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
-import { pushWatchRow, deleteWatchRow } from './airtable';
+import { pushRow, deleteRow } from './airtable';
 
 // Account + device API. SEAM:identity — email is the key, no auth in this build.
 export const profileRoutes = new Hono<{ Bindings: Env }>();
+
+// Mirror a D1 write to Airtable, fire-and-forget — never blocks the app's write.
+const mirror = (c: any, table: string, row: Record<string, any>) =>
+  c.executionCtx.waitUntil(pushRow(c.env, table, row).catch((e: unknown) => console.error('airtable mirror', table, e)));
+const unmirror = (c: any, table: string, key: string) =>
+  c.executionCtx.waitUntil(deleteRow(c.env, table, key).catch((e: unknown) => console.error('airtable unmirror', table, e)));
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
@@ -49,6 +55,7 @@ profileRoutes.post('/signup', async (c) => {
     const countRow = await c.env.DB.prepare('SELECT COUNT(*) AS c FROM users').first<{ c: number }>();
     if ((countRow?.c ?? 0) >= MEMBER_CAP) {
       await c.env.DB.prepare('INSERT OR IGNORE INTO waitlist (email, created_at) VALUES (?, ?)').bind(email, now).run();
+      mirror(c, 'waitlist', { email, created_at: now });
       return c.json({ status: 'waitlist' });
     }
   }
@@ -74,6 +81,7 @@ profileRoutes.post('/signup', async (c) => {
   }
 
   const user = await c.env.DB.prepare(`SELECT ${SAFE} FROM users WHERE email = ?`).bind(email).first();
+  if (user) mirror(c, 'users', user as Record<string, any>);   // SAFE == the synced users cols (no salt/hash)
   return c.json({ status: 'member', user });
 });
 
@@ -119,9 +127,11 @@ profileRoutes.post('/:email/devices', async (c) => {
   const supported = body.supported === false ? 0 : 1;
   if (!type) return c.json({ error: 'type required' }, 400);
   const id = crypto.randomUUID();
+  const now = Date.now();
   await c.env.DB
     .prepare('INSERT INTO devices (id, user_email, type, location, ip, model, supported, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-    .bind(id, email, type, location, ip, model, supported, Date.now()).run();
+    .bind(id, email, type, location, ip, model, supported, now).run();
+  mirror(c, 'devices', { id, user_email: email, type, location, ip, model, supported, created_at: now });
   return c.json({ device: { id, type, location, ip, model, supported } });
 });
 
@@ -145,8 +155,9 @@ profileRoutes.patch('/:email/devices/:id', async (c) => {
     .bind(...vals).run();
   if (!res.meta.changes) return c.json({ error: 'not found' }, 404);
   const device = await c.env.DB
-    .prepare('SELECT id, type, location, ip, model, created_at FROM devices WHERE user_email = ? AND id = ?')
+    .prepare('SELECT id, user_email, type, location, ip, model, supported, created_at FROM devices WHERE user_email = ? AND id = ?')
     .bind(email, id).first();
+  if (device) mirror(c, 'devices', device as Record<string, any>);
   return c.json({ device });
 });
 
@@ -156,6 +167,9 @@ profileRoutes.delete('/:email/devices/:id', async (c) => {
   const id = c.req.param('id');
   await c.env.DB.prepare('DELETE FROM devices WHERE user_email = ? AND id = ?').bind(email, id).run();
   await c.env.DB.prepare("UPDATE users SET selected_device = 'phone' WHERE email = ? AND selected_device = ?").bind(email, id).run();
+  unmirror(c, 'devices', id);
+  const user = await c.env.DB.prepare(`SELECT ${SAFE} FROM users WHERE email = ?`).bind(email).first();
+  if (user) mirror(c, 'users', user as Record<string, any>);   // selected_device may have reset to 'phone'
   return c.json({ ok: true });
 });
 
@@ -172,6 +186,8 @@ profileRoutes.post('/:email/select', async (c) => {
   }
   const res = await c.env.DB.prepare('UPDATE users SET selected_device = ? WHERE email = ?').bind(device, email).run();
   if (!res.meta.changes) return c.json({ error: 'unknown user' }, 404);
+  const user = await c.env.DB.prepare(`SELECT ${SAFE} FROM users WHERE email = ?`).bind(email).first();
+  if (user) mirror(c, 'users', user as Record<string, any>);
   return c.json({ ok: true, selected: device });
 });
 
@@ -233,12 +249,9 @@ profileRoutes.post('/:email/watch', async (c) => {
        episodes=excluded.episodes, updated_at=excluded.updated_at`
   ).bind(email, show_id, show_name, kind, status, watched, last_season, last_number,
          last_minute, started_at, episodes, now).run();
-  // Mirror the write to Airtable (D1 stays source of truth). Fire-and-forget so a
-  // slow/failed Airtable call never blocks or breaks the app's own write.
-  c.executionCtx.waitUntil(pushWatchRow(c.env, {
-    user_email: email, show_id, show_name, kind, status, watched, last_season,
-    last_number, last_minute, started_at, episodes, updated_at: now,
-  }).catch((e) => console.error('airtable mirror failed', e)));
+  // Mirror the write to Airtable (D1 stays source of truth).
+  mirror(c, 'watch', { user_email: email, show_id, show_name, kind, status, watched,
+    last_season, last_number, last_minute, started_at, episodes, updated_at: now });
   return c.json({ ok: true });
 });
 
@@ -247,7 +260,7 @@ profileRoutes.delete('/:email/watch/:show_id', async (c) => {
   const email = c.req.param('email').toLowerCase();
   const show_id = c.req.param('show_id');
   await c.env.DB.prepare('DELETE FROM watch WHERE user_email = ? AND show_id = ?').bind(email, show_id).run();
-  c.executionCtx.waitUntil(deleteWatchRow(c.env, email, show_id).catch((e) => console.error('airtable delete failed', e)));
+  unmirror(c, 'watch', `${email}|${show_id}`);
   return c.json({ ok: true });
 });
 
@@ -278,9 +291,11 @@ profileRoutes.post('/:email/follow', async (c) => {
   if (target === email) return c.json({ error: "can't follow yourself" }, 400);
   const exists = await c.env.DB.prepare('SELECT email, username FROM users WHERE email = ?').bind(target).first<any>();
   if (!exists) return c.json({ error: 'no such member' }, 404);
+  const now = Date.now();
   await c.env.DB.prepare(
     'INSERT OR IGNORE INTO follows (follower_email, followee_email, created_at) VALUES (?, ?, ?)')
-    .bind(email, target, Date.now()).run();
+    .bind(email, target, now).run();
+  mirror(c, 'follows', { follower_email: email, followee_email: target, created_at: now });
   const reciprocal = await c.env.DB
     .prepare('SELECT 1 FROM follows WHERE follower_email = ? AND followee_email = ?').bind(target, email).first();
   return c.json({ ok: true, target, username: exists.username || null, friend: !!reciprocal });
@@ -292,6 +307,7 @@ profileRoutes.delete('/:email/follow/:target', async (c) => {
   const target = c.req.param('target').toLowerCase();
   await c.env.DB.prepare('DELETE FROM follows WHERE follower_email = ? AND followee_email = ?')
     .bind(email, target).run();
+  unmirror(c, 'follows', `${email}|${target}`);
   return c.json({ ok: true });
 });
 

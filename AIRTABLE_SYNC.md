@@ -1,16 +1,32 @@
-# D1 ↔ Airtable two-way sync (the `watch` table)
+# D1 ↔ Airtable two-way sync
 
 D1 stays the **source of truth**. Airtable is a human-editable mirror so you can
-view and fix watch data in a friendly grid (exactly what had to be done by hand
-when "I Will Find You" got stuck in COMPLETED).
+view and fix data in a friendly grid (exactly what had to be done by hand when
+"I Will Find You" got stuck in COMPLETED).
+
+**Synced tables** (each maps 1:1 to an Airtable table of the same name, defined by
+`TABLES` in `src/handlers/airtable.ts`):
+
+| Table | Key | Notes |
+|---|---|---|
+| `watch` | `user_email\|show_id` | tracked shows + per-episode detail |
+| `users` | `email` | **password salt/hash are never synced** — only email, username, phone, photo_url, selected_device, timestamps |
+| `devices` | `id` | a member's devices |
+| `follows` | `follower_email\|followee_email` | social graph |
+| `waitlist` | `email` | signups past the member cap |
+
+The RC-mechanical tables (`resources`, `submissions`, `uploads`, `upload_parts`,
+`audit_entries`, `events`, `policies`) are intentionally **not** synced — they're
+the content-free spine, and `audit_entries` is append-only. Add a row to `TABLES`
+(and a table block to `scripts/airtable-setup.mjs`) if you ever want one.
 
 ## How it works
 
-- **Outbound (D1 → Airtable).** Every `POST /profile/:email/watch` and
-  `DELETE …/watch/:show_id` mirrors the row to Airtable, fire-and-forget via
-  `waitUntil` — a slow or failed Airtable call never blocks or breaks the app
-  write. Code: `src/handlers/airtable.ts` → `pushWatchRow` / `deleteWatchRow`,
-  wired in `src/handlers/profile.ts`.
+- **Outbound (D1 → Airtable).** Every mutation in `src/handlers/profile.ts`
+  (watch upsert/delete, signup, waitlist, device add/edit/delete, device select,
+  follow/unfollow) mirrors the row via `waitUntil` — a slow or failed Airtable
+  call never blocks or breaks the app write. Code: `src/handlers/airtable.ts` →
+  `pushRow` / `deleteRow`, called through the `mirror` / `unmirror` helpers.
 - **Inbound (Airtable → D1).** A cron (`*/2 * * * *`, `src/index.ts` →
   `scheduled`) pulls human edits back. Each row carries a `sync_hash` of its
   fields; the poll recomputes it and **skips rows whose hash still matches** (our
