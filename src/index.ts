@@ -12,6 +12,7 @@ import { pierreRoutes }     from './handlers/pierre';
 import { profileRoutes }    from './handlers/profile';
 import { streamerRoutes }   from './handlers/streamer';
 import { tmdbRoutes }       from './handlers/tmdb';
+import { syncRoutes, pullChanges, airtableEnabled } from './handlers/airtable';
 import { processQueue }     from './queue';
 
 export { ResourceCoordinator } from './do/resource-coordinator';
@@ -31,6 +32,7 @@ app.route('/pierre',      pierreRoutes);
 app.route('/profile',     profileRoutes);
 app.route('/streamer',    streamerRoutes);
 app.route('/tmdb',        tmdbRoutes);
+app.route('/sync',        syncRoutes);
 
 app.notFound((c) => c.json({ error: 'Not found' }, 404));
 app.onError((err, c) => {
@@ -41,4 +43,13 @@ app.onError((err, c) => {
 export default {
   fetch: app.fetch.bind(app),
   queue: processQueue,
+  // Inbound Airtable → D1 sync: pull human edits back on a cron. No-op until the
+  // Airtable secrets are set, so the trigger is harmless to register beforehand.
+  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext) {
+    if (!airtableEnabled(env)) return;
+    ctx.waitUntil(pullChanges(env).then(
+      (r) => console.log('airtable pull', JSON.stringify(r)),
+      (e) => console.error('airtable pull failed', e),
+    ));
+  },
 };

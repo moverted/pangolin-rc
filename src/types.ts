@@ -89,6 +89,9 @@ export interface Env {
   ANTHROPIC_API_KEY: string; // secret — backs the Pierre chat proxy (SEAM:processing)
   TURNSTILE_SECRET_KEY?: string; // secret — bot gate on the Pierre chat (optional until set)
   TMDB_API_KEY?: string; // secret — backs the TMDB movie search/detail proxy (optional until set)
+  AIRTABLE_PAT?: string;       // secret — personal access token; enables the D1↔Airtable watch sync
+  AIRTABLE_BASE_ID?: string;   // var — Airtable base id (appXXXXXXXXXXXXXX); enables the sync with the PAT
+  SYNC_ADMIN_TOKEN?: string;   // secret — bearer token gating the manual /sync push-all & pull routes
   PROCESS_QUEUE:  Queue<ProcessingJob>;
   EVENTS_QUEUE:   Queue<unknown>;
 }

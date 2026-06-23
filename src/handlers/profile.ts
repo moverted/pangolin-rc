@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
+import { pushWatchRow, deleteWatchRow } from './airtable';
 
 // Account + device API. SEAM:identity — email is the key, no auth in this build.
 export const profileRoutes = new Hono<{ Bindings: Env }>();
@@ -232,6 +233,12 @@ profileRoutes.post('/:email/watch', async (c) => {
        episodes=excluded.episodes, updated_at=excluded.updated_at`
   ).bind(email, show_id, show_name, kind, status, watched, last_season, last_number,
          last_minute, started_at, episodes, now).run();
+  // Mirror the write to Airtable (D1 stays source of truth). Fire-and-forget so a
+  // slow/failed Airtable call never blocks or breaks the app's own write.
+  c.executionCtx.waitUntil(pushWatchRow(c.env, {
+    user_email: email, show_id, show_name, kind, status, watched, last_season,
+    last_number, last_minute, started_at, episodes, updated_at: now,
+  }).catch((e) => console.error('airtable mirror failed', e)));
   return c.json({ ok: true });
 });
 
@@ -240,6 +247,7 @@ profileRoutes.delete('/:email/watch/:show_id', async (c) => {
   const email = c.req.param('email').toLowerCase();
   const show_id = c.req.param('show_id');
   await c.env.DB.prepare('DELETE FROM watch WHERE user_email = ? AND show_id = ?').bind(email, show_id).run();
+  c.executionCtx.waitUntil(deleteWatchRow(c.env, email, show_id).catch((e) => console.error('airtable delete failed', e)));
   return c.json({ ok: true });
 });
 
