@@ -880,29 +880,24 @@ $('talkBtn').onclick=()=>{ flashBtn($('talkBtn')); noteToPierre(); };   // shift
 // you on S(N+1)E1 (or partway in) — not stalling at the season finale.
 function placeAwayTime(awayMin){
   if(!(awayMin>0) || !eps.length) return;
-  let i=focus, remaining=awayMin, pos=(epMin[i]||0), guard=0;
-  while(remaining>0 && guard++ < 2000){
-    const rt=runtimeOf(i), needed=Math.max(0, rt-pos);
-    if(remaining>=needed){
-      epMin[i]=rt; epDone[i]=true; epBp[i]=false; epPreApp[i]=false;
-      markWatchedThrough(i);
-      logSession(i, {minutes:Math.round(rt), finished:true, validated:false});  // offered completion
-      emitProgress(i, true, false, Math.round(rt));
-      remaining-=needed;
-      if(i < eps.length-1){ i++; pos=0; continue; }   // next episode, same season
-      // Season finale reached — cross into the next season if there is one.
-      const cur=sNum(eps[0]);
-      const later=[...new Set(allEps.map(sNum))].filter(s=>s>cur).sort((a,b)=>a-b);
-      if(!later.length) break;                          // last season — stop at the finale
-      switchToSeason(later[0]);                         // resets eps + per-episode state to S(N+1)
-      if(sNum(eps[0])===cur) break;                     // guard: season didn't actually change
-      i=0; pos=(epMin[0]||0);                           // continue the walk from S(N+1)E1
-    } else {
-      pos=Math.min(rt, pos+remaining); epMin[i]=pos; epPreApp[i]=false;
-      logSession(i, {minutes:Math.round(pos), finished:false, validated:false});  // offered partial
-      emitProgress(i, false, false, Math.round(pos));
-      break;
-    }
+  // Away-time fills only the CURRENT episode. Wall-clock time elapsed since a
+  // launch/start is NOT evidence the member kept watching later episodes — letting
+  // it cascade across episode boundaries is what auto-completed whole seasons when
+  // the app was reopened hours later. Complete the launched episode if enough time
+  // passed (an unvalidated "offer"), else stage it as a partial; land focus on the
+  // next episode but never mark that one watched.
+  let i=focus, pos=(epMin[i]||0);
+  const rt=runtimeOf(i), needed=Math.max(0, rt-pos);
+  if(awayMin>=needed){
+    epMin[i]=rt; epDone[i]=true; epBp[i]=false; epPreApp[i]=false;
+    markWatchedThrough(i);
+    logSession(i, {minutes:Math.round(rt), finished:true, validated:false});  // offered completion
+    emitProgress(i, true, false, Math.round(rt));
+    if(i < eps.length-1) i++;                            // land on the next episode, not-started
+  } else {
+    pos=Math.min(rt, pos+awayMin); epMin[i]=pos; epPreApp[i]=false;
+    logSession(i, {minutes:Math.round(pos), finished:false, validated:false});  // offered partial
+    emitProgress(i, false, false, Math.round(pos));
   }
   focus=Math.min(i, eps.length-1);
   watchingLive[focus]=false; startedAt[focus]=null; sessionBase[focus]=epMin[focus]||0;  // live timer stops; CONTINUE re-arms
@@ -1109,7 +1104,12 @@ $('emptyFace').onclick=gotoLog;
 // shell answers with a cube:payload or cube:noLast. Standalone preview just shows
 // the empty prompt.
 const _launch = (()=>{ try{ return JSON.parse(localStorage.getItem('pg_launch')||'null'); }catch(_){ return null; } })();
-if(_launch && _launch.tvmazeId) launchShow(_launch);
+// A launch older than 6h is stale (matches the shell's resumeLaunch guard): the
+// member is reopening the app, not returning from a watch. Drop it so the away-time
+// restore can't replay an ancient start across the season.
+const _launchStale = _launch && (Date.now() - (_launch.startedAt||0) > 6*3600*1000);
+if(_launchStale){ try{ localStorage.removeItem('pg_launch'); }catch(_){} }
+if(_launch && _launch.tvmazeId && !_launchStale) launchShow(_launch);
 else if(window.parent!==window){
   window.parent.postMessage({type:'episode:requestLast'}, '*');
   // Fallback: if the shell never answers, settle on the empty prompt.
