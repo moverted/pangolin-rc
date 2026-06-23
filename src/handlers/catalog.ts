@@ -145,11 +145,12 @@ catalogRoutes.post('/initiate', async (c) => {
   }));
 
   const stmts = [
+    // First initiate inserts; a re-initiate of an already-tracked title leaves the
+    // member's existing bucket/progress untouched (DO NOTHING).
     c.env.DB.prepare(`INSERT INTO watch_title
       (user_email, title_id, status, active_map_id, current_episode_id, started_at, updated_at)
       VALUES (?,?,?,?,?,?,?)
-      ON CONFLICT(user_email, title_id) DO UPDATE SET status=excluded.status,
-        current_episode_id=excluded.current_episode_id, updated_at=excluded.updated_at`)
+      ON CONFLICT(user_email, title_id) DO NOTHING`)
       .bind(email, ref.titleId, wtStatus, null, currentEp, now, now),
     ...weRows.map((w) => c.env.DB.prepare(`INSERT INTO watch_episode
       (user_email, episode_id, title_id, done, minute, bp, sessions, updated_at)

@@ -600,136 +600,111 @@ function publishLog(){
 }
 
 /* ---- Account persistence (signed-in members) ----------------------------- */
-// POST one show's state. Fire-and-forget; show_id is the stable TVMaze id.
-function persistShow(s){
-  const email=acct(); if(!email || !s || !s.tvmazeId) return;
-  fetch(API+"/profile/"+encodeURIComponent(email)+"/watch",{method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({
-      show_id:String(s.tvmazeId), show_name:s.name, kind:s.kind||'show', status:bucketOf(s),
-      watched:s.watched||0,
-      last_season:s.lastWatched?s.lastWatched.season:null,
-      last_number:s.lastWatched?s.lastWatched.number:null,
-      last_minute:s.lastMinute||0, started_at:s.startedAt||null,
-      episodes:s.epDetail||{}
-    })}).catch(()=>{});
+// Title-level state lives server-side now (watch_title); episode progress flows
+// through POST /episodes. PATCH a title's bucket or run a bulk op (finish/reset).
+function patchTitle(s, body){
+  const email=acct(); if(!email || !s || !s.titleId) return Promise.resolve();
+  return fetch(API+"/profile/"+encodeURIComponent(email)+"/titles/"+encodeURIComponent(s.titleId),
+    {method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body||{})}).catch(()=>{});
 }
 
-// Rebuild a LOG record from a saved watch row + live TVMaze data.
-async function hydrateSaved(row){
-  // A FILM rehydrates from the row alone (no TVmaze); the "1-1" epDetail entry
-  // carries its watched/minute state back.
-  if(row.kind==='movie' || String(row.show_id).startsWith('tmdb:')){
-    const today=new Date(row.updated_at||Date.now()).toISOString().slice(0,10);
-    const watched=Math.min(row.watched||0,1);
-    // Poster isn't stored in the watch row — re-pull it from TMDB by id so the
-    // tile and detail card show the art on reload.
-    let poster=null;
-    try{ const rid=String(row.show_id).replace(/^tmdb:/,'');
-      const r=await fetch(API+"/tmdb/movie/"+encodeURIComponent(rid));
-      if(r.ok){ const d=await r.json(); poster=(d.movie&&d.movie.poster)||null; } }catch(_){}
-    return { id:"acct-"+row.show_id, tvmazeId:String(row.show_id), kind:'movie', q:row.show_name, name:row.show_name,
-      poster, platform:"", status:"Film", failed:false,
-      episodes:[{season:1,number:1,name:row.show_name}], total:1, released:1, watched,
-      lastWatched: watched>0?{season:1,number:1,title:row.show_name,at:today}:null,
-      lastDate:today, returnDate:null, comfort:false,
-      forceCompleted:row.status==="completed", stopped:row.status==="stopped", plan:null,
-      isNew:false, addedSeq:0, lastMinute:row.last_minute||0, startedAt:row.started_at||null, epDetail:row.episodes||{} };
-  }
-  try{
-    const r=await fetch("https://api.tvmaze.com/shows/"+row.show_id+"?embed=episodes"); if(!r.ok) throw 0;
-    const sh=await r.json();
-    const eps=(sh._embedded?.episodes||[]).filter(e=>e.season>=1).sort((a,b)=>a.season-b.season||a.number-b.number);
-    const rel=eps.filter(e=>e.airdate&&new Date(e.airdate)<=NOW);
-    const watched=Math.min(row.watched||0, rel.length);
-    const lw=(row.last_season&&row.last_number) ? rel.find(e=>e.season===row.last_season&&e.number===row.last_number) : (watched>0?rel[watched-1]:null);
-    const today=new Date(row.updated_at||Date.now()).toISOString().slice(0,10);
-    return { id:"acct-"+row.show_id, tvmazeId:Number(row.show_id), q:row.show_name, name:sh.name||row.show_name,
-      poster:sh.image?.original||sh.image?.medium||null, platform:sh.webChannel?.name||sh.network?.name||"",
-      status:sh.status||"Unknown", failed:false,
-      episodes:eps, total:eps.length, released:rel.length, watched,
-      lastWatched: lw?{season:lw.season,number:lw.number,title:lw.name,at:today}:null,
-      lastDate:today, returnDate:null, comfort:row.status==="comfort",
-      forceCompleted:row.status==="completed", stopped:row.status==="stopped", plan:null,
-      isNew:false, addedSeq:0, lastMinute:row.last_minute||0, startedAt:row.started_at||null, epDetail:row.episodes||{} };
-  }catch(e){ return null; }
+// Build a LOG record from a /titles row. The catalog already carries name, poster,
+// counts and bucket — no TVmaze fetch needed. The full title_id ('tvmaze:81110' /
+// 'tmdb:123') is the key everywhere (carried in tvmazeId for message compatibility).
+function recordFromTitle(t){
+  const today=new Date(t.updated_at||Date.now()).toISOString().slice(0,10);
+  const isMovie=t.kind==='movie';
+  return { id:"acct-"+t.title_id, titleId:t.title_id, tvmazeId:t.title_id, kind:t.kind,
+    q:t.name, name:t.name, poster:t.poster||null, platform:t.platform||"",
+    status:t.title_status||(isMovie?"Film":"Unknown"), failed:false,
+    episodes:[], total:t.total||0, released:t.released||0, watched:t.watched||0,
+    lastWatched: t.last_season ? {season:t.last_season,number:t.last_number,title:"",at:today} : null,
+    lastDate:today, returnDate:null,
+    comfort:t.status==="comfort", forceCompleted:t.status==="completed", stopped:t.status==="stopped",
+    plan:null, isNew:false, addedSeq:0,
+    lastMinute:0, startedAt:t.started_at||null, epDetail:{}, currentEpisodeId:t.current_episode_id||null };
 }
 
-// Load the signed-in member's tracked shows.
+// Load the signed-in member's tracked titles from the catalog-backed endpoint.
 async function loadAccount(email){
   try{
-    const r=await fetch(API+"/profile/"+encodeURIComponent(email)+"/watch"); if(!r.ok) return [];
+    const r=await fetch(API+"/profile/"+encodeURIComponent(email)+"/titles"); if(!r.ok) return [];
     const data=await r.json();
-    return (await Promise.all((data.shows||[]).map(hydrateSaved))).filter(Boolean);
+    return (data.titles||[]).map(recordFromTitle);
   }catch(e){ return []; }
 }
 
-// Episode face reported progress within an episode (minutes / done / BP).
+// Episode face reported progress within an episode (minutes / done / BP). Writes
+// the single watch_episode row; the server recomputes the bucket + resume pointer,
+// then we refresh the title's counts from the authoritative list.
 function applyProgress(pr){
-  const s=LOG.find(x=>x.tvmazeId===pr.tvmazeId); if(!s) return;
-  s.epDetail=s.epDetail||{};
-  s.epDetail[pr.season+"-"+pr.number]={ min:pr.minute||0, done:!!pr.done, bp:!!pr.bp, sessions:pr.sessions||[] };
-  const idx=s.episodes.findIndex(e=>e.season===pr.season&&e.number===pr.number);
-  if(pr.done && idx>=0) s.watched=Math.max(s.watched, idx+1);
-  if(idx>=0) s.lastWatched={season:pr.season,number:pr.number,title:s.episodes[idx].name||"",at:new Date().toISOString().slice(0,10)};
+  const s=LOG.find(x=>x.tvmazeId===pr.tvmazeId); if(!s || !s.titleId) return;
+  const email=acct(); if(!email) return;
+  const episodeId = s.titleId+":s"+(pr.season||1)+"e"+(pr.number||1);
+  s.lastWatched={season:pr.season||1,number:pr.number||1,title:"",at:new Date().toISOString().slice(0,10)};
   s.lastMinute = pr.done ? 0 : (pr.minute||0);
   if(pr.started_at!=null) s.startedAt=pr.started_at;
   s.lastDate=new Date().toISOString().slice(0,10); s.isNew=false;
-  render(); renderPierre(); persistShow(s);
+  render(); renderPierre();
+  fetch(API+"/profile/"+encodeURIComponent(email)+"/episodes/"+encodeURIComponent(episodeId),
+    {method:"POST", headers:{"Content-Type":"application/json"},
+     body:JSON.stringify({done:!!pr.done, minute:pr.minute||0, bp:!!pr.bp, sessions:pr.sessions||[]})})
+    .then(()=>refreshTitle(s.titleId)).catch(()=>{});
 }
 
-/* Selecting a show on Log loads it on Episodes at the user's position
-   (resume to last watched if there is one, otherwise from the beginning). */
+// Pull one title's authoritative counts/bucket back into its LOG record.
+async function refreshTitle(titleId){
+  const email=acct(); if(!email) return;
+  try{
+    const r=await fetch(API+"/profile/"+encodeURIComponent(email)+"/titles"); if(!r.ok) return;
+    const t=((await r.json()).titles||[]).find(x=>x.title_id===titleId);
+    const s=LOG.find(x=>x.titleId===titleId); if(!t || !s) return;
+    s.watched=t.watched||0; s.total=t.total||0; s.released=t.released||0;
+    s.forceCompleted=t.status==="completed"; s.stopped=t.status==="stopped"; s.comfort=t.status==="comfort";
+    s.lastWatched = t.last_season ? {season:t.last_season,number:t.last_number,title:"",at:s.lastDate} : s.lastWatched;
+    s.currentEpisodeId = t.current_episode_id || s.currentEpisodeId;
+    render(); renderPierre();
+  }catch(_){}
+}
+
+/* Selecting a show on Log loads it on Episodes at the user's position (resume to
+   last watched if there is one, otherwise from the beginning). The Watch face now
+   loads episodes from the catalog by title_id. */
 function episodesPayload(s, fromStart){
-  // A FILM hands off as a movie payload so the Watch face loads it single-unit;
-  // its saved minute + the "1-1" epDetail restore where you were.
-  if(s.kind==='movie'){
-    return {movie:{id:String(s.tvmazeId).replace(/^tmdb:/,''), title:s.name, poster:s.poster||null},
-      pattern:{kind:"beginning"}, minute:s.lastMinute||0, startedAt:s.startedAt||null, episodes:s.epDetail||{}};
-  }
   const pat = (!fromStart && !s.comfort && s.lastWatched && s.watched>0)
     ? {kind:"resume", season:s.lastWatched.season, number:s.lastWatched.number}
     : {kind:"beginning"};
-  return {show: s.tvmazeId?{id:s.tvmazeId,name:s.name}:null, pattern:pat,
-    minute:s.lastMinute||0, startedAt:s.startedAt||null, episodes:s.epDetail||{}};
+  return { titleId:s.titleId, kind:s.kind, name:s.name, pattern:pat };
 }
 
-/* Pierre's add flow asks the shell to add the picked show here too, so a new
-   show shows up in the Log. Idempotent: an already-tracked show is not duplicated. */
+// Map whatever Pierre/Join hands us (bare tvmaze id, bare tmdb id, or a prefixed
+// id) onto a canonical title_id.
+function toTitleId(show){
+  const id=String(show.id||"");
+  if(id.startsWith('tvmaze:')||id.startsWith('tmdb:')) return id;
+  return (show.kind==='movie') ? ('tmdb:'+id) : ('tvmaze:'+id);
+}
+
+/* Pierre's add flow asks the shell to add the picked title here too. The server
+   materializes the catalog + per-user episode rows (/catalog/initiate); we then
+   reload the list. Idempotent: an already-tracked title is not duplicated. */
 async function addToLog(show, pattern){
+  const titleId=toTitleId(show);
   const norm=(show.name||"").toLowerCase();
-  const existing=LOG.find(s=>(s.tvmazeId&&s.tvmazeId===show.id)||(s.name&&s.name.toLowerCase()===norm));
-  const today=new Date().toISOString().slice(0,10);
-  if(existing){ if(existing.stopped)existing.stopped=false; existing.lastDate=today; render(); renderPierre(); persistShow(existing); return; }
-  // A FILM: no TVmaze, single unit. One synthetic episode carries it through the
-  // same progress/finish machinery as a show.
-  if(show.kind==='movie' || String(show.id).startsWith('tmdb:')){
-    const rec={ id:"add-"+show.id, tvmazeId:show.id, kind:'movie', q:show.name, name:show.name||"",
-      poster:show.poster||null, platform:"", status:"Film", failed:false,
-      episodes:[{season:1,number:1,name:show.name||""}], total:1, released:1, watched:0,
-      lastWatched:null, lastDate:today, returnDate:null, comfort:false, forceCompleted:false,
-      stopped:false, plan:null, isNew:true, addedSeq:++addSeq, lastMinute:0, startedAt:null, epDetail:{} };
-    LOG.unshift(rec); render(); renderPierre(); persistShow(rec); return;
+  const existing=LOG.find(s=>s.titleId===titleId || (s.name&&s.name.toLowerCase()===norm));
+  if(existing){
+    if(existing.stopped){ existing.stopped=false; patchTitle(existing,{status:'current'}); }
+    existing.lastDate=new Date().toISOString().slice(0,10); render(); renderPierre(); return;
   }
+  const email=acct(); if(!email) return;   // signed-out: nothing to materialize against
   try{
-    const r=await fetch("https://api.tvmaze.com/shows/"+show.id+"?embed=episodes"); if(!r.ok) throw 0;
-    const sh=await r.json();
-    const eps=(sh._embedded?.episodes||[]).filter(e=>e.season>=1).sort((a,b)=>a.season-b.season||a.number-b.number);
-    const rel=eps.filter(e=>e.airdate&&new Date(e.airdate)<=NOW);
-    const p=pattern||{kind:"beginning"};
-    let watched = p.kind==="live" ? rel.length : 0;
-    if(p.kind==="resume" && p.season){ const i=rel.findIndex(e=>e.season===p.season&&e.number===p.number); watched=i>=0?i+1:0; }
-    const lw=watched>0?rel[watched-1]:null;
-    const rec={ id:"add-"+show.id, tvmazeId:show.id, q:sh.name, name:sh.name||show.name,
-      poster:sh.image?.original||sh.image?.medium||null, platform:sh.webChannel?.name||sh.network?.name||"",
-      status:sh.status||"Unknown", failed:false,
-      episodes:eps, total:eps.length, released:rel.length, watched,
-      lastWatched: lw?{season:lw.season,number:lw.number,title:lw.name,at:today}:null,
-      lastDate:today, returnDate:null, comfort:false, forceCompleted:false, stopped:false, plan:null,
-      isNew:true, addedSeq:++addSeq, lastMinute:0, startedAt:null, epDetail:{} };
-    LOG.unshift(rec);
-    render(); renderPierre(); persistShow(rec);
-  }catch(e){ /* Pierre validated the show; ignore if the detail fetch fails */ }
+    const r=await fetch(API+"/catalog/initiate",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({email, title_id:titleId, pattern:pattern||{kind:"beginning"}})});
+    if(!r.ok) return;
+    LOG = await loadAccount(email);                       // bring in the new title with real counts
+    const s=LOG.find(x=>x.titleId===titleId); if(s){ s.isNew=true; s.addedSeq=++addSeq; }
+    render(); renderPierre();
+  }catch(e){ /* Pierre validated the title; ignore transient failures */ }
 }
 
 window.addEventListener("message",(e)=>{
@@ -877,7 +852,7 @@ function finishShow(id, land){
     tileEl.style.transition="transform .75s cubic-bezier(.5,0,.2,1),opacity .75s ease";
     tileEl.style.transform="translate("+((tab.left+tab.width/2)-(tr.left+tr.width/2))+"px,"+((tab.top+tab.height/2)-(tr.top+tr.height/2))+"px) scale(.1)";
     tileEl.style.opacity="0";}else burst(fr.width/2,fr.height/2);
-  s.forceCompleted=true;s.watched=s.total; persistShow(s);
+  s.forceCompleted=true;s.watched=s.total; patchTitle(s,{op:'finish'});
   const tabEl=document.querySelector('.tab[data-tab="completed"]');tabEl.classList.add("pulse");setTimeout(()=>tabEl.classList.remove("pulse"),700);
   setTimeout(()=>{render();renderPierre();},780); setTimeout(()=>switchTab(land||"completed"),1300);
   // After the popcorn: share the finale card. A FILM gets a skippable comment first
@@ -906,7 +881,7 @@ function stopShow(id){
   const tileEl=document.querySelector('.tile[data-id="'+id+'"]'),s=LOG.find(x=>x.id===id); if(!s)return;
   const fr=face.getBoundingClientRect();
   if(tileEl){dustParticles(tileEl.getBoundingClientRect(),fr);tileEl.classList.add("dusting");}
-  s.stopped=true; persistShow(s); setTimeout(()=>{render();renderPierre();},640);
+  s.stopped=true; patchTitle(s,{status:'stopped'}); setTimeout(()=>{render();renderPierre();},640);
 }
 
 const OWNER_EMAIL='edward.m.willett@gmail.com';
@@ -916,7 +891,7 @@ function tryAgain(id){
   s.forceCompleted=false; s.stopped=false; s.watched=0; s.lastWatched=null;
   s.lastMinute=0; s.startedAt=null; s.epDetail={}; s.isNew=false;
   s.lastDate=new Date().toISOString().slice(0,10);
-  selectedId=null; persistShow(s); switchTab("current"); renderPierre();
+  selectedId=null; patchTitle(s,{op:'reset'}); switchTab("current"); renderPierre();
 }
 // COMPLETED → "remove permanently": the owner account gets a real delete (show +
 // all its data); everyone else just hides it locally for the session.
@@ -925,8 +900,8 @@ function removePermanently(id){
   const i=LOG.indexOf(s); if(i>=0) LOG.splice(i,1);
   selectedId=null;
   const email=acct();
-  if(email && email.toLowerCase()===OWNER_EMAIL && s.tvmazeId)
-    fetch(API+"/profile/"+encodeURIComponent(email)+"/watch/"+encodeURIComponent(s.tvmazeId),{method:"DELETE"}).catch(()=>{});
+  if(email && email.toLowerCase()===OWNER_EMAIL && s.titleId)
+    fetch(API+"/profile/"+encodeURIComponent(email)+"/titles/"+encodeURIComponent(s.titleId),{method:"DELETE"}).catch(()=>{});
   render(); renderPierre();
 }
 

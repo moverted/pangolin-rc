@@ -946,6 +946,50 @@ document.querySelector('.face').addEventListener('click',e=>{
   e.stopPropagation(); logMinute();
 }, true);
 
+const acctEmail = () => { try{ return localStorage.getItem('pg_user')||''; }catch(_){ return ''; } };
+
+// Load a title from the shared catalog (+ the member's per-episode progress) and
+// place the watch position per the pattern. Replaces the old client TVmaze/TMDB
+// fetches: episodes are server-materialized now.
+//   opts.startedAt — a launch's start ts; placed as away-time unless suppressed
+//   opts.autoFinish / opts.partial — suppress the away-time walk
+async function loadTitle(titleId, pattern, opts){
+  opts = opts || {};
+  const email = acctEmail();
+  const fetchDetail = async () => {
+    try{
+      if(email){ const r=await fetch(`${API_BASE}/profile/${encodeURIComponent(email)}/titles/${encodeURIComponent(titleId)}`); if(r.ok){ const d=await r.json(); if(d && d.title) return d; } }
+      const r=await fetch(`${API_BASE}/catalog/titles/${encodeURIComponent(titleId)}/episodes`); if(r.ok){ const d=await r.json(); if(d && d.title) return {title:d.title, episodes:d.episodes}; }
+    }catch(_){}
+    return null;
+  };
+  let detail = await fetchDetail();
+  // Not in the catalog yet → this load IS the initiation: materialize server-side
+  // (idempotent) and read it back. Keeps "build the data when watch starts" true no
+  // matter which face triggered the load.
+  if((!detail || !detail.title) && email){
+    try{ await fetch(`${API_BASE}/catalog/initiate`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({email, title_id:titleId, pattern:pattern||{kind:'beginning'}})}); }catch(_){}
+    detail = await fetchDetail();
+  }
+  if(!detail || !detail.title){ $('name').textContent='Title not found'; return; }
+  const t = detail.title; isMovie = t.kind==='movie';
+  const eps0 = detail.episodes || [];
+  const show = { id:titleId, name:t.name||'', image: t.poster?{original:t.poster, medium:t.poster}:null,
+    premiered:t.premiered||'', webChannel:{name:t.platform||''}, network:null,
+    averageRuntime:(eps0[0]&&eps0[0].runtime)||45, genres: isMovie?['Film']:[], status:t.status||'' };
+  const list = eps0.map(e=>({season:e.season,number:e.number,name:e.name,runtime:e.runtime,airdate:e.airdate}));
+  // The member's per-episode progress, keyed "season-number", so applyPattern's
+  // applySavedDetail restores done/minute/bp/sessions exactly.
+  const saved = {};
+  eps0.forEach(e=>{ if(e.done||e.minute||e.bp||(e.sessions&&e.sessions.length))
+    saved[e.season+'-'+e.number] = { done:!!e.done, min:e.minute||0, bp:!!e.bp, sessions:e.sessions||[] }; });
+  boot(show, list, false);
+  const suppressWalk = opts.autoFinish || opts.partial;
+  pendingRestore = { minute:0, startedAt: suppressWalk ? null : (opts.startedAt||null), episodes:saved };
+  applyPattern(pattern||{kind:'beginning'});
+}
+
 // Pierre hands off a picked show + watch pattern. Load it and set the position.
 async function loadShowWithPattern(id,pattern){
   isMovie=false;
@@ -1024,8 +1068,11 @@ function applyPattern(p){
 window.addEventListener('message',(e)=>{
   if(e.data && e.data.type==='cube:payload' && e.data.face==='episodes'){
     const p=e.data.payload||{};
-    if(p.movie && p.movie.id!=null){ pendingRestore={minute:p.minute, startedAt:p.startedAt, episodes:p.episodes}; loadMovie(p.movie, p.pattern); }
-    else if(p.show && p.show.id){ pendingRestore={minute:p.minute, startedAt:p.startedAt, episodes:p.episodes}; loadShowWithPattern(p.show.id, p.pattern); }
+    // The Log hands off a title_id; the Watch face loads episodes + the member's
+    // progress from the catalog. (Legacy movie/show payloads still resolve.)
+    if(p.titleId){ loadTitle(p.titleId, p.pattern); }
+    else if(p.movie && p.movie.id!=null){ loadTitle('tmdb:'+String(p.movie.id).replace(/^tmdb:/,''), p.pattern); }
+    else if(p.show && p.show.id){ loadTitle(String(p.show.id).startsWith('tvmaze:')?p.show.id:'tvmaze:'+p.show.id, p.pattern); }
   }
   // Deep-link return: load the launched title at S1E1 with the minute guess.
   if(e.data && e.data.type==='cube:launch' && e.data.launch) launchShow(e.data.launch);
@@ -1049,30 +1096,11 @@ $('ymeta').addEventListener('click',(ev)=>{
 //   L.partial    — "Partial Log": land on the scrubber staged at the elapsed
 //                  guess (capped below runtime) so the member sets the real minute.
 async function launchShow(L){
-  if(!L || !L.tvmazeId) return;
-  // A FILM launched the same way (play → streamer → return): load it single-unit
-  // via loadMovie, not TVmaze, then apply the same autoFinish / partial behaviour.
-  if(L.kind==='movie' || String(L.tvmazeId).startsWith('tmdb:')){
-    const suppressWalkM = L.autoFinish || L.partial;
-    pendingRestore = { minute:0, startedAt:suppressWalkM ? null : L.startedAt, episodes:{} };
-    await loadMovie({ id:String(L.tvmazeId).replace(/^tmdb:/,''), title:L.name }, {kind:'beginning'});
-    if(L.autoFinish){ finishEpisode(); return; }
-    if(L.partial){
-      const rt=runtimeOf(focus);
-      const guess=Math.max(0, Math.min(rt-1, Math.round((Date.now()-(L.startedAt||Date.now()))/60000)));
-      if(!startedAt[focus]) startedAt[focus]=L.startedAt||Date.now();
-      minPreview=guess; awaitingLog=true; paintMinute();
-    }
-    return;
-  }
-  isMovie=false;   // deep-link launch is the TVmaze path; films load via loadMovie
-  // autoFinish / partial both suppress the away-time walk (placeAwayTime) — it
-  // would over-fill a long gap to "done" and advance, which neither wants.
-  const suppressWalk = L.autoFinish || L.partial;
-  pendingRestore = { minute:0, startedAt:suppressWalk ? null : L.startedAt, episodes:{} };
-  // Resume to the exact episode that was launched (the one you tapped play on).
+  if(!L || !L.tvmazeId) return;   // L.tvmazeId is the title_id ('tvmaze:…' / 'tmdb:…')
+  // Resume to the exact episode launched. autoFinish / partial suppress the
+  // away-time walk; otherwise the elapsed time since L.startedAt is placed.
   const pat = (L.season && L.number) ? {kind:'at', season:L.season, number:L.number} : {kind:'beginning'};
-  await loadShowWithPattern(L.tvmazeId, pat);
+  await loadTitle(L.tvmazeId, pat, {startedAt:L.startedAt, autoFinish:L.autoFinish, partial:L.partial});
   if(L.autoFinish){ finishEpisode(); return; }   // full-finish the launched episode + advance focus
   if(L.partial){
     // Stage the elapsed-time guess on the scrubber, capped below runtime so it
