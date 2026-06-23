@@ -576,8 +576,8 @@
   }
 
   // "Pick an episode": pull the show's episodes and let Ted choose season then
-  // episode. Hands off landing ON that episode (kind:'at' — earlier ones in the
-  // season count as already seen, the pick is the current/partial one).
+  // episode. Hands off landing ON that episode (kind:'at' — a fresh start at the
+  // pick; earlier episodes are NOT back-loaded as watched).
   async function pickEpisodeFlow(show){
     showTyping();
     let list=[];

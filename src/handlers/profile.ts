@@ -293,7 +293,10 @@ profileRoutes.post('/:email/episodes/:episode_id', async (c) => {
   const episode_id = c.req.param('episode_id');
   const exists = await c.env.DB.prepare('SELECT email FROM users WHERE email = ?').bind(email).first();
   if (!exists) return c.json({ error: 'unknown user' }, 404);
-  const ep = await c.env.DB.prepare('SELECT title_id FROM episodes WHERE episode_id = ?').bind(episode_id).first<{ title_id: string }>();
+  const ep = await c.env.DB.prepare(
+    `SELECT e.title_id, e.name AS episode_name, t.name AS show_name
+       FROM episodes e JOIN titles t ON t.title_id = e.title_id WHERE e.episode_id = ?`
+  ).bind(episode_id).first<{ title_id: string; episode_name: string | null; show_name: string | null }>();
   if (!ep) return c.json({ error: 'unknown episode' }, 404);
   let body: any;
   try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
@@ -304,15 +307,17 @@ profileRoutes.post('/:email/episodes/:episode_id', async (c) => {
     : (typeof body.sessions === 'string' ? body.sessions : JSON.stringify(body.sessions)).slice(0, 100000);
   const now = Date.now();
   await c.env.DB.prepare(
-    `INSERT INTO watch_episode (user_email, episode_id, title_id, done, minute, bp, sessions, updated_at)
-     VALUES (?,?,?,?,?,?,?,?)
+    `INSERT INTO watch_episode (user_email, episode_id, title_id, show_name, episode_name, done, minute, bp, sessions, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?)
      ON CONFLICT(user_email, episode_id) DO UPDATE SET
-       done=excluded.done, minute=excluded.minute, bp=excluded.bp, sessions=excluded.sessions, updated_at=excluded.updated_at`
-  ).bind(email, episode_id, ep.title_id, done, minute, bp, sessions, now).run();
+       done=excluded.done, minute=excluded.minute, bp=excluded.bp, sessions=excluded.sessions, updated_at=excluded.updated_at,
+       show_name=excluded.show_name, episode_name=excluded.episode_name`
+  ).bind(email, episode_id, ep.title_id, ep.show_name, ep.episode_name, done, minute, bp, sessions, now).run();
   const recomputed = await recomputeTitle(c.env, email, ep.title_id);
-  mirror(c, 'watch_episode', { user_email: email, episode_id, title_id: ep.title_id, done, minute, bp, sessions, updated_at: now });
-  if (recomputed) mirror(c, 'watch_title', { user_email: email, title_id: ep.title_id, status: recomputed.status,
-    active_map_id: null, current_episode_id: recomputed.current, started_at: null, updated_at: now });
+  mirror(c, 'watch_episode', { user_email: email, episode_id, title_id: ep.title_id,
+    show_name: ep.show_name, episode_name: ep.episode_name, done, minute, bp, sessions, updated_at: now });
+  if (recomputed) mirror(c, 'watch_title', { user_email: email, title_id: ep.title_id, show_name: ep.show_name,
+    status: recomputed.status, active_map_id: null, current_episode_id: recomputed.current, started_at: null, updated_at: now });
   return c.json({ ok: true, status: recomputed?.status, current_episode_id: recomputed?.current });
 });
 
@@ -338,9 +343,9 @@ profileRoutes.patch('/:email/titles/:title_id', async (c) => {
 
   // Re-mirror the affected rows (bulk op touched many episodes).
   c.executionCtx.waitUntil((async () => {
-    const eps = await c.env.DB.prepare('SELECT user_email, episode_id, title_id, done, minute, bp, sessions, updated_at FROM watch_episode WHERE user_email=? AND title_id=?').bind(email, titleId).all();
+    const eps = await c.env.DB.prepare('SELECT user_email, episode_id, title_id, show_name, episode_name, done, minute, bp, sessions, updated_at FROM watch_episode WHERE user_email=? AND title_id=?').bind(email, titleId).all();
     await pushRows(c.env, 'watch_episode', (eps.results || []) as any[]);
-    const row = await c.env.DB.prepare('SELECT user_email, title_id, status, active_map_id, current_episode_id, started_at, updated_at FROM watch_title WHERE user_email=? AND title_id=?').bind(email, titleId).first();
+    const row = await c.env.DB.prepare('SELECT user_email, title_id, show_name, status, active_map_id, current_episode_id, started_at, updated_at FROM watch_title WHERE user_email=? AND title_id=?').bind(email, titleId).first();
     if (row) await pushRow(c.env, 'watch_title', row as any);
   })().catch((e) => console.error('airtable patch mirror', e)));
   return c.json({ ok: true, status: recomputed?.status });

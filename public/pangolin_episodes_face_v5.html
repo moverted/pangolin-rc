@@ -771,7 +771,7 @@ function paint(){
       badge=`<span class="wdate">(${last?last.date+', '+last.minutes+'m':'in progress'})</span>`; }
     const score = ranks[i]!==undefined ? ranks[i]+'/10' : '';
     let kids;
-    if(sess.length){ kids=sess.map(s=>{
+    if(sess.length){ kids=sess.slice().reverse().map(s=>{   // newest activity on top, matching the episode list
       const base = s.bp ? 'skipped · BP' : (s.state==='watching' ? 'watching' : (s.finished ? 'finished · '+s.minutes+'m' : 'paused · '+s.minutes+'m'));
       const lbl = base + (s.validated===false ? ' · offered' : '');   // offered = the timer's placement, not yet confirmed
       const ts = s.startTs ? ' · '+hmFmt(s.startTs)+'→'+(s.finishTs?hmFmt(s.finishTs):'…') : '';
@@ -908,9 +908,46 @@ let hiddenAt=null;
 document.addEventListener('visibilitychange', ()=>{
   if(document.hidden){ hiddenAt=Date.now(); return; }
   const wasHidden=hiddenAt; hiddenAt=null;
-  if(!watchingLive[focus] || !startedAt[focus] || !wasHidden) return;
+  if(!startedAt[focus] || !wasHidden) return;
+  // While actively WATCHING the live timer owns the clock: time away IS watch time
+  // (the bar is recomputed from startedAt), so we stay in WATCHING and just catch
+  // the bar up — never flip to WAITING. The tick completes this one episode if its
+  // full runtime elapsed while we were gone (one episode only, no season cascade).
+  if(watchingLive[focus]){ tickWatch(); return; }
+  // Not actively watching in-app (e.g. a streamer launch left a start ts): keep the
+  // existing "offer a placement for the time away" behaviour.
   placeAwayTime((Date.now()-wasHidden)/60000);
 });
+
+// ---- live watch timer ----------------------------------------------------------
+// START / CONTINUE arms the animated WATCHING state. From there the minute bar
+// advances in real time off the start timestamp — surviving sleep and backgrounding
+// because it is always recomputed from wall-clock, not an in-page counter. Reaching
+// the runtime completes that one episode and lands focus on the next (still stopped),
+// so a long gap can never run away and complete a whole season.
+const liveMin=(i)=> startedAt[i]!=null ? (sessionBase[i]||0)+(Date.now()-startedAt[i])/60000 : (epMin[i]||0);
+function completeWatch(i){
+  const rt=runtimeOf(i);
+  epMin[i]=rt; epDone[i]=true; epBp[i]=false; epPreApp[i]=false;
+  watchingLive[i]=false; startedAt[i]=null; sessionBase[i]=rt;
+  try{ localStorage.removeItem('pg_launch'); }catch(_){}
+  markWatchedThrough(i);
+  logSession(i,{minutes:rt,finished:true,validated:true});  // a real watch: started in-app and run to the end
+  emitProgress(i, true, false, rt);
+  if(i===focus){ finaleCheck(); advanceFocus(); }
+  paint();
+}
+function tickWatch(){
+  const i=focus;
+  if(!watchingLive[i] || startedAt[i]==null) return;
+  const rt=runtimeOf(i), live=Math.min(rt, liveMin(i));
+  epMin[i]=live;
+  const arr=epSessions[i]||[], last=arr[arr.length-1];
+  if(last && last.state==='watching') last.minutes=Math.round(live);   // keep the open viewing in step
+  if(live>=rt-1e-6) completeWatch(i);
+  else paintMinute();
+}
+setInterval(tickWatch, 5000);
 
 // ----- minute bar interaction -----
 const minBar=$('minBar');
@@ -1022,6 +1059,7 @@ async function loadMovie(m,pattern){
 }
 function applyPattern(p){
   const seasons=[...new Set(allEps.map(sNum))]; if(!seasons.length) return;
+  let landFocus=null;   // 'at' lands ON a specific episode without back-loading the rest
   if(p.kind==='live'){
     const aired=[...new Set(allEps.filter(released).map(sNum))];
     const cur=aired.length?Math.max(...aired):Math.max(...seasons);
@@ -1032,11 +1070,11 @@ function applyPattern(p){
     const idx=eps.findIndex(e=>(e.number||0)===p.number);
     watched=idx>=0?idx+1:0;
   } else if(p.kind==='at' && p.season){
-    // Land ON a specific episode (the one being watched): earlier episodes count
-    // as done, the target itself is the partial/current one.
+    // "Watch from this episode": land ON the pick and start fresh there. Earlier
+    // episodes are NOT back-loaded as watched — nothing before it is marked done.
     eps=allEps.filter(e=>sNum(e)===p.season); if(!eps.length) eps=allEps;
     const idx=eps.findIndex(e=>(e.number||0)===p.number);
-    watched=idx>=0?idx:0;
+    watched=0; landFocus=idx>=0?idx:0;
   } else {                                  // beginning, pick, or resume with no position
     const real=seasons.filter(s=>s>=1);     // skip season 0 specials
     const s1=Math.min(...(real.length?real:seasons));
@@ -1051,7 +1089,7 @@ function applyPattern(p){
   // keep it so a later season-wrap can re-apply the next season's history.
   savedDetail=(pendingRestore&&pendingRestore.episodes)||null;
   applySavedDetail();
-  focus=Math.min(watched, eps.length-1);
+  focus = (landFocus!=null) ? Math.min(landFocus, eps.length-1) : Math.min(watched, eps.length-1);
   // Restore the partial current episode, then — if a watch was left open (saved
   // started_at) — offer placement for all the time since, exactly like a return:
   // it can span episodes and is unvalidated until confirmed.

@@ -126,43 +126,54 @@ catalogRoutes.post('/initiate', async (c) => {
   // Seed initial done state from the pattern.
   let doneThru = -1;                                  // index up to which episodes count as done
   let currentIdx = 0;
+  let startIdx = 0;                                   // first episode to materialize a per-user row for
   if (pattern.kind === 'live') {
     episodes.forEach((e, i) => { if (released(e.airdate, now)) doneThru = i; });
     currentIdx = Math.min(doneThru + 1, episodes.length - 1);
-  } else if ((pattern.kind === 'at' || pattern.kind === 'resume') && pattern.season) {
+  } else if (pattern.kind === 'resume' && pattern.season) {
+    // Resume = pick up where you left off: the earlier episodes were already watched.
     const idx = episodes.findIndex((e) => e.season === pattern.season && e.number === pattern.number);
     if (idx >= 0) { doneThru = idx - 1; currentIdx = idx; }
+  } else if (pattern.kind === 'at' && pattern.season) {
+    // "Watch from this episode": a fresh start AT the pick. Do not back-load the
+    // earlier episodes — start materializing from the requested one, nothing done.
+    const idx = episodes.findIndex((e) => e.season === pattern.season && e.number === pattern.number);
+    if (idx >= 0) { currentIdx = idx; startIdx = idx; }
   } // 'beginning' / default: nothing done, current = first
 
   const wtStatus = 'current';
   const curEp = episodes[currentIdx];
   const currentEp = curEp ? curEp.episode_id : null;
 
-  const weRows = episodes.map((e, i) => ({
-    user_email: email, episode_id: e.episode_id, title_id: ref.titleId,
-    done: i <= doneThru ? 1 : 0, minute: i <= doneThru ? (e.runtime || 0) : 0, bp: 0,
-    sessions: null as string | null, updated_at: now,
-  }));
+  const weRows = episodes.slice(startIdx).map((e, j) => {
+    const i = startIdx + j;
+    return {
+      user_email: email, episode_id: e.episode_id, title_id: ref.titleId,
+      show_name: titleRow.name, episode_name: e.name,
+      done: i <= doneThru ? 1 : 0, minute: i <= doneThru ? (e.runtime || 0) : 0, bp: 0,
+      sessions: null as string | null, updated_at: now,
+    };
+  });
 
   const stmts = [
     // First initiate inserts; a re-initiate of an already-tracked title leaves the
     // member's existing bucket/progress untouched (DO NOTHING).
     c.env.DB.prepare(`INSERT INTO watch_title
-      (user_email, title_id, status, active_map_id, current_episode_id, started_at, updated_at)
-      VALUES (?,?,?,?,?,?,?)
-      ON CONFLICT(user_email, title_id) DO NOTHING`)
-      .bind(email, ref.titleId, wtStatus, null, currentEp, now, now),
-    ...weRows.map((w) => c.env.DB.prepare(`INSERT INTO watch_episode
-      (user_email, episode_id, title_id, done, minute, bp, sessions, updated_at)
+      (user_email, title_id, show_name, status, active_map_id, current_episode_id, started_at, updated_at)
       VALUES (?,?,?,?,?,?,?,?)
+      ON CONFLICT(user_email, title_id) DO NOTHING`)
+      .bind(email, ref.titleId, titleRow.name, wtStatus, null, currentEp, now, now),
+    ...weRows.map((w) => c.env.DB.prepare(`INSERT INTO watch_episode
+      (user_email, episode_id, title_id, show_name, episode_name, done, minute, bp, sessions, updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(user_email, episode_id) DO NOTHING`)   // never clobber existing progress on re-initiate
-      .bind(w.user_email, w.episode_id, w.title_id, w.done, w.minute, w.bp, w.sessions, w.updated_at)),
+      .bind(w.user_email, w.episode_id, w.title_id, w.show_name, w.episode_name, w.done, w.minute, w.bp, w.sessions, w.updated_at)),
   ];
   await c.env.DB.batch(stmts);
 
   // Mirror to Airtable (fire-and-forget): the catalog only when freshly created.
-  const wtRow = { user_email: email, title_id: ref.titleId, status: wtStatus, active_map_id: null,
-    current_episode_id: currentEp, started_at: now, updated_at: now };
+  const wtRow = { user_email: email, title_id: ref.titleId, show_name: titleRow.name, status: wtStatus,
+    active_map_id: null, current_episode_id: currentEp, started_at: now, updated_at: now };
   c.executionCtx.waitUntil((async () => {
     if (mat.created) { await pushRow(c.env, 'titles', titleRow); await pushRows(c.env, 'episodes', episodes); }
     await pushRow(c.env, 'watch_title', wtRow);

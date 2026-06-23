@@ -148,10 +148,6 @@
   .cards{display:flex;gap:9px;overflow-x:auto;-webkit-overflow-scrolling:touch;
     scrollbar-width:none;padding-bottom:2px}
   .cards::-webkit-scrollbar{display:none}
-  .msearch{width:100%;box-sizing:border-box;font-family:var(--body);font-size:13.5px;color:var(--text);
-    background:#1a130b;border:1px solid var(--line);border-radius:10px;padding:9px 12px;margin-bottom:9px}
-  .msearch::placeholder{color:#7d7060}
-  .msearch:focus{outline:none;border-color:var(--amber-soft)}
   .bcard{flex:0 0 auto;width:86px;cursor:pointer}
   .bcard .pi{width:86px;height:120px;border-radius:9px;background:#000 center/cover;border:1px solid var(--line)}
   .bcard .nm{font-size:11px;margin-top:5px;line-height:1.2;color:var(--text)}
@@ -274,43 +270,6 @@ const API_BASE = location.hostname === 'localhost'
 
 // A film opens single-unit on the Watch face (and lands in the Log), same handoff
 // shape Pierre uses for a movie.
-function openMovie(m){
-  if (!m) return;
-  const payload = { movie:{ id:m.id, title:m.title, year:m.year, poster:m.poster, overview:m.overview, runtime:m.runtime },
-                    pattern:{ kind:'beginning' }, addToLog:true };
-  if (window.parent !== window){
-    if (typeof window.parent.cubeRotateTo === 'function') window.parent.cubeRotateTo('episodes', payload);
-    else window.parent.postMessage({ type:'cube:rotateTo', face:'episodes', payload }, '*');
-  }
-}
-
-// Live TMDB film search in the BROWSE search box. Debounced, abortable; renders
-// results as poster cards in the same rail style as the show picks.
-function wireMovieSearch(){
-  const q = document.getElementById('movieq'), box = document.getElementById('movieResults');
-  if (!q || !box) return;
-  let timer = null, ctrl = null;
-  q.oninput = () => {
-    const term = q.value.trim(); clearTimeout(timer);
-    if (term.length < 2){ box.innerHTML = ''; return; }
-    timer = setTimeout(async () => {
-      if (ctrl) ctrl.abort(); ctrl = new AbortController();
-      box.innerHTML = '<div class="why">searching…</div>';
-      let results = [];
-      try{ const r = await fetch(API_BASE + '/tmdb/search?q=' + encodeURIComponent(term), { signal: ctrl.signal });
-        if (r.ok) results = ((await r.json()).results) || []; }
-      catch(_){ return; }   // aborted or offline — leave the last results up
-      if (!results.length){ box.innerHTML = '<div class="why">no films found</div>'; return; }
-      box.innerHTML = results.map(m => `<div class="bcard" data-id="${m.id}">
-        <div class="pi" style="${m.poster?`background-image:url('${m.poster}')`:''}"></div>
-        <div class="nm">${esc(m.title)}${m.year?` <span style="color:var(--muted)">${m.year}</span>`:''}</div></div>`).join('');
-      box.querySelectorAll('.bcard').forEach(el => {
-        const m = results.find(x => String(x.id) === el.dataset.id);
-        el.onclick = () => openMovie(m);
-      });
-    }, 280);
-  };
-}
 async function renderBrowse(){
   document.querySelector('.track').style.display = 'none';
   const b = document.getElementById('browse'); b.classList.add('show');
@@ -318,12 +277,6 @@ async function renderBrowse(){
   b.innerHTML = `
     <div class="head"><span class="label">BROWSE</span><span class="badge">DISCOVER</span></div>
     <div class="bscroll">
-      <div class="rail">
-        <h2>Search films <em>tmdb</em></h2>
-        <div class="why">find a movie to watch and log</div>
-        <input id="movieq" class="msearch" type="text" autocomplete="off" placeholder="Search movies…">
-        <div class="cards" id="movieResults"></div>
-      </div>
       <div class="rail">
         <h2>Pierre's picks <em>live</em></h2>
         <div class="why">shows worth your night</div>
@@ -343,7 +296,6 @@ async function renderBrowse(){
     try{ localStorage.removeItem('pg_user'); localStorage.removeItem('pg_username'); }catch(_){}
     b.classList.remove('show'); document.querySelector('.track').style.display = '';
   };
-  wireMovieSearch();
   const wrap = document.getElementById('cardsPierre');
   const shows = (await Promise.all(PICKS_SEED.map(fetchShow))).filter(Boolean);
   if (!shows.length){ wrap.innerHTML = `<div class="why">couldn't reach the guide just now</div>`; return; }
