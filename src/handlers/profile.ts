@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
-import { pushRow, deleteRow } from './airtable';
+import { pushRow, pushRows, deleteRow } from './airtable';
 
 // Account + device API. SEAM:identity — email is the key, no auth in this build.
 export const profileRoutes = new Hono<{ Bindings: Env }>();
@@ -200,67 +200,163 @@ profileRoutes.get('/:email/devices', async (c) => {
   return c.json({ devices: devices.results || [] });
 });
 
-// ---- Watch history: tracked shows + per-episode minute progress -----------
-// The Log is the single client-side writer; it POSTs one show at a time and
-// reads the whole list back on login to rehydrate the member's room.
+// ---- Watch state: per-user progress over the shared catalog ----------------
+// The unit is the episode (or movie). watch_title holds the Log bucket + resume
+// pointer; watch_episode holds per-episode progress. Materialization lives in
+// /catalog/initiate; these endpoints read and update progress.
 
-// List a user's tracked shows (episodes JSON parsed for the client).
-profileRoutes.get('/:email/watch', async (c) => {
+const MANUAL = new Set(['stopped', 'comfort']);   // buckets the auto-recompute leaves alone
+
+// Recompute watch_title.status + resume pointer from the episode rows, unless the
+// member set a manual bucket (stopped/comfort). Mirrors the client's bucketOf.
+async function recomputeTitle(env: Env, email: string, titleId: string): Promise<{ status: string; current: string | null } | null> {
+  const t = await env.DB.prepare('SELECT status, total_episodes FROM titles WHERE title_id = ?').bind(titleId).first<any>();
+  const wt = await env.DB.prepare('SELECT status FROM watch_title WHERE user_email = ? AND title_id = ?').bind(email, titleId).first<any>();
+  if (!t || !wt) return null;
+  const total = t.total_episodes || 0;
+  const watched = (await env.DB.prepare('SELECT COUNT(*) AS c FROM watch_episode WHERE user_email=? AND title_id=? AND done=1').bind(email, titleId).first<{ c: number }>())?.c ?? 0;
+  const released = (await env.DB.prepare("SELECT COUNT(*) AS c FROM episodes WHERE title_id=? AND airdate IS NOT NULL AND airdate <= date('now')").bind(titleId).first<{ c: number }>())?.c ?? 0;
+  // First not-done episode in air order = the resume pointer (else the finale).
+  const cur = await env.DB.prepare('SELECT e.episode_id FROM episodes e LEFT JOIN watch_episode we ON we.user_email=? AND we.episode_id=e.episode_id WHERE e.title_id=? AND COALESCE(we.done,0)=0 ORDER BY e.season, e.number LIMIT 1').bind(email, titleId).first<{ episode_id: string }>();
+  const last = await env.DB.prepare('SELECT episode_id FROM episodes WHERE title_id=? ORDER BY season DESC, number DESC LIMIT 1').bind(titleId).first<{ episode_id: string }>();
+  const current = cur?.episode_id ?? last?.episode_id ?? null;
+
+  let status = wt.status as string;
+  if (!MANUAL.has(status)) {
+    const ended = t.status === 'Ended' || t.status === 'Canceled' || t.status === 'Film';
+    if (watched >= total && total > 0) status = 'completed';
+    else if (watched < released) status = 'current';
+    else status = ended ? 'completed' : 'returning';
+  }
+  const now = Date.now();
+  await env.DB.prepare('UPDATE watch_title SET status=?, current_episode_id=?, updated_at=? WHERE user_email=? AND title_id=?')
+    .bind(status, current, now, email, titleId).run();
+  return { status, current };
+}
+
+// List a member's tracked titles for the Log, with derived counts.
+profileRoutes.get('/:email/titles', async (c) => {
   const email = c.req.param('email').toLowerCase();
-  const rows = await c.env.DB
-    .prepare(`SELECT show_id, show_name, kind, status, watched, last_season, last_number,
-                     last_minute, started_at, episodes, updated_at
-              FROM watch WHERE user_email = ? ORDER BY updated_at DESC`)
-    .bind(email).all();
-  const shows = (rows.results || []).map((r: any) => ({
-    ...r, episodes: r.episodes ? safeParse(r.episodes) : {},
-  }));
-  return c.json({ shows });
+  const rows = await c.env.DB.prepare(
+    `SELECT wt.title_id, t.name, t.kind, t.status AS title_status, t.poster, t.platform,
+            t.premiered, t.total_episodes AS total, wt.status, wt.active_map_id,
+            wt.current_episode_id, wt.started_at, wt.updated_at,
+            (SELECT COUNT(*) FROM watch_episode we WHERE we.user_email=wt.user_email AND we.title_id=wt.title_id AND we.done=1) AS watched,
+            (SELECT COUNT(*) FROM episodes e WHERE e.title_id=wt.title_id AND e.airdate IS NOT NULL AND e.airdate <= date('now')) AS released,
+            (SELECT e.season FROM episodes e JOIN watch_episode we ON we.episode_id=e.episode_id AND we.user_email=wt.user_email WHERE e.title_id=wt.title_id AND we.done=1 ORDER BY e.season DESC, e.number DESC LIMIT 1) AS last_season,
+            (SELECT e.number FROM episodes e JOIN watch_episode we ON we.episode_id=e.episode_id AND we.user_email=wt.user_email WHERE e.title_id=wt.title_id AND we.done=1 ORDER BY e.season DESC, e.number DESC LIMIT 1) AS last_number
+       FROM watch_title wt JOIN titles t ON t.title_id = wt.title_id
+      WHERE wt.user_email = ? ORDER BY wt.updated_at DESC`).bind(email).all();
+  return c.json({ titles: rows.results || [] });
 });
 
-// Upsert one tracked show's state (resume position + per-episode detail).
-profileRoutes.post('/:email/watch', async (c) => {
+// One title's full detail for the episode face: catalog episodes merged with the
+// member's per-episode progress.
+profileRoutes.get('/:email/titles/:title_id', async (c) => {
   const email = c.req.param('email').toLowerCase();
+  const titleId = c.req.param('title_id');
+  const title = await c.env.DB.prepare('SELECT * FROM titles WHERE title_id = ?').bind(titleId).first();
+  if (!title) return c.json({ error: 'not found' }, 404);
+  const watch_title = await c.env.DB.prepare('SELECT * FROM watch_title WHERE user_email=? AND title_id=?').bind(email, titleId).first();
+  const eps = await c.env.DB.prepare(
+    `SELECT e.episode_id, e.season, e.number, e.name, e.runtime, e.airdate, e.next_episode_id,
+            COALESCE(we.done,0) AS done, COALESCE(we.minute,0) AS minute, COALESCE(we.bp,0) AS bp, we.sessions
+       FROM episodes e LEFT JOIN watch_episode we ON we.user_email=? AND we.episode_id=e.episode_id
+      WHERE e.title_id=? ORDER BY e.season, e.number`).bind(email, titleId).all();
+  const episodes = (eps.results || []).map((r: any) => ({ ...r, sessions: r.sessions ? safeParse(r.sessions) : [] }));
+  return c.json({ title, watch_title, episodes });
+});
+
+// The member's emergent PATH through a title: watched episodes in the order they
+// were actually finished (latest session finishTs), not air order.
+profileRoutes.get('/:email/titles/:title_id/path', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  const titleId = c.req.param('title_id');
+  const rows = await c.env.DB.prepare(
+    `SELECT e.episode_id, e.season, e.number, e.name, we.sessions, we.updated_at
+       FROM watch_episode we JOIN episodes e ON e.episode_id = we.episode_id
+      WHERE we.user_email=? AND we.title_id=? AND we.done=1`).bind(email, titleId).all();
+  const lastFinish = (s: string | null, fallback: number) => {
+    const arr = s ? safeParse(s) : [];
+    let m = 0; if (Array.isArray(arr)) for (const v of arr) if (v && typeof v.finishTs === 'number' && v.finishTs > m) m = v.finishTs;
+    return m || fallback;
+  };
+  const path = (rows.results || [])
+    .map((r: any) => ({ episode_id: r.episode_id, season: r.season, number: r.number, name: r.name, at: lastFinish(r.sessions, r.updated_at) }))
+    .sort((a, b) => a.at - b.at);
+  return c.json({ path });
+});
+
+// Upsert one episode's progress, then recompute the title's bucket + resume pointer.
+profileRoutes.post('/:email/episodes/:episode_id', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  const episode_id = c.req.param('episode_id');
   const exists = await c.env.DB.prepare('SELECT email FROM users WHERE email = ?').bind(email).first();
   if (!exists) return c.json({ error: 'unknown user' }, 404);
+  const ep = await c.env.DB.prepare('SELECT title_id FROM episodes WHERE episode_id = ?').bind(episode_id).first<{ title_id: string }>();
+  if (!ep) return c.json({ error: 'unknown episode' }, 404);
   let body: any;
   try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
-  const show_id = str(body.show_id, 80);
-  if (!show_id) return c.json({ error: 'show_id required' }, 400);
-  const show_name = str(body.show_name, 200) || null;
-  const kind = str(body.kind, 20) === 'movie' ? 'movie' : 'show';
-  const status = str(body.status, 40) || null;
-  const watched = int(body.watched, 0) ?? 0;
-  const last_season = int(body.last_season);
-  const last_number = int(body.last_number);
-  const last_minute = int(body.last_minute, 0) ?? 0;
-  const started_at = int(body.started_at);
-  const episodes = body.episodes == null ? null
-    : (typeof body.episodes === 'string' ? body.episodes : JSON.stringify(body.episodes)).slice(0, 100000);
+  const done = body.done ? 1 : 0;
+  const minute = int(body.minute, 0) ?? 0;
+  const bp = body.bp ? 1 : 0;
+  const sessions = body.sessions == null ? null
+    : (typeof body.sessions === 'string' ? body.sessions : JSON.stringify(body.sessions)).slice(0, 100000);
   const now = Date.now();
   await c.env.DB.prepare(
-    `INSERT INTO watch (user_email, show_id, show_name, kind, status, watched, last_season, last_number,
-                        last_minute, started_at, episodes, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(user_email, show_id) DO UPDATE SET
-       show_name=excluded.show_name, kind=excluded.kind, status=excluded.status, watched=excluded.watched,
-       last_season=excluded.last_season, last_number=excluded.last_number,
-       last_minute=excluded.last_minute, started_at=excluded.started_at,
-       episodes=excluded.episodes, updated_at=excluded.updated_at`
-  ).bind(email, show_id, show_name, kind, status, watched, last_season, last_number,
-         last_minute, started_at, episodes, now).run();
-  // Mirror the write to Airtable (D1 stays source of truth).
-  mirror(c, 'watch', { user_email: email, show_id, show_name, kind, status, watched,
-    last_season, last_number, last_minute, started_at, episodes, updated_at: now });
-  return c.json({ ok: true });
+    `INSERT INTO watch_episode (user_email, episode_id, title_id, done, minute, bp, sessions, updated_at)
+     VALUES (?,?,?,?,?,?,?,?)
+     ON CONFLICT(user_email, episode_id) DO UPDATE SET
+       done=excluded.done, minute=excluded.minute, bp=excluded.bp, sessions=excluded.sessions, updated_at=excluded.updated_at`
+  ).bind(email, episode_id, ep.title_id, done, minute, bp, sessions, now).run();
+  const recomputed = await recomputeTitle(c.env, email, ep.title_id);
+  mirror(c, 'watch_episode', { user_email: email, episode_id, title_id: ep.title_id, done, minute, bp, sessions, updated_at: now });
+  if (recomputed) mirror(c, 'watch_title', { user_email: email, title_id: ep.title_id, status: recomputed.status,
+    active_map_id: null, current_episode_id: recomputed.current, started_at: null, updated_at: now });
+  return c.json({ ok: true, status: recomputed?.status, current_episode_id: recomputed?.current });
 });
 
-// Remove a tracked show (withdraw).
-profileRoutes.delete('/:email/watch/:show_id', async (c) => {
+// Set a title's bucket directly, or bulk finish/reset its episodes. Covers the Log's
+// stop / comfort / finish ("watched it all") / try-again actions.
+profileRoutes.patch('/:email/titles/:title_id', async (c) => {
   const email = c.req.param('email').toLowerCase();
-  const show_id = c.req.param('show_id');
-  await c.env.DB.prepare('DELETE FROM watch WHERE user_email = ? AND show_id = ?').bind(email, show_id).run();
-  unmirror(c, 'watch', `${email}|${show_id}`);
+  const titleId = c.req.param('title_id');
+  const wt = await c.env.DB.prepare('SELECT title_id FROM watch_title WHERE user_email=? AND title_id=?').bind(email, titleId).first();
+  if (!wt) return c.json({ error: 'not found' }, 404);
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const op = str(body.op, 20);   // 'finish' | 'reset' | ''
+  const now = Date.now();
+  if (op === 'finish') await c.env.DB.prepare('UPDATE watch_episode SET done=1, updated_at=? WHERE user_email=? AND title_id=?').bind(now, email, titleId).run();
+  else if (op === 'reset') await c.env.DB.prepare('UPDATE watch_episode SET done=0, minute=0, bp=0, sessions=NULL, updated_at=? WHERE user_email=? AND title_id=?').bind(now, email, titleId).run();
+
+  let status = str(body.status, 40);
+  if (op === 'finish') status = 'completed';
+  if (op === 'reset') status = 'current';
+  if (status) await c.env.DB.prepare('UPDATE watch_title SET status=?, updated_at=? WHERE user_email=? AND title_id=?').bind(status, now, email, titleId).run();
+  const recomputed = await recomputeTitle(c.env, email, titleId);   // fixes resume pointer; respects manual buckets
+
+  // Re-mirror the affected rows (bulk op touched many episodes).
+  c.executionCtx.waitUntil((async () => {
+    const eps = await c.env.DB.prepare('SELECT user_email, episode_id, title_id, done, minute, bp, sessions, updated_at FROM watch_episode WHERE user_email=? AND title_id=?').bind(email, titleId).all();
+    await pushRows(c.env, 'watch_episode', (eps.results || []) as any[]);
+    const row = await c.env.DB.prepare('SELECT user_email, title_id, status, active_map_id, current_episode_id, started_at, updated_at FROM watch_title WHERE user_email=? AND title_id=?').bind(email, titleId).first();
+    if (row) await pushRow(c.env, 'watch_title', row as any);
+  })().catch((e) => console.error('airtable patch mirror', e)));
+  return c.json({ ok: true, status: recomputed?.status });
+});
+
+// Withdraw a title: drop the member's title + episode progress (catalog stays shared).
+profileRoutes.delete('/:email/titles/:title_id', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  const titleId = c.req.param('title_id');
+  const eps = await c.env.DB.prepare('SELECT episode_id FROM watch_episode WHERE user_email=? AND title_id=?').bind(email, titleId).all<{ episode_id: string }>();
+  await c.env.DB.batch([
+    c.env.DB.prepare('DELETE FROM watch_episode WHERE user_email=? AND title_id=?').bind(email, titleId),
+    c.env.DB.prepare('DELETE FROM watch_title WHERE user_email=? AND title_id=?').bind(email, titleId),
+  ]);
+  unmirror(c, 'watch_title', `${email}|${titleId}`);
+  for (const r of eps.results || []) unmirror(c, 'watch_episode', `${email}|${r.episode_id}`);
   return c.json({ ok: true });
 });
 

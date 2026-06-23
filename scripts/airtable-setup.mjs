@@ -21,10 +21,21 @@ const KEY = text('key');                 // primary field (PK cols joined by '|'
 const HASH = text('sync_hash');          // echo-loop guard — do not hand-edit
 
 // Each table mirrors a D1 table 1:1 (must match TABLES in src/handlers/airtable.ts).
+// Catalog + per-user tables use plain id columns to join (title_id / episode_id /
+// next_episode_id); converting those to native Airtable linked-record fields is an
+// optional UI polish that doesn't change the data.
 const TABLES = {
-  watch: [KEY, text('user_email'), text('show_id'), text('show_name'), text('kind'),
-    text('status'), num('watched'), num('last_season'), num('last_number'),
-    num('last_minute'), num('started_at'), { name: 'episodes', type: 'multilineText' },
+  titles: [KEY, text('title_id'), text('source'), text('name'), text('kind'),
+    text('status'), text('poster'), text('platform'), num('total_episodes'),
+    text('premiered'), num('updated_at'), HASH],
+  episodes: [KEY, text('episode_id'), text('title_id'), num('season'), num('number'),
+    text('name'), num('runtime'), text('airdate'), text('next_episode_id'),
+    num('updated_at'), HASH],
+  watch_title: [KEY, text('user_email'), text('title_id'), text('status'),
+    text('active_map_id'), text('current_episode_id'), num('started_at'),
+    num('updated_at'), HASH],
+  watch_episode: [KEY, text('user_email'), text('episode_id'), text('title_id'),
+    num('done'), num('minute'), num('bp'), { name: 'sessions', type: 'multilineText' },
     num('updated_at'), HASH],
   users: [KEY, text('email'), text('username'), text('phone'), text('photo_url'),
     text('selected_device'), num('created_at'), num('updated_at'), HASH],

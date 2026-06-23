@@ -29,14 +29,26 @@ export interface SyncTable {
 
 // Counter/flag columns that are NOT NULL in D1 — a cleared Airtable cell falls back.
 const NN_DEFAULT: Record<string, number> = {
-  'watch.watched': 0, 'watch.last_minute': 0, 'devices.supported': 1,
+  'devices.supported': 1, 'titles.total_episodes': 0,
+  'watch_episode.done': 0, 'watch_episode.minute': 0, 'watch_episode.bp': 0,
 };
 
 export const TABLES: SyncTable[] = [
-  { name: 'watch', pk: ['user_email', 'show_id'], hasUpdatedAt: true,
-    cols: ['user_email', 'show_id', 'show_name', 'kind', 'status', 'watched',
-           'last_season', 'last_number', 'last_minute', 'started_at', 'episodes', 'updated_at'],
-    ints: new Set(['watched', 'last_season', 'last_number', 'last_minute', 'started_at', 'updated_at']) },
+  { name: 'titles', pk: ['title_id'], hasUpdatedAt: true,
+    cols: ['title_id', 'source', 'name', 'kind', 'status', 'poster', 'platform',
+           'total_episodes', 'premiered', 'updated_at'],
+    ints: new Set(['total_episodes', 'updated_at']) },
+  { name: 'episodes', pk: ['episode_id'], hasUpdatedAt: true,
+    cols: ['episode_id', 'title_id', 'season', 'number', 'name', 'runtime', 'airdate',
+           'next_episode_id', 'updated_at'],
+    ints: new Set(['season', 'number', 'runtime', 'updated_at']) },
+  { name: 'watch_title', pk: ['user_email', 'title_id'], hasUpdatedAt: true,
+    cols: ['user_email', 'title_id', 'status', 'active_map_id', 'current_episode_id',
+           'started_at', 'updated_at'],
+    ints: new Set(['started_at', 'updated_at']) },
+  { name: 'watch_episode', pk: ['user_email', 'episode_id'], hasUpdatedAt: true,
+    cols: ['user_email', 'episode_id', 'title_id', 'done', 'minute', 'bp', 'sessions', 'updated_at'],
+    ints: new Set(['done', 'minute', 'bp', 'updated_at']) },
   { name: 'users', pk: ['email'], hasUpdatedAt: true,
     cols: ['email', 'username', 'phone', 'photo_url', 'selected_device', 'created_at', 'updated_at'],
     ints: new Set(['created_at', 'updated_at']) },
@@ -111,6 +123,22 @@ export async function pushRow(env: Env, table: string, row: Row): Promise<void> 
       records: [{ fields: toFields(t, row, hash) }] }),
   });
   if (!res.ok) console.error('airtable push failed', table, res.status, await res.text().catch(() => ''));
+}
+
+// Upsert many rows at once (chunks of 10 per Airtable PATCH). Used by the catalog
+// materialization, which writes a whole show's episodes in one go.
+export async function pushRows(env: Env, table: string, rows: Row[]): Promise<void> {
+  const t = tableByName(table);
+  if (!airtableEnabled(env) || !t || !rows.length) return;
+  const records: { fields: Record<string, unknown> }[] = [];
+  for (const r of rows) records.push({ fields: toFields(t, r, await sha256(canonical(t, r))) });
+  for (let i = 0; i < records.length; i += 10) {
+    const res = await fetch(api(env, table), {
+      method: 'PATCH', headers: headers(env),
+      body: JSON.stringify({ performUpsert: { fieldsToMergeOn: ['key'] }, typecast: true, records: records.slice(i, i + 10) }),
+    });
+    if (!res.ok) console.error('airtable pushRows failed', table, res.status, await res.text().catch(() => ''));
+  }
 }
 
 // Delete a row from Airtable by composite key (find then delete).

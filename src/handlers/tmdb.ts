@@ -57,6 +57,16 @@ tmdbRoutes.get('/search', async (c) => {
   return c.json({ results });
 });
 
+// Server-side movie detail (card with runtime), for the catalog materializer. Returns
+// null on any failure so the caller can fail soft. id must be the bare TMDB numeric id.
+export async function fetchTmdbMovie(env: Env, id: string) {
+  if (!env.TMDB_API_KEY || !/^\d+$/.test(id)) return null;
+  let res: Response;
+  try { res = await tmdbFetch(env, `/movie/${id}`); } catch { return null; }
+  if (!res.ok) return null;
+  return card(await res.json());
+}
+
 // GET /tmdb/movie/:id  → { movie: card-with-runtime }
 tmdbRoutes.get('/movie/:id', async (c) => {
   if (!c.env.TMDB_API_KEY) return c.json({ error: 'movies not configured' }, 503);
