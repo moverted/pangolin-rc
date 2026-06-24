@@ -163,14 +163,16 @@
   .sfbtn.logpart{ --accent:var(--text);  --flipfg:#1a1206;         border-color:var(--accent); color:var(--accent); }
   .sfbtn.continue{ --accent:var(--text); --flipfg:#1a1206;         border-color:var(--accent); color:var(--accent); }
   .sfbtn.finish{ --accent:var(--green); --flipfg:#06140b;          border-color:var(--accent); color:var(--accent); }
-  /* Mic button in the center of the button row */
-  .mic-center{ flex:0 0 auto; width:44px; height:44px; padding:0; display:flex; align-items:center;
-    justify-content:center; font-size:16px; font-family:var(--mono); font-weight:700;
-    border:1px solid rgba(255,255,255,.16); border-radius:10px; background:rgba(0,0,0,.32);
-    cursor:pointer; color:var(--amber); transition:all .2s ease; }
-  .mic-center:active{ transform:translateY(1px); }
-  .mic-center.recording{ background:var(--amber); color:var(--amber-deep); border-color:var(--amber);
-    font-size:12px; }
+  /* Mic button: larger, round, standalone focal point */
+  .mic-center{ width:64px; height:64px; padding:0; display:flex; align-items:center;
+    justify-content:center; border-radius:50%; background:rgba(240,169,59,.2);
+    border:2px solid var(--amber); cursor:pointer; color:var(--amber);
+    transition:all .2s ease; flex-shrink:0; }
+  .mic-center:hover{ background:rgba(240,169,59,.3); box-shadow:0 0 20px rgba(240,169,59,.3); }
+  .mic-center:active{ transform:scale(.95); }
+  .mic-center.recording{ background:var(--amber); color:var(--amber-deep);
+    box-shadow:0 0 24px var(--amber); border-color:var(--amber-deep); }
+  .mic-center svg{ width:28px; height:28px; }
   /* Mic for audio comments: narrow, sits at the end of the logging row */
   .sfbtn.mic{ flex:0 0 auto; padding-left:15px; padding-right:15px; font-size:14px;
     --accent:var(--amber); border-color:var(--accent); color:var(--accent); }
@@ -397,7 +399,15 @@
           <!-- manual session logging: start a watch, log a partial, or finish -->
           <div class="startfin">
             <button class="sfbtn start" id="startEpBtn">START</button>
-            <button class="mic-center" id="micBtn" aria-label="Record audio comment">🎙️</button>
+            <button class="mic-center" id="micBtn" aria-label="Record audio comment">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 1a3 3 0 0 0-3 3v12a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                <line x1="12" y1="19" x2="12" y2="23"></line>
+                <line x1="8" y1="23" x2="16" y2="23"></line>
+              </svg>
+              <span id="micLabel" style="display:none;"></span>
+            </button>
             <button class="sfbtn finish" id="finishEpBtn">FINISH</button>
           </div>
         </div>
@@ -705,25 +715,24 @@ let audioChunks = [];
 function paintTranscripts(){
   const label=$('transcriptLabel');
   const container=$('transcripts');
-  if(!label || !container) return;
+  console.log('paintTranscripts called. label exists:', !!label, 'container exists:', !!container);
+  if(!label || !container){
+    console.warn('Transcript elements not found in DOM');
+    return;
+  }
   label.textContent=`Transcripts · ${transcripts.length}`;
   container.innerHTML='';
+  console.log('Rendering', transcripts.length, 'transcripts');
   transcripts.forEach(t=>{
+    console.log('Adding transcript:', t);
     const line=document.createElement('div');
     line.style.marginBottom='8px';
-    line.innerHTML=`<strong>${t.epCode} ${t.time}</strong> — ${t.text}`;
+    line.textContent=`${t.epCode} ${t.time} — ${t.text}`;
     container.appendChild(line);
   });
 }
 
 async function startRecording(){
-  // Only allow recording while timer is running
-  if(!watchingLive[focus]){
-    console.log('Recording only available while watching');
-    alert('Start watching an episode first (click START)');
-    return;
-  }
-
   isRecording = true;
   recordingCountdown = 7;
   audioChunks = [];
@@ -746,17 +755,23 @@ async function startRecording(){
   }
 
   const micBtn = $('micBtn');
+  const micLabel = $('micLabel');
   if(micBtn){
     micBtn.classList.add('recording');
-    micBtn.textContent = `${recordingCountdown}s`;
+    if(micLabel){
+      micLabel.style.display = 'block';
+      micLabel.textContent = `${recordingCountdown}s`;
+    }
   }
   recordingInterval = setInterval(()=>{
     recordingCountdown--;
-    const btn = $('micBtn');
-    if(btn) btn.textContent = recordingCountdown > 0 ? `${recordingCountdown}s` : 'DONE';
+    const label = $('micLabel');
+    if(label){
+      label.textContent = recordingCountdown > 0 ? `${recordingCountdown}s` : 'DONE';
+    }
     if(recordingCountdown <= 0) stopRecording();
   }, 1000);
-  console.log('Recording started, watchingLive[focus]:', watchingLive[focus]);
+  console.log('Recording started');
 }
 
 async function stopRecording(){
@@ -764,9 +779,13 @@ async function stopRecording(){
   if(recordingInterval) clearInterval(recordingInterval);
   recordingCountdown = 0;
   const micBtn = $('micBtn');
+  const micLabel = $('micLabel');
   if(micBtn){
     micBtn.classList.remove('recording');
-    micBtn.textContent = '🎙️';
+    if(micLabel){
+      micLabel.style.display = 'none';
+      micLabel.textContent = '';
+    }
   }
 
   if(mediaRecorder && mediaRecorder.state !== 'inactive'){
