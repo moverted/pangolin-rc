@@ -224,10 +224,17 @@ export async function pushAll(env: Env): Promise<Record<string, number>> {
   const out: Record<string, number> = {};
   if (!airtableEnabled(env)) return out;
   for (const t of TABLES) {
-    const rows = await env.DB.prepare(`SELECT ${t.cols.join(', ')} FROM ${t.name}`).all<Row>();
-    let pushed = 0;
-    for (const r of rows.results || []) { await pushRow(env, t.name, r); pushed++; }
-    out[t.name] = pushed;
+    try {
+      const rows = await env.DB.prepare(`SELECT ${t.cols.join(', ')} FROM ${t.name}`).all<Row>();
+      const list = rows.results || [];
+      // Batched (10 rows / Airtable request) so a full backfill stays well under the
+      // Worker subrequest cap — per-row pushRow blew past it (one request per row).
+      await pushRows(env, t.name, list);
+      out[t.name] = list.length;
+    } catch (e) {
+      console.error('pushAll table failed', t.name, e);
+      out[t.name] = -1;   // surfaced in the response so a partial run is visible
+    }
   }
   return out;
 }

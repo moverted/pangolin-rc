@@ -807,7 +807,12 @@ let t = 0;
         scale = size / IFRAME_SZ;
         x = (vv.offsetLeft || 0) + (vv.width - size) / 2;
         y = vv.offsetTop + margin;
-      } else {                                    // centered in the logical viewport (rotation-aware)
+      } else if (vv && ORI === 0) {               // portrait: center in the ACTUALLY-visible band so
+        size  = Math.min(vv.width, vv.height) - margin * 2;   // browser chrome / safe areas don't push the
+        scale = size / IFRAME_SZ;                             // trunk faces (BROWSE/WATCH/LOG/FEED) off-center
+        x = (vv.offsetLeft || 0) + (vv.width  - size) / 2;
+        y = (vv.offsetTop  || 0) + (vv.height - size) / 2;
+      } else {                                    // landscape / no visualViewport: logical viewport (rotation-aware)
         size  = Math.min(VW, VH) - margin * 2;
         scale = size / IFRAME_SZ;
         x = (VW - size) / 2;

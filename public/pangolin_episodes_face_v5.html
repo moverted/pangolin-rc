@@ -270,6 +270,7 @@
   .wdate{ font-family:var(--mono); font-size:10px; background:rgba(46,107,69,.9);
     color:#cdebd6; padding:4px 9px; border-radius:999px; white-space:nowrap; letter-spacing:.03em; }
   .wdate.binged{ background:rgba(126,42,36,.92); color:#f4c9c4; }
+  .wdate.bp{ background:rgba(122,122,128,.28); color:#b9b9bf; }   /* BP: grey, no green check */
   .wscore{ font-family:var(--mono); font-size:11px; color:var(--amber); font-weight:700; width:34px; text-align:right; }
   .empty{ font-family:var(--mono); font-size:11px; color:var(--faint); padding:6px 0 2px; }
   /* WATCHING continuously cycles the build-up marker; WAITING is static. */
@@ -279,6 +280,7 @@
                     50%{content:'.>>'} 67%{content:'..>'} 83%{content:'...'} 100%{content:'>..'} }
   /* expanded children: one viewing session per line, plus the episode note */
   .wrow .wdetail .sess{ padding:1px 0; }
+  .wrow .wdetail .sess.bp{ color:var(--dim); }
   .wrow .wdetail .ts{ color:var(--faint); }
   .wrow .wdetail .note{ margin-top:6px; color:var(--dim); font-family:var(--body); font-style:italic; font-size:11.5px; }
 
@@ -695,15 +697,15 @@ function latestFinishBefore(before){
   return m;
 }
 // FINISH: logs the episode fully watched and advances.
-//  · A real START→FINISH inside a minute isn't a 45-min sitting — it's a quick "I've
-//    seen this" mark, so it lands as BP (Before Pierre) rather than an impossible session.
 //  · A plain FINISH with no live watch back-dates the start by the runtime, but never
 //    earlier than this user's previous logged watch (don't crash into another log).
+//  · If under a minute of real time actually elapsed — a rapid finish, or a back-date
+//    that clamped right up against the previous log — it can't be a genuine watch, so
+//    it's recorded as BP (Before Pierre), not a 60-minute session and not a binge beat.
 function finishEpisode(){
   const rt=runtimeOf(focus), now=Date.now();
-  const realStart = startedAt[focus]!=null;
-  const bp = realStart && (now - startedAt[focus] < 60000);   // start+finish within a minute → BP
-  if(!realStart) startedAt[focus]=Math.max(now-rt*60000, latestFinishBefore(now));
+  if(startedAt[focus]==null) startedAt[focus]=Math.max(now-rt*60000, latestFinishBefore(now));
+  const bp = (now - startedAt[focus]) < 60000;
   epMin[focus]=rt; epDone[focus]=true; epBp[focus]=bp; epPreApp[focus]=bp; minPreview=null; awaitingLog=false; cooled=false; watchingLive[focus]=false;
   try{ localStorage.removeItem('pg_launch'); }catch(_){}
   markWatchedThrough(focus);
@@ -779,17 +781,20 @@ function paint(){
     let badge;
     if(epDone[i]){ const fin=sess.filter(s=>s.finished).pop();
       const stamp = epBp[i] ? '(BP)' : '('+(fin?fin.date:(watchDate[i]?mdFmt(+watchDate[i]):''))+' ✅)';
-      badge=`<span class="wdate${(binged[i]&&!epBp[i])?' binged':''}">${stamp}</span>`; }
+      badge=`<span class="wdate${epBp[i]?' bp':(binged[i]?' binged':'')}">${stamp}</span>`; }
     else { const last=sess[sess.length-1];
       badge=`<span class="wdate">(${last?last.date+', '+last.minutes+'m':'in progress'})</span>`; }
     const score = ranks[i]!==undefined ? ranks[i]+'/10' : '';
     let kids;
     if(sess.length){ kids=sess.slice().reverse().map(s=>{   // newest activity on top, matching the episode list
-      const base = s.bp ? 'skipped · BP' : (s.state==='watching' ? 'watching' : (s.finished ? 'finished · '+s.minutes+'m' : 'paused · '+s.minutes+'m'));
+      const base = s.bp ? 'BP · before Pierre' : (s.state==='watching' ? 'watching' : (s.finished ? 'finished · '+s.minutes+'m' : 'paused · '+s.minutes+'m'));
       const lbl = base + (s.validated===false ? ' · offered' : '');   // offered = the timer's placement, not yet confirmed
-      const ts = s.startTs ? ' · '+hmFmt(s.startTs)+'→'+(s.finishTs?hmFmt(s.finishTs):'…') : '';
-      return `<div class="sess">${s.date} · ${lbl}<span class="ts">${ts}</span></div>`; }).join(''); }
-    else kids=`<div class="sess">${watchDate[i]?mdFmt(+watchDate[i]):''} · finished</div>`;
+      // BP carries no real clock time — drop the date and the in→out span.
+      const datePart = s.bp ? '' : s.date+' · ';
+      const ts = (s.bp || !s.startTs) ? '' : ' · '+hmFmt(s.startTs)+'→'+(s.finishTs?hmFmt(s.finishTs):'…');
+      return `<div class="sess${s.bp?' bp':''}">${datePart}${lbl}<span class="ts">${ts}</span></div>`; }).join(''); }
+    else kids = epBp[i] ? `<div class="sess bp">BP · before Pierre</div>`
+                        : `<div class="sess">${watchDate[i]?mdFmt(+watchDate[i]):''} · finished</div>`;
     const note = (notes[i]&&notes[i].trim()) ? `<div class="note">“${escHtml(notes[i].trim())}”</div>` : '';
     row.innerHTML=`<div class="wmain"><span class="wt">${escHtml(epCode(e)+' '+(e.name||('Episode '+(i+1))))}</span>
       ${badge}<span class="wscore">${score}</span></div>
