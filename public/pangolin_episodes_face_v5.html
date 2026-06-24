@@ -562,7 +562,11 @@ function applySavedDetail(){
     if(Array.isArray(d.sessions)) epSessions[i]=d.sessions; });                     // restore the session log
 }
 function advanceFocus(){
-  if(focus<eps.length-1){ focus++; return; }
+  // Resume at the first episode past everything watched (max watched + 1), not just
+  // the next index — so finishing an earlier episode out of order (e.g. ep2 then
+  // ep1) still lands on ep3, never back on an already-watched one. `watched` is
+  // maintained as highest-done + 1 by markWatchedThrough / applySavedDetail.
+  if(watched<eps.length){ focus=watched; return; }
   loadNextSeason();                  // past the last episode of this season → wrap onward
 }
 // Load the next season of the show into the face, carrying its saved history.
@@ -983,26 +987,41 @@ function minFromX(clientX){ const r=minBar.getBoundingClientRect();
   return Math.max(0,Math.min(1,(clientX-r.left)/r.width))*runtimeOf(focus); }
 let minDragging=false;
 minBar.addEventListener('pointerdown',ev=>{ ev.preventDefault(); minBar.setPointerCapture(ev.pointerId);
-  minDragging=true; if(!startedAt[focus]) startedAt[focus]=Date.now();
+  // Scrubbing only PREVIEWS a position — it must not anchor a live watch. Setting
+  // startedAt here made an idle episode look "started", so backgrounding the app
+  // after a scrub let the visibility handler log time-away as a watch. The live
+  // anchor belongs solely to START / CONTINUE (startEpisode).
+  minDragging=true;
   minPreview=minFromX(ev.clientX); awaitingLog=false; paintMinute(); });
 minBar.addEventListener('pointermove',ev=>{ if(!minDragging)return; minPreview=minFromX(ev.clientX); paintMinute(); });
 minBar.addEventListener('pointerup',ev=>{ if(!minDragging)return; minDragging=false; awaitingLog=true; paintMinute(); });
 minBar.addEventListener('pointercancel',()=>{ minDragging=false; });
 
-// Tapping the episode bar jumps to that episode and resumes its minute marker.
-// Skipping forward over unwatched episodes marks the gap "BP" (Before PangolinRC).
-function bgo(clientX){
+// The episode bar is a PREVIEW slider: drag the popcorn across the season to scan
+// each episode's number/title/air-date/synopsis. It records nothing — sliding over
+// unwatched episodes no longer marks them watched. Releasing selects (focuses) the
+// previewed episode so START / CONTINUE / FINISH then act on it.
+function barIdxFromX(clientX){
   const r=$('bar').getBoundingClientRect();
   const ratio=Math.max(0,Math.min(0.9999,(clientX-r.left)/r.width));
-  goToEpisode(Math.floor(ratio*eps.length));
+  return Math.max(0,Math.min(eps.length-1, Math.floor(ratio*eps.length)));
 }
-function goToEpisode(idx){
-  idx=Math.max(0,Math.min(eps.length-1, idx));
-  for(let k=0;k<idx;k++){ if(!epDone[k]){ epDone[k]=true; epBp[k]=true; epPreApp[k]=true; epMin[k]=runtimeOf(k);
-    markWatchedThrough(k); emitProgress(k,true,true,0); } }     // forced skips → BP (pre-app)
-  focus=idx; awaitingLog=false; minPreview=null; paint();
+// Update only the popcorn position + the header preview — no state, no writes.
+function previewEpisode(idx){
+  const total=eps.length||1, e=eps[idx]||{};
+  $('pop').style.left=Math.max(4,Math.min(96,(idx+0.5)/total*100))+'%';
+  $('epNo').textContent= isMovie ? 'FILM' : `S ${sNum(e)} EP ${idx+1} / ${total}`;
+  $('epTtl').textContent=e.name||(isMovie?'Film':('Episode '+(idx+1)));
+  $('epAired').textContent= isMovie ? (e.airdate?String(e.airdate).slice(0,4):'') : (e.airdate?fmt(e.airdate):'');
+  $('syn').textContent=strip(e.summary)||'No synopsis available yet.';
 }
-$('bar').addEventListener('click',e=>{ e.stopPropagation(); bgo(e.clientX); });
+let barDragging=false;
+$('bar').addEventListener('pointerdown',e=>{ e.stopPropagation(); e.preventDefault();
+  barDragging=true; $('bar').setPointerCapture(e.pointerId); previewEpisode(barIdxFromX(e.clientX)); });
+$('bar').addEventListener('pointermove',e=>{ if(!barDragging)return; previewEpisode(barIdxFromX(e.clientX)); });
+$('bar').addEventListener('pointerup',e=>{ if(!barDragging)return; barDragging=false;
+  focus=barIdxFromX(e.clientX); awaitingLog=false; minPreview=null; paint(); });   // select; records nothing
+$('bar').addEventListener('pointercancel',()=>{ if(barDragging){ barDragging=false; paint(); } });   // snap back to real focus
 
 // "tap anywhere to log it": one tap outside the controls commits the staged minute.
 document.querySelector('.face').addEventListener('click',e=>{
