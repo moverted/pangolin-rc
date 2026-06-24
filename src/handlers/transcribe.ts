@@ -3,6 +3,11 @@ import type { Env } from '../types';
 
 export const transcribeRoutes = new Hono<{ Bindings: Env }>();
 
+// OPTIONS for CORS preflight
+transcribeRoutes.options('/', (c) => {
+  return c.json({ ok: true });
+});
+
 // POST /transcribe - receive audio, transcribe via Workers AI Whisper, save to watch_comment
 transcribeRoutes.post('/', async (c) => {
   const formData = await c.req.formData();

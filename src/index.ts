@@ -22,7 +22,11 @@ export { ResourceCoordinator } from './do/resource-coordinator';
 
 const app = new Hono<{ Bindings: Env }>();
 
-app.use('*', cors());
+app.use('*', cors({
+  origin: '*',
+  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowHeaders: ['Content-Type', 'Authorization'],
+}));
 
 app.route('/resources',   resourceRoutes);
 app.route('/submissions', submissionRoutes);
