@@ -164,9 +164,10 @@
   .sfbtn.continue{ --accent:var(--text); --flipfg:#1a1206;         border-color:var(--accent); color:var(--accent); }
   .sfbtn.finish{ --accent:var(--green); --flipfg:#06140b;          border-color:var(--accent); color:var(--accent); }
   /* Animation indicator next to large left number: >>. appears orange when watching */
-  .watch-anim{ font-family:var(--mono); font-size:10px; font-weight:700; color:rgba(255,255,255,.3);
-    display:inline-block; min-width:18px; }
-  .watch-anim.live::after{ color:var(--amber); animation:build 1.6s steps(1,end) infinite; }
+  .watch-anim{ font-family:var(--mono); font-size:10px; font-weight:700;
+    display:inline-block; min-width:18px; margin-left:4px; }
+  .watch-anim::after{ content:''; color:rgba(255,255,255,.3); }
+  .watch-anim.live::after{ content:'>..'; color:var(--amber); animation:build 1.6s steps(1,end) infinite; }
   /* Mic button in the center of the button row */
   .mic-center{ flex:0 0 auto; width:44px; height:44px; padding:0; display:flex; align-items:center;
     justify-content:center; font-size:16px; font-family:var(--mono); font-weight:700;
@@ -687,7 +688,8 @@ const logIt=logMinute;
 
 // Audio comment: record, transcribe, and save to the episode with timestamp.
 // Phase 1: record with 5-second timeout + countdown timer on button.
-// Phase 2: post to Workers AI Whisper, save audio + transcript to watch_comment table, show in feed with timestamp.
+// Phase 2: post to Workers AI Whisper, save audio + transcript to watch_comment table.
+//          Display in feed as: "S01E01 12:34 - <transcript text>"
 let isRecording = false;
 let recordingCountdown = 0;
 let recordingInterval = null;
