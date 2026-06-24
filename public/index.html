@@ -113,6 +113,59 @@
     .media-btn.dimmed { opacity: 0.4; filter: grayscale(0.85); box-shadow: none; cursor: default; }
     .media-btn.dimmed:active { transform: none; filter: grayscale(0.85); }
 
+    /* ── second-screen captions (top quarter) ──────────────────────────
+       Mirrors #controls at the top: shown only when the show is playing on
+       another device (not the phone), so the phone is free to caption it. */
+    #caption {
+      position: fixed; top: 0; left: 0; right: 0;
+      z-index: 40;
+      padding: 26px 22px 30px;
+      background: linear-gradient(to bottom, rgba(12,9,7,0.97) 52%, transparent);
+      display: none; flex-direction: column; align-items: center; gap: 9px;
+      pointer-events: none;   /* let taps fall through the gradient; the align bar re-enables itself */
+    }
+    #caption.show { display: flex; }
+    #caption-text {
+      min-height: 2.6em; max-width: 88vw;
+      font-family: 'Comic Neue', cursive; font-weight: 700;
+      font-size: 18px; line-height: 1.3; letter-spacing: 0.01em;
+      color: #f3ebe0; text-align: center;
+      text-shadow: 0 2px 8px rgba(0,0,0,0.7);
+      display: flex; align-items: center; justify-content: center;
+      transition: opacity 0.12s;
+    }
+    #caption-text.gap { opacity: 0.0; }   /* nothing to show between cues */
+    /* status row: source badge + drift hint + align handle */
+    #caption-bar {
+      display: flex; align-items: center; gap: 10px;
+      pointer-events: auto;
+      font-family: 'Comic Neue', cursive; font-size: 11px; font-weight: 700;
+      letter-spacing: 0.02em; color: #a7967f;
+    }
+    #caption-bar .cap-src {
+      padding: 2px 9px; border-radius: 999px;
+      border: 1px solid #3a2f22; background: rgba(33,26,19,0.85);
+      white-space: nowrap;
+    }
+    #caption-bar .cap-src.mic { color: #e89f3d; border-color: #6b4e1e; }
+    #cap-align {
+      -webkit-appearance: none; appearance: none;
+      width: 42vw; max-width: 240px; height: 22px; background: transparent;
+      cursor: pointer; -webkit-tap-highlight-color: transparent;
+    }
+    #cap-align::-webkit-slider-runnable-track { height: 3px; border-radius: 999px; background: #3a2f22; }
+    #cap-align::-moz-range-track { height: 3px; border-radius: 999px; background: #3a2f22; }
+    #cap-align::-webkit-slider-thumb {
+      -webkit-appearance: none; appearance: none; margin-top: -6px;
+      width: 15px; height: 15px; border-radius: 50%;
+      background: #e89f3d; border: none; box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+    }
+    #cap-align::-moz-range-thumb {
+      width: 15px; height: 15px; border-radius: 50%;
+      background: #e89f3d; border: none;
+    }
+    #cap-align-lbl { white-space: nowrap; min-width: 3.5em; text-align: left; }
+
     /* ── "rotate to use this face" (keyboard faces held sideways) ── */
     #rotate-msg {
       position: fixed; inset: 0; z-index: 80; display: none;
@@ -138,6 +191,16 @@
 <canvas id="canvas"></canvas>
 
 <div id="demoband"><span>DEMO &middot; you're on the waitlist</span><button id="textteam">Text the team</button></div>
+
+<!-- second-screen captions: top quarter, shown only when watching on another device -->
+<div id="caption">
+  <div id="caption-text"></div>
+  <div id="caption-bar">
+    <span class="cap-src" id="cap-src">CC</span>
+    <input type="range" id="cap-align" min="-30" max="30" step="0.5" value="0" aria-label="Align captions">
+    <span id="cap-align-lbl">in sync</span>
+  </div>
+</div>
 
 
 <div id="pinch-hint">double-tap to open</div>
@@ -874,6 +937,9 @@ const API = window.location.hostname === 'localhost'
   : 'https://pangolin-rc.edward-m-willett.workers.dev';
 
 async function sendKey(cmd) {
+  // While a caption session is live, the ff/rw we send to the TV also shift the
+  // caption cursor — it's the one playback signal we actually observe.
+  if (capSession) { if (cmd === 'ff') capNudge(CAP_STEP_MS); else if (cmd === 'rw') capNudge(-CAP_STEP_MS); }
   // The server routes the keypress to whatever device the member has selected on
   // the Profile face — we just hand it the session email so it can resolve the
   // target. A 409 means "no device to drive" (phone selected / signed out); the
@@ -1014,6 +1080,19 @@ async function launchCurrent() {
   const btn = document.getElementById('btn-play');
   btn.classList.add('sent');
   setTimeout(() => btn.classList.remove('sent'), 180);
+  // Off-phone: the show is on the TV, so the phone stays put and captions it
+  // instead of opening the streamer here. The play button drives the TV's own
+  // play/pause (keycode 85 / webOS PLAY) and keeps the caption cursor in lockstep:
+  // the first press starts the session anchored to this instant; later presses
+  // toggle pause, freezing the cursor with the TV. The align drag absorbs any
+  // residual offset. (Note: Fire's play is a true toggle; on webOS PLAY isn't,
+  // so pause may diverge there until its adapter gains a real toggle.)
+  if (capOffPhone()) {
+    sendKey('play');                                     // toggle play/pause on the TV
+    if (capSession) capTogglePause();                    // mirror it on the caption cursor
+    else capStart({ ...currentEpisode, startedAt: Date.now() });
+    return;
+  }
   try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch {}
   scheduleEpisodeEnd(currentEpisode);                    // live-watch session begins
   try { localStorage.setItem('pg_launch', JSON.stringify({ ...currentEpisode, startedAt: Date.now() })); } catch {}
@@ -1048,6 +1127,98 @@ function resumeLaunch() {
 }
 window.addEventListener('pageshow', () => { resumeLaunch(); updateDeviceChip(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) { resumeLaunch(); updateDeviceChip(); } });
+
+// ─── Second-screen captions ("whisper sync") ───────────────────────────────
+// When the show plays on another device (not the phone), the top quarter shows
+// the subtitles, synced by a wall-clock cursor counted from when play was pressed.
+// The TV reports no position, so the cursor is an estimate: elapsed time, shifted
+// by the ff/rw we send (the one signal we see) and by a manual align drag,
+// persisted per episode. Phase 1 pulls a seeded cue track from /captions/:id;
+// later phases swap in a real subtitle file, then a mic-Whisper fallback.
+const CAP_STEP_MS = 10000;   // ff/rw nudge per press — tune against a real device
+let capSession = null;       // { episodeId, cues, mode, startedAt, nudgeMs, paused, pausedAt, pausedAccum }
+const _capEl    = document.getElementById('caption');
+const _capText  = document.getElementById('caption-text');
+const _capSrc   = document.getElementById('cap-src');
+const _capAlign = document.getElementById('cap-align');
+const _capLbl   = document.getElementById('cap-align-lbl');
+let _capTick    = null;
+
+function capOffPhone() { return !/phone/i.test(selectedDeviceLabel()); }
+function capEpisodeId(ep) {
+  // Stable key matching the catalog: tvmaze:{id}:s{season}e{number}.
+  if (!ep || !ep.tvmazeId) return null;
+  const ref = String(ep.tvmazeId).replace(/^tvmaze:/, '');
+  return 'tvmaze:' + ref + ':s' + (ep.season || 0) + 'e' + (ep.number || 0);
+}
+function capSavedNudge(id) { try { const v = localStorage.getItem('pg_capalign:' + id); return v ? parseFloat(v) || 0 : 0; } catch { return 0; } }
+function capSaveNudge(id, ms) { try { localStorage.setItem('pg_capalign:' + id, String(ms)); } catch {} }
+function capUpdateAlignLbl() {
+  const s = capSession ? capSession.nudgeMs / 1000 : 0;
+  _capLbl.textContent = Math.abs(s) < 0.25 ? 'in sync' : (s > 0 ? '+' + s.toFixed(1) + 's' : s.toFixed(1) + 's');
+}
+function capReflectSlider() { _capAlign.value = String(Math.max(-30, Math.min(30, (capSession ? capSession.nudgeMs : 0) / 1000))); }
+
+async function capStart(ep) {
+  const id = capEpisodeId(ep);
+  if (!id) return;
+  capStop();
+  const nudgeMs = capSavedNudge(id);
+  capSession = { episodeId: id, cues: [], mode: 'file', startedAt: Date.now(), nudgeMs, paused: false, pausedAt: 0, pausedAccum: 0 };
+  capReflectSlider(); capUpdateAlignLbl();
+  _capText.textContent = ''; _capText.classList.add('gap');
+  _capEl.classList.add('show');
+  try {
+    const r = await fetch(API + '/captions/' + encodeURIComponent(id));
+    const d = await r.json();
+    if (!capSession || capSession.episodeId !== id) return;   // superseded while fetching
+    capSession.mode = d.mode || 'file';
+    capSession.cues = Array.isArray(d.cues) ? d.cues : [];
+    _capSrc.textContent = capSession.mode === 'mic' ? 'MIC' : 'CC';
+    _capSrc.classList.toggle('mic', capSession.mode === 'mic');
+  } catch { /* no cues — the align bar still works, text stays blank */ }
+  if (_capTick) clearInterval(_capTick);
+  _capTick = setInterval(capRender, 250);
+  capRender();
+}
+function capStop() {
+  capSession = null;
+  if (_capTick) { clearInterval(_capTick); _capTick = null; }
+  _capEl.classList.remove('show');
+}
+function capPosMs() {
+  if (!capSession) return 0;
+  const base = capSession.paused ? capSession.pausedAt : Date.now();
+  return (base - capSession.startedAt) - capSession.pausedAccum + capSession.nudgeMs;
+}
+function capRender() {
+  if (!capSession) return;
+  const t = capPosMs() / 1000;
+  let cue = null;
+  for (const c of capSession.cues) { if (t >= c.start && t < c.end) { cue = c; break; } }
+  if (cue) { _capText.textContent = cue.text; _capText.classList.remove('gap'); }
+  else { _capText.classList.add('gap'); }
+}
+function capNudge(deltaMs) {
+  if (!capSession) return;
+  capSession.nudgeMs += deltaMs;
+  capSaveNudge(capSession.episodeId, capSession.nudgeMs);
+  capReflectSlider(); capUpdateAlignLbl(); capRender();
+}
+function capTogglePause() {
+  if (!capSession) return;
+  if (capSession.paused) { capSession.pausedAccum += Date.now() - capSession.pausedAt; capSession.paused = false; }
+  else { capSession.pausedAt = Date.now(); capSession.paused = true; }
+}
+// Manual align: dragging sets the offset directly (absolute), persisted per episode.
+_capAlign.addEventListener('input', () => {
+  if (!capSession) return;
+  capSession.nudgeMs = parseFloat(_capAlign.value) * 1000;
+  capSaveNudge(capSession.episodeId, capSession.nudgeMs);
+  capUpdateAlignLbl(); capRender();
+});
+// Switching the remote back to This Phone ends any caption session (phone is the screen now).
+window.addEventListener('storage', (e) => { if (e.key === 'pg_device' && !capOffPhone()) capStop(); });
 
 // any face iframe can send pangolin-back to unlock the cube
 window.addEventListener('message', (e) => {
