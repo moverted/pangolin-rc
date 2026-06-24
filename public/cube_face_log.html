@@ -638,18 +638,27 @@ async function loadAccount(email){
 // the single watch_episode row; the server recomputes the bucket + resume pointer,
 // then we refresh the title's counts from the authoritative list.
 function applyProgress(pr){
-  const s=LOG.find(x=>x.tvmazeId===pr.tvmazeId); if(!s || !s.titleId) return;
   const email=acct(); if(!email) return;
-  const episodeId = s.titleId+":s"+(pr.season||1)+"e"+(pr.number||1);
-  s.lastWatched={season:pr.season||1,number:pr.number||1,title:"",at:new Date().toISOString().slice(0,10)};
-  s.lastMinute = pr.done ? 0 : (pr.minute||0);
-  if(pr.started_at!=null) s.startedAt=pr.started_at;
-  s.lastDate=new Date().toISOString().slice(0,10); s.isNew=false;
-  render(); renderPierre();
+  // pr.tvmazeId IS the title_id ('tvmaze:…' / 'tmdb:…'). Derive the episode key from
+  // it directly so the write ALWAYS lands server-side — even if the Log face hasn't
+  // loaded this show into memory yet (watching before the Log opened used to silently
+  // drop the write, which lost the resume pointer and left the next open at S1E1).
+  const titleId = pr.tvmazeId; if(!titleId) return;
+  const episodeId = titleId+":s"+(pr.season||1)+"e"+(pr.number||1);
+  const s=LOG.find(x=>x.titleId===titleId || x.tvmazeId===titleId);
+  if(s){   // keep the in-memory snapshot in step for a snappy Log render
+    s.lastWatched={season:pr.season||1,number:pr.number||1,title:"",at:new Date().toISOString().slice(0,10)};
+    s.lastMinute = pr.done ? 0 : (pr.minute||0);
+    if(pr.started_at!=null) s.startedAt=pr.started_at;
+    s.lastDate=new Date().toISOString().slice(0,10); s.isNew=false;
+    render(); renderPierre();
+  }
   fetch(API+"/profile/"+encodeURIComponent(email)+"/episodes/"+encodeURIComponent(episodeId),
     {method:"POST", headers:{"Content-Type":"application/json"},
      body:JSON.stringify({done:!!pr.done, minute:pr.minute||0, bp:!!pr.bp, sessions:pr.sessions||[]})})
-    .then(()=>refreshTitle(s.titleId)).catch(()=>{});
+    .then(async ()=>{ if(s){ refreshTitle(titleId); }
+      else { LOG = await loadAccount(email); render(); renderPierre(); } })   // pull in the show we just persisted
+    .catch(()=>{});
 }
 
 // Pull one title's authoritative counts/bucket back into its LOG record.

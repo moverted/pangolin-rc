@@ -17,7 +17,7 @@ const safeParse = (s: string) => { try { return JSON.parse(s); } catch { return 
 const int = (v: unknown, min = -Infinity) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(min, Math.trunc(v)) : null);
 
 // Columns safe to return to the client (never the password salt/hash).
-const SAFE = 'email, username, phone, photo_url, selected_device, created_at, updated_at';
+const SAFE = 'email, username, phone, photo_url, selected_device, timezone, created_at, updated_at';
 
 // PBKDF2 password hashing via Web Crypto.
 const _enc = new TextEncoder();
@@ -45,6 +45,7 @@ profileRoutes.post('/signup', async (c) => {
   const username = str(body.username, 80) || null;
   const phone = str(body.phone, 40) || null;
   const photo_url = str(body.photo_url, 4096) || null;
+  const timezone = str(body.timezone, 64) || null;   // IANA tz from the browser
   const now = Date.now();
 
   // Member cap. Existing members always get in (returning login). New people
@@ -61,14 +62,15 @@ profileRoutes.post('/signup', async (c) => {
   }
 
   await c.env.DB.prepare(
-    `INSERT INTO users (email, username, phone, photo_url, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?)
+    `INSERT INTO users (email, username, phone, photo_url, timezone, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(email) DO UPDATE SET
        username   = COALESCE(excluded.username, users.username),
        phone      = COALESCE(excluded.phone, users.phone),
        photo_url  = COALESCE(excluded.photo_url, users.photo_url),
+       timezone   = COALESCE(excluded.timezone, users.timezone),
        updated_at = excluded.updated_at`
-  ).bind(email, username, phone, photo_url, now, now).run();
+  ).bind(email, username, phone, photo_url, timezone, now, now).run();
 
   // Set a password only on first signup (never reset an existing one here).
   const password = str(body.password, 200);

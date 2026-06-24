@@ -109,6 +109,8 @@
   .id .name{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:29px;line-height:1;color:var(--text);}
   .id .name.editing{outline:none;border-bottom:1px solid var(--amber);min-width:80px;}
   .id .handle{font-family:'JetBrains Mono',monospace;font-size:14px;color:var(--muted);margin-top:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  .id .ptz{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--muted);opacity:.7;margin-top:4px;}
+  .id .ptz:empty{display:none;}
   .authbtn{background:none;border:1px solid rgba(239,168,60,.45);color:var(--amber);
     font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.04em;padding:3px 9px;border-radius:999px;cursor:pointer;}
   .authbtn:active{opacity:.6;}
@@ -276,6 +278,7 @@
             <div>
               <div class="name" id="pname">Guest</div>
               <div class="handle"><span id="phandle">not signed in</span><button class="authbtn" id="authBtn">log in</button></div>
+              <div class="ptz" id="ptz"></div>
             </div>
           </div>
           <div class="hero-rule"></div>
@@ -490,8 +493,21 @@
       const r=await fetch(API+'/profile/'+encodeURIComponent(email));
       if(r.status===404){ try{localStorage.removeItem('pg_user');}catch(_){} return refresh(); }  // account gone -> sign out
       if(r.ok){ const d=await r.json(); if(d.user&&d.user.username) $('pname').textContent=d.user.username;
-        if(!DEMO){ state.devices=d.devices||[]; state.selected=(d.user&&d.user.selected_device)||'phone'; renderDevices(); } }
+        if(!DEMO){ state.devices=d.devices||[]; state.selected=(d.user&&d.user.selected_device)||'phone'; renderDevices(); }
+        if(!DEMO) syncTimezone(email, d.user&&d.user.timezone); }
     }catch(_){}
+  }
+
+  // Show the member's time zone, and persist the browser's IANA zone to the account
+  // (once) when the server doesn't have it yet — captured, never guessed from clocks.
+  function syncTimezone(email, saved){
+    let tz=''; try{ tz=Intl.DateTimeFormat().resolvedOptions().timeZone||''; }catch(_){}
+    const shown = saved || tz;
+    const el=$('ptz'); if(el) el.textContent = shown ? ('🕓 '+shown) : '';
+    if(tz && !saved && email){
+      fetch(API+'/profile/signup',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({email, timezone:tz})}).catch(()=>{});
+    }
   }
 
   // ---- inline device actions: select / edit / delete --------------------

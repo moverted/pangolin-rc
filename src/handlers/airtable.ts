@@ -51,7 +51,7 @@ export const TABLES: SyncTable[] = [
            'done', 'minute', 'bp', 'sessions', 'updated_at'],
     ints: new Set(['done', 'minute', 'bp', 'updated_at']) },
   { name: 'users', pk: ['email'], hasUpdatedAt: true,
-    cols: ['email', 'username', 'phone', 'photo_url', 'selected_device', 'created_at', 'updated_at'],
+    cols: ['email', 'username', 'phone', 'photo_url', 'selected_device', 'timezone', 'created_at', 'updated_at'],
     ints: new Set(['created_at', 'updated_at']) },
   { name: 'devices', pk: ['id'], hasUpdatedAt: false,
     cols: ['id', 'user_email', 'type', 'location', 'ip', 'model', 'supported', 'created_at'],

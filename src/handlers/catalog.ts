@@ -125,35 +125,34 @@ catalogRoutes.post('/initiate', async (c) => {
 
   // Seed initial done state from the pattern.
   let doneThru = -1;                                  // index up to which episodes count as done
+  let bpThru = -1;                                    // ...of which, how many count as BP (Before Pierre)
   let currentIdx = 0;
-  let startIdx = 0;                                   // first episode to materialize a per-user row for
   if (pattern.kind === 'live') {
     episodes.forEach((e, i) => { if (released(e.airdate, now)) doneThru = i; });
     currentIdx = Math.min(doneThru + 1, episodes.length - 1);
   } else if (pattern.kind === 'resume' && pattern.season) {
-    // Resume = pick up where you left off: the earlier episodes were already watched.
+    // Resume = pick up where you left off: the earlier episodes were watched on Pierre.
     const idx = episodes.findIndex((e) => e.season === pattern.season && e.number === pattern.number);
     if (idx >= 0) { doneThru = idx - 1; currentIdx = idx; }
   } else if (pattern.kind === 'at' && pattern.season) {
-    // "Watch from this episode": a fresh start AT the pick. Do not back-load the
-    // earlier episodes — start materializing from the requested one, nothing done.
+    // "Watch from this episode": dropping into the middle. Every earlier season and
+    // episode is recorded individually as BP (Before Pierre) — done, but not a watch
+    // Pierre tracked — and we begin at the requested one.
     const idx = episodes.findIndex((e) => e.season === pattern.season && e.number === pattern.number);
-    if (idx >= 0) { currentIdx = idx; startIdx = idx; }
+    if (idx >= 0) { doneThru = idx - 1; bpThru = idx - 1; currentIdx = idx; }
   } // 'beginning' / default: nothing done, current = first
 
   const wtStatus = 'current';
   const curEp = episodes[currentIdx];
   const currentEp = curEp ? curEp.episode_id : null;
 
-  const weRows = episodes.slice(startIdx).map((e, j) => {
-    const i = startIdx + j;
-    return {
-      user_email: email, episode_id: e.episode_id, title_id: ref.titleId,
-      show_name: titleRow.name, episode_name: e.name,
-      done: i <= doneThru ? 1 : 0, minute: i <= doneThru ? (e.runtime || 0) : 0, bp: 0,
-      sessions: null as string | null, updated_at: now,
-    };
-  });
+  const weRows = episodes.map((e, i) => ({
+    user_email: email, episode_id: e.episode_id, title_id: ref.titleId,
+    show_name: titleRow.name, episode_name: e.name,
+    done: i <= doneThru ? 1 : 0, minute: i <= doneThru ? (e.runtime || 0) : 0,
+    bp: i <= bpThru ? 1 : 0,
+    sessions: null as string | null, updated_at: now,
+  }));
 
   const stmts = [
     // First initiate inserts; a re-initiate of an already-tracked title leaves the

@@ -686,16 +686,29 @@ function startEpisode(){
   emitProgress(focus, false, false, Math.round(epMin[focus]||0));
   paint();
 }
-// FINISH: logs the episode fully watched (a real in-app watch) and advances. If the
-// watch was never STARTed, assume one sitting: out time = now, start = now − runtime.
+// The latest finish timestamp across this show's logged viewings, capped at `before`.
+// Used to back-date a click-FINISH without overlapping (crashing into) a prior watch.
+function latestFinishBefore(before){
+  let m=0;
+  for(const k in epSessions){ const arr=epSessions[k]||[];
+    for(const s of arr){ if(typeof s.finishTs==='number' && s.finishTs<before && s.finishTs>m) m=s.finishTs; } }
+  return m;
+}
+// FINISH: logs the episode fully watched and advances.
+//  · A real START→FINISH inside a minute isn't a 45-min sitting — it's a quick "I've
+//    seen this" mark, so it lands as BP (Before Pierre) rather than an impossible session.
+//  · A plain FINISH with no live watch back-dates the start by the runtime, but never
+//    earlier than this user's previous logged watch (don't crash into another log).
 function finishEpisode(){
-  const rt=runtimeOf(focus);
-  if(!startedAt[focus]) startedAt[focus]=Date.now()-rt*60000;   // single-sitting: back-date the start
-  epMin[focus]=rt; epDone[focus]=true; epBp[focus]=false; epPreApp[focus]=false; minPreview=null; awaitingLog=false; cooled=false; watchingLive[focus]=false;
+  const rt=runtimeOf(focus), now=Date.now();
+  const realStart = startedAt[focus]!=null;
+  const bp = realStart && (now - startedAt[focus] < 60000);   // start+finish within a minute → BP
+  if(!realStart) startedAt[focus]=Math.max(now-rt*60000, latestFinishBefore(now));
+  epMin[focus]=rt; epDone[focus]=true; epBp[focus]=bp; epPreApp[focus]=bp; minPreview=null; awaitingLog=false; cooled=false; watchingLive[focus]=false;
   try{ localStorage.removeItem('pg_launch'); }catch(_){}
   markWatchedThrough(focus);
-  logSession(focus,{minutes:rt,finished:true,bp:false});
-  emitProgress(focus, true, false, rt);
+  logSession(focus,{minutes:rt,finished:true,bp:bp});
+  emitProgress(focus, true, bp, rt);
   finaleCheck(); advanceFocus(); paint();
 }
 
@@ -1059,7 +1072,7 @@ async function loadMovie(m,pattern){
 }
 function applyPattern(p){
   const seasons=[...new Set(allEps.map(sNum))]; if(!seasons.length) return;
-  let landFocus=null;   // 'at' lands ON a specific episode without back-loading the rest
+  let bpFill=false;   // 'at' records the earlier episodes as BP (Before Pierre), not Pierre watches
   if(p.kind==='live'){
     const aired=[...new Set(allEps.filter(released).map(sNum))];
     const cur=aired.length?Math.max(...aired):Math.max(...seasons);
@@ -1070,11 +1083,11 @@ function applyPattern(p){
     const idx=eps.findIndex(e=>(e.number||0)===p.number);
     watched=idx>=0?idx+1:0;
   } else if(p.kind==='at' && p.season){
-    // "Watch from this episode": land ON the pick and start fresh there. Earlier
-    // episodes are NOT back-loaded as watched — nothing before it is marked done.
+    // "Watch from this episode": land ON the pick. You're dropping into the middle,
+    // so every earlier episode (this season and the ones before) is recorded as BP.
     eps=allEps.filter(e=>sNum(e)===p.season); if(!eps.length) eps=allEps;
     const idx=eps.findIndex(e=>(e.number||0)===p.number);
-    watched=0; landFocus=idx>=0?idx:0;
+    watched=idx>=0?idx:0; bpFill=true;
   } else {                                  // beginning, pick, or resume with no position
     const real=seasons.filter(s=>s>=1);     // skip season 0 specials
     const s1=Math.min(...(real.length?real:seasons));
@@ -1084,12 +1097,13 @@ function applyPattern(p){
   watchTs=[]; watchDate={}; binged={}; ranks={}; notes={}; cooled=false;
   epMin={}; epDone={}; epBp={}; startedAt={}; epPreApp={}; epSessions={}; sessionBase={}; minPreview=null; awaitingLog=false; watchingLive={};
   // Pierre "Catch up live" / "Pick an episode" pre-mark watches: pre-app, never binge.
-  for(let i=0;i<watched;i++){ const t=Date.now()-(watched-i)*45*6e4; watchTs.push(t); watchDate[i]=new Date(t); epDone[i]=true; epMin[i]=runtimeOf(i); epPreApp[i]=true; }
+  // For a "watch from this episode" (bpFill), the earlier ones are flagged BP.
+  for(let i=0;i<watched;i++){ const t=Date.now()-(watched-i)*45*6e4; watchTs.push(t); watchDate[i]=new Date(t); epDone[i]=true; epMin[i]=runtimeOf(i); epPreApp[i]=true; if(bpFill) epBp[i]=true; }
   // Restore saved per-episode detail (minutes / done / BP) from the account, and
   // keep it so a later season-wrap can re-apply the next season's history.
   savedDetail=(pendingRestore&&pendingRestore.episodes)||null;
   applySavedDetail();
-  focus = (landFocus!=null) ? Math.min(landFocus, eps.length-1) : Math.min(watched, eps.length-1);
+  focus=Math.min(watched, eps.length-1);
   // Restore the partial current episode, then — if a watch was left open (saved
   // started_at) — offer placement for all the time since, exactly like a return:
   // it can span episodes and is unvalidated until confirmed.

@@ -39,7 +39,7 @@ const TABLES = {
     num('done'), num('minute'), num('bp'), { name: 'sessions', type: 'multilineText' },
     num('updated_at'), HASH],
   users: [KEY, text('email'), text('username'), text('phone'), text('photo_url'),
-    text('selected_device'), num('created_at'), num('updated_at'), HASH],
+    text('selected_device'), text('timezone'), num('created_at'), num('updated_at'), HASH],
   devices: [KEY, text('id'), text('user_email'), text('type'), text('location'),
     text('ip'), text('model'), num('supported'), num('created_at'), HASH],
   follows: [KEY, text('follower_email'), text('followee_email'), num('created_at'), HASH],
