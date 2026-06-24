@@ -711,7 +711,10 @@ function finishEpisode(){
     bp = (now - startedAt[focus]) < 60000;
   } else {
     startedAt[focus]=Math.max(now-rt*60000, latestFinishBefore(now));
-    bp = (now - startedAt[focus]) < rt*60000 - 1000;   // back-date clamped below a full runtime
+    // 15% wiggle: skipping the intro and cutting the credits can turn a 60-min episode
+    // into ~50, so anything down to 85% of runtime still counts as a real watch; less
+    // room than that since the previous log → it couldn't be a real sitting → BP.
+    bp = (now - startedAt[focus]) < rt*60000*0.85;
   }
   epMin[focus]=rt; epDone[focus]=true; epBp[focus]=bp; epPreApp[focus]=bp; minPreview=null; awaitingLog=false; cooled=false; watchingLive[focus]=false;
   try{ localStorage.removeItem('pg_launch'); }catch(_){}
