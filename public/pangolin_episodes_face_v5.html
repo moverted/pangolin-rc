@@ -151,19 +151,27 @@
   .minfoot .d{ color:var(--dim); white-space:nowrap; }
   .minfoot .d.faint{ color:var(--faint); }
   .minfoot .d.bp{ color:#ff9d5c; font-weight:700; letter-spacing:.1em; }
-  .minfoot .center{ flex:1; text-align:center; padding:0 8px; color:var(--dim); }
+  .minfoot .center{ flex:1; text-align:center; padding:0 8px; color:var(--dim); font-size:15.75px; font-weight:700; }
   .minfoot .center.phrase{ color:var(--amber); font-size:9px; letter-spacing:.03em; }
-  /* manual Start / Finish (fallback when the episode-end timer doesn't fire) */
-  .startfin{ display:flex; gap:10px; margin-top:14px; }
+  /* manual Start / Log Partial / Finish (fallback when the episode-end timer doesn't fire) */
+  .startfin{ display:flex; gap:10px; margin-top:14px; align-items:center; }
   .sfbtn{ flex:1; font-family:var(--mono); font-size:11px; font-weight:700; letter-spacing:.1em;
     padding:11px; border-radius:10px; cursor:pointer; background:rgba(0,0,0,.32);
     border:1px solid rgba(255,255,255,.16); color:var(--dim); }
   .sfbtn:active{ transform:translateY(1px); }
   .sfbtn.start{ --accent:var(--amber); --flipfg:var(--amber-deep); border-color:var(--accent); color:var(--accent); }
-  .sfbtn.logit{ --accent:var(--text);  --flipfg:#1a1206;          border-color:var(--accent); color:var(--accent); }
-  .sfbtn.finish{ --accent:var(--green); --flipfg:#06140b;         border-color:var(--accent); color:var(--accent); }
-  /* Pierre-discuss: narrow, sits at the end of the logging row, jumps to a chat about this title */
-  .sfbtn.talk{ flex:0 0 auto; padding-left:15px; padding-right:15px; font-size:14px;
+  .sfbtn.logpart{ --accent:var(--text);  --flipfg:#1a1206;         border-color:var(--accent); color:var(--accent); }
+  .sfbtn.continue{ --accent:var(--text); --flipfg:#1a1206;         border-color:var(--accent); color:var(--accent); }
+  .sfbtn.finish{ --accent:var(--green); --flipfg:#06140b;          border-color:var(--accent); color:var(--accent); }
+  /* Center indicator: WATCHING>>. animation runs here between the left and right buttons */
+  .watching-indicator{ flex:0 0 auto; width:44px; height:44px; display:flex; align-items:center;
+    justify-content:center; font-family:var(--mono); font-size:11px; font-weight:700;
+    letter-spacing:.1em; color:var(--amber); border:1px solid var(--amber);
+    border-radius:10px; background:transparent; }
+  .watching-indicator.live::after{ content:'>>'; animation:build 1.6s steps(1,end) infinite; }
+  .watching-indicator.waiting{ display:none; }
+  /* Mic for audio comments: narrow, sits at the end of the logging row */
+  .sfbtn.mic{ flex:0 0 auto; padding-left:15px; padding-right:15px; font-size:14px;
     --accent:var(--amber); border-color:var(--accent); color:var(--accent); }
   /* tap feedback: flip the button to a filled state, then flip back */
   @keyframes sfflip{
@@ -388,9 +396,9 @@
           <!-- manual session logging: start a watch, log a partial, or finish -->
           <div class="startfin">
             <button class="sfbtn start" id="startEpBtn">START</button>
-            <button class="sfbtn logit" id="logItBtn">LOG PARTIAL</button>
+            <div class="watching-indicator" id="watchingInd"></div>
             <button class="sfbtn finish" id="finishEpBtn">FINISH</button>
-            <button class="sfbtn talk" id="talkBtn" aria-label="Talk to Pierre about this">&#128172;</button>
+            <button class="sfbtn mic" id="micBtn" aria-label="Record audio comment">🎙️</button>
           </div>
         </div>
       </div>
@@ -673,6 +681,13 @@ function logMinute(){
 }
 const logIt=logMinute;
 
+// Audio comment: record, transcribe, and save to the episode with timestamp.
+// Phase 1 stub; phase 2 wires Whisper + comment table.
+function recordAudioComment(){
+  // TODO: phase 2 integration with Workers AI Whisper
+  console.log('Audio comment recording — phase 2');
+}
+
 // Force-advance / skip: the episode is logged "BP" (Before PangolinRC) and we jump on.
 function forceAdvance(){
   const rt=runtimeOf(focus);
@@ -765,15 +780,40 @@ function paint(){
     else if(inProgress){ st.className='epstatus waiting'; st.innerHTML='(WAITING<span class="wait-dots"></span>)'; }
     else { st.className='epstatus'; st.textContent=''; }
   }
-  // Button states:
-  //  · START only at minute 0 / before a session; becomes CONTINUE the moment a
-  //    watch is STARTed (in-progress) and greys out while actively watching.
-  //  · LOG PARTIAL is active only while actively watching.
-  //  · FINISH is always available.
+  // Left button state machine: START → LOG PARTIAL (while watching) → CONTINUE (when paused/scrubbed)
+  // The center indicator shows WATCHING>>. animation only while actively watching.
   const stBtn=$('startEpBtn');
-  if(stBtn){ stBtn.textContent = (watching || inProgress) ? 'CONTINUE' : 'START';
-    stBtn.disabled = watching; }
-  const lgBtn=$('logItBtn'); if(lgBtn) lgBtn.disabled = !watching;
+  if(stBtn){
+    if(watching) {
+      // Actively watching → show LOG PARTIAL button
+      stBtn.textContent = 'LOG PARTIAL';
+      stBtn.classList.add('logpart');
+      stBtn.classList.remove('continue');
+      stBtn.disabled = false;
+    } else if(inProgress) {
+      // In progress but not watching → show CONTINUE (paused or scrubbed)
+      stBtn.textContent = 'CONTINUE';
+      stBtn.classList.add('continue');
+      stBtn.classList.remove('logpart');
+      stBtn.disabled = false;
+    } else {
+      // Not started → show START (only if progress is 0, i.e. not scrubbed)
+      stBtn.textContent = (epMin[focus]||0) > 0 ? 'CONTINUE' : 'START';
+      stBtn.classList.remove('logpart', 'continue');
+      stBtn.disabled = false;
+    }
+  }
+  // Center indicator: show WATCHING>>. animation when timer is active
+  const watchInd=$('watchingInd');
+  if(watchInd){
+    if(watching) {
+      watchInd.classList.add('live');
+      watchInd.classList.remove('waiting');
+    } else {
+      watchInd.classList.remove('live');
+      watchInd.classList.add('waiting');
+    }
+  }
   const fnBtn=$('finishEpBtn'); if(fnBtn) fnBtn.disabled = false;
 
   // Watchlist: ONE row per episode (history only), newest activity first. Tapping a
@@ -895,10 +935,15 @@ $('reset').onclick=()=>{
 // Tap feedback: flip the button's colors and let them flip back.
 function flashBtn(el){ if(!el) return; el.classList.remove('flip'); void el.offsetWidth;
   el.classList.add('flip'); el.addEventListener('animationend',()=>el.classList.remove('flip'),{once:true}); }
-$('startEpBtn').onclick=()=>{ flashBtn($('startEpBtn')); startEpisode(); };
-$('logItBtn').onclick=()=>{ flashBtn($('logItBtn')); logIt(); };
+// Left button: START / LOG PARTIAL / CONTINUE state machine
+$('startEpBtn').onclick=()=>{
+  const btn=$('startEpBtn'); flashBtn(btn);
+  if(btn.textContent==='START') startEpisode();
+  else if(btn.textContent==='LOG PARTIAL') logIt();
+  else if(btn.textContent==='CONTINUE') startEpisode();  // CONTINUE re-starts the timer
+};
 $('finishEpBtn').onclick=()=>{ flashBtn($('finishEpBtn')); finishEpisode(); };
-$('talkBtn').onclick=()=>{ flashBtn($('talkBtn')); noteToPierre(); };   // shift to a Pierre chat about this episode/film
+$('micBtn').onclick=()=>{ flashBtn($('micBtn')); recordAudioComment(); };   // audio comment, phase 2 to wire Whisper
 
 // Stop-and-return: when the phone IS the device, time away from the app is time
 // spent watching. On return we OFFER a placement for all of that missing time,
