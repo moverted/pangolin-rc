@@ -697,15 +697,22 @@ function latestFinishBefore(before){
   return m;
 }
 // FINISH: logs the episode fully watched and advances.
-//  · A plain FINISH with no live watch back-dates the start by the runtime, but never
-//    earlier than this user's previous logged watch (don't crash into another log).
-//  · If under a minute of real time actually elapsed — a rapid finish, or a back-date
-//    that clamped right up against the previous log — it can't be a genuine watch, so
-//    it's recorded as BP (Before Pierre), not a 60-minute session and not a binge beat.
+//  · With a live watch open, tapping done inside a minute is a tap-through, not a
+//    sitting → BP.
+//  · With no live watch, back-date a full runtime, but never earlier than this user's
+//    previous logged watch. If that clamp leaves LESS than a runtime of room (you
+//    just finished something), there was no time for a real watch here → BP. A
+//    standalone finish with a full runtime of room stays a legitimate watch.
+// BP never counts toward a binge and renders grey with no date.
 function finishEpisode(){
   const rt=runtimeOf(focus), now=Date.now();
-  if(startedAt[focus]==null) startedAt[focus]=Math.max(now-rt*60000, latestFinishBefore(now));
-  const bp = (now - startedAt[focus]) < 60000;
+  let bp;
+  if(startedAt[focus]!=null){
+    bp = (now - startedAt[focus]) < 60000;
+  } else {
+    startedAt[focus]=Math.max(now-rt*60000, latestFinishBefore(now));
+    bp = (now - startedAt[focus]) < rt*60000 - 1000;   // back-date clamped below a full runtime
+  }
   epMin[focus]=rt; epDone[focus]=true; epBp[focus]=bp; epPreApp[focus]=bp; minPreview=null; awaitingLog=false; cooled=false; watchingLive[focus]=false;
   try{ localStorage.removeItem('pg_launch'); }catch(_){}
   markWatchedThrough(focus);
