@@ -937,13 +937,15 @@ const API = window.location.hostname === 'localhost'
   : 'https://pangolin-rc.edward-m-willett.workers.dev';
 
 async function sendKey(cmd) {
-  // While a caption session is live, the ff/rw we send to the TV also shift the
-  // caption cursor — it's the one playback signal we actually observe.
+  // While a caption session is live, ff/rw also shift the caption cursor — the one
+  // playback signal we observe. This runs even with no controllable device, so the
+  // buttons still align captions when the member is on "No device connected".
   if (capSession) { if (cmd === 'ff') capNudge(CAP_STEP_MS); else if (cmd === 'rw') capNudge(-CAP_STEP_MS); }
+  // Only an actual device gets a command. On "This Phone" / "No device" there's
+  // nothing to drive, so we skip the network call entirely (remote off).
+  if (!capHasDevice()) return;
   // The server routes the keypress to whatever device the member has selected on
-  // the Profile face — we just hand it the session email so it can resolve the
-  // target. A 409 means "no device to drive" (phone selected / signed out); the
-  // buttons stay silent in that case, same as a dropped network.
+  // the Profile face — we just hand it the session email so it can resolve the target.
   let email = '';
   try { email = localStorage.getItem('pg_user') || ''; } catch {}
   try {
@@ -1027,7 +1029,8 @@ function updateDeviceChip() {
   const dev = selectedDeviceLabel();
   const svc = currentEpisode ? streamerLabel(currentEpisode.service) : '';
   const launchable = !!(currentEpisode && currentEpisode.name && serviceLink(currentEpisode.service, currentEpisode.name));
-  const icon = /phone/i.test(dev) ? '📱' : '📺';
+  const kind = selectedDeviceKind();
+  const icon = kind === 'phone' ? '📱' : kind === 'none' ? '🚫' : '📺';
   chip.innerHTML = '<span class="dc-ic">' + icon + '</span><span class="dc-dev">' + esc(dev) + '</span>' +
     (launchable && svc ? '<span class="dc-sep">·</span><span class="dc-svc">' + esc(svc) + '</span>' : '');
   chip.classList.toggle('dimmed', !(launchable && svc));
@@ -1088,7 +1091,7 @@ async function launchCurrent() {
   // residual offset. (Note: Fire's play is a true toggle; on webOS PLAY isn't,
   // so pause may diverge there until its adapter gains a real toggle.)
   if (capOffPhone()) {
-    sendKey('play');                                     // toggle play/pause on the TV
+    if (capHasDevice()) sendKey('play');                 // drive the TV's play/pause (skipped on "No device")
     if (capSession) capTogglePause();                    // mirror it on the caption cursor
     else capStart({ ...currentEpisode, startedAt: Date.now() });
     return;
@@ -1144,7 +1147,11 @@ const _capAlign = document.getElementById('cap-align');
 const _capLbl   = document.getElementById('cap-align-lbl');
 let _capTick    = null;
 
-function capOffPhone() { return !/phone/i.test(selectedDeviceLabel()); }
+// The Profile picker caches the selection KIND: 'phone' (this is the screen),
+// 'none' (off-phone, nothing to drive), or 'device' (a real TV we can command).
+function selectedDeviceKind() { try { return localStorage.getItem('pg_device_kind') || 'phone'; } catch { return 'phone'; } }
+function capOffPhone()  { return selectedDeviceKind() !== 'phone'; }   // none + device → caption the second screen
+function capHasDevice() { return selectedDeviceKind() === 'device'; }  // only a real device takes remote commands
 function capEpisodeId(ep) {
   // Stable key matching the catalog: tvmaze:{id}:s{season}e{number}.
   if (!ep || !ep.tvmazeId) return null;

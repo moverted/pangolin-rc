@@ -402,18 +402,27 @@
 
   function devIcon(type){
     const t=(type||'').toLowerCase();
+    if(t==='none'||t.includes('no device'))   // TV outline with a slash = nothing connected
+      return '<svg viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="12" rx="2"/><line x1="8" y1="20" x2="16" y2="20"/><line x1="4" y1="3.5" x2="20" y2="17.5"/></svg>';
     if(t==='phone'||t.includes('mobile')||t.includes('this phone'))
       return '<svg viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><line x1="11" y1="18.6" x2="13" y2="18.6"/></svg>';
     if(t.includes('fire')||t.includes('cube'))
       return '<svg viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5"/><line x1="12" y1="12" x2="12" y2="21"/></svg>';
     return '<svg viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="12" rx="2"/><line x1="8" y1="20" x2="16" y2="20"/></svg>';
   }
-  // This Phone is always first; stored devices follow in order.
+  // This Phone is always first, then the "No device" option, then stored devices.
+  // 'none' means: watching on a screen we can't drive — second-screen captions run,
+  // but the remote sends nothing (distinct from This Phone, which IS the screen).
   function deviceCards(){
     return [{id:'phone', isPhone:true, type:'This Phone', location:'This Phone'},
+            {id:'none', isNone:true, type:'No device', location:'No device connected'},
             ...state.devices.map(d=>({...d, isPhone:false}))];
   }
-  function isSelected(dv){ return dv.isPhone ? (state.selected==='phone'||!state.selected) : state.selected===dv.id; }
+  function isSelected(dv){
+    if(dv.isPhone) return state.selected==='phone' || !state.selected;
+    if(dv.isNone)  return state.selected==='none';
+    return state.selected===dv.id;
+  }
   // Each device is an inline row; tapping it expands an inline action strip
   // (Select · Edit · Delete as text links) directly beneath — no popout sheet.
   function renderDevices(){
@@ -422,19 +431,21 @@
       const sel=isSelected(dv);
       const row=document.createElement('div'); row.className='dev'+(sel?' sel':'');
 
+      const fixed = dv.isPhone || dv.isNone;   // virtual rows: no edit/delete
       const main=document.createElement('button'); main.className='dev-main';
-      main.innerHTML='<span class="dev-ic">'+devIcon(dv.isPhone?'phone':dv.type)+'</span>'
+      main.innerHTML='<span class="dev-ic">'+devIcon(dv.isPhone?'phone':dv.isNone?'none':dv.type)+'</span>'
         +'<span class="meta"><span class="nm"></span><span class="sub"></span></span>'
         +(sel?'<span class="state">active</span>':'<span class="caret"></span>');
-      main.querySelector('.nm').textContent = dv.isPhone ? 'This Phone' : (dv.location || dv.type);
+      main.querySelector('.nm').textContent = dv.isPhone ? 'This Phone' : dv.isNone ? 'No device connected' : (dv.location || dv.type);
       main.querySelector('.sub').textContent = dv.isPhone ? 'this device'
+        : dv.isNone ? 'captions only · remote off'
         : (dv.type + (dv.ip ? (' · '+dv.ip) : ''));
       main.onclick=()=>{ const open=row.classList.contains('open'); closeAllRows(); if(!open) row.classList.add('open'); };
       row.appendChild(main);
 
       const acts=document.createElement('div'); acts.className='dev-actions';
       if(!sel) acts.appendChild(devAct('Select', ()=>doSelect(dv)));
-      if(!dv.isPhone){
+      if(!fixed){
         acts.appendChild(devAct('Edit', ()=>{ row.classList.add('editing'); row.querySelector('.de-in').focus(); }));
         acts.appendChild(devAct('Delete', ()=>doDelete(dv), 'danger'));
       }
@@ -443,7 +454,7 @@
       }
       row.appendChild(acts);
 
-      if(!dv.isPhone) row.appendChild(buildEdit(dv, row));
+      if(!fixed) row.appendChild(buildEdit(dv, row));
       list.appendChild(row);
     });
     cacheSelectedDevice();
@@ -454,10 +465,15 @@
   // only when unnamed. The shell hears the write as a storage event and re-renders.
   function cacheSelectedDevice(){
     const sel=deviceCards().find(dv=>isSelected(dv));
-    const label=(sel && !sel.isPhone)
-      ? (sel.location || (sel.type||'Device').replace(/^Amazon\s+/,''))
-      : 'This Phone';
-    try{ localStorage.setItem('pg_device', label); }catch(_){}
+    // kind drives the shell's gating: 'phone' = this is the screen (no captions),
+    // 'none' = off-phone captions but remote sends nothing, 'device' = drive it.
+    const kind = (!sel||sel.isPhone) ? 'phone' : sel.isNone ? 'none' : 'device';
+    const label = kind==='phone' ? 'This Phone'
+                : kind==='none'  ? 'No device'
+                : (sel.location || (sel.type||'Device').replace(/^Amazon\s+/,''));
+    // kind first: the shell's storage listeners fire on the pg_device write and
+    // read pg_device_kind, so it must already be current.
+    try{ localStorage.setItem('pg_device_kind', kind); localStorage.setItem('pg_device', label); }catch(_){}
   }
   // SHOWS / EPISODES / MINUTES from the member's watch data (MVP only; DEMO keeps
   // its showcase numbers). EPISODES = sum of watched counts; MINUTES = sum of the

@@ -182,7 +182,9 @@ profileRoutes.post('/:email/select', async (c) => {
   try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
   const device = str(body.device, 64);
   if (!device) return c.json({ error: 'device required' }, 400);
-  if (device !== 'phone') {
+  // 'phone' (this device is the screen) and 'none' (off-phone, nothing to drive)
+  // are sentinels; anything else must be a device the member owns.
+  if (device !== 'phone' && device !== 'none') {
     const owned = await c.env.DB.prepare('SELECT id FROM devices WHERE user_email = ? AND id = ?').bind(email, device).first();
     if (!owned) return c.json({ error: 'unknown device' }, 404);
   }

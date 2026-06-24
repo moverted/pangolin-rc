@@ -26,7 +26,10 @@ remoteRoutes.post('/cmd/:code', async (c) => {
     .prepare('SELECT selected_device FROM users WHERE email = ?')
     .bind(email).first<{ selected_device: string | null }>();
   const sel = user?.selected_device;
-  if (!sel || sel === 'phone') return c.json({ ok: false, reason: 'phone' }, 409);
+  // 'phone' = the phone is the screen; 'none' = watching elsewhere on a screen we
+  // can't drive. Both have nothing for the remote to command.
+  if (!sel || sel === 'phone' || sel === 'none')
+    return c.json({ ok: false, reason: sel === 'none' ? 'none' : 'phone' }, 409);
 
   const dev = await c.env.DB
     .prepare('SELECT id, ip, model, type FROM devices WHERE user_email = ? AND id = ?')
