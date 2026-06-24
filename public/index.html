@@ -874,8 +874,18 @@ const API = window.location.hostname === 'localhost'
   : 'https://pangolin-rc.edward-m-willett.workers.dev';
 
 async function sendKey(cmd) {
+  // The server routes the keypress to whatever device the member has selected on
+  // the Profile face — we just hand it the session email so it can resolve the
+  // target. A 409 means "no device to drive" (phone selected / signed out); the
+  // buttons stay silent in that case, same as a dropped network.
+  let email = '';
+  try { email = localStorage.getItem('pg_user') || ''; } catch {}
   try {
-    await fetch(`${API}/remote/cmd/${cmd}`, { method: 'POST' });
+    await fetch(`${API}/remote/cmd/${cmd}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
   } catch { /* ignore network errors */ }
 }
 
