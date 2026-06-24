@@ -163,11 +163,6 @@
   .sfbtn.logpart{ --accent:var(--text);  --flipfg:#1a1206;         border-color:var(--accent); color:var(--accent); }
   .sfbtn.continue{ --accent:var(--text); --flipfg:#1a1206;         border-color:var(--accent); color:var(--accent); }
   .sfbtn.finish{ --accent:var(--green); --flipfg:#06140b;          border-color:var(--accent); color:var(--accent); }
-  /* Animation indicator next to large left number: >>. appears orange when watching */
-  .watch-anim{ font-family:var(--mono); font-size:10px; font-weight:700;
-    display:inline-block; min-width:18px; margin-left:4px; }
-  .watch-anim::after{ content:''; color:rgba(255,255,255,.3); }
-  .watch-anim.live::after{ content:'>..'; color:var(--amber); animation:build 1.6s steps(1,end) infinite; }
   /* Mic button in the center of the button row */
   .mic-center{ flex:0 0 auto; width:44px; height:44px; padding:0; display:flex; align-items:center;
     justify-content:center; font-size:16px; font-family:var(--mono); font-weight:700;
@@ -395,7 +390,7 @@
           </div>
           <!-- elapsed · total (or the log prompt when touched) · remaining -->
           <div class="minfoot">
-            <span class="d" id="minElapsed">0 min<span class="watch-anim" id="watchAnim"></span></span>
+            <span class="d" id="minElapsed">0 min</span>
             <span class="center" id="minMid">— min</span>
             <span class="d faint" id="minRem">— min</span>
           </div>
@@ -692,6 +687,10 @@ function logMinute(){
 }
 const logIt=logMinute;
 
+// Animation frames for the watching indicator (cycles through every ~270ms)
+const buildFrames = ['>..', '>>.', '>>>', '.>>', '..>', '...'];
+let buildFrame = 0;
+
 // Audio comment: record, transcribe, and save to the episode with timestamp.
 // Phase 1: record with 5-second timeout + countdown timer on button.
 // Phase 2: post to Workers AI Whisper, save audio + transcript to watch_comment table.
@@ -876,15 +875,8 @@ function paint(){
       stBtn.disabled = false;
     }
   }
-  // Animation indicator next to elapsed time: show >>. in orange when timer is active
-  const watchAnim=$('watchAnim');
-  if(watchAnim){
-    if(watching) {
-      watchAnim.classList.add('live');
-    } else {
-      watchAnim.classList.remove('live');
-    }
-  }
+  // Update the elapsed time display with animation frames if watching
+  paintMinute();
   const fnBtn=$('finishEpBtn'); if(fnBtn) fnBtn.disabled = false;
 
   // Watchlist: ONE row per episode (history only), newest activity first. Tapping a
@@ -973,20 +965,13 @@ function paintMinute(){
   const pct=rt>0?cur/rt*100:0;
   $('minFill').style.width=pct+'%';
   $('minHandle').style.left=pct+'%';
-  $('minElapsed').textContent=Math.round(cur)+' min';                 // left: elapsed
+  // Left: elapsed time with animation frames when watching
+  const elapsedText = Math.round(cur)+' min';
+  $('minElapsed').textContent = watchingLive[focus] ? buildFrames[buildFrame % buildFrames.length] + ' ' + elapsedText : elapsedText;
   $('minRem').textContent=Math.max(0,Math.round(rt-cur))+' min';      // right: remaining
   const mid=$('minMid');                                              // middle: total / prompt / BP
   if(awaitingLog){ mid.textContent='tap to log · grab again to adjust'; mid.classList.add('phrase'); }
   else { mid.classList.remove('phrase'); mid.textContent = epBp[focus] ? 'BP' : (Math.round(rt)+' min'); }
-  // Keep animation indicator in sync with watching state
-  const watchAnim=$('watchAnim');
-  if(watchAnim){
-    if(watchingLive[focus]){
-      watchAnim.classList.add('live');
-    } else {
-      watchAnim.classList.remove('live');
-    }
-  }
 }
 
 // Note → Pierre: jotting a thought isn't a textarea dead-end. The button hands
@@ -1108,6 +1093,14 @@ function tickWatch(){
   else paintMinute();
 }
 setInterval(tickWatch, 5000);
+
+// Animation frame cycling: updates every ~270ms (1.6s / 6 frames)
+setInterval(()=>{
+  if(watchingLive[focus]){
+    buildFrame++;
+    paintMinute();
+  }
+}, 270);
 
 // ----- minute bar interaction -----
 const minBar=$('minBar');
