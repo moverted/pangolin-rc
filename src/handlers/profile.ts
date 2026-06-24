@@ -427,10 +427,14 @@ profileRoutes.get('/:email/feed', async (c) => {
   const actors = [email, ...followees];
   const placeholders = actors.map(() => '?').join(',');
   const rows = await c.env.DB.prepare(
-    `SELECT w.user_email, w.show_id, w.show_name, w.kind, w.status, w.last_season, w.last_number, w.updated_at, u.username
-       FROM watch w LEFT JOIN users u ON u.email = w.user_email
-      WHERE w.user_email IN (${placeholders})
-      ORDER BY w.updated_at DESC LIMIT 40`).bind(...actors).all();
+    `SELECT wt.user_email, wt.title_id AS show_id, t.name AS show_name, t.kind, wt.status, wt.updated_at, u.username,
+            (SELECT e.season FROM episodes e JOIN watch_episode we ON we.episode_id=e.episode_id AND we.user_email=wt.user_email WHERE e.title_id=wt.title_id AND we.done=1 ORDER BY e.season DESC, e.number DESC LIMIT 1) AS last_season,
+            (SELECT e.number FROM episodes e JOIN watch_episode we ON we.episode_id=e.episode_id AND we.user_email=wt.user_email WHERE e.title_id=wt.title_id AND we.done=1 ORDER BY e.season DESC, e.number DESC LIMIT 1) AS last_number
+       FROM watch_title wt
+       JOIN titles t ON t.title_id = wt.title_id
+       LEFT JOIN users u ON u.email = wt.user_email
+      WHERE wt.user_email IN (${placeholders})
+      ORDER BY wt.updated_at DESC LIMIT 40`).bind(...actors).all();
   const feed = (rows.results || []).map((r: any) => ({
     actor_email: r.user_email,
     actor: r.username || null,
