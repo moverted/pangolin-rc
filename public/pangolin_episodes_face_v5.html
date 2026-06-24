@@ -717,8 +717,14 @@ function paintTranscripts(){
 }
 
 async function startRecording(){
+  // Only allow recording while timer is running
+  if(!watchingLive[focus]){
+    console.log('Recording only available while watching');
+    return;
+  }
+
   isRecording = true;
-  recordingCountdown = 5;
+  recordingCountdown = 7;
   audioChunks = [];
 
   try {
@@ -773,22 +779,45 @@ async function stopRecording(){
     formData.append('episodeId', code);
     formData.append('timestampMs', mins * 60000);
 
+    // Try to get user email from parent window or use empty string
     try {
+      const userEmail = window.parent?.currentUser?.email ||
+                       (typeof currentUser !== 'undefined' ? currentUser.email : '') ||
+                       (typeof currentEmail !== 'undefined' ? currentEmail : '');
+      if(userEmail) formData.append('userEmail', userEmail);
+    } catch(e) { /* ignore */ }
+
+    try {
+      console.log('Sending transcription request...');
       const res = await fetch('/transcribe', { method: 'POST', body: formData });
+      console.log('Transcribe response:', res.status);
+
+      if(!res.ok){
+        const errText = await res.text();
+        console.error('Transcribe error response:', errText);
+        transcripts.unshift({
+          epCode: code,
+          time: timeStr,
+          text: `[transcription failed: ${res.status}]`
+        });
+        paintTranscripts();
+        return;
+      }
+
       const data = await res.json();
+      console.log('Transcription result:', data);
       transcripts.unshift({
         epCode: code,
         time: timeStr,
-        text: data.transcription || '[transcription failed]'
+        text: data.transcription || '[no transcription]'
       });
       paintTranscripts();
-      console.log('Transcription saved');
     } catch(err){
       console.error('Transcription error:', err);
       transcripts.unshift({
         epCode: code,
         time: timeStr,
-        text: '[transcription error]'
+        text: `[error: ${err.message}]`
       });
       paintTranscripts();
     }

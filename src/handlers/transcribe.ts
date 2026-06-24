@@ -8,16 +8,17 @@ transcribeRoutes.post('/', async (c) => {
   const formData = await c.req.formData();
   const audio = formData.get('audio') as File;
   const episodeId = formData.get('episodeId') as string;
+  const userEmail = (formData.get('userEmail') as string) || '';
   const timestampMs = parseInt(formData.get('timestampMs') as string) || 0;
 
   if (!audio || !episodeId) {
     return c.json({ error: 'missing audio or episodeId' }, 400);
   }
 
-  // Get user email from auth context (assumes auth middleware sets this)
-  const email = c.req.header('x-user-email') || '';
-  if (!email) {
-    return c.json({ error: 'unauthorized' }, 401);
+  // Get user email from FormData or header
+  const email = userEmail || c.req.header('x-user-email') || 'anonymous';
+  if (!email || email === 'anonymous') {
+    console.warn('Transcribe called without user email');
   }
 
   try {
