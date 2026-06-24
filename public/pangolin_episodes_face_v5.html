@@ -965,9 +965,9 @@ function paintMinute(){
   const pct=rt>0?cur/rt*100:0;
   $('minFill').style.width=pct+'%';
   $('minHandle').style.left=pct+'%';
-  // Left: elapsed time with animation frames when watching
+  // Left: elapsed time with animation frames after the number when watching
   const elapsedText = Math.round(cur)+' min';
-  $('minElapsed').textContent = watchingLive[focus] ? buildFrames[buildFrame % buildFrames.length] + ' ' + elapsedText : elapsedText;
+  $('minElapsed').textContent = watchingLive[focus] ? elapsedText + ' ' + buildFrames[buildFrame % buildFrames.length] : elapsedText;
   $('minRem').textContent=Math.max(0,Math.round(rt-cur))+' min';      // right: remaining
   const mid=$('minMid');                                              // middle: total / prompt / BP
   if(awaitingLog){ mid.textContent='tap to log · grab again to adjust'; mid.classList.add('phrase'); }
