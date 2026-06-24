@@ -426,6 +426,12 @@
         </div>
       </div>
       <div id="watchlist"></div>
+
+      <!-- Audio comment transcripts: displays recorded comments with timestamp -->
+      <div style="margin-top:24px; border-top:1px solid rgba(255,255,255,.1); padding-top:16px;">
+        <div class="block-label" style="margin-bottom:12px;" id="transcriptLabel">Transcripts · 0</div>
+        <div id="transcripts" style="font-size:12px; font-family:var(--body); color:var(--dim); line-height:1.6;"></div>
+      </div>
     </div>
 
   </div>
@@ -693,6 +699,21 @@ const logIt=logMinute;
 let isRecording = false;
 let recordingCountdown = 0;
 let recordingInterval = null;
+let transcripts = [];  // [{epCode, timestamp_ms, text}, ...]
+
+function paintTranscripts(){
+  const label=$('transcriptLabel');
+  const container=$('transcripts');
+  if(!label || !container) return;
+  label.textContent=`Transcripts · ${transcripts.length}`;
+  container.innerHTML='';
+  transcripts.forEach(t=>{
+    const line=document.createElement('div');
+    line.style.marginBottom='8px';
+    line.innerHTML=`<strong>${t.epCode} ${t.time}</strong> — ${t.text}`;
+    container.appendChild(line);
+  });
+}
 
 function startRecording(){
   isRecording = true;
@@ -718,6 +739,19 @@ function stopRecording(){
   if(micBtn){
     micBtn.classList.remove('recording');
     micBtn.textContent = '🎙️';
+  }
+  // Phase 2: post to Whisper, get transcript. For now, add stub entry to show display format.
+  const e = eps[focus];
+  if(e){
+    const code = epCode(e);
+    const mins = Math.round((epMin[focus]||0));
+    const timeStr = `${Math.floor(mins/60)}:${String(mins%60).padStart(2,'0')}`;
+    transcripts.unshift({
+      epCode: code,
+      time: timeStr,
+      text: '[Phase 2: Whisper transcription goes here]'
+    });
+    paintTranscripts();
   }
   console.log('Recording stopped — phase 2: transcribe + save to watch_comment table, display in feed');
 }
@@ -944,6 +978,15 @@ function paintMinute(){
   const mid=$('minMid');                                              // middle: total / prompt / BP
   if(awaitingLog){ mid.textContent='tap to log · grab again to adjust'; mid.classList.add('phrase'); }
   else { mid.classList.remove('phrase'); mid.textContent = epBp[focus] ? 'BP' : (Math.round(rt)+' min'); }
+  // Keep animation indicator in sync with watching state
+  const watchAnim=$('watchAnim');
+  if(watchAnim){
+    if(watchingLive[focus]){
+      watchAnim.classList.add('live');
+    } else {
+      watchAnim.classList.remove('live');
+    }
+  }
 }
 
 // Note → Pierre: jotting a thought isn't a textarea dead-end. The button hands
