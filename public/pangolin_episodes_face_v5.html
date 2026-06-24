@@ -776,7 +776,8 @@ async function startRecording(){
   console.log('Recording started');
 }
 
-async function stopRecording(){
+function stopRecording(){
+  console.log('stopRecording called, audioChunks:', audioChunks.length);
   isRecording = false;
   if(recordingInterval) clearInterval(recordingInterval);
   recordingCountdown = 0;
@@ -790,14 +791,25 @@ async function stopRecording(){
     }
   }
 
-  if(mediaRecorder && mediaRecorder.state !== 'inactive'){
-    mediaRecorder.stop();
-    mediaRecorder.stream.getTracks().forEach(track => track.stop());
+  // Stop recording and wait for all chunks to be collected
+  if(!mediaRecorder || mediaRecorder.state === 'inactive'){
+    console.log('No active recording to stop');
+    return;
   }
 
-  // Post audio to Worker for transcription via Workers AI Whisper
-  const e = eps[focus];
-  if(e && audioChunks.length > 0){
+  // Use a Promise to wait for the stop event
+  mediaRecorder.onstop = async () => {
+    console.log('MediaRecorder stopped, audioChunks:', audioChunks.length);
+    mediaRecorder.stream.getTracks().forEach(track => track.stop());
+
+    // Post audio to Worker for transcription
+    const e = eps[focus];
+    console.log('After stop: episode exists:', !!e, 'audioChunks:', audioChunks.length);
+    if(!e || audioChunks.length === 0){
+      console.log('Skipping transcription: no episode or no chunks');
+      return;
+    }
+
     const code = epCode(e);
     const mins = Math.round((epMin[focus]||0));
     const timeStr = `${Math.floor(mins/60)}:${String(mins%60).padStart(2,'0')}`;
@@ -808,7 +820,6 @@ async function stopRecording(){
     formData.append('episodeId', code);
     formData.append('timestampMs', mins * 60000);
 
-    // Try to get user email from parent window or use empty string
     try {
       const userEmail = window.parent?.currentUser?.email ||
                        (typeof currentUser !== 'undefined' ? currentUser.email : '') ||
@@ -817,32 +828,32 @@ async function stopRecording(){
     } catch(e) { /* ignore */ }
 
     try {
-      console.log('Sending transcription request...');
+      console.log('Sending transcription request for', code);
       const res = await fetch('/transcribe', { method: 'POST', body: formData });
-      console.log('Transcribe response:', res.status);
+      console.log('Transcribe response:', res.status, res.statusText);
 
       if(!res.ok){
         const errText = await res.text();
-        console.error('Transcribe error response:', errText);
+        console.error('Transcribe error:', res.status, errText);
         transcripts.unshift({
           epCode: code,
           time: timeStr,
-          text: `[transcription failed: ${res.status}]`
+          text: `[error ${res.status}: ${errText.substring(0, 50)}]`
         });
         paintTranscripts();
         return;
       }
 
       const data = await res.json();
-      console.log('Transcription result:', data);
+      console.log('Transcription complete:', data);
       transcripts.unshift({
         epCode: code,
         time: timeStr,
-        text: data.transcription || '[no transcription]'
+        text: data.transcription || '[empty transcription]'
       });
       paintTranscripts();
     } catch(err){
-      console.error('Transcription error:', err);
+      console.error('Transcription fetch error:', err.message);
       transcripts.unshift({
         epCode: code,
         time: timeStr,
@@ -850,7 +861,10 @@ async function stopRecording(){
       });
       paintTranscripts();
     }
-  }
+  };
+
+  console.log('Calling mediaRecorder.stop()');
+  mediaRecorder.stop();
 }
 
 function recordAudioComment(){
