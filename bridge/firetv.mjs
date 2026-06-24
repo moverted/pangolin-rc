@@ -25,6 +25,7 @@
 
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
+import { sendWebos } from './webos.mjs';
 
 const run = promisify(exec);
 
@@ -82,8 +83,14 @@ async function poll() {
     if (!ip) { console.warn(`[remote] ${data.cmd}: no ip on command and no FIRE_TV_IP fallback — skipped`); return; }
 
     const proto = protocolFor(data.model, data.type);
-    if (proto !== 'adb') {
-      console.warn(`[remote] ${data.cmd} → ${ip} (${data.model || data.type || '?'}): ${proto} adapter not wired yet — skipped`);
+
+    if (proto === 'webos') {
+      try {
+        await sendWebos(ip, data.cmd);
+        console.log(`[remote] ${data.cmd} → ${ip} (webos) ${data.cmd}`);
+      } catch (e) {
+        console.error(`[remote] ${data.cmd} → ${ip} (webos) failed: ${e.message}`);
+      }
       return;
     }
 
@@ -91,7 +98,7 @@ async function poll() {
     if (keycode === undefined) return;
     await ensureConnected(ip);
     await adb(ip, `shell input keyevent ${keycode}`);
-    console.log(`[remote] ${data.cmd} → ${ip} keyevent ${keycode}`);
+    console.log(`[remote] ${data.cmd} → ${ip} (adb) keyevent ${keycode}`);
   } catch {
     // network hiccup — next tick retries (and re-handshakes if adb dropped)
   }
