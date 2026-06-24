@@ -720,6 +720,7 @@ async function startRecording(){
   // Only allow recording while timer is running
   if(!watchingLive[focus]){
     console.log('Recording only available while watching');
+    alert('Start watching an episode first (click START)');
     return;
   }
 
@@ -728,13 +729,19 @@ async function startRecording(){
   audioChunks = [];
 
   try {
+    console.log('Requesting microphone access...');
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    console.log('Microphone access granted');
     mediaRecorder = new MediaRecorder(stream);
-    mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
+    mediaRecorder.ondataavailable = (e) => {
+      audioChunks.push(e.data);
+      console.log('Audio chunk recorded:', e.data.size, 'bytes');
+    };
     mediaRecorder.start();
   } catch(err){
-    console.error('Microphone access denied:', err);
+    console.error('Microphone error:', err);
     isRecording = false;
+    alert('Microphone access denied: ' + err.message);
     return;
   }
 
@@ -745,10 +752,11 @@ async function startRecording(){
   }
   recordingInterval = setInterval(()=>{
     recordingCountdown--;
-    if(micBtn) micBtn.textContent = recordingCountdown > 0 ? `${recordingCountdown}s` : 'DONE';
+    const btn = $('micBtn');
+    if(btn) btn.textContent = recordingCountdown > 0 ? `${recordingCountdown}s` : 'DONE';
     if(recordingCountdown <= 0) stopRecording();
   }, 1000);
-  console.log('Recording started');
+  console.log('Recording started, watchingLive[focus]:', watchingLive[focus]);
 }
 
 async function stopRecording(){
@@ -825,8 +833,15 @@ async function stopRecording(){
 }
 
 function recordAudioComment(){
-  if(isRecording) stopRecording();
-  else startRecording();
+  console.log('recordAudioComment called, isRecording:', isRecording);
+  if(isRecording) {
+    stopRecording();
+  } else {
+    startRecording().catch(err => {
+      console.error('startRecording error:', err);
+      isRecording = false;
+    });
+  }
 }
 
 // Force-advance / skip: the episode is logged "BP" (Before PangolinRC) and we jump on.
