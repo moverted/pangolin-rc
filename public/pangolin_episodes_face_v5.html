@@ -148,10 +148,10 @@
   .minhandle:active{ cursor:grabbing; }
   .minfoot{ display:flex; align-items:center; justify-content:space-between; margin-top:11px;
     font-family:var(--mono); font-size:10.5px; letter-spacing:.04em; }
-  .minfoot .d{ color:var(--dim); white-space:nowrap; }
-  .minfoot .d.faint{ color:var(--faint); }
+  .minfoot .d{ color:var(--dim); white-space:nowrap; font-size:15.75px; font-weight:700; display:flex; align-items:center; gap:4px; }
+  .minfoot .d.faint{ color:var(--faint); font-weight:400; font-size:10.5px; }
   .minfoot .d.bp{ color:#ff9d5c; font-weight:700; letter-spacing:.1em; }
-  .minfoot .center{ flex:1; text-align:center; padding:0 8px; color:var(--dim); font-size:15.75px; font-weight:700; }
+  .minfoot .center{ flex:1; text-align:center; padding:0 8px; color:var(--dim); font-size:10.5px; }
   .minfoot .center.phrase{ color:var(--amber); font-size:9px; letter-spacing:.03em; }
   /* manual Start / Log Partial / Finish (fallback when the episode-end timer doesn't fire) */
   .startfin{ display:flex; gap:10px; margin-top:14px; align-items:center; }
@@ -163,13 +163,19 @@
   .sfbtn.logpart{ --accent:var(--text);  --flipfg:#1a1206;         border-color:var(--accent); color:var(--accent); }
   .sfbtn.continue{ --accent:var(--text); --flipfg:#1a1206;         border-color:var(--accent); color:var(--accent); }
   .sfbtn.finish{ --accent:var(--green); --flipfg:#06140b;          border-color:var(--accent); color:var(--accent); }
-  /* Center indicator: WATCHING>>. animation runs here between the left and right buttons */
-  .watching-indicator{ flex:0 0 auto; width:44px; height:44px; display:flex; align-items:center;
-    justify-content:center; font-family:var(--mono); font-size:11px; font-weight:700;
-    letter-spacing:.1em; color:var(--amber); border:1px solid var(--amber);
-    border-radius:10px; background:transparent; }
-  .watching-indicator.live::after{ content:'>>'; animation:build 1.6s steps(1,end) infinite; }
-  .watching-indicator.waiting{ display:none; }
+  /* Animation indicator next to large left number: >>. appears orange when watching */
+  .watch-anim{ font-family:var(--mono); font-size:10px; font-weight:700; color:rgba(255,255,255,.3);
+    animation:none; }
+  .watch-anim.live{ color:var(--amber); animation:build 1.6s steps(1,end) infinite; }
+  /* Mic button in the center of the button row */
+  .mic-center{ flex:0 0 auto; width:44px; height:44px; padding:0; display:flex; align-items:center;
+    justify-content:center; font-size:16px; font-family:var(--mono); font-weight:700;
+    border:1px solid rgba(255,255,255,.16); border-radius:10px; background:rgba(0,0,0,.32);
+    cursor:pointer; color:var(--amber); transition:all .2s ease; }
+  .mic-center:active{ transform:translateY(1px); }
+  .mic-center.recording{ background:var(--amber); color:var(--amber-deep); border-color:var(--amber);
+    font-size:11px; }
+  .mic-center.recording::after{ content:attr(data-countdown); }
   /* Mic for audio comments: narrow, sits at the end of the logging row */
   .sfbtn.mic{ flex:0 0 auto; padding-left:15px; padding-right:15px; font-size:14px;
     --accent:var(--amber); border-color:var(--accent); color:var(--accent); }
@@ -218,7 +224,7 @@
   .epline .aired:empty{ display:none; }
   /* live status, right-aligned on the EP line (replaces the old bottom-list badge) */
   .epline .epstatus{ margin-left:auto; padding-left:9px; white-space:nowrap; font-size:10px;
-    letter-spacing:.06em; font-weight:700; align-self:center; }
+    letter-spacing:.06em; font-weight:700; align-self:center; display:none; }
   .epline .epstatus.watching{ color:var(--amber); }
   .epline .epstatus.waiting{ color:var(--faint); }
   .syn{ font-size:13.5px; color:var(--dim); margin:0 0 18px; line-height:1.55; }
@@ -389,16 +395,15 @@
           </div>
           <!-- elapsed · total (or the log prompt when touched) · remaining -->
           <div class="minfoot">
-            <span class="d" id="minElapsed">0 min</span>
+            <span class="d" id="minElapsed">0 min<span class="watch-anim" id="watchAnim"></span></span>
             <span class="center" id="minMid">— min</span>
             <span class="d faint" id="minRem">— min</span>
           </div>
           <!-- manual session logging: start a watch, log a partial, or finish -->
           <div class="startfin">
             <button class="sfbtn start" id="startEpBtn">START</button>
-            <div class="watching-indicator" id="watchingInd"></div>
+            <button class="mic-center" id="micBtn" aria-label="Record audio comment">🎙️</button>
             <button class="sfbtn finish" id="finishEpBtn">FINISH</button>
-            <button class="sfbtn mic" id="micBtn" aria-label="Record audio comment">🎙️</button>
           </div>
         </div>
       </div>
@@ -682,10 +687,41 @@ function logMinute(){
 const logIt=logMinute;
 
 // Audio comment: record, transcribe, and save to the episode with timestamp.
-// Phase 1 stub; phase 2 wires Whisper + comment table.
+let isRecording = false;
+let recordingCountdown = 0;
+let recordingInterval = null;
+
+function startRecording(){
+  isRecording = true;
+  recordingCountdown = 10;
+  const micBtn = $('micBtn');
+  if(micBtn){
+    micBtn.classList.add('recording');
+    micBtn.setAttribute('data-countdown', `${recordingCountdown}s`);
+  }
+  recordingInterval = setInterval(()=>{
+    recordingCountdown--;
+    if(micBtn) micBtn.setAttribute('data-countdown', `${recordingCountdown}s`);
+    if(recordingCountdown <= 0) stopRecording();
+  }, 1000);
+  console.log('Recording started');
+}
+
+function stopRecording(){
+  isRecording = false;
+  if(recordingInterval) clearInterval(recordingInterval);
+  recordingCountdown = 0;
+  const micBtn = $('micBtn');
+  if(micBtn){
+    micBtn.classList.remove('recording');
+    micBtn.removeAttribute('data-countdown');
+  }
+  console.log('Recording stopped — phase 2: save to watch_comment table');
+}
+
 function recordAudioComment(){
-  // TODO: phase 2 integration with Workers AI Whisper
-  console.log('Audio comment recording — phase 2');
+  if(isRecording) stopRecording();
+  else startRecording();
 }
 
 // Force-advance / skip: the episode is logged "BP" (Before PangolinRC) and we jump on.
@@ -803,15 +839,15 @@ function paint(){
       stBtn.disabled = false;
     }
   }
-  // Center indicator: show WATCHING>>. animation when timer is active
-  const watchInd=$('watchingInd');
-  if(watchInd){
+  // Animation indicator next to elapsed time: show >>. in orange when timer is active
+  const watchAnim=$('watchAnim');
+  if(watchAnim){
     if(watching) {
-      watchInd.classList.add('live');
-      watchInd.classList.remove('waiting');
+      watchAnim.classList.add('live');
+      watchAnim.textContent = '>>.';
     } else {
-      watchInd.classList.remove('live');
-      watchInd.classList.add('waiting');
+      watchAnim.classList.remove('live');
+      watchAnim.textContent = '';
     }
   }
   const fnBtn=$('finishEpBtn'); if(fnBtn) fnBtn.disabled = false;
@@ -943,7 +979,10 @@ $('startEpBtn').onclick=()=>{
   else if(btn.textContent==='CONTINUE') startEpisode();  // CONTINUE re-starts the timer
 };
 $('finishEpBtn').onclick=()=>{ flashBtn($('finishEpBtn')); finishEpisode(); };
-$('micBtn').onclick=()=>{ flashBtn($('micBtn')); recordAudioComment(); };   // audio comment, phase 2 to wire Whisper
+$('micBtn').onclick=()=>{
+  // Recording button doesn't use flashBtn; instead shows recording state with countdown
+  recordAudioComment();
+};
 
 // Stop-and-return: when the phone IS the device, time away from the app is time
 // spent watching. On return we OFFER a placement for all of that missing time,
