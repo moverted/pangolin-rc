@@ -39,6 +39,9 @@ max_batch_size = 10
 max_batch_timeout = 5
 max_retries = 3
 
+[ai]
+binding = "AI"
+
 # Inbound Airtable → D1 watch sync. Every 2 minutes; no-op until AIRTABLE_* set.
 [triggers]
 crons = ["*/2 * * * *"]

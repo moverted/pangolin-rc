@@ -85,6 +85,7 @@ export interface Env {
   RAW_BUCKET:     R2Bucket;
   RESOURCE_DO:    DurableObjectNamespace;
   ACCESS_KV:      KVNamespace;
+  AI:             any; // Workers AI for Whisper transcription
   ACCESS_SECRET:  string;
   ANTHROPIC_API_KEY: string; // secret — backs the Pierre chat proxy (SEAM:processing)
   TURNSTILE_SECRET_KEY?: string; // secret — bot gate on the Pierre chat (optional until set)

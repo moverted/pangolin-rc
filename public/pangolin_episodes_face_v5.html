@@ -698,7 +698,9 @@ let buildFrame = 0;
 let isRecording = false;
 let recordingCountdown = 0;
 let recordingInterval = null;
-let transcripts = [];  // [{epCode, timestamp_ms, text}, ...]
+let transcripts = [];  // [{epCode, time, text}, ...]
+let mediaRecorder = null;
+let audioChunks = [];
 
 function paintTranscripts(){
   const label=$('transcriptLabel');
@@ -714,9 +716,22 @@ function paintTranscripts(){
   });
 }
 
-function startRecording(){
+async function startRecording(){
   isRecording = true;
   recordingCountdown = 5;
+  audioChunks = [];
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaRecorder = new MediaRecorder(stream);
+    mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
+    mediaRecorder.start();
+  } catch(err){
+    console.error('Microphone access denied:', err);
+    isRecording = false;
+    return;
+  }
+
   const micBtn = $('micBtn');
   if(micBtn){
     micBtn.classList.add('recording');
@@ -730,7 +745,7 @@ function startRecording(){
   console.log('Recording started');
 }
 
-function stopRecording(){
+async function stopRecording(){
   isRecording = false;
   if(recordingInterval) clearInterval(recordingInterval);
   recordingCountdown = 0;
@@ -739,20 +754,45 @@ function stopRecording(){
     micBtn.classList.remove('recording');
     micBtn.textContent = '🎙️';
   }
-  // Phase 2: post to Whisper, get transcript. For now, add stub entry to show display format.
+
+  if(mediaRecorder && mediaRecorder.state !== 'inactive'){
+    mediaRecorder.stop();
+    mediaRecorder.stream.getTracks().forEach(track => track.stop());
+  }
+
+  // Post audio to Worker for transcription via Workers AI Whisper
   const e = eps[focus];
-  if(e){
+  if(e && audioChunks.length > 0){
     const code = epCode(e);
     const mins = Math.round((epMin[focus]||0));
     const timeStr = `${Math.floor(mins/60)}:${String(mins%60).padStart(2,'0')}`;
-    transcripts.unshift({
-      epCode: code,
-      time: timeStr,
-      text: '[Phase 2: Whisper transcription goes here]'
-    });
-    paintTranscripts();
+
+    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+    const formData = new FormData();
+    formData.append('audio', audioBlob);
+    formData.append('episodeId', code);
+    formData.append('timestampMs', mins * 60000);
+
+    try {
+      const res = await fetch('/transcribe', { method: 'POST', body: formData });
+      const data = await res.json();
+      transcripts.unshift({
+        epCode: code,
+        time: timeStr,
+        text: data.transcription || '[transcription failed]'
+      });
+      paintTranscripts();
+      console.log('Transcription saved');
+    } catch(err){
+      console.error('Transcription error:', err);
+      transcripts.unshift({
+        epCode: code,
+        time: timeStr,
+        text: '[transcription error]'
+      });
+      paintTranscripts();
+    }
   }
-  console.log('Recording stopped — phase 2: transcribe + save to watch_comment table, display in feed');
 }
 
 function recordAudioComment(){
