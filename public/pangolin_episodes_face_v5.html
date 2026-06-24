@@ -165,8 +165,8 @@
   .sfbtn.finish{ --accent:var(--green); --flipfg:#06140b;          border-color:var(--accent); color:var(--accent); }
   /* Animation indicator next to large left number: >>. appears orange when watching */
   .watch-anim{ font-family:var(--mono); font-size:10px; font-weight:700; color:rgba(255,255,255,.3);
-    animation:none; }
-  .watch-anim.live{ color:var(--amber); animation:build 1.6s steps(1,end) infinite; }
+    display:inline-block; min-width:18px; }
+  .watch-anim.live::after{ color:var(--amber); animation:build 1.6s steps(1,end) infinite; }
   /* Mic button in the center of the button row */
   .mic-center{ flex:0 0 auto; width:44px; height:44px; padding:0; display:flex; align-items:center;
     justify-content:center; font-size:16px; font-family:var(--mono); font-weight:700;
@@ -174,8 +174,7 @@
     cursor:pointer; color:var(--amber); transition:all .2s ease; }
   .mic-center:active{ transform:translateY(1px); }
   .mic-center.recording{ background:var(--amber); color:var(--amber-deep); border-color:var(--amber);
-    font-size:11px; }
-  .mic-center.recording::after{ content:attr(data-countdown); }
+    font-size:12px; }
   /* Mic for audio comments: narrow, sits at the end of the logging row */
   .sfbtn.mic{ flex:0 0 auto; padding-left:15px; padding-right:15px; font-size:14px;
     --accent:var(--amber); border-color:var(--accent); color:var(--accent); }
@@ -687,21 +686,23 @@ function logMinute(){
 const logIt=logMinute;
 
 // Audio comment: record, transcribe, and save to the episode with timestamp.
+// Phase 1: record with 5-second timeout + countdown timer on button.
+// Phase 2: post to Workers AI Whisper, save audio + transcript to watch_comment table, show in feed with timestamp.
 let isRecording = false;
 let recordingCountdown = 0;
 let recordingInterval = null;
 
 function startRecording(){
   isRecording = true;
-  recordingCountdown = 10;
+  recordingCountdown = 5;
   const micBtn = $('micBtn');
   if(micBtn){
     micBtn.classList.add('recording');
-    micBtn.setAttribute('data-countdown', `${recordingCountdown}s`);
+    micBtn.textContent = `${recordingCountdown}s`;
   }
   recordingInterval = setInterval(()=>{
     recordingCountdown--;
-    if(micBtn) micBtn.setAttribute('data-countdown', `${recordingCountdown}s`);
+    if(micBtn) micBtn.textContent = recordingCountdown > 0 ? `${recordingCountdown}s` : 'DONE';
     if(recordingCountdown <= 0) stopRecording();
   }, 1000);
   console.log('Recording started');
@@ -714,9 +715,9 @@ function stopRecording(){
   const micBtn = $('micBtn');
   if(micBtn){
     micBtn.classList.remove('recording');
-    micBtn.removeAttribute('data-countdown');
+    micBtn.textContent = '🎙️';
   }
-  console.log('Recording stopped — phase 2: save to watch_comment table');
+  console.log('Recording stopped — phase 2: transcribe + save to watch_comment table, display in feed');
 }
 
 function recordAudioComment(){
@@ -844,10 +845,8 @@ function paint(){
   if(watchAnim){
     if(watching) {
       watchAnim.classList.add('live');
-      watchAnim.textContent = '>>.';
     } else {
       watchAnim.classList.remove('live');
-      watchAnim.textContent = '';
     }
   }
   const fnBtn=$('finishEpBtn'); if(fnBtn) fnBtn.disabled = false;
