@@ -48,13 +48,11 @@ app.post('/transcribe', async (c) => {
     console.log('Transcribing for', episodeId, 'email:', email, 'audio size:', audio.size);
 
     try {
-      // Convert blob to buffer for Whisper API
-      const arrayBuffer = await audio.arrayBuffer();
-      const uint8Array = new Uint8Array(arrayBuffer);
+      console.log('Audio file type:', audio.type, 'size:', audio.size);
 
-      console.log('Calling Whisper with', uint8Array.length, 'bytes');
+      // Whisper API on Cloudflare expects the File/Blob object directly
       const response = await (c.env.AI as any).run('@cf/openai/whisper', {
-        audio: uint8Array,
+        audio: audio,  // Pass the File object directly
       });
 
       console.log('Whisper response:', response);
