@@ -28,6 +28,10 @@ app.use('*', cors({
 }));
 
 // Transcribe endpoint - direct handler to avoid routing issues
+app.options('/transcribe', (c) => {
+  return c.json({ ok: true });
+});
+
 app.post('/transcribe', async (c) => {
   try {
     const formData = await c.req.formData();
