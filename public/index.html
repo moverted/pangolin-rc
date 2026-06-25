@@ -994,7 +994,7 @@ function serviceLink(service, q){
   if (s.includes('hulu'))                     return 'https://www.hulu.com/search?q=' + enc;
   if (s.includes('max') || s.includes('hbo')) return 'https://play.max.com/search?q=' + enc;
   if (s.includes('disney'))                   return 'https://www.disneyplus.com/search?q=' + enc;
-  if (s.includes('prime') || s.includes('amazon')) return 'https://www.amazon.com/s?k=' + enc + '&i=instant-video';
+  if (s.includes('prime') || s.includes('amazon')) return 'https://www.primevideo.com/search/ref=atv_nb_sug?phrase=' + enc;
   if (s.includes('apple'))                    return 'https://tv.apple.com/search?term=' + enc;
   // NBC broadcast / NBCUniversal cable (USA, Bravo, Syfy, CNBC…) all stream on Peacock.
   // Peacock's search page takes no query param, so we can only land on it — no title prefill.
