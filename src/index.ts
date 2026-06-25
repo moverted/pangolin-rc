@@ -45,29 +45,48 @@ app.post('/transcribe', async (c) => {
     }
 
     const email = userEmail || 'anonymous';
-    console.log('Transcribing for', episodeId, 'email:', email);
+    console.log('Transcribing for', episodeId, 'email:', email, 'audio size:', audio.size);
 
-    const arrayBuffer = await audio.arrayBuffer();
-    const response = await (c.env.AI as any).run('@cf/openai/whisper', {
-      audio: Array.from(new Uint8Array(arrayBuffer)),
-    });
+    try {
+      // Convert blob to buffer for Whisper API
+      const arrayBuffer = await audio.arrayBuffer();
+      const uint8Array = new Uint8Array(arrayBuffer);
 
-    const transcription = response.result?.text || '';
-    const commentId = crypto.randomUUID();
-    const now = Date.now();
+      console.log('Calling Whisper with', uint8Array.length, 'bytes');
+      const response = await (c.env.AI as any).run('@cf/openai/whisper', {
+        audio: uint8Array,
+      });
 
-    await c.env.DB.prepare(
-      `INSERT INTO watch_comment (id, user_email, episode_id, timestamp_ms, transcription, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    )
-      .bind(commentId, email, episodeId, timestampMs, transcription, now)
-      .run();
+      console.log('Whisper response:', response);
+      const transcription = response.result?.text || response.text || '';
 
-    console.log('Transcription saved:', commentId);
-    return c.json({ transcription, id: commentId });
+      if (!transcription) {
+        console.warn('Empty transcription received');
+        return c.json({ transcription: '[no speech detected]', id: crypto.randomUUID() });
+      }
+
+      const commentId = crypto.randomUUID();
+      const now = Date.now();
+
+      await c.env.DB.prepare(
+        `INSERT INTO watch_comment (id, user_email, episode_id, timestamp_ms, transcription, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      )
+        .bind(commentId, email, episodeId, timestampMs, transcription, now)
+        .run();
+
+      console.log('Transcription saved:', commentId, 'text:', transcription.substring(0, 50));
+      return c.json({ transcription, id: commentId });
+    } catch (whisperError) {
+      console.error('Whisper API error:', whisperError);
+      throw whisperError;
+    }
   } catch (error) {
     console.error('Transcription error:', error);
-    return c.json({ error: 'transcription failed', details: String(error) }, 500);
+    return c.json({
+      error: 'transcription failed',
+      details: String(error).substring(0, 200)
+    }, 500);
   }
 });
 
