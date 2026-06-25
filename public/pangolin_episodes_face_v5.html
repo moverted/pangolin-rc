@@ -473,6 +473,10 @@
 <script>
 const NOW=new Date(); const DAY=864e5;
 let allEps=[], eps=[], watched=0, watchTs=[], watchDate={}, binged={}, ranks={}, notes={}, focus=0, cooled=false;
+
+// Save/load last viewed episode
+const saveFocus = () => { try { localStorage.setItem('pg_focus', String(focus)); } catch(_) {} };
+const loadFocus = () => { try { const f = parseInt(localStorage.getItem('pg_focus') || '0', 10); return f >= 0 ? f : 0; } catch(_) { return 0; } };
 let seasonStatus='', curShowId=null, curShowName='', curService='', svcLaunchable=false;
 // A film loads as a one-episode "show" so all the minute-bar / start-finish /
 // logging machinery works unchanged; isMovie just hides the season/episode chrome
@@ -592,7 +596,7 @@ function advanceFocus(){
   // the next index — so finishing an earlier episode out of order (e.g. ep2 then
   // ep1) still lands on ep3, never back on an already-watched one. `watched` is
   // maintained as highest-done + 1 by markWatchedThrough / applySavedDetail.
-  if(watched<eps.length){ focus=watched; return; }
+  if(watched<eps.length){ focus=watched; saveFocus(); return; }
   loadNextSeason();                  // past the last episode of this season → wrap onward
 }
 // Load the next season of the show into the face, carrying its saved history.
@@ -763,20 +767,11 @@ function paintTranscripts(){
 
     speakerBtn.onclick = (e) => {
       e.preventDefault();
-      const blob = audioBlobs[idx];
-      console.log('Play clicked for transcript', idx, 'blob exists:', !!blob);
-      if(blob){
-        try {
-          const url = URL.createObjectURL(blob);
-          const audio = new Audio(url);
-          audio.onplay = () => console.log('Audio playing');
-          audio.onerror = (err) => console.error('Audio error:', err);
-          audio.play().catch(err => console.error('Play failed:', err));
-        } catch(err) {
-          console.error('Audio playback error:', err);
-        }
+      if(t.audioUrl){
+        // Open audio in new tab for playback or download
+        window.open(t.audioUrl, '_blank');
       } else {
-        alert('No audio recording available');
+        alert('No audio available');
       }
     };
 
@@ -801,7 +796,15 @@ async function startRecording(){
     console.log('Requesting microphone access...');
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     console.log('Microphone access granted');
-    mediaRecorder = new MediaRecorder(stream);
+
+    // Try WAV format for Whisper compatibility, fallback to browser default
+    const options = { mimeType: 'audio/wav' };
+    if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+      console.log('WAV not supported, using browser default');
+      delete options.mimeType;
+    }
+
+    mediaRecorder = new MediaRecorder(stream, options);
     mediaRecorder.ondataavailable = (e) => {
       audioChunks.push(e.data);
       console.log('Audio chunk recorded:', e.data.size, 'bytes');
@@ -872,7 +875,19 @@ function stopRecording(){
     const mins = Math.round((epMin[focus]||0));
     const timeStr = `${Math.floor(mins/60)}:${String(mins%60).padStart(2,'0')}`;
 
-    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+    // Detect the actual audio format from the first chunk
+    let audioType = 'audio/webm';
+    if(audioChunks.length > 0) {
+      const firstChunk = audioChunks[0];
+      // WAV files start with RIFF header
+      if(firstChunk instanceof Blob) {
+        audioType = firstChunk.type || 'audio/webm';
+      }
+    }
+    console.log('Audio format detected:', audioType);
+
+    const audioBlob = new Blob(audioChunks, { type: audioType });
+    console.log('Audio blob created:', audioBlob.size, 'bytes, type:', audioBlob.type);
     const formData = new FormData();
     formData.append('audio', audioBlob);
     formData.append('episodeId', code);
@@ -907,13 +922,15 @@ function stopRecording(){
       }
 
       const data = await res.json();
-      console.log('Transcription complete:', data);
+      console.log('Audio upload complete:', data);
       const transcriptId = transcripts.length;
-      audioBlobs[transcriptId] = audioBlob;  // Store audio for playback
+
+      // Store audio URL for playback
       transcripts.unshift({
         epCode: code,
         time: timeStr,
-        text: data.transcription || '[empty transcription]'
+        audioUrl: data.audioUrl,
+        text: 'Audio recorded'
       });
       paintTranscripts();
     } catch(err){
@@ -1178,7 +1195,7 @@ $('reset').onclick=()=>{
   const real=[...new Set(allEps.map(sNum))].filter(s=>s>=1);
   const s1=real.length?Math.min(...real):1;
   eps=allEps.filter(e=>sNum(e)===s1); if(!eps.length) eps=allEps;
-  focus=0; paint();
+  focus=0; saveFocus(); paint();
 };
 // Tap feedback: flip the button's colors and let them flip back.
 function flashBtn(el){ if(!el) return; el.classList.remove('flip'); void el.offsetWidth;
@@ -1228,6 +1245,7 @@ function placeAwayTime(awayMin){
     emitProgress(i, false, false, Math.round(pos));
   }
   focus=Math.min(i, eps.length-1);
+  saveFocus();
   watchingLive[focus]=false; startedAt[focus]=null; sessionBase[focus]=epMin[focus]||0;  // live timer stops; CONTINUE re-arms
   emitProgress(focus, !!epDone[focus], false, Math.round(epMin[focus]||0));               // persist the stop (started_at cleared)
   paint();
@@ -1324,7 +1342,7 @@ $('bar').addEventListener('pointerdown',e=>{ e.stopPropagation(); e.preventDefau
   barDragging=true; $('bar').setPointerCapture(e.pointerId); previewEpisode(barIdxFromX(e.clientX)); });
 $('bar').addEventListener('pointermove',e=>{ if(!barDragging)return; previewEpisode(barIdxFromX(e.clientX)); });
 $('bar').addEventListener('pointerup',e=>{ if(!barDragging)return; barDragging=false;
-  focus=barIdxFromX(e.clientX); awaitingLog=false; minPreview=null; paint(); });   // select; records nothing
+  focus=barIdxFromX(e.clientX); awaitingLog=false; minPreview=null; saveFocus(); paint(); });   // select; records nothing
 $('bar').addEventListener('pointercancel',()=>{ if(barDragging){ barDragging=false; paint(); } });   // snap back to real focus
 
 // "tap anywhere to log it": one tap outside the controls commits the staged minute.
@@ -1442,6 +1460,7 @@ function applyPattern(p){
   savedDetail=(pendingRestore&&pendingRestore.episodes)||null;
   applySavedDetail();
   focus=Math.min(watched, eps.length-1);
+  saveFocus();
   // Restore the partial current episode, then — if a watch was left open (saved
   // started_at) — offer placement for all the time since, exactly like a return:
   // it can span episodes and is unvalidated until confirmed.
@@ -1531,6 +1550,13 @@ if(_launch && _launch.tvmazeId && !_launchStale) launchShow(_launch);
 else if(window.parent!==window){
   window.parent.postMessage({type:'episode:requestLast'}, '*');
   // Fallback: if the shell never answers, settle on the empty prompt.
+  // Restore last viewed episode from this face
+  setTimeout(() => {
+    if(eps.length > 0) {
+      focus = Math.min(loadFocus(), eps.length - 1);
+      paint();
+    }
+  }, 100);
   setTimeout(()=>{ if(!curShowId) showEmpty(); }, 4000);
 }
 else showEmpty();

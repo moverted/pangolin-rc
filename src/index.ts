@@ -45,52 +45,47 @@ app.post('/transcribe', async (c) => {
     }
 
     const email = userEmail || 'anonymous';
-    console.log('Transcribing for', episodeId, 'email:', email, 'audio size:', audio.size);
+    console.log('Audio upload for', episodeId, 'email:', email, 'size:', audio.size);
 
-    try {
-      console.log('Audio file type:', audio.type, 'size:', audio.size);
-
-      if (audio.size === 0) {
-        return c.json({ transcription: '[empty audio]', id: crypto.randomUUID() });
-      }
-
-      // Convert to buffer and pass - Whisper needs buffer, not File
-      const buffer = await audio.arrayBuffer();
-      console.log('Buffer created, byteLength:', buffer.byteLength);
-
-      // Try passing as buffer directly
-      const response = await (c.env.AI as any).run('@cf/openai/whisper', {
-        audio: buffer,
-      });
-
-      console.log('Whisper response:', response);
-      const transcription = response.result?.text || response.text || '';
-
-      if (!transcription) {
-        console.warn('Empty transcription received');
-        return c.json({ transcription: '[no speech detected]', id: crypto.randomUUID() });
-      }
-
-      const commentId = crypto.randomUUID();
-      const now = Date.now();
-
-      await c.env.DB.prepare(
-        `INSERT INTO watch_comment (id, user_email, episode_id, timestamp_ms, transcription, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`
-      )
-        .bind(commentId, email, episodeId, timestampMs, transcription, now)
-        .run();
-
-      console.log('Transcription saved:', commentId, 'text:', transcription.substring(0, 50));
-      return c.json({ transcription, id: commentId });
-    } catch (whisperError) {
-      console.error('Whisper API error:', whisperError);
-      throw whisperError;
+    if (audio.size === 0) {
+      return c.json({ error: 'audio is empty', id: crypto.randomUUID() }, 400);
     }
-  } catch (error) {
-    console.error('Transcription error:', error);
+
+    const commentId = crypto.randomUUID();
+    const r2Key = `audio-comments/${episodeId}/${commentId}.webm`;
+
+    // Upload audio to R2
+    const buffer = await audio.arrayBuffer();
+    await c.env.RAW_BUCKET.put(r2Key, buffer, {
+      httpMetadata: {
+        contentType: 'audio/webm',
+      },
+    });
+    console.log('Audio stored in R2:', r2Key);
+
+    // Generate signed URL (24 hour expiration)
+    const signedUrl = await c.env.RAW_BUCKET.createSignedURL(r2Key, 86400);
+    console.log('Signed URL created');
+
+    // Save metadata to database
+    const now = Date.now();
+    await c.env.DB.prepare(
+      `INSERT INTO watch_comment (id, user_email, episode_id, timestamp_ms, audio_r2_key, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    )
+      .bind(commentId, email, episodeId, timestampMs, r2Key, now)
+      .run();
+
+    console.log('Audio comment saved:', commentId);
     return c.json({
-      error: 'transcription failed',
+      id: commentId,
+      audioUrl: signedUrl,
+      timestamp: timestampMs
+    });
+  } catch (error) {
+    console.error('Audio upload error:', error);
+    return c.json({
+      error: 'upload failed',
       details: String(error).substring(0, 200)
     }, 500);
   }
