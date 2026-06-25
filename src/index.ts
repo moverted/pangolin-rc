@@ -134,6 +134,15 @@ app.get('/transcribe/audio/:id', async (c) => {
 
 // List a member's audio comments for one show, newest first, so the episode
 // face can render the persisted "Transcripts" panel on load.
+//
+// FUTURE — co-viewing: a comment is already tied to (show_id, episode_id,
+// timestamp_ms), so it knows the exact minute marker it was spoken at. Once
+// friends exist, a viewer could "turn co-viewing on" and watch a show with a
+// friend's comments surfaced live at each comment's minute marker (i.e. relax
+// the `user_email = ?` filter to "me + the friends I'm co-viewing with", and
+// have the player fire each clip when playback passes its timestamp_ms). That
+// is a deliberate amount of complexity we are NOT building now — leaving this
+// own-comments-only for the moment.
 app.get('/transcribe/comments', async (c) => {
   const showId = c.req.query('showId') ?? '';
   const email = c.req.query('email') ?? '';
