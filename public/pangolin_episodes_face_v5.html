@@ -710,9 +710,10 @@ let buildFrame = 0;
 let isRecording = false;
 let recordingCountdown = 0;
 let recordingInterval = null;
-let transcripts = [];  // [{epCode, time, text}, ...]
+let transcripts = [];  // [{epCode, time, text, audioBlob}, ...]
 let mediaRecorder = null;
 let audioChunks = [];
+let audioBlobs = {};  // Store audio blobs by transcript ID for playback
 
 function paintTranscripts(){
   const label=$('transcriptLabel');
@@ -725,11 +726,43 @@ function paintTranscripts(){
   label.textContent=`Transcripts · ${transcripts.length}`;
   container.innerHTML='';
   console.log('Rendering', transcripts.length, 'transcripts');
-  transcripts.forEach(t=>{
+  transcripts.forEach((t, idx)=>{
     console.log('Adding transcript:', t);
     const line=document.createElement('div');
-    line.style.marginBottom='8px';
-    line.textContent=`${t.epCode} ${t.time} — ${t.text}`;
+    line.style.marginBottom='12px';
+    line.style.display='flex';
+    line.style.alignItems='flex-start';
+    line.style.gap='8px';
+
+    // Speaker button for audio playback
+    const speakerBtn = document.createElement('button');
+    speakerBtn.textContent = '🔊';
+    speakerBtn.style.padding = '4px 8px';
+    speakerBtn.style.fontSize = '14px';
+    speakerBtn.style.border = '1px solid rgba(255,255,255,.2)';
+    speakerBtn.style.borderRadius = '4px';
+    speakerBtn.style.background = 'rgba(0,0,0,.3)';
+    speakerBtn.style.color = 'var(--amber)';
+    speakerBtn.style.cursor = 'pointer';
+    speakerBtn.style.flexShrink = '0';
+    speakerBtn.onclick = () => {
+      const blob = audioBlobs[idx];
+      if(blob){
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audio.play();
+      } else {
+        console.log('No audio blob for transcript', idx);
+      }
+    };
+
+    // Transcript text
+    const textDiv = document.createElement('div');
+    textDiv.style.flex = '1';
+    textDiv.innerHTML = `<strong>${t.epCode} ${t.time}</strong> — ${t.text}`;
+
+    line.appendChild(speakerBtn);
+    line.appendChild(textDiv);
     container.appendChild(line);
   });
 }
@@ -846,6 +879,8 @@ function stopRecording(){
 
       const data = await res.json();
       console.log('Transcription complete:', data);
+      const transcriptId = transcripts.length;
+      audioBlobs[transcriptId] = audioBlob;  // Store audio for playback
       transcripts.unshift({
         epCode: code,
         time: timeStr,
