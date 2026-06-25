@@ -355,6 +355,17 @@ const Pierre={
     .sort((a,b)=>new Date(b.lastDate)-new Date(a.lastDate));}
 };
 
+// The show to resume on a cold open: prefer one with a real resume pointer (a
+// finished episode → server last_season); otherwise the most-recently-touched
+// active show so a partial-only or pointerless show still loads. Drives BOTH the
+// WATCH-side pre-selection and the LOG-side resume payload.
+function resumeShow(){
+  return Pierre.lastEpisodeWatched()
+    || LOG.filter(s=>!s.failed&&!s.forceCompleted&&!s.stopped)
+          .sort((a,b)=>new Date(b.lastDate)-new Date(a.lastDate))[0]
+    || null;
+}
+
 function renderPierre(){
   const el=document.getElementById("pierreLine");
   if(pierreQ==="last"){
@@ -588,14 +599,9 @@ function addShow(){ cube.rotateTo("pierre",{intent:"add"}); }
    id let other faces match a typed show against what is already tracked. */
 function publishLog(){
   if(window.parent===window) return;
-  // The most-recently-watched show, as a ready-to-load Episodes payload, so the
-  // Watch face can resume the last thing watched when it opens. Prefer a show with
-  // a real resume pointer (a finished episode → server last_season); otherwise fall
-  // back to the most-recently-touched active show so a partial-only or pointerless
-  // show still loads instead of leaving the face empty on a cold open.
-  const fallback=LOG.filter(s=>!s.failed&&!s.forceCompleted&&!s.stopped)
-    .sort((a,b)=>new Date(b.lastDate)-new Date(a.lastDate))[0]||null;
-  const last=Pierre.lastEpisodeWatched()||fallback;
+  // The show to resume, as a ready-to-load Episodes payload, so the Watch face can
+  // resume the last thing watched when it opens.
+  const last=resumeShow();
   window.parent.postMessage({type:"log:data", shows: LOG.map(s=>({
     id:s.id, tvmazeId:s.tvmazeId||null, kind:s.kind||'show', name:s.name, status:s.status,
     total:s.total, released:s.released, watched:s.watched, lastWatched:s.lastWatched,
@@ -948,7 +954,13 @@ document.getElementById("savpop").addEventListener("click",()=>document.getEleme
   if(DEMO)        LOG = await Promise.all(SEED.map(hydrate));
   else if(email)  LOG = await loadAccount(email);
   else            LOG = [];
-  LOG.sort((a,b)=>new Date(b.lastDate)-new Date(a.lastDate));render();renderPierre();})();
+  LOG.sort((a,b)=>new Date(b.lastDate)-new Date(a.lastDate));
+  // Cold open lands with the last-watched show already selected (expanded card),
+  // so WATCH shows the last series and its action buttons without a tap. Only when
+  // it sits in the default CURRENT tab — don't yank the user off another bucket.
+  const _resume=resumeShow();
+  if(_resume && activeTab==="current" && bucketOf(_resume)==="current") selectedId=_resume.id;
+  render();renderPierre();})();
 
 // Re-hydrate when the session changes (login/logout in another face).
 window.addEventListener("storage", async (e)=>{
