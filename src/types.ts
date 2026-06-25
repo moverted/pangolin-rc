@@ -95,4 +95,7 @@ export interface Env {
   SYNC_ADMIN_TOKEN?: string;   // secret — bearer token gating the manual /sync push-all & pull routes
   PROCESS_QUEUE:  Queue<ProcessingJob>;
   EVENTS_QUEUE:   Queue<unknown>;
+  BUG_EMAIL?:     SendEmail;  // Email Routing send binding — bug-report notifications (best-effort)
+  BUG_NOTIFY_TO?: string;     // var — recipient for bug emails (default edward.m.willett@gmail.com)
+  BUG_FROM?:      string;     // var — from address on pangolinrc.com (default bugs@pangolinrc.com)
 }

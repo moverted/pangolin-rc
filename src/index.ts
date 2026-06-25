@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { EmailMessage } from 'cloudflare:email';
 import type { Env } from './types';
 import { resourceRoutes }   from './handlers/resources';
 import { submissionRoutes } from './handlers/submissions';
@@ -170,6 +171,56 @@ app.get('/transcribe/comments', async (c) => {
   return c.json({ comments });
 });
 
+// Minimal HTML escape for untrusted report fields placed in the email body.
+const escHtml = (s: unknown) =>
+  String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+// Best-effort email notification for a new bug report, via the Email Routing send
+// binding. No-ops cleanly until the binding exists AND the recipient is a verified
+// Email Routing destination — so it never blocks or fails the report write. Built
+// as a single-part text/html MIME message (ASCII-only headers; UTF-8 body) so it
+// needs no extra deps. Throws are caught by the caller.
+type BugRow = {
+  id: string; user_email: string | null; note: string | null; view: string | null;
+  url: string | null; user_agent: string | null; viewport: string | null;
+  screenshot_url: string | null; created_at: number;
+};
+async function notifyBugEmail(env: Env, r: BugRow): Promise<void> {
+  if (!env.BUG_EMAIL) return;
+  const to = (env.BUG_NOTIFY_TO || 'edward.m.willett@gmail.com').trim();
+  const from = (env.BUG_FROM || 'bugs@pangolinrc.com').trim();
+  // Headers must be ASCII — strip non-ASCII (emoji/em-dash) from the subject only.
+  const subject = `Bug report: ${r.view || 'unknown'} (${r.user_email || 'anon'})`
+    .replace(/[^\x20-\x7E]/g, '');
+  const shot = r.screenshot_url
+    ? `<p><a href="${escHtml(r.screenshot_url)}">Open screenshot</a></p>
+       <p><img src="${escHtml(r.screenshot_url)}" alt="screenshot" style="max-width:480px;border:1px solid #ddd;border-radius:8px"></p>`
+    : '<p style="color:#999">(no screenshot)</p>';
+  const html =
+    `<!doctype html><html><body style="font-family:system-ui,Segoe UI,Arial,sans-serif;color:#222">` +
+    `<h2 style="margin:0 0 12px">🐞 New bug report</h2>` +
+    `<p style="margin:0 0 12px;line-height:1.6">` +
+    `<strong>View:</strong> ${escHtml(r.view || '—')}<br>` +
+    `<strong>From:</strong> ${escHtml(r.user_email || '(not signed in)')}<br>` +
+    `<strong>When:</strong> ${new Date(r.created_at).toISOString()}<br>` +
+    `<strong>Viewport:</strong> ${escHtml(r.viewport || '—')}<br>` +
+    `<strong>URL:</strong> ${escHtml(r.url || '—')}</p>` +
+    `<p style="white-space:pre-wrap;border-left:3px solid #FF6B35;padding:4px 0 4px 12px;margin:0 0 16px">` +
+    `${escHtml(r.note || '(no note)')}</p>` +
+    shot +
+    `<p style="color:#999;font-size:12px;margin-top:16px">${escHtml(r.user_agent || '')}</p>` +
+    `</body></html>`;
+  const raw =
+    `From: pangolinRC Bugs <${from}>\r\n` +
+    `To: ${to}\r\n` +
+    `Subject: ${subject}\r\n` +
+    `Message-ID: <${r.id}@pangolinrc.com>\r\n` +
+    `MIME-Version: 1.0\r\n` +
+    `Content-Type: text/html; charset=utf-8\r\n\r\n` +
+    html;
+  await env.BUG_EMAIL.send(new EmailMessage(from, to, raw));
+}
+
 // ─── Bug reports ────────────────────────────────────────────────────────────
 // A persistent 🐞 in the shell captures a screenshot + a note from any view and
 // files it here. Anyone may report (no sign-in required); the screenshot is
@@ -231,8 +282,12 @@ app.post('/bug-reports', async (c) => {
             row.viewport, row.screenshot_url, row.status, row.created_at)
       .run();
 
-    // Mirror to the Airtable triage grid, best-effort — never block the report.
-    c.executionCtx.waitUntil(pushRow(c.env, 'bug_report', row).catch(() => {}));
+    // Mirror to the Airtable triage grid and email a notification — both
+    // best-effort and independent, so neither one blocks or fails the report.
+    c.executionCtx.waitUntil(Promise.allSettled([
+      pushRow(c.env, 'bug_report', row).catch((e) => console.warn('bug airtable mirror failed:', String(e).substring(0, 200))),
+      notifyBugEmail(c.env, row).catch((e) => console.warn('bug email failed:', String(e).substring(0, 200))),
+    ]));
 
     return c.json({ id, ok: true });
   } catch (error) {

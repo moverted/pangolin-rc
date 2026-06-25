@@ -42,6 +42,14 @@ max_retries = 3
 [ai]
 binding = "AI"
 
+# Bug-report email notifications. Unrestricted (no destination_address) so the
+# Worker deploys without a verified-destination check; at runtime Email Routing
+# only delivers to a verified destination, so sends no-op (caught) until
+# edward.m.willett@gmail.com is verified as an Email Routing destination on
+# pangolinrc.com. See the bug-report handler in src/index.ts.
+[[send_email]]
+name = "BUG_EMAIL"
+
 # Inbound Airtable → D1 watch sync. Every 2 minutes; no-op until AIRTABLE_* set.
 [triggers]
 crons = ["*/2 * * * *"]
