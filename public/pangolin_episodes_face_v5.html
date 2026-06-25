@@ -887,7 +887,11 @@ function stopRecording(){
 
     try {
       console.log('Sending transcription request for', code);
-      const res = await fetch('/transcribe', { method: 'POST', body: formData });
+      const res = await fetch('https://pangolin-rc.edward-m-willett.workers.dev/transcribe', {
+        method: 'POST',
+        body: formData,
+        mode: 'cors'
+      });
       console.log('Transcribe response:', res.status, res.statusText);
 
       if(!res.ok){
