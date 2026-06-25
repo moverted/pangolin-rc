@@ -541,6 +541,8 @@ function boot(show,list,isDefault){
   // (so its progress can be saved). MVP only — DEMO's Log is a curated showcase.
   if(!DEMO && curShowId && window.parent!==window)
     window.parent.postMessage({type:'episode:track', tvmazeId:curShowId, name:curShowName, kind:isMovie?'movie':'show', poster:img||null}, '*');
+  // Load this show's saved audio comments into the Transcripts panel.
+  if(!DEMO) loadComments();
 }
 
 // Timestamps of real in-app watches only (preApp false). Pre-app data is skipped.
@@ -783,6 +785,29 @@ function paintTranscripts(){
   });
 }
 
+// Pull this member's saved audio comments for the current show and render them.
+// Called on show load so the Transcripts panel survives reloads.
+async function loadComments(){
+  transcripts = [];
+  const email = (typeof acctEmail==='function' ? acctEmail() : '');
+  if(!curShowId || !email){ paintTranscripts(); return; }
+  try{
+    const r = await fetch(`${API_BASE}/transcribe/comments?showId=${encodeURIComponent(curShowId)}&email=${encodeURIComponent(email)}`);
+    if(!r.ok){ paintTranscripts(); return; }
+    const d = await r.json();
+    transcripts = (d.comments||[]).map(c=>{
+      const m = Math.round((c.timestampMs||0)/60000);
+      return {
+        epCode: c.episodeId || '',
+        time: `${Math.floor(m/60)}:${String(m%60).padStart(2,'0')}`,
+        audioUrl: c.audioUrl,
+        text: (c.transcription && c.transcription.trim()) || 'Audio recorded'
+      };
+    });
+  }catch(_){ /* leave whatever we have */ }
+  paintTranscripts();
+}
+
 async function startRecording(){
   isRecording = true;
   recordingCountdown = 7;
@@ -887,14 +912,20 @@ function stopRecording(){
     const formData = new FormData();
     formData.append('audio', audioBlob);
     formData.append('episodeId', code);
+    if(curShowId) formData.append('showId', curShowId);
     formData.append('timestampMs', mins * 60000);
 
-    try {
-      const userEmail = window.parent?.currentUser?.email ||
-                       (typeof currentUser !== 'undefined' ? currentUser.email : '') ||
-                       (typeof currentEmail !== 'undefined' ? currentEmail : '');
-      if(userEmail) formData.append('userEmail', userEmail);
-    } catch(e) { /* ignore */ }
+    // Use the same account source the rest of the face uses (localStorage
+    // pg_user). The server FKs user_email → users(email); a missing/'anonymous'
+    // email is what caused the D1_ERROR upload failures.
+    const userEmail = (typeof acctEmail==='function' ? acctEmail() : '') ||
+                      window.parent?.currentUser?.email || '';
+    if(!userEmail){
+      transcripts.unshift({ epCode: code, time: timeStr, text: '[not signed in — sign in to save audio]' });
+      paintTranscripts();
+      return;
+    }
+    formData.append('userEmail', userEmail);
 
     try {
       console.log('Sending transcription request for', code);
@@ -919,14 +950,13 @@ function stopRecording(){
 
       const data = await res.json();
       console.log('Audio upload complete:', data);
-      const transcriptId = transcripts.length;
 
-      // Store audio URL for playback
+      // Store the playback URL + transcript, persisted server-side now.
       transcripts.unshift({
         epCode: code,
         time: timeStr,
         audioUrl: data.audioUrl,
-        text: 'Audio recorded'
+        text: (data.transcription && data.transcription.trim()) || 'Audio recorded'
       });
       paintTranscripts();
     } catch(err){
