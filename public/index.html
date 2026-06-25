@@ -183,6 +183,61 @@
     #demoband.show { display: flex; }
     #demoband button { background: #1a130b; color: #e89f3d; border: none; border-radius: 999px;
       padding: 5px 11px; font-size: 11px; font-weight: 700; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+    /* ── persistent bug reporter ── */
+    #bug-btn {
+      position: fixed;
+      top: calc(env(safe-area-inset-top, 0px) + 8px);
+      right: calc(env(safe-area-inset-right, 0px) + 8px);
+      z-index: 9999;
+      width: 34px; height: 34px; padding: 0;
+      border: none; border-radius: 50%;
+      background: rgba(20,16,12,0.45);
+      -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+      font-size: 18px; line-height: 34px; text-align: center;
+      cursor: pointer; opacity: 0.55;
+      transition: opacity .2s, transform .1s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #bug-btn:active { transform: scale(0.9); opacity: 1; }
+
+    #bug-modal {
+      position: fixed; inset: 0; z-index: 10000; display: none;
+      align-items: center; justify-content: center; padding: 20px;
+      background: rgba(0,0,0,0.6);
+      -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+    }
+    #bug-modal.show { display: flex; }
+    #bug-card {
+      width: 100%; max-width: 360px; box-sizing: border-box;
+      background: #16120e; border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 16px; padding: 18px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+      font-family: 'Comic Neue', cursive; color: #f3ede4;
+    }
+    #bug-card h3 { margin: 0 0 4px; font-size: 17px; }
+    #bug-card p.sub { margin: 0 0 12px; font-size: 12px; opacity: 0.6; }
+    #bug-shot {
+      width: 100%; max-height: 180px; object-fit: contain; display: none;
+      border-radius: 8px; background: #000; margin-bottom: 12px;
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+    #bug-shot-note { display: none; font-size: 11px; opacity: 0.5; margin: 0 0 12px; }
+    #bug-note {
+      width: 100%; box-sizing: border-box; min-height: 84px; resize: vertical;
+      border-radius: 10px; padding: 10px 12px; margin-bottom: 14px;
+      border: 1px solid rgba(255,255,255,0.15);
+      background: rgba(255,255,255,0.04); color: #fff;
+      font-family: inherit; font-size: 15px;
+    }
+    #bug-actions { display: flex; gap: 10px; justify-content: flex-end; }
+    #bug-actions button {
+      border: none; border-radius: 999px; padding: 9px 18px;
+      font-family: inherit; font-weight: 700; font-size: 14px; cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #bug-cancel { background: rgba(255,255,255,0.1); color: #f3ede4; }
+    #bug-send { background: #FF6B35; color: #fff; }
+    #bug-send:disabled { opacity: 0.5; }
   </style>
 </head>
 <body>
@@ -236,6 +291,24 @@
 <div id="rotate-msg"><span>&#8635;<br>rotate to use this face</span></div>
 
 </div><!-- #app -->
+
+<!-- Persistent bug reporter. Lives OUTSIDE #app so it stays pinned to the screen
+     corner across every view (the cube + every open face iframe). data-html2canvas-ignore
+     keeps the widget out of its own screenshot. -->
+<button id="bug-btn" data-html2canvas-ignore aria-label="Report a bug" title="Report a bug">🐞</button>
+<div id="bug-modal" data-html2canvas-ignore>
+  <div id="bug-card">
+    <h3>🐞 Report a bug</h3>
+    <p class="sub" id="bug-where">What went wrong?</p>
+    <img id="bug-shot" alt="screenshot preview">
+    <div id="bug-shot-note">Couldn't grab a screenshot — your note will still send.</div>
+    <textarea id="bug-note" placeholder="What were you doing? What did you expect?"></textarea>
+    <div id="bug-actions">
+      <button id="bug-cancel" type="button">Cancel</button>
+      <button id="bug-send" type="button">Send</button>
+    </div>
+  </div>
+</div>
 
 <script type="module">
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js';
@@ -327,7 +400,9 @@ const rotateMsg = document.getElementById('rotate-msg');
 // dimensions (not necessarily the screen's). Pointer input is mapped back into
 // this frame by toLogical().
 let VW = innerWidth, VH = innerHeight, ORI = 0;
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+// preserveDrawingBuffer lets the bug-report screenshot read the cube back from the
+// WebGL canvas (the backbuffer is otherwise cleared after compositing → blank grab).
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(VW, VH);
 renderer.setClearColor(0x000000, 0);
@@ -1337,6 +1412,101 @@ try { if (localStorage.getItem('pg_demo') === '1') _demoband.classList.add('show
 document.getElementById('textteam').addEventListener('click', () => {
   window.location.href = 'sms:' + TEAM_PHONE + '?&body=' + encodeURIComponent("I want in on pangolinRC");
 });
+
+// ─── bug reporter ───────────────────────────────────────────────────────────
+// The 🐞 grabs a screenshot of the current view, opens a note, and files it to
+// POST /bug-reports (screenshot → R2, row → D1 → Airtable triage grid). Anyone
+// may report; the screenshot is best-effort and never blocks sending the note.
+(() => {
+  const btn      = document.getElementById('bug-btn');
+  const modal    = document.getElementById('bug-modal');
+  const shotImg  = document.getElementById('bug-shot');
+  const shotNote = document.getElementById('bug-shot-note');
+  const noteEl   = document.getElementById('bug-note');
+  const whereEl  = document.getElementById('bug-where');
+  const sendBtn  = document.getElementById('bug-send');
+  const cancelBtn= document.getElementById('bug-cancel');
+  let shotBlob = null, h2cPromise = null;
+
+  // Lazy-load html2canvas only the first time the 🐞 is opened (off the critical path).
+  const loadH2C = () => (h2cPromise ||=
+    import('https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/+esm').then(m => m.default || m));
+
+  const currentView = () => (locked && FACES[activeFace]) ? FACES[activeFace].label : 'cube';
+
+  async function capture() {
+    shotBlob = null;
+    shotImg.style.display = 'none';
+    shotNote.style.display = 'none';
+    try {
+      const h2c = await loadH2C();
+      // An open face fills the screen via matrix3d — html2canvas can't follow that
+      // 3D transform, so grab the face iframe's own flat document (exactly what's
+      // read). On the bare cube, grab the shell body (the WebGL canvas reads back
+      // thanks to preserveDrawingBuffer).
+      let target = document.body, win = window;
+      if (locked && FACE_OVERLAYS[activeFace] && FACE_OVERLAYS[activeFace].frame) {
+        try {
+          const cw = FACE_OVERLAYS[activeFace].frame.contentWindow;
+          if (cw && cw.document && cw.document.body) { target = cw.document.body; win = cw; }
+        } catch (_) { /* same-origin expected; fall back to shell body */ }
+      }
+      const canvas = await h2c(target, {
+        backgroundColor: '#000', useCORS: true, logging: false,
+        scale: Math.min(window.devicePixelRatio || 1, 2),
+        width: win.innerWidth, height: win.innerHeight,
+        windowWidth: win.innerWidth, windowHeight: win.innerHeight,
+      });
+      shotBlob = await new Promise(res => canvas.toBlob(res, 'image/png', 0.85));
+      if (shotBlob) { shotImg.src = URL.createObjectURL(shotBlob); shotImg.style.display = 'block'; }
+      else shotNote.style.display = 'block';
+    } catch (err) {
+      console.warn('bug screenshot failed', err);
+      shotNote.style.display = 'block';
+    }
+  }
+
+  function openModal() {
+    whereEl.textContent = 'On: ' + currentView();
+    noteEl.value = '';
+    sendBtn.disabled = false; sendBtn.textContent = 'Send';
+    modal.classList.add('show');
+    capture();  // async — preview fills in when ready
+  }
+  function closeModal() {
+    modal.classList.remove('show');
+    if (shotImg.src.startsWith('blob:')) URL.revokeObjectURL(shotImg.src);
+    shotImg.src = ''; shotBlob = null;
+  }
+
+  async function send() {
+    const text = noteEl.value.trim();
+    if (!text && !shotBlob) { closeModal(); return; }
+    sendBtn.disabled = true; sendBtn.textContent = 'Sending…';
+    try {
+      const fd = new FormData();
+      fd.append('note', text);
+      fd.append('view', currentView());
+      fd.append('url', location.href);
+      fd.append('userAgent', navigator.userAgent);
+      fd.append('viewport', innerWidth + 'x' + innerHeight);
+      try { fd.append('email', localStorage.getItem('pg_user') || ''); } catch (_) {}
+      if (shotBlob) fd.append('screenshot', shotBlob, 'screenshot.png');
+      const res = await fetch(`${API}/bug-reports`, { method: 'POST', body: fd });
+      if (!res.ok) throw new Error('http ' + res.status);
+      sendBtn.textContent = 'Thanks! 🐞';
+      setTimeout(closeModal, 900);
+    } catch (err) {
+      console.warn('bug send failed', err);
+      sendBtn.disabled = false; sendBtn.textContent = 'Retry';
+    }
+  }
+
+  btn.addEventListener('click', openModal);
+  cancelBtn.addEventListener('click', closeModal);
+  sendBtn.addEventListener('click', send);
+  modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+})();
 </script>
 </body>
 </html>

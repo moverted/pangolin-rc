@@ -14,7 +14,7 @@ import { profileRoutes }    from './handlers/profile';
 import { streamerRoutes }   from './handlers/streamer';
 import { tmdbRoutes }       from './handlers/tmdb';
 import { catalogRoutes }    from './handlers/catalog';
-import { syncRoutes, pullChanges, airtableEnabled } from './handlers/airtable';
+import { syncRoutes, pullChanges, airtableEnabled, pushRow } from './handlers/airtable';
 import { processQueue }     from './queue';
 
 export { ResourceCoordinator } from './do/resource-coordinator';
@@ -168,6 +168,90 @@ app.get('/transcribe/comments', async (c) => {
     audioUrl: `${origin}/transcribe/audio/${r.id}`,
   }));
   return c.json({ comments });
+});
+
+// ─── Bug reports ────────────────────────────────────────────────────────────
+// A persistent 🐞 in the shell captures a screenshot + a note from any view and
+// files it here. Anyone may report (no sign-in required); the screenshot is
+// optional and best-effort. D1 is the source of truth; the row mirrors to the
+// Airtable `bug_report` grid for hand triage. The author fields these manually.
+app.options('/bug-reports', (c) => c.json({ ok: true }));
+
+app.post('/bug-reports', async (c) => {
+  try {
+    const form = await c.req.formData();
+    const note = ((form.get('note') as string) || '').trim();
+    const view = ((form.get('view') as string) || '').trim();
+    const url = ((form.get('url') as string) || '').trim();
+    const userAgent = ((form.get('userAgent') as string) || '').trim();
+    const viewport = ((form.get('viewport') as string) || '').trim();
+    const email = ((form.get('email') as string) || '').trim().toLowerCase();
+    const shot = form.get('screenshot') as unknown as File | null;
+
+    // A report needs *something* — a note or a screenshot. Empty taps are dropped.
+    if (!note && !(shot && shot.size > 0)) {
+      return c.json({ error: 'empty report' }, 400);
+    }
+
+    const id = crypto.randomUUID();
+    const origin = new URL(c.req.url).origin;
+    let screenshotUrl: string | null = null;
+
+    // Screenshot rides at a deterministic R2 key so the GET route rebuilds it from
+    // the id alone. A storage failure must not lose the written report.
+    if (shot && shot.size > 0) {
+      try {
+        await c.env.RAW_BUCKET.put(`bug-reports/${id}.png`, await shot.arrayBuffer(), {
+          httpMetadata: { contentType: shot.type || 'image/png' },
+        });
+        screenshotUrl = `${origin}/bug-reports/${id}/screenshot`;
+      } catch (err) {
+        console.warn('bug-report screenshot store failed:', String(err).substring(0, 200));
+      }
+    }
+
+    const now = Date.now();
+    const row = {
+      id,
+      user_email: email || null,
+      note: note || null,
+      view: view || null,
+      url: url || null,
+      user_agent: userAgent || null,
+      viewport: viewport || null,
+      screenshot_url: screenshotUrl,
+      status: 'new',
+      created_at: now,
+    };
+    await c.env.DB.prepare(
+      `INSERT INTO bug_report (id, user_email, note, view, url, user_agent, viewport, screenshot_url, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+      .bind(row.id, row.user_email, row.note, row.view, row.url, row.user_agent,
+            row.viewport, row.screenshot_url, row.status, row.created_at)
+      .run();
+
+    // Mirror to the Airtable triage grid, best-effort — never block the report.
+    c.executionCtx.waitUntil(pushRow(c.env, 'bug_report', row).catch(() => {}));
+
+    return c.json({ id, ok: true });
+  } catch (error) {
+    console.error('bug-report error:', error);
+    return c.json({ error: 'report failed', details: String(error).substring(0, 200) }, 500);
+  }
+});
+
+// Stream a bug report's screenshot back from R2 (R2 has no signed-URL method;
+// serving through the Worker is the supported path). The key is derived from id.
+app.get('/bug-reports/:id/screenshot', async (c) => {
+  const id = c.req.param('id');
+  const object = await c.env.RAW_BUCKET.get(`bug-reports/${id}.png`);
+  if (!object) return c.json({ error: 'not found' }, 404);
+  const headers = new Headers();
+  object.writeHttpMetadata(headers);
+  if (!headers.has('Content-Type')) headers.set('Content-Type', 'image/png');
+  headers.set('Cache-Control', 'private, max-age=86400');
+  return new Response(object.body, { headers });
 });
 
 app.route('/resources',   resourceRoutes);

@@ -44,6 +44,12 @@ const TABLES = {
     text('ip'), text('model'), num('supported'), num('created_at'), HASH],
   follows: [KEY, text('follower_email'), text('followee_email'), num('created_at'), HASH],
   waitlist: [KEY, text('email'), num('created_at'), HASH],
+  // In-app bug reports. `status` is the triage column you edit by hand (new →
+  // triaged → fixed/wontfix); edits pull back to D1. `screenshot_url` is a
+  // clickable link to the R2-served PNG. `note` is multi-line.
+  bug_report: [KEY, text('id'), text('user_email'), { name: 'note', type: 'multilineText' },
+    text('view'), text('url'), text('user_agent'), text('viewport'),
+    { name: 'screenshot_url', type: 'url' }, text('status'), num('created_at'), HASH],
 };
 
 let failed = false;

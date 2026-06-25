@@ -61,6 +61,12 @@ export const TABLES: SyncTable[] = [
     ints: new Set(['created_at']) },
   { name: 'waitlist', pk: ['email'], hasUpdatedAt: false,
     cols: ['email', 'created_at'], ints: new Set(['created_at']) },
+  // In-app bug reports. `status` is human-editable in the Airtable grid (triage),
+  // so an inbound pull writes it back to D1 — that's the "field and filter" loop.
+  { name: 'bug_report', pk: ['id'], hasUpdatedAt: false,
+    cols: ['id', 'user_email', 'note', 'view', 'url', 'user_agent', 'viewport',
+           'screenshot_url', 'status', 'created_at'],
+    ints: new Set(['created_at']) },
 ];
 
 export const tableByName = (n: string) => TABLES.find((t) => t.name === n);
