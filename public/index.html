@@ -475,7 +475,10 @@ let episodesEmpty = false;    // the Watch face currently has no show loaded
 function sendEpisodesLast() {
   const cfg = FACE_OVERLAYS[FACE_INDEX.episodes];
   if (!cfg || !cfg.frame || !cfg.frame.contentWindow) return;
-  if (lastResume && lastResume.show) {
+  // The Log's resume payload is episodesPayload() → { titleId, kind, name, pattern }.
+  // Accept that (titleId) as well as legacy show/movie shapes; the episodes face
+  // resolves any of the three. Gating on .show alone never matched → empty screen.
+  if (lastResume && (lastResume.titleId || lastResume.show || lastResume.movie)) {
     episodesEmpty = false;   // a show is on its way — don't bounce while it loads
     cfg.frame.contentWindow.postMessage({ type: 'cube:payload', face: 'episodes', payload: lastResume }, '*');
   } else {
