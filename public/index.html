@@ -419,8 +419,13 @@ function lock() {
   snapToFace(fi);
   camTargetZ = 4.6;
   showFaceInfo(fi);
-  pinchHint.textContent = 'double-tap or pinch to exit';
-  pinchHint.classList.remove('hide');
+  // Exit hint only on PIERRE + PROFILE; the other (trunk) faces hide it.
+  if (fi === PIERRE_FACE || fi === FACE_INDEX.profile) {
+    pinchHint.textContent = 'double-tap or pinch to exit';
+    pinchHint.classList.remove('hide');
+  } else {
+    pinchHint.classList.add('hide');
+  }
   if (fi === PIERRE_FACE) focusPierre();
   bounceFromEmptyWatch(fi);
 }
@@ -502,8 +507,13 @@ function rotateToFace(fi) {
   camTargetZ = 4.6;
   snapToFace(fi);                 // sets activeFace and starts the snap
   showFaceInfo(fi);
-  pinchHint.textContent = 'double-tap or pinch to exit';
-  pinchHint.classList.remove('hide');
+  // Exit hint only on PIERRE + PROFILE; the other (trunk) faces hide it.
+  if (fi === PIERRE_FACE || fi === FACE_INDEX.profile) {
+    pinchHint.textContent = 'double-tap or pinch to exit';
+    pinchHint.classList.remove('hide');
+  } else {
+    pinchHint.classList.add('hide');
+  }
   if (fi === PIERRE_FACE) focusPierre(); else focusPierreBlur();
   bounceFromEmptyWatch(fi);
 }
