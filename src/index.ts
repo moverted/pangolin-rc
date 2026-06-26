@@ -244,6 +244,146 @@ app.get('/transcribe/coview', async (c) => {
   return c.json({ comments });
 });
 
+// ─── IRL Theater tickets ─────────────────────────────────────────────────────
+// Read a cinema ticket image with Claude vision: date, showtime, theater name.
+// Reuses the same Anthropic key as Pierre. Best-effort — any failure returns all
+// nulls so the ticket still saves. Haiku is plenty for this little OCR job.
+type TicketInfo = { date: string | null; time: string | null; theater: string | null };
+async function readTicket(env: Env, buffer: ArrayBuffer, mediaType: string): Promise<TicketInfo> {
+  const empty: TicketInfo = { date: null, time: null, theater: null };
+  if (!env.ANTHROPIC_API_KEY) return empty;
+  // Anthropic vision accepts jpeg/png/gif/webp; fall back to jpeg for anything else.
+  const mt = /^image\/(jpeg|png|gif|webp)$/.test(mediaType) ? mediaType : 'image/jpeg';
+  let b64 = '';
+  try {
+    const bytes = new Uint8Array(buffer);
+    let bin = '';
+    for (const byte of bytes) bin += String.fromCharCode(byte);
+    b64 = btoa(bin);
+  } catch { return empty; }
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 200,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: mt, data: b64 } },
+            { type: 'text', text:
+              'This is a photo or screenshot of a movie theater ticket. Read it and return ONLY ' +
+              'minified JSON with exactly these keys: {"date":"YYYY-MM-DD","time":"H:MM AM/PM","theater":"cinema name"}. ' +
+              'Use null for any field that is not legible. No prose, no code fence.' },
+          ],
+        }],
+      }),
+    });
+    if (!res.ok) return empty;
+    const data = (await res.json()) as { content?: Array<{ type: string; text?: string }> };
+    const text = (data.content || []).filter((b) => b.type === 'text').map((b) => b.text || '').join('').trim();
+    const m = text.match(/\{[\s\S]*\}/);
+    if (!m) return empty;
+    const parsed = JSON.parse(m[0]) as Partial<TicketInfo>;
+    const clean = (v: unknown) => (typeof v === 'string' && v.trim() && v.trim().toLowerCase() !== 'null' ? v.trim() : null);
+    return { date: clean(parsed.date), time: clean(parsed.time), theater: clean(parsed.theater) };
+  } catch {
+    return empty;
+  }
+}
+
+// When a title is watched in a physical theater (service = "IRL Theater"), the
+// log button uploads a photo/screengrab of the ticket instead of tracking
+// minutes. Mirrors the audio-comment family: image → R2, index row → D1, served
+// back through the Worker. Marking the title watched is the client's job.
+app.post('/ticket', async (c) => {
+  try {
+    const form = await c.req.formData();
+    const image = form.get('image') as unknown as File | null;
+    const showId = (form.get('showId') as string) || '';
+    const episodeId = (form.get('episodeId') as string) || '';
+    const showName = (form.get('showName') as string) || '';
+    const email = ((form.get('userEmail') as string) || '').trim();
+
+    if (!image || image.size === 0) return c.json({ error: 'missing ticket image' }, 400);
+
+    // FK user_email → users(email): reject before storing so we don't orphan an
+    // R2 object on a constraint failure (same guard as audio comments).
+    if (!email || email === 'anonymous') return c.json({ error: 'sign in required to save a ticket' }, 401);
+    const known = await c.env.DB.prepare('SELECT 1 FROM users WHERE email = ?').bind(email).first();
+    if (!known) return c.json({ error: 'unknown user' }, 401);
+
+    const id = crypto.randomUUID();
+    const r2Key = `tickets/${showId || 'unknown'}/${id}`;
+    const buffer = await image.arrayBuffer();
+    const mediaType = image.type || 'image/jpeg';
+    await c.env.RAW_BUCKET.put(r2Key, buffer, { httpMetadata: { contentType: mediaType } });
+
+    // Read the stub: pull the date, the showtime, and the theater off the image so
+    // the theater can stand in for the streamer ("where is really where"). Best
+    // effort — a failure here must never lose the ticket (row is still written).
+    const info = await readTicket(c.env, buffer, mediaType);
+
+    const now = Date.now();
+    await c.env.DB.prepare(
+      `INSERT INTO watch_ticket (id, user_email, show_id, episode_id, show_name, ticket_r2_key, ticket_date, ticket_time, theater, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(id, email, showId || null, episodeId || null, showName || null, r2Key,
+           info.date, info.time, info.theater, now).run();
+
+    return c.json({
+      id, episodeId, ticketUrl: `${new URL(c.req.url).origin}/ticket/${id}/image`,
+      date: info.date, time: info.time, theater: info.theater, createdAt: now,
+    });
+  } catch (error) {
+    console.error('Ticket upload error:', error);
+    return c.json({ error: 'upload failed', details: String(error).substring(0, 200) }, 500);
+  }
+});
+
+// Stream a stored ticket image back from R2 (R2 has no signed-URL method).
+app.get('/ticket/:id/image', async (c) => {
+  const row = await c.env.DB
+    .prepare('SELECT ticket_r2_key FROM watch_ticket WHERE id = ?')
+    .bind(c.req.param('id'))
+    .first<{ ticket_r2_key: string | null }>();
+  if (!row?.ticket_r2_key) return c.json({ error: 'not found' }, 404);
+  const object = await c.env.RAW_BUCKET.get(row.ticket_r2_key);
+  if (!object) return c.json({ error: 'ticket not in storage' }, 404);
+  const headers = new Headers();
+  object.writeHttpMetadata(headers);
+  if (!headers.has('Content-Type')) headers.set('Content-Type', 'image/jpeg');
+  headers.set('Cache-Control', 'private, max-age=86400');
+  return new Response(object.body, { headers });
+});
+
+// List a member's tickets for one show, newest first, so the Episode face can
+// render them on the matching watched rows.
+app.get('/tickets', async (c) => {
+  const showId = c.req.query('showId') ?? '';
+  const email = c.req.query('email') ?? '';
+  if (!showId || !email) return c.json({ tickets: [] });
+  const { results } = await c.env.DB
+    .prepare(
+      `SELECT id, episode_id, ticket_date, ticket_time, theater, created_at FROM watch_ticket
+        WHERE show_id = ? AND user_email = ? ORDER BY created_at DESC`
+    )
+    .bind(showId, email)
+    .all();
+  const origin = new URL(c.req.url).origin;
+  const tickets = (results || []).map((r: any) => ({
+    id: r.id, episodeId: r.episode_id, createdAt: r.created_at,
+    date: r.ticket_date, time: r.ticket_time, theater: r.theater,
+    ticketUrl: `${origin}/ticket/${r.id}/image`,
+  }));
+  return c.json({ tickets });
+});
+
 // Minimal HTML escape for untrusted report fields placed in the email body.
 const escHtml = (s: unknown) =>
   String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
