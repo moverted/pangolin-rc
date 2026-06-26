@@ -362,6 +362,23 @@
   /* a logged ticket thumbnail on a watched row */
   .wtix{ display:inline-block; width:30px; height:30px; border-radius:6px; object-fit:cover;
     border:1px solid rgba(243,217,160,.5); margin-left:8px; vertical-align:middle; cursor:pointer; }
+  /* completed view: stands in for the live controls once a film is watched */
+  .donecard{ display:none; flex-direction:column; gap:12px; padding:14px 4px 2px; }
+  .donecard.show{ display:flex; }
+  .dc-head{ font-family:var(--mono); font-weight:700; font-size:13px; letter-spacing:.16em; color:#6cc070;
+    display:flex; align-items:center; gap:8px; }
+  .dc-check{ display:inline-flex; align-items:center; justify-content:center; width:20px; height:20px;
+    border-radius:50%; background:rgba(108,192,112,.18); border:1px solid #6cc070; font-size:12px; }
+  .dc-body{ display:flex; align-items:center; gap:14px; }
+  .dc-lines{ flex:1; min-width:0; display:flex; flex-direction:column; gap:5px; }
+  .dc-when{ font-family:var(--display); font-weight:700; font-size:17px; color:var(--text); }
+  .dc-where{ font-family:var(--body); font-size:13px; color:var(--amber); }
+  .dc-rank{ font-family:var(--mono); font-size:11px; letter-spacing:.08em; color:var(--dim); }
+  .dc-stub{ width:64px; height:64px; border-radius:9px; object-fit:cover; flex:none;
+    border:1px solid rgba(243,217,160,.5); cursor:pointer; }
+  .dc-again{ align-self:flex-start; font-family:var(--mono); font-size:11px; letter-spacing:.1em;
+    text-transform:uppercase; color:var(--dim); background:none; border:none; cursor:pointer; padding:4px 0; }
+  .epstatus.seen{ color:#6cc070; }
 </style>
 </head>
 <body>
@@ -431,6 +448,19 @@
             </button>
             <button class="sfbtn finish" id="finishEpBtn">FINISH</button>
           </div>
+        </div>
+        <!-- completed view: replaces the live controls once a film is watched -->
+        <div class="donecard" id="doneCard">
+          <div class="dc-head"><span class="dc-check">✓</span> COMPLETED</div>
+          <div class="dc-body">
+            <div class="dc-lines">
+              <div class="dc-when" id="dcWhen"></div>
+              <div class="dc-where" id="dcWhere"></div>
+              <div class="dc-rank" id="dcRank"></div>
+            </div>
+            <img class="dc-stub" id="dcStub" alt="ticket stub" style="display:none">
+          </div>
+          <button class="dc-again" id="dcAgain">↺ watch again</button>
         </div>
       </div>
     </div>
@@ -1190,6 +1220,7 @@ function finishEpisode(){
     bp = (now - startedAt[focus]) < rt*60000*0.85;
   }
   epMin[focus]=rt; epDone[focus]=true; epBp[focus]=bp; epPreApp[focus]=bp; minPreview=null; awaitingLog=false; cooled=false; watchingLive[focus]=false;
+  delete reopened[focus];   // finishing (again) returns to the completed card
   try{ localStorage.removeItem('pg_launch'); }catch(_){}
   markWatchedThrough(focus);
   logSession(focus,{minutes:rt,finished:true,bp:bp});
@@ -1232,6 +1263,7 @@ function paint(){
   if(st){
     if(watching){ st.className='epstatus watching'; st.innerHTML='(WATCHING<span class="live-dots"></span>)'; }
     else if(inProgress){ st.className='epstatus waiting'; st.innerHTML='(WAITING<span class="wait-dots"></span>)'; }
+    else if(filmCompleted()){ st.className='epstatus seen'; st.textContent='(✓ SEEN)'; }
     else { st.className='epstatus'; st.textContent=''; }
   }
   // Left button state machine: START → LOG PARTIAL (while watching) → CONTINUE (when paused/scrubbed)
@@ -1261,6 +1293,7 @@ function paint(){
   paintMinute();
   const fnBtn=$('finishEpBtn'); if(fnBtn) fnBtn.disabled = false;
   updateTheaterUI();   // keep the FINISH/🎟 TICKET label in sync after any repaint
+  renderDoneCard();    // completed film → show the COMPLETED card, hide the controls
 
   // Watchlist: ONE row per episode (history only), newest activity first. Tapping a
   // row expands its children — every viewing session for that episode plus the note.
@@ -1926,6 +1959,33 @@ function ticketCaption(t){
   const bits=[t.date,t.time,t.theater].filter(Boolean);
   return bits.length ? '🎟 '+bits.join(' · ') : '🎟 ticket';
 }
+
+// ─── Completed view ──────────────────────────────────────────────────────────
+// Once a film is watched, the live controls (START / minute bar / FINISH) give
+// way to a COMPLETED card: when + where + ticket stub + rank. "watch again"
+// re-opens the controls for this film without dropping the logged watch.
+let reopened={};   // film indices the viewer chose to re-open
+function filmCompleted(){ return isMovie && !!epDone[focus] && !reopened[focus]; }
+function renderDoneCard(){
+  const card=$('doneCard'), zone=document.querySelector('.minzone');
+  if(!card) return;
+  if(!filmCompleted()){ card.classList.remove('show'); if(zone) zone.style.display=''; return; }
+  card.classList.add('show'); if(zone) zone.style.display='none';
+  const tk=(ticketsByEp[epCode(eps[focus])]||[])[0];
+  // when: the ticket's own date/time if we read one, else the logged watch date
+  let when='Watched';
+  if(tk && (tk.date||tk.time)) when=[tk.date,tk.time].filter(Boolean).join(' · ');
+  else if(watchDate[focus]) when='Watched '+mdFmt(+watchDate[focus]);
+  $('dcWhen').textContent=when;
+  // where: the real theater the ticket names, else the chosen streamer
+  const where=(tk&&tk.theater) || viewServiceName() || '';
+  $('dcWhere').textContent = where ? ('at '+where) : '';
+  $('dcRank').textContent = (ranks[focus]!==undefined) ? ('your rank · '+ranks[focus]+'/10') : '';
+  const stub=$('dcStub');
+  if(tk&&tk.ticketUrl){ stub.src=tk.ticketUrl; stub.style.display='block'; stub.onclick=()=>window.open(tk.ticketUrl,'_blank'); }
+  else stub.style.display='none';
+}
+$('dcAgain').onclick=()=>{ reopened[focus]=true; paint(); };
 
 // ----- the rolling reel -----
 const SW_ITEM=44, SW_C=2, SW_COPIES=5;   // 5 visible rows, selection centred at row 2
