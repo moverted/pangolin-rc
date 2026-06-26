@@ -88,8 +88,62 @@ or changed.
   verification yet (that is a later security layer). The profile photo still
   lives in the browser for now, not the database.
 
+### 5. Co-viewing endpoint — Worker route `GET /transcribe/coview`
+
+- **What it is:** A read endpoint on the existing Cloudflare Worker
+  (`pangolin-rc`). Code lives in `src/index.ts`.
+- **What it's for:** Watching a show "with" a friend, asynchronously. While you
+  watch, a friend's recorded **audio comments** surface at the exact minute
+  mark they spoke them — so it feels like they're reacting alongside you, even
+  though they watched earlier. The Episode face shows them as a list; the
+  caption view can play each clip as your playback passes its mark.
+- **The spoiler rule (the important part):** A friend's comment shows **who**
+  said it and **when** (which minute) right away, but the actual **words and
+  audio are withheld until your own playback passes that minute**. You can't
+  read ahead to a reaction for a scene you haven't reached. This is enforced on
+  the server, so the hidden text never even reaches the browser early.
+- **Who can see whose comments:** Only **mutual friends** (you follow each other).
+  The app re-checks that friendship on every request — the browser can't ask for
+  a stranger's comments. Co-viewing is **off until you opt in**, per show, by
+  picking friends on the Episode face.
+- **What it uses:** The same D1 database (the `watch_comment` table holds each
+  comment's text + minute mark; the `follows` table defines friendship) and the
+  R2 bucket (the raw audio). Nothing new was created for this — it reuses what
+  was already there. Sibling endpoints in the same file record a comment
+  (`POST /transcribe`), play one back (`GET /transcribe/audio/{id}`), and list
+  your *own* comments (`GET /transcribe/comments`).
+- **Who calls it:** The Episode face (`public/pangolin_episodes_face_v5.html`)
+  for the spoiler-gated list, and the remote/caption view (`public/index.html`)
+  for live playback.
+
+### 6. IRL Theater tickets — Worker routes `POST /ticket`, `GET /ticket/{id}/image`, `GET /tickets`
+
+- **What it is:** A small group of endpoints on the existing Cloudflare Worker
+  (`pangolin-rc`), in `src/index.ts`.
+- **What it's for:** Logging a movie you watched in a **real cinema** instead of
+  on a streamer. On the Episode face you set the "where" to **IRL Theater** (a
+  new option on the streamer wheel); the FINISH button then becomes **🎟 TICKET**
+  and asks for a photo of your ticket stub, or a screengrab of a mobile ticket
+  (camera or photo library). Submitting it marks the film watched.
+- **Reading the ticket:** When the image arrives, the Worker shows it to Claude
+  (the same Anthropic key Pierre uses) and reads off the **date**, the
+  **showtime**, and the **theater name**. The theater then becomes the "where" —
+  the corner badge shows the actual cinema (e.g. "AMC Lincoln Square") in place
+  of the generic label, and the date/time/theater are captioned on the watched
+  row. This reading is best-effort: if the image can't be read, the ticket is
+  still saved, just without those details.
+- **Where the image lives:** The raw image goes in the R2 bucket
+  (`tickets/<show_id>/<id>`); a row in the new D1 table `watch_ticket` indexes it
+  (plus the read-off date/time/theater). The image is served back through the
+  Worker (`GET /ticket/{id}/image`), never a public link.
+- **Who can save one:** Signed-in members only (the row is tied to the user). The
+  theater "where" is a personal pin — it is **not** shared as the crowd's
+  streamer guess the way a normal streamer pick is.
+- **Who calls it:** The Episode face (`public/pangolin_episodes_face_v5.html`).
+
 ---
 
-_Last updated: 2026-06-16 — added D1 accounts (users/devices/watch) + the
-Worker `/profile` API, the Pierre login + add-device skills, and made
-`cube_face_profile.html` the live Profile face._
+_Last updated: 2026-06-26 — added the co-viewing endpoint
+(`GET /transcribe/coview`) and IRL Theater tickets (`POST /ticket` etc.): log a
+cinema watch by uploading a ticket; Claude reads its date/time/theater and the
+theater becomes the "where."_
