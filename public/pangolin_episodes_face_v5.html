@@ -379,30 +379,6 @@
   .dc-again{ align-self:flex-start; font-family:var(--mono); font-size:11px; letter-spacing:.1em;
     text-transform:uppercase; color:var(--dim); background:none; border:none; cursor:pointer; padding:4px 0; }
   .epstatus.seen{ color:#6cc070; }
-  /* Completed tab pill in the header + its list overlay */
-  .cmpl-tab{ font-family:var(--mono); font-weight:700; font-size:9px; letter-spacing:.1em;
-    color:#6cc070; background:rgba(108,192,112,.12); border:1px solid rgba(108,192,112,.5);
-    border-radius:999px; padding:3px 9px; margin-left:10px; cursor:pointer; -webkit-tap-highlight-color:transparent; }
-  .cmpl-tab:active{ transform:translateY(1px); }
-  .completedsheet{ position:absolute; inset:0; z-index:12; display:none; }
-  .completedsheet.show{ display:block; }
-  .cmpl-panel{ position:absolute; left:0; right:0; bottom:0; max-height:78%;
-    background:linear-gradient(180deg, transparent, rgba(10,8,6,.55) 10%, var(--sheet) 26%);
-    display:flex; flex-direction:column; padding:20px 16px 22px; }
-  .cmpl-cap{ font-family:var(--display); font-weight:700; font-size:18px; color:var(--text);
-    display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
-  .cmpl-x{ font-family:var(--mono); font-size:14px; color:var(--faint); cursor:pointer; padding:4px 6px; }
-  .cmpl-list{ overflow-y:auto; display:flex; flex-direction:column; gap:10px; }
-  .cmpl-row{ display:flex; align-items:center; gap:12px; padding:9px 8px; border-radius:12px;
-    background:rgba(255,255,255,.03); border:1px solid rgba(255,255,255,.07); cursor:pointer; }
-  .cmpl-row:active{ background:rgba(255,255,255,.07); }
-  .cmpl-ic{ flex:none; font-size:20px; width:26px; text-align:center; }
-  .cmpl-main{ flex:1; min-width:0; display:flex; flex-direction:column; gap:3px; }
-  .cmpl-name{ font-family:var(--body); font-weight:700; font-size:14px; color:var(--text);
-    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .cmpl-sub{ font-family:var(--mono); font-size:10px; letter-spacing:.04em; color:var(--dim); }
-  .cmpl-stub{ flex:none; width:34px; height:34px; border-radius:7px; object-fit:cover; border:1px solid rgba(243,217,160,.5); }
-  .cmpl-empty{ font-family:var(--mono); font-size:11px; color:var(--faint); padding:10px 4px; }
 </style>
 </head>
 <body>
@@ -416,7 +392,6 @@
       <div class="fb-left">
         <span class="facelabel">LOG</span>
         <span class="dots" id="epDots"><i></i><i></i><i></i><i class="on"></i><i></i><i></i></span>
-        <button class="cmpl-tab" id="completedTab">✓ COMPLETED</button>
       </div>
       <!-- season dots (display-only): dark-green done · 🍿 current · green future-available · grey unaired -->
       <div class="fb-mid" id="seasonInd"></div>
@@ -534,15 +509,6 @@
       </div>
       <button class="swset" id="svcSet">SET</button>
       <div class="swcancel" id="svcCancel">cancel</div>
-    </div>
-  </div>
-
-  <!-- Completed: every finished title (films + fully-watched shows), tap to open -->
-  <div class="completedsheet" id="completedSheet">
-    <div class="swback" id="cmplBack"></div>
-    <div class="cmpl-panel">
-      <div class="cmpl-cap">Completed<span class="cmpl-x" id="cmplClose">✕</span></div>
-      <div class="cmpl-list" id="completedList"></div>
     </div>
   </div>
 
@@ -2020,50 +1986,6 @@ function renderDoneCard(){
   else stub.style.display='none';
 }
 $('dcAgain').onclick=()=>{ reopened[focus]=true; paint(); };
-
-// ─── Completed tab ───────────────────────────────────────────────────────────
-// A discoverable list of every finished title (films + fully-watched shows),
-// pulled from /profile/titles (status === 'completed'). Films also show their
-// ticket date/theater. Tapping a row loads that title — a film lands on its
-// COMPLETED card; a show opens with its history restored.
-function openCompleted(){ $('completedSheet').classList.add('show'); loadCompletedList(); }
-function closeCompleted(){ $('completedSheet').classList.remove('show'); }
-$('completedTab').onclick=openCompleted;
-$('cmplClose').onclick=closeCompleted;
-$('cmplBack').onclick=closeCompleted;
-
-async function loadCompletedList(){
-  const list=$('completedList'); if(!list) return;
-  const email=(typeof acctEmail==='function'?acctEmail():'');
-  if(!email){ list.innerHTML='<div class="cmpl-empty">Sign in to see your completed titles.</div>'; return; }
-  list.innerHTML='<div class="cmpl-empty">Loading…</div>';
-  let titles=[];
-  try{
-    const r=await fetch(API_BASE+'/profile/'+encodeURIComponent(email)+'/titles');
-    if(r.ok){ const d=await r.json(); titles=(d.titles||[]).filter(t=>t.status==='completed'); }
-  }catch(_){}
-  if(!titles.length){ list.innerHTML='<div class="cmpl-empty">Nothing completed yet.</div>'; return; }
-  // For films, pull the ticket (date/theater) in parallel for the subline + stub.
-  const tix={};
-  await Promise.all(titles.filter(t=>t.kind==='movie').map(async t=>{
-    try{ const r=await fetch(API_BASE+'/tickets?showId='+encodeURIComponent(t.title_id)+'&email='+encodeURIComponent(email));
-      if(r.ok){ const d=await r.json(); if((d.tickets||[]).length) tix[t.title_id]=d.tickets[0]; } }catch(_){}
-  }));
-  list.innerHTML='';
-  titles.forEach(t=>{
-    const isFilm=t.kind==='movie', tk=tix[t.title_id];
-    let sub;
-    if(isFilm) sub = tk ? [tk.date,tk.theater].filter(Boolean).join(' · ') : 'Film ✓';
-    else sub = (t.total ? (t.watched+'/'+t.total+' episodes ✓') : 'completed ✓');
-    const row=document.createElement('div'); row.className='cmpl-row';
-    row.innerHTML=`<div class="cmpl-ic">${isFilm?'🎬':'📺'}</div>
-      <div class="cmpl-main"><div class="cmpl-name">${escHtml(t.name||t.title_id)}</div>
-      <div class="cmpl-sub">${escHtml(sub||'')}</div></div>
-      ${tk&&tk.ticketUrl?`<img class="cmpl-stub" src="${escHtml(tk.ticketUrl)}" alt="stub">`:''}`;
-    row.onclick=()=>{ closeCompleted(); loadTitle(t.title_id, {kind:'beginning'}, {}); };
-    list.appendChild(row);
-  });
-}
 
 // ----- the rolling reel -----
 const SW_ITEM=44, SW_C=2, SW_COPIES=5;   // 5 visible rows, selection centred at row 2
