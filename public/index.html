@@ -1323,7 +1323,12 @@ async function capStart(ep) {
   if (showId && epCode && mates.length && capEmail()) {
     try {
       const u = new URL(API + '/transcribe/coview');
-      u.search = new URLSearchParams({ showId, episodeId: epCode, email: capEmail(), with: mates.join(',') }).toString();
+      // Live co-view self-gates at the cursor: capFireCoview only reveals/plays a
+      // clip once the wall-clock passes its mark, and it needs each audioUrl ahead
+      // to instantiate the Audio at fire time. So request full reveal here — the
+      // spoiler gate (seenMs) is for the Episode face's browsable timeline.
+      u.search = new URLSearchParams({ showId, episodeId: epCode, email: capEmail(),
+        with: mates.join(','), seenMs: String(Number.MAX_SAFE_INTEGER) }).toString();
       const cv = await (await fetch(u)).json();
       if (capSession && capSession.episodeId === id)   // not superseded while fetching
         capSession.coview = (cv.comments || []).slice().sort((a, b) => a.timestampMs - b.timestampMs);

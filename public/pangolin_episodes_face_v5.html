@@ -437,6 +437,12 @@
       <!-- Audio comment transcripts: displays recorded comments with timestamp -->
       <div style="margin-top:24px; border-top:1px solid rgba(255,255,255,.1); padding-top:16px;">
         <div class="block-label" style="margin-bottom:12px;" id="transcriptLabel">Transcripts · 0</div>
+        <!-- Co-viewing: pick friends whose comments surface here, spoiler-gated —
+             who + when always show; the words unlock only once you pass the mark. -->
+        <div id="coviewRow" style="display:none; margin-bottom:14px;">
+          <div style="font-size:11px; color:var(--dim); margin-bottom:8px;">Co-view with · their words unlock as you reach each mark</div>
+          <div id="coviewFriends" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
+        </div>
         <div id="transcripts" style="font-size:12px; font-family:var(--body); color:var(--dim); line-height:1.6;"></div>
       </div>
     </div>
@@ -542,7 +548,7 @@ function boot(show,list,isDefault){
   if(!DEMO && curShowId && window.parent!==window)
     window.parent.postMessage({type:'episode:track', tvmazeId:curShowId, name:curShowName, kind:isMovie?'movie':'show', poster:img||null}, '*');
   // Load this show's saved audio comments into the Transcripts panel.
-  if(!DEMO) loadComments();
+  if(!DEMO){ loadComments(); loadFriends(); loadCoview(); }
 }
 
 // Timestamps of real in-app watches only (preApp false). Pre-app data is skipped.
@@ -725,7 +731,7 @@ function paintTranscripts(){
     console.warn('Transcript elements not found in DOM');
     return;
   }
-  label.textContent=`Transcripts · ${transcripts.length}`;
+  label.textContent=`Transcripts · ${transcripts.length + coviewComments.length}`;
   container.innerHTML='';
   console.log('Rendering', transcripts.length, 'transcripts');
   transcripts.forEach((t, idx)=>{
@@ -783,6 +789,37 @@ function paintTranscripts(){
     line.appendChild(textDiv);
     container.appendChild(line);
   });
+
+  // Friends' comments (co-viewing). Spoiler-gated: who + when always render; the
+  // words (and the play button) appear only once you've passed the mark — the
+  // server withholds the text/audio until then, so this can't be peeked in DOM.
+  coviewComments.forEach((c)=>{
+    const line=document.createElement('div');
+    line.style.marginBottom='12px'; line.style.display='flex';
+    line.style.alignItems='center'; line.style.gap='12px';
+
+    if(c.revealed && c.audioUrl){
+      const sp=document.createElement('button');
+      sp.style.cssText='width:48px;height:48px;padding:0;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(108,192,112,.2);border:2px solid #6cc070;cursor:pointer;color:#6cc070;font-size:20px;flex-shrink:0;';
+      sp.innerHTML='🔊';
+      sp.onclick=(e)=>{ e.preventDefault(); window.open(c.audioUrl,'_blank'); };
+      line.appendChild(sp);
+    } else {
+      const lock=document.createElement('div');
+      lock.style.cssText='width:48px;height:48px;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(255,255,255,.04);border:2px solid rgba(255,255,255,.12);color:var(--dim);font-size:18px;flex-shrink:0;';
+      lock.innerHTML='🔒';
+      line.appendChild(lock);
+    }
+
+    const txt=document.createElement('div');
+    txt.style.flex='1'; txt.style.minWidth='0';
+    const who=`<span style="color:#6cc070;">${c.author}</span>`;
+    const when=`<strong>${c.epCode} ${c.time}</strong>`;
+    const body = c.revealed ? c.text : `<em style="opacity:.6;">reveals at ${c.time}</em>`;
+    txt.innerHTML=`${when} · ${who} — ${body}`;
+    line.appendChild(txt);
+    container.appendChild(line);
+  });
 }
 
 // Pull this member's saved audio comments for the current show and render them.
@@ -806,6 +843,92 @@ async function loadComments(){
     });
   }catch(_){ /* leave whatever we have */ }
   paintTranscripts();
+}
+
+// ─── Co-viewing: friends' comments, spoiler-gated by your own progress ────────
+// who + when render immediately; the words unlock as your minute mark passes
+// each comment. Opt-in per show, stored in pg_coview:<showId>. Gating is enforced
+// server-side (it withholds text/audio until seenMs >= the mark), so we re-fetch
+// when you cross the next locked mark to pull the newly-revealed content.
+let coviewComments = [];        // [{author, epCode, time, ms, revealed, text, audioUrl}]
+let coviewNextLock = Infinity;  // smallest still-locked mark (ms), for live re-fetch
+let coviewFriends  = [];        // [{email, username}] — mutual follows, for the picker
+let _coviewFocus   = -1;        // episode the loaded co-view comments belong to
+
+function coviewKey(){ return curShowId ? 'pg_coview:'+curShowId : null; }
+function coviewSet(){ try{ return JSON.parse(localStorage.getItem(coviewKey())||'[]'); }catch(_){ return []; } }
+function coviewSave(arr){ const k=coviewKey(); if(k){ try{ localStorage.setItem(k, JSON.stringify(arr)); }catch(_){} } }
+// Furthest-watched position in the focused episode, in ms — the reveal watermark.
+function coviewSeenMs(){
+  const m = epDone[focus] ? runtimeOf(focus)
+          : (minPreview!=null ? minPreview : (epMin[focus]||0));
+  return Math.round(Math.max(0, m) * 60000);
+}
+
+// Pull the mutual-follow list once so the picker can render friend chips.
+async function loadFriends(){
+  const email = (typeof acctEmail==='function' ? acctEmail() : '');
+  if(!email){ coviewFriends=[]; renderCoviewPicker(); return; }
+  try{
+    const r = await fetch(`${API_BASE}/profile/${encodeURIComponent(email)}/follows`);
+    if(r.ok){ const d=await r.json(); coviewFriends=(d.friends||[]).map(f=>({email:f.email, username:f.username||f.email})); }
+  }catch(_){ /* no friends list → picker stays hidden */ }
+  renderCoviewPicker();
+}
+function renderCoviewPicker(){
+  const row=$('coviewRow'), wrap=$('coviewFriends');
+  if(!row||!wrap) return;
+  if(!curShowId || !coviewFriends.length){ row.style.display='none'; return; }
+  row.style.display='block';
+  const on=new Set(coviewSet());
+  wrap.innerHTML='';
+  coviewFriends.forEach(f=>{
+    const chip=document.createElement('button');
+    const sel=on.has(f.email);
+    chip.textContent=f.username;
+    chip.style.cssText='padding:5px 12px;border-radius:999px;cursor:pointer;font-family:var(--body);font-size:12px;'+
+      (sel ? 'background:rgba(108,192,112,.2);border:1px solid #6cc070;color:#6cc070;'
+           : 'background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.15);color:var(--dim);');
+    chip.onclick=()=>{
+      const set=new Set(coviewSet());
+      if(set.has(f.email)) set.delete(f.email); else set.add(f.email);
+      coviewSave([...set]);
+      renderCoviewPicker();
+      loadCoview();
+    };
+    wrap.appendChild(chip);
+  });
+}
+
+// Fetch friends' comments for the focused episode at the current watermark.
+async function loadCoview(){
+  coviewComments=[]; coviewNextLock=Infinity; _coviewFocus=focus;
+  const email = (typeof acctEmail==='function' ? acctEmail() : '');
+  const set = coviewSet(), e = eps[focus];
+  if(!curShowId || !email || !e || !set.length){ paintTranscripts(); return; }
+  try{
+    const u = new URL(`${API_BASE}/transcribe/coview`);
+    u.search = new URLSearchParams({ showId:curShowId, episodeId:epCode(e), email,
+      with:set.join(','), seenMs:String(coviewSeenMs()) }).toString();
+    const r = await fetch(u); if(!r.ok){ paintTranscripts(); return; }
+    const d = await r.json();
+    coviewComments = (d.comments||[]).map(c=>{
+      const m = Math.round((c.timestampMs||0)/60000);
+      if(!c.revealed) coviewNextLock = Math.min(coviewNextLock, c.timestampMs||0);
+      return { author:c.author||'friend', epCode:c.episodeId||epCode(e),
+        time:`${Math.floor(m/60)}:${String(m%60).padStart(2,'0')}`, ms:c.timestampMs||0,
+        revealed:!!c.revealed, audioUrl:c.audioUrl||null,
+        text:(c.transcription && c.transcription.trim()) || 'Audio recorded' };
+    });
+  }catch(_){ /* leave whatever we have */ }
+  paintTranscripts();
+}
+// Called from the minute-bar tick: once you pass the next locked mark, re-fetch
+// so the newly-reached comments unlock. Cheap — bounded by one fetch per crossing.
+function coviewCheckReveal(){
+  if(_coviewFocus!==focus){ loadCoview(); return; }     // switched episodes → reload
+  if(coviewNextLock===Infinity) return;                 // nothing left to unlock
+  if(coviewSeenMs() >= coviewNextLock) loadCoview();
 }
 
 async function startRecording(){
@@ -1195,6 +1318,7 @@ function paintMinute(){
   const elapsedText = Math.round(cur)+' min';
   $('minElapsed').textContent = watchingLive[focus] ? elapsedText + ' ' + buildFrames[buildFrame % buildFrames.length] : elapsedText;
   $('minRem').textContent=Math.max(0,Math.round(rt-cur))+' min';      // right: remaining
+  coviewCheckReveal();   // unlock friends' comments as your mark passes theirs
   const mid=$('minMid');                                              // middle: total / prompt / BP
   if(awaitingLog){ mid.textContent='tap to log · grab again to adjust'; mid.classList.add('phrase'); }
   else { mid.classList.remove('phrase'); mid.textContent = epBp[focus] ? 'BP' : (Math.round(rt)+' min'); }
