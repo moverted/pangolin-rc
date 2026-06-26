@@ -171,6 +171,62 @@ app.get('/transcribe/comments', async (c) => {
   return c.json({ comments });
 });
 
+// Co-viewing: a friend's audio comments for ONE episode, ordered by timestamp_ms
+// so the caption player can fire each clip as the wall-clock cursor passes it.
+// This is the relaxed-filter sibling of /transcribe/comments described in the
+// note above — own-comments stays its own fast path; this one widens the scope
+// to "the friends I'm co-viewing with" and is the only place that authorizes it.
+//
+// `with` is the viewer's opt-in co-view set; it is treated as a *preference*,
+// never as authorization. Every entry is intersected with the viewer's real
+// friends (a mutual follow), re-derived from `follows` server-side here.
+app.get('/transcribe/coview', async (c) => {
+  const showId = c.req.query('showId') ?? '';
+  const episodeId = c.req.query('episodeId') ?? '';
+  const email = c.req.query('email') ?? '';
+  const want = (c.req.query('with') ?? '')
+    .split(',').map((s) => s.trim()).filter(Boolean);
+  if (!showId || !episodeId || !email || !want.length) return c.json({ comments: [] });
+
+  // Friends = mutual follow (A→B and B→A). Derive, then intersect with `want`.
+  const { results: fr } = await c.env.DB
+    .prepare(
+      `SELECT a.followee_email AS email
+         FROM follows a
+         JOIN follows b ON b.follower_email = a.followee_email
+                       AND b.followee_email = a.follower_email
+        WHERE a.follower_email = ?`
+    )
+    .bind(email)
+    .all();
+  const friends = new Set((fr || []).map((r: any) => r.email));
+  const allowed = want.filter((e) => friends.has(e));
+  if (!allowed.length) return c.json({ comments: [] });
+
+  const ph = allowed.map(() => '?').join(',');
+  const { results } = await c.env.DB
+    .prepare(
+      `SELECT c.id, c.user_email, c.timestamp_ms, c.transcription, c.created_at, u.username
+         FROM watch_comment c
+         LEFT JOIN users u ON u.email = c.user_email
+        WHERE c.show_id = ? AND c.episode_id = ? AND c.user_email IN (${ph})
+        ORDER BY c.timestamp_ms ASC`
+    )
+    .bind(showId, episodeId, ...allowed)
+    .all();
+
+  const origin = new URL(c.req.url).origin;
+  const comments = (results || []).map((r: any) => ({
+    id: r.id,
+    author: r.username || r.user_email,
+    timestampMs: r.timestamp_ms,
+    transcription: r.transcription || '',
+    createdAt: r.created_at,
+    audioUrl: `${origin}/transcribe/audio/${r.id}`,
+  }));
+  return c.json({ comments });
+});
+
 // Minimal HTML escape for untrusted report fields placed in the email body.
 const escHtml = (s: unknown) =>
   String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

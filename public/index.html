@@ -165,6 +165,24 @@
       background: #e89f3d; border: none;
     }
     #cap-align-lbl { white-space: nowrap; min-width: 3.5em; text-align: left; }
+    /* co-viewing: a friend's recorded comment, surfaced as its marker passes.
+       Sits under the caption line; the transcript shows even with audio muted. */
+    #cap-coview {
+      display: none; max-width: 88vw; margin-top: 2px;
+      align-items: center; gap: 8px;
+      pointer-events: auto;
+      font-family: 'Comic Neue', cursive; font-size: 13px; font-weight: 700;
+      color: #f3ebe0; text-shadow: 0 2px 8px rgba(0,0,0,0.7);
+    }
+    #cap-coview.show { display: flex; }
+    #cap-coview .cv-dot {
+      flex: none; width: 7px; height: 7px; border-radius: 50%;
+      background: #6cc070; box-shadow: 0 0 6px rgba(108,192,112,0.8);
+    }
+    #cap-coview .cv-who { color: #6cc070; white-space: nowrap; }
+    #cap-coview .cv-text {
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
 
     /* ── "rotate to use this face" (keyboard faces held sideways) ── */
     #rotate-msg {
@@ -254,6 +272,11 @@
     <span class="cap-src" id="cap-src">CC</span>
     <input type="range" id="cap-align" min="-30" max="30" step="0.5" value="0" aria-label="Align captions">
     <span id="cap-align-lbl">in sync</span>
+  </div>
+  <div id="cap-coview">
+    <span class="cv-dot"></span>
+    <span class="cv-who"></span>
+    <span class="cv-text"></span>
   </div>
 </div>
 
@@ -1233,6 +1256,9 @@ const _capText  = document.getElementById('caption-text');
 const _capSrc   = document.getElementById('cap-src');
 const _capAlign = document.getElementById('cap-align');
 const _capLbl   = document.getElementById('cap-align-lbl');
+const _capCoEl  = document.getElementById('cap-coview');
+const _capCoWho = _capCoEl.querySelector('.cv-who');
+const _capCoTxt = _capCoEl.querySelector('.cv-text');
 let _capTick    = null;
 
 // The Profile picker caches the selection KIND: 'phone' (this is the screen),
@@ -1245,6 +1271,22 @@ function capEpisodeId(ep) {
   if (!ep || !ep.tvmazeId) return null;
   const ref = String(ep.tvmazeId).replace(/^tvmaze:/, '');
   return 'tvmaze:' + ref + ':s' + (ep.season || 0) + 'e' + (ep.number || 0);
+}
+// Comments key on (show_id, episode_id) — the universal title key + the human
+// episode code (S01E01 / 🎬), matching how the Episode face stores them. The
+// caption cue track keys differently (capEpisodeId), so this is its own builder.
+function capShowId(ep) { return ep && ep.tvmazeId ? String(ep.tvmazeId) : null; }
+function capEpCode(ep) {
+  if (!ep) return null;
+  if (ep.kind === 'movie') return '🎬';
+  return 'S' + String(ep.season || 1).padStart(2, '0') + 'E' + String(ep.number || 0).padStart(2, '0');
+}
+function capEmail() { try { return localStorage.getItem('pg_user') || ''; } catch { return ''; } }
+// Opt-in co-view set, per show, written by the Episode face's friend list.
+// Empty (the default) → co-viewing off, and the fetch + firing are skipped.
+function capCoViewers(showId) {
+  if (!showId) return [];
+  try { return JSON.parse(localStorage.getItem('pg_coview:' + showId) || '[]'); } catch { return []; }
 }
 function capSavedNudge(id) { try { const v = localStorage.getItem('pg_capalign:' + id); return v ? parseFloat(v) || 0 : 0; } catch { return 0; } }
 function capSaveNudge(id, ms) { try { localStorage.setItem('pg_capalign:' + id, String(ms)); } catch {} }
@@ -1259,9 +1301,11 @@ async function capStart(ep) {
   if (!id) return;
   capStop();
   const nudgeMs = capSavedNudge(id);
-  capSession = { episodeId: id, cues: [], mode: 'file', startedAt: Date.now(), nudgeMs, paused: false, pausedAt: 0, pausedAccum: 0 };
+  capSession = { episodeId: id, cues: [], mode: 'file', startedAt: Date.now(), nudgeMs, paused: false, pausedAt: 0, pausedAccum: 0,
+                 coview: [], coIdx: 0, coPlaying: false, coAudio: null };
   capReflectSlider(); capUpdateAlignLbl();
   _capText.textContent = ''; _capText.classList.add('gap');
+  capHideCoview();
   _capEl.classList.add('show');
   try {
     const r = await fetch(API + '/captions/' + encodeURIComponent(id));
@@ -1272,13 +1316,28 @@ async function capStart(ep) {
     _capSrc.textContent = capSession.mode === 'mic' ? 'MIC' : 'CC';
     _capSrc.classList.toggle('mic', capSession.mode === 'mic');
   } catch { /* no cues — the align bar still works, text stays blank */ }
+  // Co-viewing (best-effort, opt-in): pull friends' comments for this episode,
+  // sorted by marker, so capRender can fire each as the cursor passes it. The
+  // server re-checks friendship; an empty/forbidden set just yields no clips.
+  const showId = capShowId(ep), epCode = capEpCode(ep), mates = capCoViewers(showId);
+  if (showId && epCode && mates.length && capEmail()) {
+    try {
+      const u = new URL(API + '/transcribe/coview');
+      u.search = new URLSearchParams({ showId, episodeId: epCode, email: capEmail(), with: mates.join(',') }).toString();
+      const cv = await (await fetch(u)).json();
+      if (capSession && capSession.episodeId === id)   // not superseded while fetching
+        capSession.coview = (cv.comments || []).slice().sort((a, b) => a.timestampMs - b.timestampMs);
+    } catch { /* co-view is optional; captions run fine without it */ }
+  }
   if (_capTick) clearInterval(_capTick);
   _capTick = setInterval(capRender, 250);
   capRender();
 }
 function capStop() {
+  if (capSession && capSession.coAudio) { try { capSession.coAudio.pause(); } catch {} }
   capSession = null;
   if (_capTick) { clearInterval(_capTick); _capTick = null; }
+  capHideCoview();
   _capEl.classList.remove('show');
 }
 function capPosMs() {
@@ -1293,6 +1352,47 @@ function capRender() {
   for (const c of capSession.cues) { if (t >= c.start && t < c.end) { cue = c; break; } }
   if (cue) { _capText.textContent = cue.text; _capText.classList.remove('gap'); }
   else { _capText.classList.add('gap'); }
+  capFireCoview(capPosMs());
+}
+// Fire each friend's clip once, as the wall-clock cursor first passes its marker.
+// Tolerant of the same jumps the cursor takes: a rewind reopens the firing window,
+// a fast-forward marks skipped clips played-silently so a +2min jump doesn't dump
+// five overlapping voices at once. coPlaying serializes — two clips at the same
+// minute don't talk over each other; the later one retries on the next tick.
+function capFireCoview(posMs) {
+  if (!capSession) return;
+  const cv = capSession.coview;
+  if (!cv.length) return;
+  // Rewound behind an already-fired clip → step the cursor back so it re-fires.
+  while (capSession.coIdx > 0 && cv[capSession.coIdx - 1].timestampMs > posMs + 1500)
+    capSession.coIdx--;
+  while (capSession.coIdx < cv.length && cv[capSession.coIdx].timestampMs <= posMs) {
+    const clip = cv[capSession.coIdx];
+    const late = posMs - clip.timestampMs;
+    capSession.coIdx++;
+    if (late > 8000) continue;                              // jumped past it — don't play
+    if (capSession.coPlaying) { capSession.coIdx--; break; } // busy — retry next tick
+    capPlayCoview(clip);
+  }
+}
+function capPlayCoview(clip) {
+  if (!capSession) return;
+  capSession.coPlaying = true;
+  _capCoWho.textContent = clip.author || 'friend';
+  _capCoTxt.textContent = clip.transcription || '🔊';
+  _capCoEl.classList.add('show');
+  const a = new Audio(clip.audioUrl);
+  capSession.coAudio = a;
+  const done = () => {
+    if (capSession) { capSession.coPlaying = false; capSession.coAudio = null; }
+    capHideCoview();
+  };
+  a.onended = done; a.onerror = done;
+  a.play().catch(() => { if (capSession) capSession.coPlaying = false; });
+}
+function capHideCoview() {
+  _capCoEl.classList.remove('show');
+  _capCoWho.textContent = ''; _capCoTxt.textContent = '';
 }
 function capNudge(deltaMs) {
   if (!capSession) return;
