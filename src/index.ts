@@ -277,9 +277,14 @@ async function readTicket(env: Env, buffer: ArrayBuffer, mediaType: string): Pro
           content: [
             { type: 'image', source: { type: 'base64', media_type: mt, data: b64 } },
             { type: 'text', text:
-              'This is a photo or screenshot of a movie theater ticket. Read it and return ONLY ' +
-              'minified JSON with exactly these keys: {"date":"YYYY-MM-DD","time":"H:MM AM/PM","theater":"cinema name"}. ' +
-              'Use null for any field that is not legible. No prose, no code fence.' },
+              'This is a photo or screenshot of a movie theater ticket or screening confirmation. ' +
+              'Transcribe three fields EXACTLY as printed, reading carefully — do not infer or normalize: ' +
+              '"date" = the date as shown, verbatim, including the weekday if present (e.g. "Wed, Jun 24" or ' +
+              '"Saturday, June 20"); never add or guess a year that is not printed on the image. ' +
+              '"time" = the showtime as printed (e.g. "5:30 PM"). ' +
+              '"theater" = the cinema/theater name (e.g. "AMC Burbank 16"). ' +
+              'Return ONLY minified JSON with exactly these keys: date, time, theater. ' +
+              'Use null for any field not present. No prose, no code fence.' },
           ],
         }],
       }),
