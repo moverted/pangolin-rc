@@ -436,7 +436,7 @@
 
       <!-- Audio comment transcripts: displays recorded comments with timestamp -->
       <div style="margin-top:24px; border-top:1px solid rgba(255,255,255,.1); padding-top:16px;">
-        <div class="block-label" style="margin-bottom:12px;" id="transcriptLabel">Transcripts · 0</div>
+        <div class="block-label" style="margin-bottom:12px;" id="transcriptLabel">Comments · 0</div>
         <!-- Co-viewing: pick friends whose comments surface here, spoiler-gated —
              who + when always show; the words unlock only once you pass the mark. -->
         <div id="coviewRow" style="display:none; margin-bottom:14px;">
@@ -731,7 +731,7 @@ function paintTranscripts(){
     console.warn('Transcript elements not found in DOM');
     return;
   }
-  label.textContent=`Transcripts · ${transcripts.length + coviewComments.length}`;
+  label.textContent=`Comments · ${transcripts.length + coviewComments.length}`;
   container.innerHTML='';
   console.log('Rendering', transcripts.length, 'transcripts');
   transcripts.forEach((t, idx)=>{
@@ -1234,11 +1234,21 @@ function paint(){
   for(let i=0;i<eps.length;i++){
     const sess=epSessions[i]||[];
     if(!sess.length && !epDone[i]) continue;
-    let lastTs=0; sess.forEach(s=>{ if((s.finishTs||0)>lastTs) lastTs=s.finishTs||0; });
+    // Recency for sorting: a live session has no finishTs yet, so also count its
+    // startTs (and the on-device start) — otherwise the episode you're watching
+    // right now reads as ts=0 and sinks to the bottom.
+    let lastTs=0; sess.forEach(s=>{ const t=Math.max(s.finishTs||0, s.startTs||0); if(t>lastTs) lastTs=t; });
+    if(startedAt[i]) lastTs=Math.max(lastTs, startedAt[i]);
     if(epDone[i] && watchDate[i]) lastTs=Math.max(lastTs,+watchDate[i]);
     epRows.push({ i, e:eps[i]||{}, sess, lastTs });
   }
-  epRows.sort((a,b)=>b.lastTs-a.lastTs);
+  // In-progress (not yet finished) floats above finished history; within each
+  // group, newest activity first — so the episode you're mid-watch sits at top.
+  epRows.sort((a,b)=>{
+    const pa=!epDone[a.i], pb=!epDone[b.i];
+    if(pa!==pb) return pa?-1:1;
+    return b.lastTs-a.lastTs;
+  });
   $('wlLabel').textContent='Watched · '+watched;
   const wl=$('watchlist'); wl.innerHTML='';
   if(!epRows.length) wl.innerHTML='<div class="empty">Nothing logged yet.</div>';
@@ -1719,7 +1729,7 @@ const SERVICES = [
   {label:'Disney+',     bg:'#0B1A6E', fg:'#ffffff', wght:700, ls:'-.01em', aka:['disney']},
   {label:'hulu',        bg:'#1CE783', fg:'#0a0a0a', wght:800, ls:'-.04em', aka:['hulu']},
   {label:'prime video', bg:'#1399FF', fg:'#ffffff', wght:700, ls:'-.02em', aka:['prime','amazon']},
-  {label:'tv+',         bg:'#000000', fg:'#ffffff', wght:700, ls:'-.02em', aka:['apple']},
+  {label:'AppleTV+',    bg:'#000000', fg:'#ffffff', wght:700, ls:'-.02em', aka:['apple']},
   {label:'peacock',     bg:'#050505', fg:'#ffffff', wght:700, ls:'-.02em', aka:['peacock','nbc']},
   {label:'P+',          bg:'#0064FF', fg:'#ffffff', wght:800, ls:'0',      aka:['paramount','cbs','showtime','mtv','comedy central','nickelodeon']},
   {label:'AMC+',        bg:'#000000', fg:'#ffffff', wght:800, ls:'.02em',  aka:['amc']},
