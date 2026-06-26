@@ -171,6 +171,79 @@ app.get('/transcribe/comments', async (c) => {
   return c.json({ comments });
 });
 
+// Co-viewing: friends' audio comments for a show (or one episode), ordered by
+// timestamp_ms so the caption player can fire each clip as the wall-clock cursor
+// passes it, and the Episode face can render a spoiler-gated timeline. This is
+// the relaxed-filter sibling of /transcribe/comments described in the note above
+// — own-comments stays its own fast path; this one widens the scope to "the
+// friends I'm co-viewing with" and is the only place that authorizes it.
+//
+// `with` is the viewer's opt-in co-view set; it is treated as a *preference*,
+// never as authorization. Every entry is intersected with the viewer's real
+// friends (a mutual follow), re-derived from `follows` server-side here.
+//
+// SPOILER GATE: we return author + timestamp_ms (who + when) for every comment,
+// but only include `transcription`/`audioUrl` (the "what") for clips the caller
+// has already passed — `seenMs` is the caller's furthest-watched position. The
+// reveal is enforced server-side so an unrevealed comment's text never crosses
+// the wire early. `episodeId` optional: present → one episode; absent → show-wide.
+app.get('/transcribe/coview', async (c) => {
+  const showId = c.req.query('showId') ?? '';
+  const episodeId = c.req.query('episodeId') ?? '';
+  const email = c.req.query('email') ?? '';
+  const seenMs = parseInt(c.req.query('seenMs') ?? '', 10);   // NaN → reveal nothing
+  const want = (c.req.query('with') ?? '')
+    .split(',').map((s) => s.trim()).filter(Boolean);
+  if (!showId || !email || !want.length) return c.json({ comments: [] });
+
+  // Friends = mutual follow (A→B and B→A). Derive, then intersect with `want`.
+  const { results: fr } = await c.env.DB
+    .prepare(
+      `SELECT a.followee_email AS email
+         FROM follows a
+         JOIN follows b ON b.follower_email = a.followee_email
+                       AND b.followee_email = a.follower_email
+        WHERE a.follower_email = ?`
+    )
+    .bind(email)
+    .all();
+  const friends = new Set((fr || []).map((r: any) => r.email));
+  const allowed = want.filter((e) => friends.has(e));
+  if (!allowed.length) return c.json({ comments: [] });
+
+  const ph = allowed.map(() => '?').join(',');
+  const where = ['c.show_id = ?', `c.user_email IN (${ph})`];
+  const binds: any[] = [showId, ...allowed];
+  if (episodeId) { where.push('c.episode_id = ?'); binds.push(episodeId); }
+  const { results } = await c.env.DB
+    .prepare(
+      `SELECT c.id, c.user_email, c.episode_id, c.timestamp_ms, c.transcription, c.created_at, u.username
+         FROM watch_comment c
+         LEFT JOIN users u ON u.email = c.user_email
+        WHERE ${where.join(' AND ')}
+        ORDER BY c.timestamp_ms ASC`
+    )
+    .bind(...binds)
+    .all();
+
+  const origin = new URL(c.req.url).origin;
+  const comments = (results || []).map((r: any) => {
+    // who + when are always returned; the what is gated on having passed it.
+    const revealed = Number.isFinite(seenMs) && seenMs >= r.timestamp_ms;
+    return {
+      id: r.id,
+      author: r.username || r.user_email,
+      episodeId: r.episode_id,
+      timestampMs: r.timestamp_ms,
+      createdAt: r.created_at,
+      revealed,
+      transcription: revealed ? (r.transcription || '') : null,
+      audioUrl: revealed ? `${origin}/transcribe/audio/${r.id}` : null,
+    };
+  });
+  return c.json({ comments });
+});
+
 // Minimal HTML escape for untrusted report fields placed in the email body.
 const escHtml = (s: unknown) =>
   String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
