@@ -113,6 +113,16 @@
   .exc-btn.watch:active{transform:scale(.97)}
   .exc-btn.stop{color:#e9b9b9;background:transparent;border:1px solid var(--line)}
   .exc-btn.stop:active{color:#ff8a8a;border-color:#ff8a8a;transform:scale(.97)}
+  /* completed card: green treatment + single WATCH AGAIN pill in the corner */
+  .exp-card.completed{position:relative;border-color:#3f7a44;
+    box-shadow:0 0 0 1px #3f7a44,0 10px 26px -14px rgba(108,192,112,.55)}
+  .exp-card.completed .exc-title,.exp-card.completed .exc-meta{padding-right:128px}
+  .exc-meta.done{color:#6cc070}
+  .exc-again{position:absolute;top:11px;right:11px;display:flex;align-items:center;gap:6px;z-index:2;
+    border:1px solid #6cc070;background:rgba(108,192,112,.14);color:#6cc070;cursor:pointer;
+    font-family:var(--mono);font-weight:700;font-size:11px;letter-spacing:.05em;border-radius:999px;padding:7px 13px}
+  .exc-again .ic{font-size:13px;line-height:1}
+  .exc-again:active{transform:scale(.96)}
   .tile .poster,.pcell .poster{position:absolute;inset:0;background-size:cover;background-position:center top}
   .tile .scrim,.pcell .scrim{position:absolute;inset:0;background:linear-gradient(to top,rgba(10,7,5,.94) 0%,rgba(10,7,5,.55) 40%,rgba(10,7,5,.04) 72%)}
   .tile .body{position:absolute;left:0;right:0;bottom:0;padding:10px;display:flex;flex-direction:column;gap:7px}
@@ -440,9 +450,20 @@ function expandedCard(s, mode){
                           : 'style="background:linear-gradient(150deg,#2a201a,#16100c)"';
   const btn=(cls,act,ic,l1,l2)=>'<button class="exc-btn '+cls+'" data-act="'+act+'" data-id="'+s.id+'">'+
     '<span class="ic">'+ic+'</span><span class="lbl">'+l1+'<br>'+l2+'</span></button>';
-  const btns = mode==='completed'
-    ? btn('watch','tryagain','&#9654;&#65039;','TRY','AGAIN')+btn('stop','remove','&#10060;','REMOVE','PERMANENTLY')
-    : btn('watch','watch','&#9654;&#65039;',s.kind==='movie'?'WATCH':'WATCH',s.kind==='movie'?'FILM':'NEXT')+btn('stop','stop','&#128721;','STOP','WATCHING');
+  // COMPLETED: one corner pill, "WATCH AGAIN" → pops to the LOG side (the
+  // episodes face) where the streamer wheel lets you change the viewing method,
+  // e.g. theater → a streamer once it's available. No second button.
+  if(mode==='completed'){
+    const when = s.lastDate ? relDate(s.lastDate) : '';
+    return '<div class="exp-card completed" data-id="'+s.id+'">'+
+        '<button class="exc-again" data-act="watch" data-id="'+s.id+'"><span class="ic">&#127909;</span>WATCH AGAIN</button>'+
+        '<div class="exc-top"><div class="exc-poster" '+poster+'></div>'+
+          '<div class="exc-info"><div class="exc-title">'+titleHTML(s.name)+'</div>'+
+            '<div class="exc-meta done">'+metaTxt+(when?' &middot; '+esc(when):'')+'</div>'+
+            '<div class="exc-syn">'+syn+'</div></div></div>'+
+        '</div>';
+  }
+  const btns = btn('watch','watch','&#9654;&#65039;',s.kind==='movie'?'WATCH':'WATCH',s.kind==='movie'?'FILM':'NEXT')+btn('stop','stop','&#128721;','STOP','WATCHING');
   return '<div class="exp-card" data-id="'+s.id+'">'+
       '<div class="exc-top"><div class="exc-poster" '+poster+'></div>'+
         '<div class="exc-info"><div class="exc-title">'+titleHTML(s.name)+'</div>'+
@@ -483,6 +504,9 @@ function counts(){
 function render(){
   counts();
   publishLog();
+  // The "Last: …" line + chips are noise on the COMPLETED tab — drop them there.
+  const pierreEl=document.querySelector('.pierre');
+  if(pierreEl) pierreEl.style.display = activeTab==='completed' ? 'none' : '';
   const grid=document.getElementById("grid");
   if(activeTab==="comfort" || activeTab==="returning"){
     // Comfort + Returning are being reworked: under-construction notice for now.
