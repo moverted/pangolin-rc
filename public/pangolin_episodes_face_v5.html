@@ -43,6 +43,29 @@
     background:linear-gradient(180deg, rgba(8,6,4,.88) 0%, rgba(8,6,4,.5) 72%, transparent 100%); }
   .seasonlabel{ font-family:var(--mono); font-size:10px; letter-spacing:.18em;
     text-transform:uppercase; color:var(--faint); flex:0 0 auto; }
+  /* tappable episode readout in the top bar — opens the episode picker sheet */
+  .epreadout{ display:none; align-items:center; gap:5px; cursor:pointer;
+    font-family:var(--mono); font-size:10px; letter-spacing:.12em; text-transform:uppercase;
+    color:var(--amber); background:rgba(240,169,59,.1); border:1px solid rgba(240,169,59,.32);
+    border-radius:999px; padding:4px 9px; }
+  .epreadout .car{ font-size:8px; opacity:.8; }
+  .epreadout:active{ transform:scale(.95); }
+  /* episode picker sheet */
+  .epsheet{ position:fixed; inset:0; z-index:60; display:none; align-items:center; justify-content:center;
+    background:rgba(6,4,3,.72); -webkit-backdrop-filter:blur(3px); backdrop-filter:blur(3px); }
+  .epsheet.show{ display:flex; }
+  .epsheet-card{ width:min(86%,300px); max-height:70%; overflow:auto; background:#15100a;
+    border:1px solid rgba(240,169,59,.3); border-radius:16px; padding:14px;
+    box-shadow:0 22px 60px rgba(0,0,0,.6); }
+  .epsheet-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;
+    font-family:var(--mono); font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--faint); }
+  .epsheet-x{ background:none; border:none; color:var(--faint); font-size:15px; cursor:pointer; line-height:1; }
+  .epsheet-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+  .epchip{ height:40px; border-radius:10px; border:1px solid rgba(255,255,255,.12);
+    background:rgba(255,255,255,.03); color:var(--text); font-family:var(--mono); font-weight:700; font-size:13px;
+    cursor:pointer; display:flex; align-items:center; justify-content:center; }
+  .epchip.cur{ border-color:var(--amber); background:rgba(240,169,59,.16); }
+  .epchip:active{ transform:scale(.94); }
 
   .hero{ padding:16px 18px 18px; min-height:50%; display:flex; flex-direction:column; }
   /* one row: WATCH (left) · SEASONS (centered) */
@@ -381,10 +404,22 @@
         <span class="facelabel">LOG</span>
         <span class="dots" id="epDots"><i></i><i></i><i></i><i class="on"></i><i></i><i></i></span>
       </div>
-      <!-- season dots (display-only): dark-green done · 🍿 current · green future-available · grey unaired -->
-      <div class="fb-mid" id="seasonInd"></div>
+      <!-- season you're in + the episode readout (tap to open the episode picker) -->
+      <div class="fb-mid">
+        <span id="seasonInd"></span>
+        <button class="epreadout" id="epReadout" type="button"><span id="epReadoutTxt">EP — / —</span><span class="car">▸</span></button>
+      </div>
       <!-- best-guess streamer; hold it to roll the picker wheel -->
       <div class="fb-right"><div class="svccorner" id="svcCorner" style="display:none"></div></div>
+    </div>
+  </div>
+
+  <!-- episode picker: the EP readout opens this. Lists the current season's episodes;
+       🍿 marks where you are, tap any to jump the focus there. -->
+  <div class="epsheet" id="epSheet">
+    <div class="epsheet-card">
+      <div class="epsheet-head"><span id="epSheetTitle">SEASON</span><button class="epsheet-x" id="epSheetX" type="button">✕</button></div>
+      <div class="epsheet-grid" id="epSheetGrid"></div>
     </div>
   </div>
 
@@ -1221,6 +1256,10 @@ function paint(){
 
   const f=eps[focus]||{};
   $('epNo').textContent= isMovie ? 'FILM' : `S ${sNum(f)} EP ${focus+1} / ${total}`;
+  // top-bar episode readout (tap → picker). Hidden for films and single-episode seasons.
+  const er=$('epReadout');
+  if(er){ const showEr = !isMovie && total>1; er.style.display = showEr ? 'inline-flex' : 'none';
+    if(showEr) $('epReadoutTxt').textContent = 'EP '+(focus+1)+'/'+total; }
   $('epTtl').textContent=f.name||(isMovie?'Film':('Episode '+(focus+1)));
   $('epAired').textContent= isMovie ? (f.airdate?String(f.airdate).slice(0,4):'') : (f.airdate?fmt(f.airdate):'');
   $('syn').textContent=strip(f.summary)||'No synopsis available yet.';
@@ -1335,6 +1374,28 @@ function renderSeasons(){
   const curSeason = eps.length ? sNum(eps[0]) : seasons[0];
   host.innerHTML='<span class="seasonlabel">SEASON '+curSeason+'</span>';
 }
+
+// Episode picker: the top-bar EP readout opens this. Lists the current season's
+// episodes (the loaded `eps`); 🍿 marks the focused one; tap any to jump focus there
+// (same effect as tapping the episode bar — selects, records nothing).
+function openEpSheet(){
+  if(isMovie || eps.length<2) return;
+  const grid=$('epSheetGrid'); grid.innerHTML='';
+  $('epSheetTitle').textContent='SEASON '+sNum(eps[0]||{});
+  eps.forEach((e,i)=>{
+    const num=(e.number!=null)?e.number:(i+1);
+    const b=document.createElement('button'); b.type='button';
+    b.className='epchip'+(i===focus?' cur':'');
+    b.textContent=(i===focus?'🍿':'E')+num;
+    b.addEventListener('click',()=>{ focus=i; awaitingLog=false; minPreview=null; paint(); closeEpSheet(); });
+    grid.appendChild(b);
+  });
+  $('epSheet').classList.add('show');
+}
+function closeEpSheet(){ $('epSheet').classList.remove('show'); }
+$('epReadout').addEventListener('click', openEpSheet);
+$('epSheetX').addEventListener('click', closeEpSheet);
+$('epSheet').addEventListener('click', e=>{ if(e.target===$('epSheet')) closeEpSheet(); });
 
 // Minute bar for the focused episode (yellow track, elapsed darkens left→right).
 function paintMinute(){
