@@ -389,6 +389,49 @@ app.get('/tickets', async (c) => {
   return c.json({ tickets });
 });
 
+// ─── After-screening reflections ─────────────────────────────────────────────
+// A thought shared about a viewing that lives on afterward (vs. a timestamped
+// in-playback comment). Saved at the finale-share moment or the viewing's share
+// button; surfaced on the completed card. ticket_id ties it to one viewing.
+app.post('/reflection', async (c) => {
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const email = ((body.userEmail as string) || '').trim();
+  const showId = (body.showId as string) || '';
+  const ticketId = (body.ticketId as string) || null;
+  const text = ((body.text as string) || '').trim().slice(0, 2000);
+  if (!text) return c.json({ error: 'empty reflection' }, 400);
+  if (!email || email === 'anonymous') return c.json({ error: 'sign in required' }, 401);
+  const known = await c.env.DB.prepare('SELECT 1 FROM users WHERE email = ?').bind(email).first();
+  if (!known) return c.json({ error: 'unknown user' }, 401);
+
+  const id = crypto.randomUUID();
+  const now = Date.now();
+  await c.env.DB.prepare(
+    `INSERT INTO reflection (id, user_email, show_id, ticket_id, text, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).bind(id, email, showId || null, ticketId, text, now).run();
+  return c.json({ id, showId, ticketId, text, createdAt: now });
+});
+
+// List a member's reflections for one show, newest first.
+app.get('/reflections', async (c) => {
+  const showId = c.req.query('showId') ?? '';
+  const email = c.req.query('email') ?? '';
+  if (!showId || !email) return c.json({ reflections: [] });
+  const { results } = await c.env.DB
+    .prepare(
+      `SELECT id, ticket_id, text, created_at FROM reflection
+        WHERE show_id = ? AND user_email = ? ORDER BY created_at DESC`
+    )
+    .bind(showId, email)
+    .all();
+  const reflections = (results || []).map((r: any) => ({
+    id: r.id, ticketId: r.ticket_id, text: r.text, createdAt: r.created_at,
+  }));
+  return c.json({ reflections });
+});
+
 // Minimal HTML escape for untrusted report fields placed in the email body.
 const escHtml = (s: unknown) =>
   String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

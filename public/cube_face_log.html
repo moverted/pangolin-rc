@@ -123,6 +123,31 @@
     font-family:var(--mono);font-weight:700;font-size:11px;letter-spacing:.05em;border-radius:999px;padding:7px 13px}
   .exc-again .ic{font-size:13px;line-height:1}
   .exc-again:active{transform:scale(.96)}
+  /* per-viewing list (one ticket = one viewing); newest open, older collapsed */
+  .viewings{margin-top:11px;display:flex;flex-direction:column;gap:7px}
+  .vw{border:1px solid var(--line);border-radius:11px;background:rgba(255,255,255,.02);overflow:hidden}
+  .vw-head{display:flex;align-items:center;gap:8px;padding:9px 11px;cursor:pointer;
+    font-family:var(--mono);font-size:11px;color:var(--text);letter-spacing:.04em}
+  .vw-caret{color:var(--muted);font-size:12px;transition:transform .15s;flex:none}
+  .vw.open .vw-caret{transform:rotate(90deg)}
+  .vw-when .th{color:#6cc070}
+  .vw-body{display:none;flex-direction:column;gap:9px;padding:0 11px 11px}
+  .vw.open .vw-body{display:flex}
+  .vw-actions{display:flex;gap:8px;flex-wrap:wrap}
+  .vw-stub,.vw-share{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:6px 12px;cursor:pointer;
+    font-family:var(--mono);font-weight:700;font-size:10.5px;letter-spacing:.05em}
+  .vw-stub{color:#f3d9a0;background:rgba(58,13,18,.5);border:1px solid rgba(243,217,160,.45)}
+  .vw-share{color:var(--amber);background:transparent;border:1px solid var(--amber)}
+  .vw-stub:active,.vw-share:active{transform:scale(.96)}
+  .vw-refs{display:flex;flex-direction:column;gap:6px}
+  .vw-ref{font-size:11.5px;line-height:1.4;color:var(--text)}
+  .vw-ref .rq{color:var(--muted);font-family:var(--mono);font-size:9px;letter-spacing:.04em}
+  .vw-empty{font-family:var(--mono);font-size:10px;color:var(--muted);padding:2px 0}
+  /* tap the ticket-stub button → full ticket image */
+  .imglb{position:fixed;inset:0;z-index:50;display:none;align-items:center;justify-content:center;
+    background:rgba(4,3,2,.93);padding:24px;cursor:zoom-out}
+  .imglb.show{display:flex}
+  .imglb img{max-width:100%;max-height:100%;border-radius:10px;border:1px solid var(--line)}
   .tile .poster,.pcell .poster{position:absolute;inset:0;background-size:cover;background-position:center top}
   .tile .scrim,.pcell .scrim{position:absolute;inset:0;background:linear-gradient(to top,rgba(10,7,5,.94) 0%,rgba(10,7,5,.55) 40%,rgba(10,7,5,.04) 72%)}
   .tile .body{position:absolute;left:0;right:0;bottom:0;padding:10px;display:flex;flex-direction:column;gap:7px}
@@ -454,13 +479,13 @@ function expandedCard(s, mode){
   // episodes face) where the streamer wheel lets you change the viewing method,
   // e.g. theater → a streamer once it's available. No second button.
   if(mode==='completed'){
-    const when = s.lastDate ? relDate(s.lastDate) : '';
     return '<div class="exp-card completed" data-id="'+s.id+'">'+
         '<button class="exc-again" data-act="watch" data-id="'+s.id+'"><span class="ic">&#127909;</span>WATCH AGAIN</button>'+
         '<div class="exc-top"><div class="exc-poster" '+poster+'></div>'+
           '<div class="exc-info"><div class="exc-title">'+titleHTML(s.name)+'</div>'+
-            '<div class="exc-meta done">'+metaTxt+(when?' &middot; '+esc(when):'')+'</div>'+
+            '<div class="exc-meta done">'+metaTxt+'</div>'+
             '<div class="exc-syn">'+syn+'</div></div></div>'+
+        '<div class="viewings" id="vw-'+s.id+'"><div class="vw-empty">loading viewings…</div></div>'+
         '</div>';
   }
   const btns = btn('watch','watch','&#9654;&#65039;',s.kind==='movie'?'WATCH':'WATCH',s.kind==='movie'?'FILM':'NEXT')+btn('stop','stop','&#128721;','STOP','WATCHING');
@@ -535,7 +560,7 @@ function render(){
   }));
   // Tap the expanded card (outside its buttons) to collapse it.
   grid.querySelectorAll(".exp-card").forEach(c=>c.addEventListener("click",ev=>{
-    if(ev.target.closest("[data-act]"))return;
+    if(ev.target.closest("[data-act]")||ev.target.closest(".viewings"))return;   // viewings handle their own taps
     selectCurrent(c.dataset.id);
   }));
   // Expanded-card actions: Watch next / Stop watching (CURRENT) · Try again / Remove (COMPLETED).
@@ -547,6 +572,8 @@ function render(){
     else if(act==="tryagain"){ tryAgain(id); }
     else if(act==="remove"){ removePermanently(id); }
   }));
+  // Completed card expanded → fill its per-viewing list (tickets + reflections).
+  if(activeTab==="completed" && selectedId){ const s=LOG.find(x=>x.id===selectedId); if(s) loadViewings(s); }
 }
 
 /* CURRENT-tab selection: tap a show to open its action panel in place, tap its
@@ -902,7 +929,7 @@ function finishShow(id, land){
   // After the popcorn: share the finale card. A FILM gets a skippable comment first
   // (it rides along on the share); a series shares straight away as before.
   if(s.kind==='movie')
-    setTimeout(()=>askFinaleComment(s.name, c=>shareFinale(s.name,s.poster,s.platform,c)),900);
+    setTimeout(()=>askFinaleComment(s.name, c=>{ shareFinale(s.name,s.poster,s.platform,c); if(c) saveReflection(s.titleId,null,c); }),900);
   else
     setTimeout(()=>shareFinale(s.name,s.poster,s.platform),900);
 }
@@ -921,6 +948,67 @@ function askFinaleComment(title, done){
   document.getElementById('fcSkip').onclick=()=>finish('');
   ov.onclick=e=>{ if(e.target===ov) finish(''); };   // tap the backdrop to skip
 }
+
+// ─── Completed-card viewings: one ticket = one viewing, newest open ──────────
+async function loadViewings(s){
+  const host=document.getElementById('vw-'+s.id); if(!host) return;
+  const email=acct(); if(!email || !s.titleId){ host.innerHTML='<div class="vw-empty">sign in to see viewings</div>'; return; }
+  let tickets=[], refs=[];
+  try{
+    const [tr,rr]=await Promise.all([
+      fetch(API+'/tickets?showId='+encodeURIComponent(s.titleId)+'&email='+encodeURIComponent(email)),
+      fetch(API+'/reflections?showId='+encodeURIComponent(s.titleId)+'&email='+encodeURIComponent(email))
+    ]);
+    if(tr.ok) tickets=(await tr.json()).tickets||[];
+    if(rr.ok) refs=(await rr.json()).reflections||[];
+  }catch(_){}
+  renderViewings(host, s, tickets, refs);
+}
+
+function renderViewings(host, s, tickets, refs){
+  // One viewing per ticket (newest first). No tickets → a single streaming/other
+  // viewing so reflections + share still have a home.
+  let viewings = tickets.map(t=>({ id:t.id, when:[t.date,t.theater].filter(Boolean).join(' &middot; ')||relDate(s.lastDate), stub:t.ticketUrl }));
+  if(!viewings.length) viewings=[{ id:null, when:(s.lastDate?relDate(s.lastDate):'Watched'), stub:null }];
+  // Attach reflections by ticket_id; film-level (null) ride on the newest viewing.
+  const bucket={}; viewings.forEach(v=>bucket[v.id||'_']=[]);
+  refs.forEach(r=>{ const k=(r.ticketId && bucket[r.ticketId]!==undefined)?r.ticketId:(viewings[0].id||'_'); bucket[k].push(r); });
+
+  host.innerHTML = viewings.map((v,i)=>{
+    const open=i===0;                       // most recent open; older collapse behind a caret
+    const rl=bucket[v.id||'_']||[];
+    const refsHtml = rl.length
+      ? '<div class="vw-refs">'+rl.map(r=>'<div class="vw-ref">&ldquo;'+esc(r.text)+'&rdquo; <span class="rq">'+relDate(new Date(r.createdAt).toISOString())+'</span></div>').join('')+'</div>'
+      : '<div class="vw-empty">no reflections yet</div>';
+    const stubBtn = v.stub ? '<button class="vw-stub" data-img="'+esc(v.stub)+'"><span>&#127903;</span> ticket</button>' : '';
+    return '<div class="vw'+(open?' open':'')+'">'+
+      '<div class="vw-head"><span class="vw-caret">&#8250;</span><span class="vw-when">'+v.when+'</span></div>'+
+      '<div class="vw-body">'+
+        '<div class="vw-actions">'+stubBtn+'<button class="vw-share" data-tid="'+(v.id||'')+'">&#8599; share a thought</button></div>'+
+        refsHtml+
+      '</div></div>';
+  }).join('');
+
+  host.querySelectorAll('.vw-head').forEach(h=>h.addEventListener('click',()=>h.parentElement.classList.toggle('open')));
+  host.querySelectorAll('.vw-stub').forEach(b=>b.addEventListener('click',()=>showImg(b.dataset.img)));
+  host.querySelectorAll('.vw-share').forEach(b=>b.addEventListener('click',()=>viewingShare(s, b.dataset.tid||null)));
+}
+
+// Share a thought → native share card AND persist it as a reflection on this viewing.
+function viewingShare(s, ticketId){
+  askFinaleComment(s.name, txt=>{
+    shareFinale(s.name, s.poster, s.platform, txt);
+    if(txt){ saveReflection(s.titleId, ticketId, txt).then(()=>loadViewings(s)); }
+  });
+}
+async function saveReflection(showId, ticketId, text){
+  const email=acct(); if(!email || !text) return;
+  try{ await fetch(API+'/reflection',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({userEmail:email, showId, ticketId:ticketId||null, text})}); }catch(_){}
+}
+function showImg(url){ const lb=document.getElementById('imgLb'); if(!lb||!url)return;
+  lb.querySelector('img').src=url; lb.onclick=()=>lb.classList.remove('show'); lb.classList.add('show'); }
+
 function stopShow(id){
   const tileEl=document.querySelector('.tile[data-id="'+id+'"]'),s=LOG.find(x=>x.id===id); if(!s)return;
   const fr=face.getBoundingClientRect();
@@ -1062,5 +1150,8 @@ document.addEventListener('click', function(e){
       </div>
     </div>
   </div>
+
+  <!-- full ticket image, opened from a viewing's 🎟 stub button -->
+  <div class="imglb" id="imgLb"><img alt="ticket"></div>
 </body>
 </html>
