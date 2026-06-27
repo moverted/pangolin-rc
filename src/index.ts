@@ -489,6 +489,65 @@ async function notifyBugEmail(env: Env, r: BugRow): Promise<void> {
 // Airtable `bug_report` grid for hand triage. The author fields these manually.
 app.options('/bug-reports', (c) => c.json({ ok: true }));
 
+// Admin-only bug review surface (powers the 🐞 badge + list on the profile face).
+// Gate: the caller must pass ?email= of a user whose user_type is 'admin'. The
+// author's address is also accepted as a hardcoded fallback so the surface keeps
+// working even if the row is reset — "bulletproof" per the brief. Returns the open
+// (not fixed/wontfix) reports plus an open count for the badge.
+const HARDCODED_ADMINS = new Set(['edward.m.willett@gmail.com']);
+async function isAdmin(env: Env, email: string): Promise<boolean> {
+  if (!email) return false;
+  if (HARDCODED_ADMINS.has(email)) return true;
+  const row = await env.DB.prepare('SELECT user_type FROM users WHERE email = ?').bind(email).first<{ user_type?: string }>();
+  return row?.user_type === 'admin';
+}
+app.get('/bug-reports', async (c) => {
+  const email = (c.req.query('email') || '').trim().toLowerCase();
+  if (!(await isAdmin(c.env, email))) return c.json({ error: 'forbidden' }, 403);
+  // Open = anything not yet resolved. Newest first; capped for a tappable list.
+  const rows = await c.env.DB.prepare(
+    `SELECT id, user_email, note, view, url, screenshot_url, status, send_to_claude, claude_status, created_at
+       FROM bug_report
+      WHERE status NOT IN ('fixed', 'wontfix')
+      ORDER BY created_at DESC
+      LIMIT 100`
+  ).all();
+  const bugs = rows.results || [];
+  return c.json({ bugs, open: bugs.length });
+});
+
+// The Claude work queue: bugs an admin flagged for an automated pass that no
+// consumer has finished yet. A local session, scheduled cloud agent, or GitHub
+// Action pulls this, works each one, then PATCHes claude_status to 'done'.
+// Admin-gated the same way as the list above.
+app.get('/bug-reports/claude-queue', async (c) => {
+  const email = (c.req.query('email') || '').trim().toLowerCase();
+  if (!(await isAdmin(c.env, email))) return c.json({ error: 'forbidden' }, 403);
+  const rows = await c.env.DB.prepare(
+    `SELECT id, user_email, note, view, url, screenshot_url, status, claude_status, created_at
+       FROM bug_report
+      WHERE send_to_claude = 1 AND COALESCE(claude_status, 'queued') NOT IN ('done', 'skipped')
+      ORDER BY created_at ASC
+      LIMIT 50`
+  ).all();
+  const bugs = rows.results || [];
+  return c.json({ bugs, queued: bugs.length });
+});
+
+// A consumer marks a queued bug as worked (or skipped). Admin-gated.
+app.patch('/bug-reports/:id/claude', async (c) => {
+  const id = c.req.param('id');
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const email = (body.email || '').trim().toLowerCase();
+  if (!(await isAdmin(c.env, email))) return c.json({ error: 'forbidden' }, 403);
+  const status = String(body.claude_status || '');
+  if (!['queued', 'working', 'done', 'skipped'].includes(status)) return c.json({ error: 'bad status' }, 400);
+  const res = await c.env.DB.prepare('UPDATE bug_report SET claude_status = ? WHERE id = ?').bind(status, id).run();
+  if (!res.meta.changes) return c.json({ error: 'not found' }, 404);
+  return c.json({ ok: true, id, claude_status: status });
+});
+
 app.post('/bug-reports', async (c) => {
   try {
     const form = await c.req.formData();
@@ -499,6 +558,11 @@ app.post('/bug-reports', async (c) => {
     const viewport = ((form.get('viewport') as string) || '').trim();
     const email = ((form.get('email') as string) || '').trim().toLowerCase();
     const shot = form.get('screenshot') as unknown as File | null;
+    // "Send to Claude" is admin-only — the form only shows the box to admins, but
+    // re-verify server-side so a forged field can't queue work. Queued bugs get
+    // claude_status='queued' for a consumer (agent/Action) to pick up.
+    const wantsClaude = ((form.get('sendToClaude') as string) || '') === '1';
+    const sendToClaude = wantsClaude && (await isAdmin(c.env, email)) ? 1 : 0;
 
     // A report needs *something* — a note or a screenshot. Empty taps are dropped.
     if (!note && !(shot && shot.size > 0)) {
@@ -533,14 +597,16 @@ app.post('/bug-reports', async (c) => {
       viewport: viewport || null,
       screenshot_url: screenshotUrl,
       status: 'new',
+      send_to_claude: sendToClaude,
+      claude_status: sendToClaude ? 'queued' : null,
       created_at: now,
     };
     await c.env.DB.prepare(
-      `INSERT INTO bug_report (id, user_email, note, view, url, user_agent, viewport, screenshot_url, status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO bug_report (id, user_email, note, view, url, user_agent, viewport, screenshot_url, status, send_to_claude, claude_status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
       .bind(row.id, row.user_email, row.note, row.view, row.url, row.user_agent,
-            row.viewport, row.screenshot_url, row.status, row.created_at)
+            row.viewport, row.screenshot_url, row.status, row.send_to_claude, row.claude_status, row.created_at)
       .run();
 
     // Mirror to the Airtable triage grid and email a notification — both

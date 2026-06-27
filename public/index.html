@@ -247,7 +247,11 @@
       background: rgba(255,255,255,0.04); color: #fff;
       font-family: inherit; font-size: 15px;
     }
-    #bug-actions { display: flex; gap: 10px; justify-content: flex-end; }
+    #bug-actions { display: flex; gap: 10px; justify-content: flex-end; align-items: center; }
+    /* admin-only Send-to-Claude toggle; hidden until the opener confirms admin */
+    #bug-claude-row { display: none; margin-right: auto; align-items: center; gap: 6px;
+      font-size: 12.5px; color: #f3ede4; opacity: 0.85; cursor: pointer; user-select: none; }
+    #bug-claude-row input { width: 15px; height: 15px; accent-color: #FF6B35; cursor: pointer; }
     #bug-actions button {
       border: none; border-radius: 999px; padding: 9px 18px;
       font-family: inherit; font-weight: 700; font-size: 14px; cursor: pointer;
@@ -327,6 +331,8 @@
     <div id="bug-shot-note">Couldn't grab a screenshot — your note will still send.</div>
     <textarea id="bug-note" placeholder="What were you doing? What did you expect?"></textarea>
     <div id="bug-actions">
+      <!-- admin-only: queue this bug for an automated Claude Code pass -->
+      <label id="bug-claude-row"><input type="checkbox" id="bug-claude"> Send to Claude</label>
       <button id="bug-cancel" type="button">Cancel</button>
       <button id="bug-send" type="button">Send</button>
     </div>
@@ -1531,6 +1537,22 @@ document.getElementById('textteam').addEventListener('click', () => {
   const whereEl  = document.getElementById('bug-where');
   const sendBtn  = document.getElementById('bug-send');
   const cancelBtn= document.getElementById('bug-cancel');
+  const claudeRow= document.getElementById('bug-claude-row');
+  const claudeBox= document.getElementById('bug-claude');
+
+  // Show the "Send to Claude" toggle only to admins. Checked once per session and
+  // cached; the server re-verifies admin on submit so the box can't be forged.
+  let isAdminCached = null;
+  async function ensureAdmin() {
+    if (isAdminCached !== null) return isAdminCached;
+    let email = ''; try { email = localStorage.getItem('pg_user') || ''; } catch (_) {}
+    if (!email) return (isAdminCached = false);
+    try {
+      const r = await fetch(`${API}/profile/${encodeURIComponent(email)}`);
+      isAdminCached = r.ok && (await r.json())?.user?.user_type === 'admin';
+    } catch (_) { isAdminCached = false; }
+    return isAdminCached;
+  }
   let shotBlob = null, h2cPromise = null;
 
   // Lazy-load html2canvas only the first time the 🐞 is opened (off the critical path).
@@ -1575,6 +1597,8 @@ document.getElementById('textteam').addEventListener('click', () => {
     whereEl.textContent = 'On: ' + currentView();
     noteEl.value = '';
     sendBtn.disabled = false; sendBtn.textContent = 'Send';
+    claudeBox.checked = false; claudeRow.style.display = 'none';
+    ensureAdmin().then(ok => { if (ok) claudeRow.style.display = 'flex'; });
     modal.classList.add('show');
     capture();  // async — preview fills in when ready
   }
@@ -1596,6 +1620,7 @@ document.getElementById('textteam').addEventListener('click', () => {
       fd.append('userAgent', navigator.userAgent);
       fd.append('viewport', innerWidth + 'x' + innerHeight);
       try { fd.append('email', localStorage.getItem('pg_user') || ''); } catch (_) {}
+      fd.append('sendToClaude', (claudeRow.style.display !== 'none' && claudeBox.checked) ? '1' : '0');
       if (shotBlob) fd.append('screenshot', shotBlob, 'screenshot.png');
       const res = await fetch(`${API}/bug-reports`, { method: 'POST', body: fd });
       if (!res.ok) throw new Error('http ' + res.status);

@@ -143,15 +143,20 @@
     box-shadow:inset 0 1px 2px rgba(0,0,0,.42); cursor:pointer; touch-action:none; }
   .minfill{ position:absolute; left:0; top:0; bottom:0; width:0; border-radius:999px;
     background:linear-gradient(90deg,#caa15e,#7a5410); }
-  .minhandle{ position:absolute; top:50%; left:0; width:7px; height:26px; border-radius:4px;
-    background:var(--amber); transform:translate(-50%,-50%); box-shadow:0 2px 8px rgba(0,0,0,.55); cursor:grab; }
+  /* time-slider handle is the 🍿 — it marks where you are inside the episode */
+  .minhandle{ position:absolute; top:50%; left:0; transform:translate(-50%,-50%);
+    font-size:19px; line-height:1; cursor:grab; filter:drop-shadow(0 2px 5px rgba(0,0,0,.6)); }
+  .minhandle::after{ content:"🍿"; }
   .minhandle:active{ cursor:grabbing; }
-  .minfoot{ display:flex; align-items:center; justify-content:space-between; margin-top:11px;
+  /* relative so the total can be pinned dead-center, immune to the left readout
+     widening when the >> running-timer animation appends frames */
+  .minfoot{ position:relative; display:flex; align-items:center; justify-content:space-between; margin-top:11px;
     font-family:var(--mono); font-size:10.5px; letter-spacing:.04em; }
   .minfoot .d{ color:var(--dim); white-space:nowrap; font-size:15.75px; font-weight:700; display:flex; align-items:center; gap:4px; }
   .minfoot .d.faint{ color:var(--faint); font-weight:400; font-size:10.5px; }
   .minfoot .d.bp{ color:#ff9d5c; font-weight:700; letter-spacing:.1em; }
-  .minfoot .center{ flex:1; text-align:center; padding:0 8px; color:var(--dim); font-size:10.5px; }
+  .minfoot .center{ position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+    text-align:center; padding:0 8px; color:var(--dim); font-size:10.5px; pointer-events:none; }
   .minfoot .center.phrase{ color:var(--amber); font-size:9px; letter-spacing:.03em; }
   /* manual Start / Log Partial / Finish (fallback when the episode-end timer doesn't fire) */
   .startfin{ display:flex; gap:10px; margin-top:14px; align-items:center; }
@@ -1320,39 +1325,15 @@ function paint(){
 }
 
 // Season dots, colored by the episode convention.
+// Top-bar indicator: just the season you are in. The popcorn (current marker) now
+// lives on the time slider below, so this is a plain "SEASON N" readout.
 function renderSeasons(){
   const host=$('seasonInd'); if(!host) return;
   if(isMovie){ host.innerHTML='<span class="seasonlabel">FILM</span>'; return; }   // a film has no seasons
   const seasons=[...new Set(allEps.map(sNum))].filter(s=>s>=1).sort((a,b)=>a-b);
-  const N=seasons.length;
-  if(N===0){ host.innerHTML=''; return; }
+  if(!seasons.length){ host.innerHTML=''; return; }
   const curSeason = eps.length ? sNum(eps[0]) : seasons[0];
-
-  // 1 season: grey "1 SEASON", no counter / no dots.
-  if(N===1){ host.innerHTML='<span class="seasonlabel">1 SEASON</span>'; return; }
-
-  // 2-6 seasons: "SEASONS" + one colored dot per season.
-  if(N<=6){
-    const airedBy={}; allEps.filter(released).forEach(e=>airedBy[sNum(e)]=(airedBy[sNum(e)]||0)+1);
-    const dots=seasons.map(se=>{
-      let c='sd';
-      if(se===curSeason)     c+=' cur';     // 🍿 current
-      else if(se<curSeason)  c+=' done';    // dark green: completed
-      else if(airedBy[se]>0) c+=' avail';   // green: future, aired
-      return '<span class="'+c+'"></span>'; // else grey (unaired)
-    }).join('');
-    host.innerHTML='<span class="seasonlabel">SEASONS</span><span class="seasondots">'+dots+'</span>';
-    return;
-  }
-
-  // >6 seasons: count + the popcorn positioned by which third the current season
-  // falls in (e.g. 18 seasons -> 1-6 left, 7-12 middle, 13-18 right).
-  const third=Math.min(3, Math.max(1, Math.ceil(curSeason/(N/3))));
-  const corn='<span class="scorn">🍿</span>';
-  const inner = third===1 ? corn+N+' SEASONS'
-              : third===2 ? N+corn+'SEASONS'
-              :             N+' SEASONS'+corn;
-  host.innerHTML='<span class="seasonlabel">'+inner+'</span>';
+  host.innerHTML='<span class="seasonlabel">SEASON '+curSeason+'</span>';
 }
 
 // Minute bar for the focused episode (yellow track, elapsed darkens left→right).

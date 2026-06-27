@@ -100,7 +100,17 @@
   .exc-top{display:flex;gap:12px;align-items:flex-start}
   .exc-poster{flex:0 0 84px;width:84px;height:84px;border-radius:10px;background-size:cover;
     background-position:center top;background-color:#16100c}
-  .exc-info{min-width:0;display:flex;flex-direction:column;gap:5px}
+  .exc-info{min-width:0;flex:1;display:flex;flex-direction:column;gap:5px}
+  /* SEASONS picker: number chips to the right of the poster/title. The season you
+     are in shows the 🍿; every chip taps through to that season on the LOG face. */
+  .exc-seasons{flex:0 0 auto;display:flex;flex-direction:column;align-items:flex-end;gap:6px;max-width:122px}
+  .exc-seas-label{font-family:var(--mono);font-size:9px;letter-spacing:.18em;color:var(--muted)}
+  .exc-seas-grid{display:flex;flex-wrap:wrap;gap:5px;justify-content:flex-end}
+  .exc-seas-chip{min-width:27px;height:27px;padding:0 6px;border-radius:8px;border:1px solid var(--line);
+    background:rgba(255,255,255,.025);color:var(--text);font-family:var(--mono);font-weight:700;font-size:12px;
+    display:flex;align-items:center;justify-content:center;cursor:pointer}
+  .exc-seas-chip:active{transform:scale(.93)}
+  .exc-seas-chip.cur{border-color:var(--amber);background:rgba(233,162,60,.16)}
   .exc-title{font-family:var(--display);font-weight:700;font-size:17px;line-height:1.1;color:var(--text)}
   .exc-meta{font-family:var(--mono);font-size:10px;letter-spacing:.05em;color:var(--muted)}
   .exc-syn{font-size:11.5px;line-height:1.45;color:var(--muted);max-height:4.4em;overflow:hidden}
@@ -489,10 +499,13 @@ function expandedCard(s, mode){
         '</div>';
   }
   const btns = btn('watch','watch','&#9654;&#65039;',s.kind==='movie'?'WATCH':'WATCH',s.kind==='movie'?'FILM':'NEXT')+btn('stop','stop','&#128721;','STOP','WATCHING');
+  // Seasons column (filled async after render via fillSeasons; films have none).
+  const seasonsCol = isMovie ? '' : '<div class="exc-seasons" id="seas-'+s.id+'"></div>';
   return '<div class="exp-card" data-id="'+s.id+'">'+
       '<div class="exc-top"><div class="exc-poster" '+poster+'></div>'+
         '<div class="exc-info"><div class="exc-title">'+titleHTML(s.name)+'</div>'+
-          '<div class="exc-meta">'+metaTxt+'</div><div class="exc-syn">'+syn+'</div></div></div>'+
+          '<div class="exc-meta">'+metaTxt+'</div><div class="exc-syn">'+syn+'</div></div>'+
+        seasonsCol+'</div>'+
       '<div class="exc-btns">'+btns+'</div></div>';
 }
 // Grid for a selectable tab: the selected show becomes a full-width expanded card
@@ -574,6 +587,8 @@ function render(){
   }));
   // Completed card expanded → fill its per-viewing list (tickets + reflections).
   if(activeTab==="completed" && selectedId){ const s=LOG.find(x=>x.id===selectedId); if(s) loadViewings(s); }
+  // Current card expanded → fill its SEASONS chips (async; films get none).
+  else if(selectedId){ const s=LOG.find(x=>x.id===selectedId); if(s) fillSeasons(s); }
 }
 
 /* CURRENT-tab selection: tap a show to open its action panel in place, tap its
@@ -746,6 +761,58 @@ function episodesPayload(s, fromStart){
     ? {kind:"resume", season:s.lastWatched.season, number:s.lastWatched.number}
     : {kind:"beginning"};
   return { titleId:s.titleId, kind:s.kind, name:s.name, pattern:pat };
+}
+
+// Distinct real seasons (drops specials/season 0) in ascending order.
+function seasonsOf(eps){
+  return [...new Set((eps||[]).map(e=>e.season).filter(n=>n>=1))].sort((a,b)=>a-b);
+}
+// Where to land when a season chip is tapped. Default is the season's first episode,
+// but if the member has watched into that season we resume at the next episode to
+// watch (the LOG face restores the saved minute marker on that episode). We pass the
+// last finished episode number as the resume point; the LOG face focuses the next one.
+function seasonResumeNumber(s, season){
+  const eps=s._eps;   // account detail: per-episode done flags
+  if(eps && eps.length){
+    const done=eps.filter(e=>e.season===season && e.done).map(e=>e.number);
+    return done.length ? Math.max(...done) : 0;   // 0 → start of season
+  }
+  // Seed/DEMO records carry no per-episode progress; fall back to the single pointer.
+  if(s.lastWatched && s.lastWatched.season===season) return s.lastWatched.number||0;
+  return 0;
+}
+function seasonJump(s, season){
+  const number=seasonResumeNumber(s, season);
+  cube.rotateTo("episodes", Object.assign(episodesPayload(s), {pattern:{kind:"resume", season:season, number:number}}));
+}
+// Fill the expanded card's SEASONS chips. Seed records carry s.episodes; account
+// records don't, so we lazily fetch the title's episodes once and cache the seasons.
+async function fillSeasons(s){
+  if(!s || s.kind==="movie") return;
+  const host=document.getElementById("seas-"+s.id); if(!host) return;
+  let seasons=s._seasons;
+  if(!seasons){
+    const email=acct();
+    if(email && s.titleId){
+      // Account record: pull the full episode list (carries per-episode done/minute),
+      // cache it for the resume-aware jump, and derive the season list from it.
+      try{ const r=await fetch(API+"/profile/"+encodeURIComponent(email)+"/titles/"+encodeURIComponent(s.titleId));
+        if(r.ok){ const d=await r.json(); s._eps=d.episodes||[]; seasons=seasonsOf(s._eps); } }catch(e){}
+    }
+    if(!seasons && s.episodes && s.episodes.length){ seasons=seasonsOf(s.episodes); }  // seed/DEMO fallback
+    s._seasons = seasons = seasons || [];
+  }
+  if(document.getElementById("seas-"+s.id)!==host) return;   // card collapsed/changed mid-fetch
+  if(seasons.length<2){ host.innerHTML=""; return; }          // 0/1 season: nothing to pick
+  const cur=(s.lastWatched && s.lastWatched.season) || seasons[0];
+  const chips=seasons.map(n=>{
+    const isCur=n===cur;
+    return '<button class="exc-seas-chip'+(isCur?" cur":"")+'" data-season="'+n+'">'+(isCur?"🍿":n)+'</button>';
+  }).join("");
+  host.innerHTML='<div class="exc-seas-label">SEASONS</div><div class="exc-seas-grid">'+chips+'</div>';
+  host.querySelectorAll(".exc-seas-chip").forEach(b=>b.addEventListener("click",ev=>{
+    ev.stopPropagation(); seasonJump(s, +b.dataset.season);
+  }));
 }
 
 // Map whatever Pierre/Join hands us (bare tvmaze id, bare tmdb id, or a prefixed

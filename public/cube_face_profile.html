@@ -89,6 +89,42 @@
     letter-spacing:.16em;font-size:10px;color:var(--amber);white-space:nowrap;
     border:1px solid rgba(239,168,60,.45);border-radius:999px;padding:5px 11px;
   }
+  /* Admin bug review surface */
+  .adminbugs{margin:0 0 22px;}
+  .bug-banner{
+    width:100%;display:flex;align-items:center;gap:10px;cursor:pointer;
+    background:rgba(239,168,60,.08);border:1px solid rgba(239,168,60,.4);
+    border-radius:12px;padding:11px 14px;color:var(--amber);
+    font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.1em;text-transform:uppercase;
+  }
+  .bug-banner:active{transform:scale(.99);}
+  .bug-ic{font-size:16px;line-height:1;}
+  .bug-txt{flex:1;text-align:left;}
+  .bug-count{
+    min-width:22px;height:22px;padding:0 6px;border-radius:999px;
+    background:var(--amber);color:#1a130a;font-weight:700;font-size:12px;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .bug-count.zero{background:var(--muted-2);color:#0b0b14;}
+  .bug-caret{font-size:11px;transition:transform .15s ease;}
+  .bug-caret.open{transform:rotate(90deg);}
+  .bug-list{margin-top:10px;display:flex;flex-direction:column;gap:8px;}
+  .bug-item{
+    background:var(--bg-2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;
+  }
+  .bug-item .bnote{color:var(--muted);font-size:13px;line-height:1.4;word-break:break-word;}
+  .bug-item .bmeta{
+    margin-top:6px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;
+    font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--muted-2);
+  }
+  .bug-item .bview{color:var(--amber-dim);}
+  .bug-item .bshot{color:var(--amber);text-decoration:none;}
+  .bug-item .bclaude{color:#7fd1c0;border:1px solid rgba(127,209,192,.4);border-radius:999px;padding:2px 7px;}
+  .bug-item .bstatus{
+    margin-left:auto;border:1px solid var(--line);border-radius:999px;padding:2px 8px;color:var(--muted);
+  }
+  .bug-empty{color:var(--muted-2);font-size:12px;padding:10px 2px;}
   .id{display:flex;align-items:center;gap:16px;margin-top:18px;}
   .avatar{
     position:relative;width:70px;height:70px;border-radius:999px;
@@ -287,6 +323,18 @@
         <!-- content scrolls inside the square; the device picker is the focal point -->
         <div class="scroll">
           <div class="pbody">
+            <!-- Admin-only bug review. Hidden for everyone else; the banner is a live
+                 open-bug count, tapping it reveals the list (note · view · shot). -->
+            <div class="adminbugs" id="adminBugs" style="display:none">
+              <button class="bug-banner" id="bugBanner" type="button">
+                <span class="bug-ic">🐞</span>
+                <span class="bug-txt">Open bug reports</span>
+                <span class="bug-count" id="bugCount">0</span>
+                <span class="bug-caret" id="bugCaret">▸</span>
+              </button>
+              <div class="bug-list" id="bugList" style="display:none"></div>
+            </div>
+
             <div class="devices">
               <div class="dhead">
                 <h2>Your Devices</h2>
@@ -498,7 +546,8 @@
       $('pname').textContent='Guest'; $('phandle').textContent='not signed in';
       $('authBtn').textContent='log in'; $('authBtn').onclick=()=>nav('pierre',{intent:'join'});
       if(!DEMO){ state.devices=[]; state.selected='phone'; renderDevices();
-        $('stShows').textContent='0'; $('stEps').textContent='0'; $('stThird').textContent='0'; }  // signed out → zeros
+        $('stShows').textContent='0'; $('stEps').textContent='0'; $('stThird').textContent='0';
+        $('adminBugs').style.display='none'; }  // signed out → zeros, no admin surface
       return;
     }
     $('authBtn').textContent='log out';
@@ -510,9 +559,67 @@
       if(r.status===404){ try{localStorage.removeItem('pg_user');}catch(_){} return refresh(); }  // account gone -> sign out
       if(r.ok){ const d=await r.json(); if(d.user&&d.user.username) $('pname').textContent=d.user.username;
         if(!DEMO){ state.devices=d.devices||[]; state.selected=(d.user&&d.user.selected_device)||'phone'; renderDevices(); }
-        if(!DEMO) syncTimezone(email, d.user&&d.user.timezone); }
+        if(!DEMO) syncTimezone(email, d.user&&d.user.timezone);
+        if(!DEMO) applyMembership(d.user, email); }
     }catch(_){}
   }
+
+  // Membership chip reflects the real tier + founding flag. Admins additionally
+  // get the bug-review surface; everyone else has it hidden.
+  const TIER_LABEL = {admin:'ADMIN', elite_pro:'ELITE PRO', elite:'ELITE', basic:'MEMBER'};
+  function applyMembership(user, email){
+    const tier=(user&&user.user_type)||'basic';
+    const founding=!!(user&&(user.founding_member===1||user.founding_member===true));
+    const base=TIER_LABEL[tier]||'MEMBER';
+    $('member').textContent = founding ? ('FOUNDING '+base) : base;
+    if(tier==='admin'){ loadBugs(email); }
+    else { $('adminBugs').style.display='none'; }
+  }
+
+  // Pull the open bug reports (admin-gated server-side) and render the badge + list.
+  async function loadBugs(email){
+    try{
+      const r=await fetch(API+'/bug-reports?email='+encodeURIComponent(email));
+      if(!r.ok){ $('adminBugs').style.display='none'; return; }   // 403 for non-admins → stay hidden
+      const d=await r.json();
+      $('adminBugs').style.display='';
+      const n=d.open||0;
+      const c=$('bugCount'); c.textContent=String(n); c.classList.toggle('zero', n===0);
+      renderBugs(d.bugs||[]);
+    }catch(_){ $('adminBugs').style.display='none'; }
+  }
+  function renderBugs(bugs){
+    const host=$('bugList'); host.innerHTML='';
+    if(!bugs.length){ const e=document.createElement('div'); e.className='bug-empty'; e.textContent='No open reports. All clear.'; host.appendChild(e); return; }
+    bugs.forEach(b=>{
+      const item=document.createElement('div'); item.className='bug-item';
+      const note=document.createElement('div'); note.className='bnote';
+      note.textContent=(b.note&&b.note.trim())||'(no note)'; item.appendChild(note);
+      const meta=document.createElement('div'); meta.className='bmeta';
+      const when=document.createElement('span'); when.textContent=fmtWhen(b.created_at); meta.appendChild(when);
+      if(b.view){ const v=document.createElement('span'); v.className='bview'; v.textContent=b.view; meta.appendChild(v); }
+      if(b.user_email){ const u=document.createElement('span'); u.textContent=b.user_email; meta.appendChild(u); }
+      if(b.screenshot_url){ const a=document.createElement('a'); a.className='bshot'; a.href=b.screenshot_url; a.target='_blank'; a.rel='noopener'; a.textContent='📷 shot'; meta.appendChild(a); }
+      if(b.send_to_claude){ const cl=document.createElement('span'); cl.className='bclaude';
+        cl.textContent='🤖 claude'+(b.claude_status&&b.claude_status!=='queued'?(' · '+b.claude_status):''); meta.appendChild(cl); }
+      const st=document.createElement('span'); st.className='bstatus'; st.textContent=b.status||'new'; meta.appendChild(st);
+      item.appendChild(meta); host.appendChild(item);
+    });
+  }
+  function fmtWhen(ts){
+    if(!ts) return '';
+    const d=new Date(Number(ts)), now=Date.now(), diff=now-d.getTime();
+    const day=86400000;
+    if(diff<day && d.getDate()===new Date(now).getDate()) return 'today';
+    if(diff<2*day) return 'yesterday';
+    return d.toLocaleDateString(undefined,{month:'short',day:'numeric'});
+  }
+  // Tap the banner to expand / collapse the list.
+  $('bugBanner').addEventListener('click',()=>{
+    const list=$('bugList'), open=list.style.display!=='none';
+    list.style.display=open?'none':'';
+    $('bugCaret').classList.toggle('open',!open);
+  });
 
   // Show the member's time zone, and persist the browser's IANA zone to the account
   // (once) when the server doesn't have it yet — captured, never guessed from clocks.

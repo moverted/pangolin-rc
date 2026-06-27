@@ -17,7 +17,7 @@ const safeParse = (s: string) => { try { return JSON.parse(s); } catch { return 
 const int = (v: unknown, min = -Infinity) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(min, Math.trunc(v)) : null);
 
 // Columns safe to return to the client (never the password salt/hash).
-const SAFE = 'email, username, phone, photo_url, selected_device, timezone, created_at, updated_at';
+const SAFE = 'email, username, phone, photo_url, selected_device, timezone, user_type, founding_member, created_at, updated_at';
 
 // PBKDF2 password hashing via Web Crypto.
 const _enc = new TextEncoder();
