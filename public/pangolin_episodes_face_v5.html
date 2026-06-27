@@ -436,15 +436,6 @@
         <h1 class="name" id="name">Loading…</h1>
         <div class="ymeta" id="ymeta"></div>
 
-        <!-- episode progress: popcorn marks the current episode. tap the bar to force-advance (logs BP) -->
-        <div class="barzone">
-          <div class="pop" id="pop"><span class="fire">🔥</span><span class="corn">🍿</span></div>
-          <div class="bar" id="bar">
-            <div class="seg watched" id="segW" style="width:0"></div>
-            <div class="seg avail" id="segA" style="left:0;width:0"></div>
-          </div>
-        </div>
-
         <!-- minute bar: where you are inside the current episode (yellow, elapsed darkens L→R) -->
         <div class="minzone">
           <div class="minbar" id="minBar">
@@ -1241,15 +1232,8 @@ function paint(){
   const total=eps.length, rel=eps.filter(released).length;
   $('face').classList.toggle('binge', bingeLive());
 
-  // ----- season dots (display-only) -----
+  // ----- season + episode readout (top bar) -----
   renderSeasons();
-
-  // ----- episode bar (popcorn marks the focused episode) -----
-  $('segW').style.width=(watched/total*100)+'%';
-  $('segA').style.left=(watched/total*100)+'%';
-  $('segA').style.width=((rel-watched)/total*100)+'%';
-  $('segA').classList.toggle('lit', rel>watched && !bingeLive());
-  $('pop').style.left=Math.max(4,Math.min(96,(focus+0.5)/total*100))+'%';
 
   // ----- minute bar (position inside the focused episode) -----
   paintMinute();
@@ -1558,31 +1542,8 @@ minBar.addEventListener('pointermove',ev=>{ if(!minDragging)return; minPreview=m
 minBar.addEventListener('pointerup',ev=>{ if(!minDragging)return; minDragging=false; awaitingLog=true; paintMinute(); });
 minBar.addEventListener('pointercancel',()=>{ minDragging=false; });
 
-// The episode bar is a PREVIEW slider: drag the popcorn across the season to scan
-// each episode's number/title/air-date/synopsis. It records nothing — sliding over
-// unwatched episodes no longer marks them watched. Releasing selects (focuses) the
-// previewed episode so START / CONTINUE / FINISH then act on it.
-function barIdxFromX(clientX){
-  const r=$('bar').getBoundingClientRect();
-  const ratio=Math.max(0,Math.min(0.9999,(clientX-r.left)/r.width));
-  return Math.max(0,Math.min(eps.length-1, Math.floor(ratio*eps.length)));
-}
-// Update only the popcorn position + the header preview — no state, no writes.
-function previewEpisode(idx){
-  const total=eps.length||1, e=eps[idx]||{};
-  $('pop').style.left=Math.max(4,Math.min(96,(idx+0.5)/total*100))+'%';
-  $('epNo').textContent= isMovie ? 'FILM' : `S ${sNum(e)} EP ${idx+1} / ${total}`;
-  $('epTtl').textContent=e.name||(isMovie?'Film':('Episode '+(idx+1)));
-  $('epAired').textContent= isMovie ? (e.airdate?String(e.airdate).slice(0,4):'') : (e.airdate?fmt(e.airdate):'');
-  $('syn').textContent=strip(e.summary)||'No synopsis available yet.';
-}
-let barDragging=false;
-$('bar').addEventListener('pointerdown',e=>{ e.stopPropagation(); e.preventDefault();
-  barDragging=true; $('bar').setPointerCapture(e.pointerId); previewEpisode(barIdxFromX(e.clientX)); });
-$('bar').addEventListener('pointermove',e=>{ if(!barDragging)return; previewEpisode(barIdxFromX(e.clientX)); });
-$('bar').addEventListener('pointerup',e=>{ if(!barDragging)return; barDragging=false;
-  focus=barIdxFromX(e.clientX); awaitingLog=false; minPreview=null; paint(); });   // select; records nothing
-$('bar').addEventListener('pointercancel',()=>{ if(barDragging){ barDragging=false; paint(); } });   // snap back to real focus
+// Episode selection moved to the top-bar EP readout + picker sheet (openEpSheet).
+// The old green preview-slider bar was removed to stop it reading as a season slider.
 
 // "tap anywhere to log it": one tap outside the controls commits the staged minute.
 document.querySelector('.face').addEventListener('click',e=>{
