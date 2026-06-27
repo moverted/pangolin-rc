@@ -444,8 +444,9 @@
     if(joinFlow==='login-pw'){ joinLoginPw(text); return; }
     if(joinFlow==='set-pw'){ joinSetPw(text); return; }
     if(joinFlow==='picking'){ input.focus(); joinSearch(text); return; }
-    // Add flow: if they type before tapping Series/Movie, assume a series.
-    if(addFlow==='kind'){ input.blur(); addKind='show'; addFlow='name'; resolveShowName(text); return; }
+    // Add flow: if they type before tapping Series/Movie, don't assume — search
+    // both worlds and lay out the whole spread so they can pick the right unit.
+    if(addFlow==='kind'){ input.blur(); resolveAnyName(text); return; }
     // Name step: the typed line is a title, not a chat turn. Route by kind (TMDB
     // for a film, TVmaze for a series). Drop the keyboard so results show full-face.
     if(addFlow==='name'){ input.blur(); (addKind==='movie'?resolveMovieName:resolveShowName)(text); return; }
@@ -510,6 +511,41 @@
     pierreSay(kind==='movie'
       ? "A movie. Which one, or just put one on now?"
       : "A series. What do you want to add, or just put on right now?");
+  }
+
+  // No kind chosen: the member typed a title without tapping Series or Movie.
+  // Don't guess. Search both worlds at once (TVMaze for series, TMDB for films)
+  // and lay out the full spread, so "Jack Ryan" surfaces the Prime series AND the
+  // Clancy films together and they pick the unit they actually meant.
+  async function resolveAnyName(text){
+    showTyping();
+    const sP = fetch('https://api.tvmaze.com/search/shows?q='+encodeURIComponent(text))
+      .then(r=>r.ok?r.json():[]).catch(()=>null);
+    const mP = fetch(`${API}/tmdb/search?q=`+encodeURIComponent(text))
+      .then(r=>r.ok?r.json():null).catch(()=>null);
+    const [sR, mR] = await Promise.all([sP, mP]);
+    clearTyping();
+    const shows  = (sR||[]).filter(x=>x&&x.show).map(x=>x.show);
+    const movies = (mR&&mR.results)||[];
+    if(sR===null && mR===null){
+      pierreSay("Something hiccuped looking that up. I am a pangolin working a remote, so honestly it is a small miracle this works at all. Try again?", tedChip());
+      return;
+    }
+    if(!shows.length && !movies.length){
+      addFailCount++;
+      if(addFailCount>=2){ pierreSay("Still cannot place it, and I will not pretend I can. I am a pangolin, that I read at all is amazing. Let me get Ted, he is the human here.", tedChip()); return; }
+      pierreSay("I cannot find that one, series or film. Try the full title?");
+      return;
+    }
+    addFailCount=0;
+    const sCands=shows.slice(0,3), mCands=movies.slice(0,4);
+    const chips=[];
+    sCands.forEach(s=>chips.push({label:candLabel(s)+' · Series', onClick:()=>resolveShow(s)}));
+    mCands.forEach(m=>chips.push({label:m.title+(m.year?' ('+m.year+')':'')+' · Movie', onClick:()=>handoffMovie(m)}));
+    if(chips.length===1){ sCands.length ? resolveShow(sCands[0]) : handoffMovie(mCands[0]); return; }
+    // Stay in 'kind': typing another title re-runs the combined search until they tap.
+    addFlow='kind';
+    pierreSay("You did not say series or movie, so here is the whole spread. Which one?", chips);
   }
 
   function candLabel(s){
