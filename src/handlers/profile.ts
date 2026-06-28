@@ -408,12 +408,29 @@ profileRoutes.get('/:email/follows', async (c) => {
   const incoming = (followers.results || [])
     .filter((r: any) => !followingSet.has(r.email))
     .map((r: any) => ({ email: r.email, username: r.username || null }));
-  // Slot quota for the UI: used = outgoing follows; limit null = unlimited (admin).
+  // A slot is consumed only by a confirmed friend (mutual). Pending one-way
+  // follows you've sent are free and shown separately.
+  const friends = out.filter((x: any) => x.friend);
+  const pending = out.filter((x: any) => !x.friend);
   const me = await c.env.DB.prepare('SELECT user_type FROM users WHERE email = ?').bind(email).first<any>();
   const limit = slotLimit(me?.user_type);
-  const slots = { tier: me?.user_type || 'basic', limit: Number.isFinite(limit) ? limit : null, used: out.length };
-  return c.json({ following: out, friends: out.filter((x: any) => x.friend), incoming, slots });
+  const slots = { tier: me?.user_type || 'basic', limit: Number.isFinite(limit) ? limit : null, used: friends.length };
+  return c.json({ following: out, friends, pending, incoming, slots });
 });
+
+// Count a member's confirmed friends (mutual follows).
+async function friendCount(c: any, email: string): Promise<number> {
+  const r = await c.env.DB
+    .prepare(
+      `SELECT COUNT(*) AS c FROM follows a
+         JOIN follows b ON b.follower_email = a.followee_email
+                       AND b.followee_email = a.follower_email
+        WHERE a.follower_email = ?`
+    )
+    .bind(email)
+    .first();
+  return (r as any)?.c ?? 0;
+}
 
 // Find members to add, by username or email fragment (excludes yourself). Each
 // result is annotated with your edge to them so the UI can show Follow / Follow
@@ -444,6 +461,15 @@ profileRoutes.get('/:email/find', async (c) => {
   return c.json({ results });
 });
 
+// Is this address already a pangolinRC member? Powers "invite detects an existing
+// member and follows them in-app instead of emailing a join link."
+profileRoutes.get('/:email/member', async (c) => {
+  const addr = (c.req.query('addr') || '').toLowerCase().trim();
+  if (!EMAIL_RE.test(addr)) return c.json({ member: false });
+  const u = await c.env.DB.prepare('SELECT username FROM users WHERE email = ?').bind(addr).first<any>();
+  return c.json({ member: !!u, username: u?.username || null });
+});
+
 // Follow a member by email (idempotent). Target must be an existing member.
 profileRoutes.post('/:email/follow', async (c) => {
   const email = c.req.param('email').toLowerCase();
@@ -453,17 +479,23 @@ profileRoutes.post('/:email/follow', async (c) => {
   if (target === email) return c.json({ error: "can't follow yourself" }, 400);
   const exists = await c.env.DB.prepare('SELECT email, username FROM users WHERE email = ?').bind(target).first<any>();
   if (!exists) return c.json({ error: 'no such member' }, 404);
-  // Slot cap (SEAM:policy): outgoing follows are limited by tier. Re-following
-  // someone is idempotent and never blocked; admin is unlimited.
-  const me = await c.env.DB.prepare('SELECT user_type FROM users WHERE email = ?').bind(email).first<any>();
-  const limit = slotLimit(me?.user_type);
-  if (Number.isFinite(limit)) {
-    const already = await c.env.DB
-      .prepare('SELECT 1 FROM follows WHERE follower_email = ? AND followee_email = ?').bind(email, target).first();
-    if (!already) {
-      const used = await c.env.DB
-        .prepare('SELECT COUNT(*) AS c FROM follows WHERE follower_email = ?').bind(email).first<{ c: number }>();
-      if ((used?.c ?? 0) >= limit) return c.json({ error: 'slot_limit', limit }, 403);
+  // Slot cap (SEAM:policy): a slot is spent only when a follow COMPLETES a mutual
+  // friendship. A pending one-way follow is free. When it would complete a pair,
+  // neither party may exceed their tier's friend limit. Re-following is idempotent.
+  const already = await c.env.DB
+    .prepare('SELECT 1 FROM follows WHERE follower_email = ? AND followee_email = ?').bind(email, target).first();
+  if (!already) {
+    const reciprocal = await c.env.DB
+      .prepare('SELECT 1 FROM follows WHERE follower_email = ? AND followee_email = ?').bind(target, email).first();
+    if (reciprocal) {
+      // This follow makes (email, target) mutual — both gain a friend. Guard both.
+      for (const who of [email, target]) {
+        const t = await c.env.DB.prepare('SELECT user_type FROM users WHERE email = ?').bind(who).first<any>();
+        const lim = slotLimit(t?.user_type);
+        if (Number.isFinite(lim) && (await friendCount(c, who)) >= lim) {
+          return c.json({ error: 'slot_limit', limit: lim, who }, 403);
+        }
+      }
     }
   }
   const now = Date.now();
