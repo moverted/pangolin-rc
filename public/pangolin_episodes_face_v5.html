@@ -200,9 +200,14 @@
   .mic-center:active{ transform:scale(.95); }
   .mic-center.recording{ background:var(--amber); color:var(--amber-deep);
     box-shadow:0 0 24px var(--amber); border-color:var(--amber-deep); }
+  /* REPLY mode: a revealed friend comment is waiting for an answer. */
+  .mic-center.replymode{ background:rgba(108,192,112,.2); color:#6cc070; border-color:#6cc070;
+    box-shadow:0 0 18px rgba(108,192,112,.4); }
+  .mic-center.replymode:hover{ background:rgba(108,192,112,.32); box-shadow:0 0 22px rgba(108,192,112,.45); }
   .mic-center svg{ width:28px; height:28px; }
-  .mic-center.recording svg{ display:none; }
+  .mic-center.recording svg, .mic-center.replymode svg{ display:none; }
   .mic-center #micLabel{ font-size:20px; font-weight:700; font-family:var(--mono); letter-spacing:.05em; }
+  .mic-center.replymode #micLabel{ font-size:13px; }
   /* Mic for audio comments: narrow, sits at the end of the logging row */
   .sfbtn.mic{ flex:0 0 auto; padding-left:15px; padding-right:15px; font-size:14px;
     --accent:var(--amber); border-color:var(--accent); color:var(--accent); }
@@ -852,11 +857,17 @@ function paintTranscripts(){
       }
     };
 
-    // Transcript text
+    // Transcript text, with a one-time ✎ to fix Whisper's guess (own comments
+    // only). The pencil is shown until the single correction is spent.
     const textDiv = document.createElement('div');
     textDiv.style.flex = '1';
     textDiv.style.minWidth = '0';
-    textDiv.innerHTML = `<strong>${t.epCode} ${t.time}</strong> — ${t.text}`;
+    const pencil = (t.id && !t.edited)
+      ? ` <a href="#" data-edit="${t.id}" title="Fix transcription (once)" style="color:var(--dim);text-decoration:none;">✎</a>`
+      : '';
+    textDiv.innerHTML = `<strong>${t.epCode} ${t.time}</strong> — <span class="tx">${escHtml(t.text)}</span>${pencil}`;
+    const ed = textDiv.querySelector('a[data-edit]');
+    if(ed) ed.onclick = (e)=>{ e.preventDefault(); editTranscript(t); };
 
     line.appendChild(speakerBtn);
     line.appendChild(textDiv);
@@ -864,35 +875,85 @@ function paintTranscripts(){
   });
 
   // Friends' comments (co-viewing). Spoiler-gated: who + when always render; the
-  // words (and the play button) appear only once you've passed the mark — the
-  // server withholds the text/audio until then, so this can't be peeked in DOM.
-  coviewComments.forEach((c)=>{
-    const line=document.createElement('div');
-    line.style.marginBottom='12px'; line.style.display='flex';
-    line.style.alignItems='center'; line.style.gap='12px';
+  // audio (and, behind a tap, the text) appears only once you've passed the mark
+  // + one minute — the server withholds text/audio until then, so this can't be
+  // peeked in DOM. Replies thread under the comment they answer.
+  coviewIndicator(container);
+  const replied = coviewRepliedSet();
+  const repliesByParent = {};
+  coviewComments.forEach(c=>{ if(c.replyTo){ (repliesByParent[c.replyTo] ||= []).push(c); } });
 
+  coviewComments.filter(c=>!c.replyTo).forEach((c)=>{
+    container.appendChild(coviewRow(c, false, replied));
+    (repliesByParent[c.id]||[]).forEach(rep=> container.appendChild(coviewRow(rep, true, replied)));
+  });
+}
+
+// One co-view row (an original comment, or a threaded reply when `nested`).
+// Original + revealed → 🔊 audio (default) and a "show text" toggle. Locked →
+// 🔒 + "reveals at M:SS". A reply may be text-only (the SMS path) or carry audio
+// (the OTT path) — an audio reply gets its own ↳🔊 play button.
+function coviewRow(c, nested, replied){
+  const line=document.createElement('div');
+  line.style.cssText=`margin-bottom:12px;display:flex;align-items:center;gap:12px;${nested?'margin-left:28px;opacity:.92;':''}`;
+
+  if(nested){
+    const tick=document.createElement('div');
+    tick.style.cssText='width:34px;text-align:right;color:#6cc070;font-size:16px;flex-shrink:0;';
+    tick.innerHTML='↳';
+    line.appendChild(tick);
     if(c.revealed && c.audioUrl){
       const sp=document.createElement('button');
-      sp.style.cssText='width:48px;height:48px;padding:0;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(108,192,112,.2);border:2px solid #6cc070;cursor:pointer;color:#6cc070;font-size:20px;flex-shrink:0;';
+      sp.style.cssText='width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(108,192,112,.2);border:2px solid #6cc070;cursor:pointer;color:#6cc070;font-size:15px;flex-shrink:0;';
       sp.innerHTML='🔊';
       sp.onclick=(e)=>{ e.preventDefault(); window.open(c.audioUrl,'_blank'); };
       line.appendChild(sp);
-    } else {
-      const lock=document.createElement('div');
-      lock.style.cssText='width:48px;height:48px;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(255,255,255,.04);border:2px solid rgba(255,255,255,.12);color:var(--dim);font-size:18px;flex-shrink:0;';
-      lock.innerHTML='🔒';
-      line.appendChild(lock);
     }
+  } else if(c.revealed && c.audioUrl){
+    const sp=document.createElement('button');
+    sp.style.cssText='width:48px;height:48px;padding:0;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(108,192,112,.2);border:2px solid #6cc070;cursor:pointer;color:#6cc070;font-size:20px;flex-shrink:0;';
+    sp.innerHTML='🔊';
+    sp.onclick=(e)=>{ e.preventDefault(); window.open(c.audioUrl,'_blank'); };
+    line.appendChild(sp);
+  } else if(!nested){
+    const lock=document.createElement('div');
+    lock.style.cssText='width:48px;height:48px;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(255,255,255,.04);border:2px solid rgba(255,255,255,.12);color:var(--dim);font-size:18px;flex-shrink:0;';
+    lock.innerHTML='🔒';
+    line.appendChild(lock);
+  }
 
-    const txt=document.createElement('div');
-    txt.style.flex='1'; txt.style.minWidth='0';
-    const who=`<span style="color:#6cc070;">${c.author}</span>`;
-    const when=`<strong>${c.epCode} ${c.time}</strong>`;
-    const body = c.revealed ? c.text : `<em style="opacity:.6;">reveals at ${c.time}</em>`;
-    txt.innerHTML=`${when} · ${who} — ${body}`;
-    line.appendChild(txt);
-    container.appendChild(line);
-  });
+  const txt=document.createElement('div');
+  txt.style.flex='1'; txt.style.minWidth='0';
+  const who=`<span style="color:#6cc070;">${escHtml(c.author)}</span>`;
+  const when=`<strong>${escHtml(c.epCode)} ${c.time}</strong>`;
+  if(!c.revealed){
+    txt.innerHTML=`${when} · ${who} — <em style="opacity:.6;">reveals at ${c.time}</em>`;
+  } else if(nested){
+    txt.innerHTML=`${who} — ${escHtml(c.text)}`;
+  } else {
+    // Audio is the default; the words sit behind a tap (audio default + per-comment text).
+    const repliedTag = replied.has(c.id) ? ' <span style="color:#6cc070;opacity:.8;">· ✓ replied</span>' : '';
+    txt.innerHTML=`${when} · ${who}${repliedTag} — <a href="#" style="color:var(--amber);text-decoration:none;">show text ▾</a><span style="display:none;">${escHtml(c.text)}</span>`;
+    const a=txt.querySelector('a'), span=txt.querySelector('span:last-child');
+    a.onclick=(e)=>{ e.preventDefault(); const open=span.style.display!=='none';
+      span.style.display=open?'none':'inline'; a.textContent=open?'show text ▾':'hide text ▴'; };
+  }
+  line.appendChild(txt);
+  return line;
+}
+
+// "Friend watched & commented" banner — distinct from the friend picker. Lists
+// the co-viewers who actually have comments on this episode and how many.
+function coviewIndicator(container){
+  const byAuthor = {};
+  coviewComments.forEach(c=>{ if(!c.replyTo) byAuthor[c.author]=(byAuthor[c.author]||0)+1; });
+  const names = Object.keys(byAuthor);
+  if(!names.length) return;
+  const b=document.createElement('div');
+  b.style.cssText='margin-bottom:14px;padding:8px 12px;border-radius:8px;background:rgba(108,192,112,.12);border:1px solid rgba(108,192,112,.35);color:#6cc070;font-size:12px;';
+  const parts=names.map(n=>`${escHtml(n)} · ${byAuthor[n]} comment${byAuthor[n]>1?'s':''}`);
+  b.innerHTML=`🟢 watched &amp; commented — ${parts.join(' · ')}`;
+  container.appendChild(b);
 }
 
 // Pull this member's saved audio comments for the current show and render them.
@@ -908,6 +969,9 @@ async function loadComments(){
     transcripts = (d.comments||[]).map(c=>{
       const m = Math.round((c.timestampMs||0)/60000);
       return {
+        id: c.id,
+        edited: !!c.edited,
+        hasText: !!(c.transcription && c.transcription.trim()),
         epCode: c.episodeId || '',
         time: `${Math.floor(m/60)}:${String(m%60).padStart(2,'0')}`,
         audioUrl: c.audioUrl,
@@ -916,6 +980,27 @@ async function loadComments(){
     });
   }catch(_){ /* leave whatever we have */ }
   paintTranscripts();
+}
+
+// One-time transcription fix. Prefill the dialog with Whisper's attempt; on save
+// PATCH it and lock the pencil (the server enforces the once-only rule too).
+async function editTranscript(t){
+  if(!t || !t.id) return;
+  const email = (typeof acctEmail==='function' ? acctEmail() : '');
+  if(!email) return;
+  const current = t.hasText ? t.text : '';
+  const next = prompt('Fix the transcription (you can do this once):', current);
+  if(next==null) return;
+  const text = next.trim();
+  if(!text || text===current){ return; }
+  try{
+    const r = await fetch(`${API_BASE}/transcribe/${encodeURIComponent(t.id)}`, {
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ email, text }) });
+    if(r.ok){ t.text=text; t.hasText=true; t.edited=true; paintTranscripts(); }
+    else if(r.status===409){ t.edited=true; paintTranscripts(); alert('This comment was already corrected once.'); }
+    else { alert('Could not save the correction.'); }
+  }catch(_){ alert('Could not save the correction.'); }
 }
 
 // ─── Co-viewing: friends' comments, spoiler-gated by your own progress ────────
@@ -986,13 +1071,19 @@ async function loadCoview(){
     const r = await fetch(u); if(!r.ok){ paintTranscripts(); return; }
     const d = await r.json();
     coviewComments = (d.comments||[]).map(c=>{
-      const m = Math.round((c.timestampMs||0)/60000);
-      if(!c.revealed) coviewNextLock = Math.min(coviewNextLock, c.timestampMs||0);
-      return { author:c.author||'friend', epCode:c.episodeId||epCode(e),
-        time:`${Math.floor(m/60)}:${String(m%60).padStart(2,'0')}`, ms:c.timestampMs||0,
+      // The comment surfaces one minute after its mark — gate, lock and the
+      // "reveals at" clock all run off revealMs, not the raw timestamp.
+      const reveal = (c.revealMs!=null) ? c.revealMs : ((c.timestampMs||0)+60000);
+      const rm = Math.round(reveal/60000);
+      if(!c.revealed) coviewNextLock = Math.min(coviewNextLock, reveal);
+      return { id:c.id, author:c.author||'friend', authorEmail:c.authorEmail||'',
+        epCode:c.episodeId||epCode(e),
+        time:`${Math.floor(rm/60)}:${String(rm%60).padStart(2,'0')}`,
+        ms:c.timestampMs||0, revealMs:reveal, replyTo:c.replyTo||null, phone:c.phone||null,
         revealed:!!c.revealed, audioUrl:c.audioUrl||null,
         text:(c.transcription && c.transcription.trim()) || 'Audio recorded' };
     });
+    updateMicMode();
   }catch(_){ /* leave whatever we have */ }
   paintTranscripts();
 }
@@ -1002,6 +1093,82 @@ function coviewCheckReveal(){
   if(_coviewFocus!==focus){ loadCoview(); return; }     // switched episodes → reload
   if(coviewNextLock===Infinity) return;                 // nothing left to unlock
   if(coviewSeenMs() >= coviewNextLock) loadCoview();
+}
+
+// ─── Co-view replies: the green REPLY mic + the sms: hand-off ─────────────────
+// Once a friend's comment has surfaced (passed mark + 1 min), the centre mic
+// flips to REPLY mode — green ring, "REPLY" sublabel — targeting the most recent
+// unanswered comment. Tapping records the reply in-app and opens a native SMS
+// draft to the friend (no text server: it's an sms: deep link). Replied ids are
+// remembered locally so the mic reverts and the row shows "✓ replied".
+function coviewRepliedKey(){ return curShowId ? 'pg_coview_replied:'+curShowId : null; }
+function coviewRepliedSet(){ try{ return new Set(JSON.parse(localStorage.getItem(coviewRepliedKey())||'[]')); }catch(_){ return new Set(); } }
+function coviewMarkReplied(id){ const k=coviewRepliedKey(); if(!k||!id) return;
+  const s=coviewRepliedSet(); s.add(id); try{ localStorage.setItem(k, JSON.stringify([...s])); }catch(_){} }
+
+// The comment the REPLY mic points at: the latest revealed original (has audio,
+// so it's not itself a reply) that you haven't already answered.
+function coviewReplyTarget(){
+  const replied=coviewRepliedSet();
+  let best=null;
+  coviewComments.forEach(c=>{
+    if(c.replyTo || !c.revealed || !c.audioUrl) return;   // replies & locked rows can't be targets
+    if(replied.has(c.id)) return;
+    if(!best || c.revealMs>best.revealMs) best=c;
+  });
+  return best;
+}
+
+// Reflect the reply target on the mic: green + "REPLY" when one is pending, plain
+// record mic otherwise. Never fights the recording countdown.
+function updateMicMode(){
+  const btn=$('micBtn'), label=$('micLabel');
+  if(!btn) return;
+  if(isRecording){ btn.classList.remove('replymode'); return; }
+  const t=coviewReplyTarget();
+  if(t){ btn.classList.add('replymode'); if(label){ label.style.display='block'; label.textContent='REPLY'; } btn.setAttribute('aria-label','Reply to '+t.author); }
+  else { btn.classList.remove('replymode'); if(label){ label.style.display='none'; label.textContent=''; } btn.setAttribute('aria-label','Record audio comment'); }
+}
+
+// OTT = the show is on another screen (TV/device), so the phone is free to
+// record an audio reply. When the phone IS the screen we can't, so we fall back
+// to the SMS text hand-off. (A full native app would push a banner instead.)
+function isOTT(){ try{ return (localStorage.getItem('pg_device_kind')||'phone') !== 'phone'; }catch(_){ return false; } }
+
+let pendingReply = null;   // the comment an in-flight audio recording is replying to
+
+// Tap on the green REPLY mic. OTT → record an audio reply; on-device → text+SMS.
+function replyTap(target){
+  if(!target) return;
+  if(isOTT()){
+    pendingReply = target;                 // tag the next recording as a reply
+    recordAudioComment();
+  } else {
+    replyFlow(target);
+  }
+}
+
+async function replyFlow(target){
+  if(!target) return;
+  const body = prompt(`Reply to ${target.author} (${target.epCode} ${target.time}) — sends a text:`);
+  if(body==null) return;
+  const text=body.trim(); if(!text){ return; }
+  const email = (typeof acctEmail==='function' ? acctEmail() : '');
+  // Record the reply in-app so the original commenter sees it; best-effort, the
+  // SMS draft opens regardless so the reply still reaches them.
+  if(email && target.id){
+    try{
+      await fetch(`${API_BASE}/transcribe/reply`, { method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ email, showId:curShowId, episodeId:target.epCode, replyTo:target.id, text }) });
+    }catch(_){ /* the SMS draft below is the fallback path */ }
+  }
+  coviewMarkReplied(target.id);
+  paintTranscripts(); updateMicMode();
+  // Native text hand-off — no SMS server, just the OS Messages compose sheet.
+  const intro=`re: ${target.epCode} ${target.time} — `;
+  if(target.phone){ window.location.href = 'sms:'+target.phone+'?&body='+encodeURIComponent(intro+text); }
+  else { alert('Reply saved — '+target.author+" hasn't added a phone number, so no text was sent."); }
 }
 
 async function startRecording(){
@@ -1037,6 +1204,7 @@ async function startRecording(){
   const micBtn = $('micBtn');
   const micLabel = $('micLabel');
   if(micBtn){
+    micBtn.classList.remove('replymode');   // recording overrides any pending REPLY prompt
     micBtn.classList.add('recording');
     if(micLabel){
       micLabel.style.display = 'block';
@@ -1068,6 +1236,7 @@ function stopRecording(){
       micLabel.textContent = '';
     }
   }
+  updateMicMode();   // restore REPLY prompt if a friend comment is still waiting
 
   // Stop recording and wait for all chunks to be collected
   if(!mediaRecorder || mediaRecorder.state === 'inactive'){
@@ -1087,6 +1256,10 @@ function stopRecording(){
       console.log('Skipping transcription: no episode or no chunks');
       return;
     }
+
+    // If this recording is an audio reply, the server re-anchors it at the
+    // parent's mark; we just tag it. Capture + clear so the next recording is clean.
+    const rTgt = pendingReply; pendingReply = null;
 
     const code = epCode(e);
     const mins = Math.round((epMin[focus]||0));
@@ -1122,6 +1295,7 @@ function stopRecording(){
       return;
     }
     formData.append('userEmail', userEmail);
+    if(rTgt && rTgt.id) formData.append('replyTo', rTgt.id);
 
     try {
       console.log('Sending transcription request for', code);
@@ -1147,14 +1321,22 @@ function stopRecording(){
       const data = await res.json();
       console.log('Audio upload complete:', data);
 
-      // Store the playback URL + transcript, persisted server-side now.
-      transcripts.unshift({
-        epCode: code,
-        time: timeStr,
-        audioUrl: data.audioUrl,
-        text: (data.transcription && data.transcription.trim()) || 'Audio recorded'
-      });
-      paintTranscripts();
+      if(rTgt){
+        // An audio reply: don't list it among your own comments — mark the target
+        // replied and reload co-view so it threads under the friend's comment.
+        coviewMarkReplied(rTgt.id);
+        updateMicMode();
+        loadCoview();
+      } else {
+        // A normal comment: store the playback URL + transcript, persisted now.
+        transcripts.unshift({
+          epCode: code,
+          time: timeStr,
+          audioUrl: data.audioUrl,
+          text: (data.transcription && data.transcription.trim()) || 'Audio recorded'
+        });
+        paintTranscripts();
+      }
     } catch(err){
       console.error('Transcription fetch error:', err.message);
       transcripts.unshift({
@@ -1446,6 +1628,8 @@ $('startEpBtn').onclick=()=>{
 };
 $('finishEpBtn').onclick=()=>{ flashBtn($('finishEpBtn')); if(isTheater()) openTicket(); else finishEpisode(); };
 $('micBtn').onclick=()=>{
+  // In REPLY mode the mic answers the pending friend comment instead of recording.
+  if(!isRecording){ const t=coviewReplyTarget(); if(t){ replyTap(t); return; } }
   // Recording button doesn't use flashBtn; instead shows recording state with countdown
   recordAudioComment();
 };

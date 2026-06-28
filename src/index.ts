@@ -28,6 +28,13 @@ app.use('*', cors({
   allowHeaders: ['Content-Type', 'Authorization'],
 }));
 
+// Co-view reveal delay: a friend's comment surfaces to the second viewer one
+// minute AFTER the mark it was spoken at (an 8:00 comment plays at 9:00). This
+// gives the second viewer a beat past the moment before the reaction lands, and
+// it's the same offset the live player uses to fire the audio. Server-enforced so
+// no text/audio/phone for a comment crosses the wire before mark + this.
+const COVIEW_REVEAL_OFFSET_MS = 60_000;
+
 // Transcribe endpoint - direct handler to avoid routing issues
 app.options('/transcribe', (c) => {
   return c.json({ ok: true });
@@ -37,10 +44,13 @@ app.post('/transcribe', async (c) => {
   try {
     const formData = await c.req.formData();
     const audio = formData.get('audio') as unknown as File;
-    const episodeId = formData.get('episodeId') as string;
-    const showId = (formData.get('showId') as string) || '';
+    let   episodeId = formData.get('episodeId') as string;
+    let   showId = (formData.get('showId') as string) || '';
     const userEmail = (formData.get('userEmail') as string) || '';
-    const timestampMs = parseInt(formData.get('timestampMs') as string) || 0;
+    let   timestampMs = parseInt(formData.get('timestampMs') as string) || 0;
+    // Optional: this audio is a REPLY to a friend's comment (the OTT reply path —
+    // the second viewer's phone is free to record while the show is on the TV).
+    const replyTo = ((formData.get('replyTo') as string) || '').trim();
 
     if (!audio || !episodeId) {
       return c.json({ error: 'missing audio or episodeId' }, 400);
@@ -67,6 +77,32 @@ app.post('/transcribe', async (c) => {
       return c.json({ error: 'unknown user' }, 401);
     }
 
+    // Audio reply: thread it under the parent and anchor it at the parent's mark
+    // (so it surfaces with the original), but only if the replier is a mutual
+    // follow of the parent's author — same authorization as a text reply.
+    let replyParent: string | null = null;
+    if (replyTo) {
+      const parent: any = await c.env.DB
+        .prepare('SELECT id, user_email, episode_id, show_id, timestamp_ms FROM watch_comment WHERE id = ?')
+        .bind(replyTo)
+        .first();
+      if (!parent) return c.json({ error: 'parent comment not found' }, 404);
+      const mutual = await c.env.DB
+        .prepare(
+          `SELECT 1 FROM follows a
+             JOIN follows b ON b.follower_email = a.followee_email
+                           AND b.followee_email = a.follower_email
+            WHERE a.follower_email = ? AND a.followee_email = ?`
+        )
+        .bind(email, parent.user_email)
+        .first();
+      if (!mutual) return c.json({ error: 'not permitted to reply' }, 403);
+      replyParent = parent.id;
+      episodeId = parent.episode_id;
+      showId = parent.show_id || showId;
+      timestampMs = parent.timestamp_ms;   // anchor at the parent's mark, not the device clock
+    }
+
     const commentId = crypto.randomUUID();
     const r2Key = `audio-comments/${showId || 'unknown'}/${episodeId}/${commentId}`;
     const buffer = await audio.arrayBuffer();
@@ -91,18 +127,19 @@ app.post('/transcribe', async (c) => {
 
     const now = Date.now();
     await c.env.DB.prepare(
-      `INSERT INTO watch_comment (id, user_email, episode_id, show_id, timestamp_ms, transcription, audio_r2_key, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO watch_comment (id, user_email, episode_id, show_id, timestamp_ms, transcription, audio_r2_key, reply_to, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-      .bind(commentId, email, episodeId, showId || null, timestampMs, transcription || null, r2Key, now)
+      .bind(commentId, email, episodeId, showId || null, timestampMs, transcription || null, r2Key, replyParent, now)
       .run();
 
-    console.log('Audio comment saved:', commentId);
+    console.log(replyParent ? 'Audio reply saved:' : 'Audio comment saved:', commentId);
     return c.json({
       id: commentId,
       audioUrl: `${new URL(c.req.url).origin}/transcribe/audio/${commentId}`,
       transcription,
       timestamp: timestampMs,
+      replyTo: replyParent,
     });
   } catch (error) {
     console.error('Audio upload error:', error);
@@ -133,6 +170,32 @@ app.get('/transcribe/audio/:id', async (c) => {
   return new Response(object.body, { headers });
 });
 
+// One-time transcription fix. The author corrects Whisper's text once; after
+// that transcript_edited is set and further edits are refused (409). Author-only.
+app.patch('/transcribe/:id', async (c) => {
+  const id = c.req.param('id');
+  const body = await c.req.json().catch(() => ({} as any));
+  const email = (body.email || '').trim();
+  const text = (body.text || '').trim();
+  if (!email || !text) return c.json({ error: 'email and text are required' }, 400);
+  if (text.length > 2000) return c.json({ error: 'transcription too long' }, 400);
+
+  const row: any = await c.env.DB
+    .prepare('SELECT user_email, transcript_edited FROM watch_comment WHERE id = ?')
+    .bind(id)
+    .first();
+  if (!row) return c.json({ error: 'not found' }, 404);
+  if (row.user_email !== email) return c.json({ error: 'not your comment' }, 403);
+  if (row.transcript_edited) return c.json({ error: 'already corrected once' }, 409);
+
+  const now = Date.now();
+  await c.env.DB
+    .prepare('UPDATE watch_comment SET transcription = ?, transcript_edited = ? WHERE id = ?')
+    .bind(text, now, id)
+    .run();
+  return c.json({ id, transcription: text, edited: true });
+});
+
 // List a member's audio comments for one show, newest first, so the episode
 // face can render the persisted "Transcripts" panel on load.
 //
@@ -151,7 +214,7 @@ app.get('/transcribe/comments', async (c) => {
 
   const { results } = await c.env.DB
     .prepare(
-      `SELECT id, episode_id, timestamp_ms, transcription, created_at
+      `SELECT id, episode_id, timestamp_ms, transcription, transcript_edited, created_at
          FROM watch_comment
         WHERE show_id = ? AND user_email = ?
         ORDER BY created_at DESC`
@@ -165,6 +228,7 @@ app.get('/transcribe/comments', async (c) => {
     episodeId: r.episode_id,
     timestampMs: r.timestamp_ms,
     transcription: r.transcription || '',
+    edited: !!r.transcript_edited,   // true → the one correction is spent, lock the pencil
     createdAt: r.created_at,
     audioUrl: `${origin}/transcribe/audio/${r.id}`,
   }));
@@ -217,31 +281,94 @@ app.get('/transcribe/coview', async (c) => {
   if (episodeId) { where.push('c.episode_id = ?'); binds.push(episodeId); }
   const { results } = await c.env.DB
     .prepare(
-      `SELECT c.id, c.user_email, c.episode_id, c.timestamp_ms, c.transcription, c.created_at, u.username
+      `SELECT c.id, c.user_email, c.episode_id, c.timestamp_ms, c.transcription,
+              c.audio_r2_key, c.reply_to, c.created_at, u.username, u.phone
          FROM watch_comment c
          LEFT JOIN users u ON u.email = c.user_email
         WHERE ${where.join(' AND ')}
-        ORDER BY c.timestamp_ms ASC`
+        ORDER BY c.timestamp_ms ASC, c.created_at ASC`
     )
     .bind(...binds)
     .all();
 
   const origin = new URL(c.req.url).origin;
   const comments = (results || []).map((r: any) => {
-    // who + when are always returned; the what is gated on having passed it.
-    const revealed = Number.isFinite(seenMs) && seenMs >= r.timestamp_ms;
+    // who + when are always returned; the what — text, audio, AND the author's
+    // phone for the reply hand-off — is gated on having passed mark + the offset.
+    const revealed = Number.isFinite(seenMs) && seenMs >= r.timestamp_ms + COVIEW_REVEAL_OFFSET_MS;
     return {
       id: r.id,
       author: r.username || r.user_email,
+      authorEmail: r.user_email,
       episodeId: r.episode_id,
       timestampMs: r.timestamp_ms,
+      // The instant the second viewer may see this — mark + offset.
+      revealMs: r.timestamp_ms + COVIEW_REVEAL_OFFSET_MS,
       createdAt: r.created_at,
+      replyTo: r.reply_to || null,
       revealed,
       transcription: revealed ? (r.transcription || '') : null,
-      audioUrl: revealed ? `${origin}/transcribe/audio/${r.id}` : null,
+      // A reply is text-only (no audio_r2_key); don't hand back a dead audio URL.
+      audioUrl: revealed && r.audio_r2_key ? `${origin}/transcribe/audio/${r.id}` : null,
+      // Phone powers the sms: reply draft; withheld until revealed so it never
+      // leaks ahead of the mark. May be null if the author never set one.
+      phone: revealed ? (r.phone || null) : null,
     };
   });
   return c.json({ comments });
+});
+
+// ─── Co-view replies ─────────────────────────────────────────────────────────
+// The second viewer replies to a friend's comment. The reply is recorded in-app
+// as a watch_comment authored by the replier, threaded under the parent via
+// reply_to and inheriting the parent's timestamp_ms so it sits at the same mark.
+// (The sms: hand-off is the client's job — this is the durable in-app record so
+// the original commenter sees the reply next time they co-view with the replier.)
+//
+// Authorization mirrors /transcribe/coview: the replier must be a mutual follow
+// of the parent's author. The client can't forge a reply to a stranger.
+app.post('/transcribe/reply', async (c) => {
+  const body = await c.req.json().catch(() => ({} as any));
+  const email = (body.email || '').trim();
+  const replyTo = (body.replyTo || '').trim();
+  const text = (body.text || '').trim();
+  if (!email || !replyTo || !text) {
+    return c.json({ error: 'email, replyTo and text are required' }, 400);
+  }
+  if (text.length > 2000) return c.json({ error: 'reply too long' }, 400);
+
+  const known = await c.env.DB.prepare('SELECT 1 FROM users WHERE email = ?').bind(email).first();
+  if (!known) return c.json({ error: 'unknown user' }, 401);
+
+  const parent: any = await c.env.DB
+    .prepare('SELECT id, user_email, episode_id, show_id, timestamp_ms FROM watch_comment WHERE id = ?')
+    .bind(replyTo)
+    .first();
+  if (!parent) return c.json({ error: 'parent comment not found' }, 404);
+
+  // Mutual follow between replier and the parent's author (A→B and B→A).
+  const mutual = await c.env.DB
+    .prepare(
+      `SELECT 1 FROM follows a
+         JOIN follows b ON b.follower_email = a.followee_email
+                       AND b.followee_email = a.follower_email
+        WHERE a.follower_email = ? AND a.followee_email = ?`
+    )
+    .bind(email, parent.user_email)
+    .first();
+  if (!mutual) return c.json({ error: 'not permitted to reply' }, 403);
+
+  const id = crypto.randomUUID();
+  const now = Date.now();
+  await c.env.DB
+    .prepare(
+      `INSERT INTO watch_comment (id, user_email, episode_id, show_id, timestamp_ms, transcription, audio_r2_key, reply_to, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)`
+    )
+    .bind(id, email, parent.episode_id, parent.show_id || null, parent.timestamp_ms, text, replyTo, now)
+    .run();
+
+  return c.json({ id, replyTo, timestampMs: parent.timestamp_ms, createdAt: now });
 });
 
 // ─── IRL Theater tickets ─────────────────────────────────────────────────────
