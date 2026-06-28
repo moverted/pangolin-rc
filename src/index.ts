@@ -170,6 +170,32 @@ app.get('/transcribe/audio/:id', async (c) => {
   return new Response(object.body, { headers });
 });
 
+// One-time transcription fix. The author corrects Whisper's text once; after
+// that transcript_edited is set and further edits are refused (409). Author-only.
+app.patch('/transcribe/:id', async (c) => {
+  const id = c.req.param('id');
+  const body = await c.req.json().catch(() => ({} as any));
+  const email = (body.email || '').trim();
+  const text = (body.text || '').trim();
+  if (!email || !text) return c.json({ error: 'email and text are required' }, 400);
+  if (text.length > 2000) return c.json({ error: 'transcription too long' }, 400);
+
+  const row: any = await c.env.DB
+    .prepare('SELECT user_email, transcript_edited FROM watch_comment WHERE id = ?')
+    .bind(id)
+    .first();
+  if (!row) return c.json({ error: 'not found' }, 404);
+  if (row.user_email !== email) return c.json({ error: 'not your comment' }, 403);
+  if (row.transcript_edited) return c.json({ error: 'already corrected once' }, 409);
+
+  const now = Date.now();
+  await c.env.DB
+    .prepare('UPDATE watch_comment SET transcription = ?, transcript_edited = ? WHERE id = ?')
+    .bind(text, now, id)
+    .run();
+  return c.json({ id, transcription: text, edited: true });
+});
+
 // List a member's audio comments for one show, newest first, so the episode
 // face can render the persisted "Transcripts" panel on load.
 //
@@ -188,7 +214,7 @@ app.get('/transcribe/comments', async (c) => {
 
   const { results } = await c.env.DB
     .prepare(
-      `SELECT id, episode_id, timestamp_ms, transcription, created_at
+      `SELECT id, episode_id, timestamp_ms, transcription, transcript_edited, created_at
          FROM watch_comment
         WHERE show_id = ? AND user_email = ?
         ORDER BY created_at DESC`
@@ -202,6 +228,7 @@ app.get('/transcribe/comments', async (c) => {
     episodeId: r.episode_id,
     timestampMs: r.timestamp_ms,
     transcription: r.transcription || '',
+    edited: !!r.transcript_edited,   // true → the one correction is spent, lock the pencil
     createdAt: r.created_at,
     audioUrl: `${origin}/transcribe/audio/${r.id}`,
   }));

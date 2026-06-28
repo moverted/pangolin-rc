@@ -857,11 +857,17 @@ function paintTranscripts(){
       }
     };
 
-    // Transcript text
+    // Transcript text, with a one-time ✎ to fix Whisper's guess (own comments
+    // only). The pencil is shown until the single correction is spent.
     const textDiv = document.createElement('div');
     textDiv.style.flex = '1';
     textDiv.style.minWidth = '0';
-    textDiv.innerHTML = `<strong>${t.epCode} ${t.time}</strong> — ${t.text}`;
+    const pencil = (t.id && !t.edited)
+      ? ` <a href="#" data-edit="${t.id}" title="Fix transcription (once)" style="color:var(--dim);text-decoration:none;">✎</a>`
+      : '';
+    textDiv.innerHTML = `<strong>${t.epCode} ${t.time}</strong> — <span class="tx">${escHtml(t.text)}</span>${pencil}`;
+    const ed = textDiv.querySelector('a[data-edit]');
+    if(ed) ed.onclick = (e)=>{ e.preventDefault(); editTranscript(t); };
 
     line.appendChild(speakerBtn);
     line.appendChild(textDiv);
@@ -963,6 +969,9 @@ async function loadComments(){
     transcripts = (d.comments||[]).map(c=>{
       const m = Math.round((c.timestampMs||0)/60000);
       return {
+        id: c.id,
+        edited: !!c.edited,
+        hasText: !!(c.transcription && c.transcription.trim()),
         epCode: c.episodeId || '',
         time: `${Math.floor(m/60)}:${String(m%60).padStart(2,'0')}`,
         audioUrl: c.audioUrl,
@@ -971,6 +980,27 @@ async function loadComments(){
     });
   }catch(_){ /* leave whatever we have */ }
   paintTranscripts();
+}
+
+// One-time transcription fix. Prefill the dialog with Whisper's attempt; on save
+// PATCH it and lock the pencil (the server enforces the once-only rule too).
+async function editTranscript(t){
+  if(!t || !t.id) return;
+  const email = (typeof acctEmail==='function' ? acctEmail() : '');
+  if(!email) return;
+  const current = t.hasText ? t.text : '';
+  const next = prompt('Fix the transcription (you can do this once):', current);
+  if(next==null) return;
+  const text = next.trim();
+  if(!text || text===current){ return; }
+  try{
+    const r = await fetch(`${API_BASE}/transcribe/${encodeURIComponent(t.id)}`, {
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ email, text }) });
+    if(r.ok){ t.text=text; t.hasText=true; t.edited=true; paintTranscripts(); }
+    else if(r.status===409){ t.edited=true; paintTranscripts(); alert('This comment was already corrected once.'); }
+    else { alert('Could not save the correction.'); }
+  }catch(_){ alert('Could not save the correction.'); }
 }
 
 // ─── Co-viewing: friends' comments, spoiler-gated by your own progress ────────
