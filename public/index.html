@@ -1396,17 +1396,25 @@ function capRender() {
 // a fast-forward marks skipped clips played-silently so a +2min jump doesn't dump
 // five overlapping voices at once. coPlaying serializes — two clips at the same
 // minute don't talk over each other; the later one retries on the next tick.
+// Friends' audio fires one minute AFTER the mark it was spoken at (matches the
+// server's COVIEW_REVEAL_OFFSET_MS): an 8:00 comment plays at 9:00. Prefer the
+// server's revealMs; fall back for older payloads.
+const COVIEW_REVEAL_OFFSET_MS = 60000;
+function capFireAt(clip) {
+  return (clip.revealMs != null) ? clip.revealMs : (clip.timestampMs + COVIEW_REVEAL_OFFSET_MS);
+}
 function capFireCoview(posMs) {
   if (!capSession) return;
   const cv = capSession.coview;
   if (!cv.length) return;
   // Rewound behind an already-fired clip → step the cursor back so it re-fires.
-  while (capSession.coIdx > 0 && cv[capSession.coIdx - 1].timestampMs > posMs + 1500)
+  while (capSession.coIdx > 0 && capFireAt(cv[capSession.coIdx - 1]) > posMs + 1500)
     capSession.coIdx--;
-  while (capSession.coIdx < cv.length && cv[capSession.coIdx].timestampMs <= posMs) {
+  while (capSession.coIdx < cv.length && capFireAt(cv[capSession.coIdx]) <= posMs) {
     const clip = cv[capSession.coIdx];
-    const late = posMs - clip.timestampMs;
+    const late = posMs - capFireAt(clip);
     capSession.coIdx++;
+    if (!clip.audioUrl) continue;                           // text reply — nothing to play here
     if (late > 8000) continue;                              // jumped past it — don't play
     if (capSession.coPlaying) { capSession.coIdx--; break; } // busy — retry next tick
     capPlayCoview(clip);
