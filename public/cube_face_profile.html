@@ -192,7 +192,7 @@
 
   /* scroll region inside the square */
   .scroll{
-    flex:1;overflow-y:auto;padding:6px 22px 26px;-webkit-overflow-scrolling:touch;
+    flex:1;min-height:0;overflow-y:auto;padding:6px 22px 52px;-webkit-overflow-scrolling:touch;
     overscroll-behavior:contain;touch-action:pan-y;
     scrollbar-width:none;display:flex;flex-direction:column;
   }
@@ -243,11 +243,20 @@
     text-transform:uppercase;cursor:pointer;}
   .fl-btn:disabled{opacity:.5;cursor:default;}
   .fl-btn.dim{border-color:var(--card-line);color:var(--muted-2);}
-  .fl-invite{margin-top:16px;width:100%;background:none;border:1px dashed var(--card-line);border-radius:12px;
-    color:var(--muted);padding:13px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;
-    letter-spacing:.06em;text-transform:uppercase;cursor:pointer;}
+  .fl-invites{display:flex;gap:8px;margin-top:16px;}
+  .fl-invite{flex:1;background:none;border:1px dashed var(--card-line);border-radius:12px;
+    color:var(--muted);padding:12px 8px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;
+    letter-spacing:.04em;text-transform:uppercase;cursor:pointer;}
   .fl-invite:hover{border-color:var(--amber);color:var(--amber);}
   .fl-hint{color:var(--muted-2);font-size:11px;line-height:1.5;margin-top:10px;}
+  /* open (unfilled) friend slot — mirrors the device "add" affordance */
+  .fl-slot{display:flex;align-items:center;gap:11px;padding:11px 0;border-bottom:1px solid var(--line-soft);
+    width:100%;background:none;text-align:left;cursor:pointer;}
+  .fl-slot .fl-av{background:none;border:1px dashed var(--card-line);color:var(--muted-2);}
+  .fl-slot .fl-name{color:var(--muted-2);}
+  .fl-slot:hover .fl-name,.fl-slot:hover .fl-av{color:var(--amber);border-color:var(--amber);}
+  .fl-slot.full{cursor:default;}
+  .fl-slot.full .fl-name{color:var(--muted);}
 
   .dev{border-bottom:1px solid var(--line-soft);}
   .dev:last-of-type{border-bottom:none;}
@@ -401,18 +410,18 @@
               </button>
             </div>
 
-            <div class="stats">
-              <div class="stat"><div class="num" id="stShows">128</div><div class="lbl">SHOWS</div></div>
-              <div class="stat"><div class="num" id="stEps">1,340</div><div class="lbl">EPISODES</div></div>
-              <div class="stat"><div class="num" id="stThird">$284</div><div class="lbl" id="stThirdLbl">SAVED</div></div>
-            </div>
-
+            <!-- Friend slots: a tier-limited quota sitting right below devices.
+                 A slot = an outgoing invite/follow; mutual = friend. -->
             <div class="following">
-              <div class="dhead"><h2>Friends</h2><span class="dhint">mutual = friend</span></div>
+              <div class="dhead"><h2>Friends</h2><span class="dhint" id="slotHint">— slots</span></div>
               <div class="dhead-rule"></div>
 
-              <!-- Find people by name or email — no need to know their exact address -->
-              <div class="fl-add">
+              <!-- Filled slots (who you follow; friend badge when mutual) + open slots -->
+              <div id="followList"></div>
+              <div id="slotsOpen"></div>
+
+              <!-- Add to a slot: find a member by name or email -->
+              <div class="fl-add" id="addRow">
                 <input id="friendSearch" type="text" inputmode="search" placeholder="find by name or email" autocomplete="off">
                 <button id="followBtn">Follow</button>
               </div>
@@ -425,12 +434,18 @@
                 <div id="incomingList"></div>
               </div>
 
-              <!-- Who you follow (mutual = friend) -->
-              <div class="fl-sub" id="followingLabel" style="display:none;">Following</div>
-              <div id="followList"></div>
-
-              <button class="fl-invite" id="inviteBtn">＋ Invite a friend by text</button>
+              <!-- Invite someone not on pangolinRC yet — by text or by email -->
+              <div class="fl-invites">
+                <button class="fl-invite" id="inviteTextBtn">＋ Invite by text</button>
+                <button class="fl-invite" id="inviteEmailBtn">＋ Invite by email</button>
+              </div>
               <div class="fl-hint">Friends' comments surface when you co-view a show — turn it on per show on the episode screen.</div>
+            </div>
+
+            <div class="stats">
+              <div class="stat"><div class="num" id="stShows">128</div><div class="lbl">SHOWS</div></div>
+              <div class="stat"><div class="num" id="stEps">1,340</div><div class="lbl">EPISODES</div></div>
+              <div class="stat"><div class="num" id="stThird">$284</div><div class="lbl" id="stThirdLbl">SAVED</div></div>
             </div>
           </div>
         </div>
@@ -796,14 +811,34 @@
   function flAvatar(u){ const nm=u.username||String(u.email).split('@')[0];
     return `<div class="fl-av">${escF(nm.charAt(0).toUpperCase())}</div><div class="fl-name">${escF(nm)}<small>${escF(u.email)}</small></div>`; }
 
+  // {tier, limit (null=unlimited), used}. Drives the slot count + open-slot rows.
+  let slots={tier:'basic', limit:1, used:0};
+  function slotsFull(){ return slots.limit!=null && slots.used>=slots.limit; }
+
   function renderFollows(list){
-    const box=$('followList'), lbl=$('followingLabel'); if(!box) return;
-    if(!session()){ box.innerHTML='<div class="fl-empty">Sign in to add friends.</div>'; if(lbl) lbl.style.display='none'; return; }
-    if(!list || !list.length){ box.innerHTML='<div class="fl-empty">No one yet. Search above or invite a friend — once you follow each other, you’re friends and their comments show up when you co-view.</div>'; if(lbl) lbl.style.display='none'; return; }
-    if(lbl) lbl.style.display='block';
-    box.innerHTML=list.map(f=>`<div class="fl-row">${flAvatar(f)}`
-      +(f.friend?'<span class="fl-friend">friend</span>':'')
-      +`<button class="fl-x" data-unfollow="${escF(f.email)}" aria-label="Unfollow">×</button></div>`).join('');
+    const box=$('followList'); if(!box) return;
+    if(!session()){ box.innerHTML='<div class="fl-empty">Sign in to add friends.</div>'; return; }
+    box.innerHTML=(list||[]).map(f=>`<div class="fl-row">${flAvatar(f)}`
+      +(f.friend?'<span class="fl-friend">friend</span>':'<span class="fl-friend" style="color:var(--muted-2);border-color:var(--line-soft);">pending</span>')
+      +`<button class="fl-x" data-unfollow="${escF(f.email)}" aria-label="Remove">×</button></div>`).join('');
+  }
+  // Open slots below the filled ones: empty placeholders up to the tier limit.
+  // Tapping one focuses the search. Admin (limit null) shows no quota cap.
+  function renderSlots(){
+    const hint=$('slotHint'), open=$('slotsOpen'), add=$('addRow'); if(!hint||!open) return;
+    if(!session()){ hint.textContent='— slots'; open.innerHTML=''; return; }
+    if(slots.limit==null){ hint.textContent=slots.used+' · unlimited'; open.innerHTML=''; if(add) add.style.display='flex'; return; }
+    hint.textContent=slots.used+' / '+slots.limit+' slots';
+    const free=Math.max(0, slots.limit-slots.used);
+    let rows='';
+    for(let i=0;i<free;i++){
+      rows+=`<button class="fl-slot" data-openslot="1"><div class="fl-av">＋</div><div class="fl-name">Open slot<small>invite or find a friend</small></div></button>`;
+    }
+    if(!free && !slots.used){ /* limit 0 — unusual; nothing */ }
+    open.innerHTML=rows;
+    // When every slot is full, hide the add row and say so.
+    if(add) add.style.display = slotsFull() ? 'none' : 'flex';
+    if(slotsFull()) flMsg('All '+slots.limit+' slots used — remove a friend or upgrade for more.');
   }
   function renderIncoming(list){
     const wrap=$('incomingWrap'), box=$('incomingList'); if(!wrap||!box) return;
@@ -813,9 +848,9 @@
       +`<button class="fl-btn" data-follow="${escF(u.email)}">Follow back</button></div>`).join('');
   }
   async function loadFollows(){
-    if(!session()){ renderFollows(null); renderIncoming(null); return; }
+    if(!session()){ slots={tier:'basic',limit:1,used:0}; renderFollows(null); renderIncoming(null); renderSlots(); return; }
     try{ const r=await fetch(API+'/profile/'+encodeURIComponent(session())+'/follows');
-      if(r.ok){ const d=await r.json(); renderFollows(d.following||[]); renderIncoming(d.incoming||[]); } }catch(_){}
+      if(r.ok){ const d=await r.json(); slots=d.slots||slots; renderFollows(d.following||[]); renderIncoming(d.incoming||[]); renderSlots(); } }catch(_){}
   }
 
   // Search members by name/email; annotate each with my edge so the button reads
@@ -858,35 +893,47 @@
         flMsg(d.friend ? ('You’re friends with '+(d.username||target)) : ('Following '+(d.username||target)));
         const inp=$('friendSearch'); if(inp){ inp.value=''; } $('searchResults').innerHTML='';
         loadFollows();
+      } else if(d.error==='slot_limit'){
+        flMsg('All '+(d.limit||slots.limit)+' slots used — remove a friend or upgrade for more.', true);
       } else flMsg(d.error||'Could not follow', true);
     }catch(_){ flMsg('Could not follow', true); }
   }
 
-  // Invite someone not on pangolinRC yet — a native SMS draft to the join page,
-  // signed with your name. No text server (matches the reply hand-off).
-  function inviteFriend(){
+  // Invite someone not on pangolinRC yet, signed with your name, pointed at the
+  // join page. No invite server — by text it's an sms: draft, by email a mailto:
+  // draft; the OS app does the sending (matches the co-view reply hand-off).
+  function inviteBody(){
     const me=(($('pname')&&$('pname').textContent)||'').trim();
     const url=location.origin+'/';
-    const body=(me?(me+' wants to watch alongside you on pangolinRC. '):'Watch alongside me on pangolinRC. ')+'Join: '+url;
-    window.location.href='sms:?&body='+encodeURIComponent(body);
+    return { lead:(me?(me+' wants to watch alongside you on pangolinRC. '):'Watch alongside me on pangolinRC. '), url };
   }
+  function inviteByText(){ const b=inviteBody();
+    window.location.href='sms:?&body='+encodeURIComponent(b.lead+'Join: '+b.url); }
+  function inviteByEmail(){ const b=inviteBody();
+    const subj='Watch alongside me on pangolinRC';
+    const body=b.lead+'\n\nJoin here: '+b.url;
+    window.location.href='mailto:?subject='+encodeURIComponent(subj)+'&body='+encodeURIComponent(body); }
 
-  // Click delegation: unfollow (×) and follow / follow-back buttons.
+  // Click delegation: unfollow (×), follow / follow-back, and open-slot taps.
   document.addEventListener('click', e=>{
     if(!session()) return;
     const un=e.target.closest('[data-unfollow]');
     if(un){ fetch(API+'/profile/'+encodeURIComponent(session())+'/follow/'+encodeURIComponent(un.getAttribute('data-unfollow')),{method:'DELETE'})
       .then(()=>loadFollows()).catch(()=>{}); return; }
     const fo=e.target.closest('[data-follow]');
-    if(fo){ followMember(fo.getAttribute('data-follow')); }
+    if(fo){ followMember(fo.getAttribute('data-follow')); return; }
+    const os=e.target.closest('[data-openslot]');
+    if(os){ const inp=$('friendSearch'); if(inp){ inp.focus(); } }
   });
   (function wireFriends(){
-    const btn=$('followBtn'), inp=$('friendSearch'), inv=$('inviteBtn');
+    const btn=$('followBtn'), inp=$('friendSearch');
     // The Follow button follows an exact address if one's typed, else runs search.
     if(btn) btn.onclick=()=>{ const v=((inp&&inp.value)||'').trim(); if(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) followMember(v); else if(v.length>=2) runSearch(v); };
     if(inp){ inp.addEventListener('input', onSearch);
       inp.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); btn&&btn.onclick(); } }); }
-    if(inv) inv.onclick=inviteFriend;
+    const it=$('inviteTextBtn'), ie=$('inviteEmailBtn');
+    if(it) it.onclick=inviteByText;
+    if(ie) ie.onclick=inviteByEmail;
     loadFollows();
   })();
   window.addEventListener('storage', e=>{ if(e.key==='pg_user'||e.key==='pg_refresh') refresh(); });
