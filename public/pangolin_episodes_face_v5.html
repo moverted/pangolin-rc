@@ -885,7 +885,8 @@ function paintTranscripts(){
 
 // One co-view row (an original comment, or a threaded reply when `nested`).
 // Original + revealed → 🔊 audio (default) and a "show text" toggle. Locked →
-// 🔒 + "reveals at M:SS". Replies are text-only, so they just show their words.
+// 🔒 + "reveals at M:SS". A reply may be text-only (the SMS path) or carry audio
+// (the OTT path) — an audio reply gets its own ↳🔊 play button.
 function coviewRow(c, nested, replied){
   const line=document.createElement('div');
   line.style.cssText=`margin-bottom:12px;display:flex;align-items:center;gap:12px;${nested?'margin-left:28px;opacity:.92;':''}`;
@@ -895,6 +896,13 @@ function coviewRow(c, nested, replied){
     tick.style.cssText='width:34px;text-align:right;color:#6cc070;font-size:16px;flex-shrink:0;';
     tick.innerHTML='↳';
     line.appendChild(tick);
+    if(c.revealed && c.audioUrl){
+      const sp=document.createElement('button');
+      sp.style.cssText='width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(108,192,112,.2);border:2px solid #6cc070;cursor:pointer;color:#6cc070;font-size:15px;flex-shrink:0;';
+      sp.innerHTML='🔊';
+      sp.onclick=(e)=>{ e.preventDefault(); window.open(c.audioUrl,'_blank'); };
+      line.appendChild(sp);
+    }
   } else if(c.revealed && c.audioUrl){
     const sp=document.createElement('button');
     sp.style.cssText='width:48px;height:48px;padding:0;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(108,192,112,.2);border:2px solid #6cc070;cursor:pointer;color:#6cc070;font-size:20px;flex-shrink:0;';
@@ -1092,6 +1100,24 @@ function updateMicMode(){
   else { btn.classList.remove('replymode'); if(label){ label.style.display='none'; label.textContent=''; } btn.setAttribute('aria-label','Record audio comment'); }
 }
 
+// OTT = the show is on another screen (TV/device), so the phone is free to
+// record an audio reply. When the phone IS the screen we can't, so we fall back
+// to the SMS text hand-off. (A full native app would push a banner instead.)
+function isOTT(){ try{ return (localStorage.getItem('pg_device_kind')||'phone') !== 'phone'; }catch(_){ return false; } }
+
+let pendingReply = null;   // the comment an in-flight audio recording is replying to
+
+// Tap on the green REPLY mic. OTT → record an audio reply; on-device → text+SMS.
+function replyTap(target){
+  if(!target) return;
+  if(isOTT()){
+    pendingReply = target;                 // tag the next recording as a reply
+    recordAudioComment();
+  } else {
+    replyFlow(target);
+  }
+}
+
 async function replyFlow(target){
   if(!target) return;
   const body = prompt(`Reply to ${target.author} (${target.epCode} ${target.time}) — sends a text:`);
@@ -1201,6 +1227,10 @@ function stopRecording(){
       return;
     }
 
+    // If this recording is an audio reply, the server re-anchors it at the
+    // parent's mark; we just tag it. Capture + clear so the next recording is clean.
+    const rTgt = pendingReply; pendingReply = null;
+
     const code = epCode(e);
     const mins = Math.round((epMin[focus]||0));
     const timeStr = `${Math.floor(mins/60)}:${String(mins%60).padStart(2,'0')}`;
@@ -1235,6 +1265,7 @@ function stopRecording(){
       return;
     }
     formData.append('userEmail', userEmail);
+    if(rTgt && rTgt.id) formData.append('replyTo', rTgt.id);
 
     try {
       console.log('Sending transcription request for', code);
@@ -1260,14 +1291,22 @@ function stopRecording(){
       const data = await res.json();
       console.log('Audio upload complete:', data);
 
-      // Store the playback URL + transcript, persisted server-side now.
-      transcripts.unshift({
-        epCode: code,
-        time: timeStr,
-        audioUrl: data.audioUrl,
-        text: (data.transcription && data.transcription.trim()) || 'Audio recorded'
-      });
-      paintTranscripts();
+      if(rTgt){
+        // An audio reply: don't list it among your own comments — mark the target
+        // replied and reload co-view so it threads under the friend's comment.
+        coviewMarkReplied(rTgt.id);
+        updateMicMode();
+        loadCoview();
+      } else {
+        // A normal comment: store the playback URL + transcript, persisted now.
+        transcripts.unshift({
+          epCode: code,
+          time: timeStr,
+          audioUrl: data.audioUrl,
+          text: (data.transcription && data.transcription.trim()) || 'Audio recorded'
+        });
+        paintTranscripts();
+      }
     } catch(err){
       console.error('Transcription fetch error:', err.message);
       transcripts.unshift({
@@ -1560,7 +1599,7 @@ $('startEpBtn').onclick=()=>{
 $('finishEpBtn').onclick=()=>{ flashBtn($('finishEpBtn')); if(isTheater()) openTicket(); else finishEpisode(); };
 $('micBtn').onclick=()=>{
   // In REPLY mode the mic answers the pending friend comment instead of recording.
-  if(!isRecording){ const t=coviewReplyTarget(); if(t){ replyFlow(t); return; } }
+  if(!isRecording){ const t=coviewReplyTarget(); if(t){ replyTap(t); return; } }
   // Recording button doesn't use flashBtn; instead shows recording state with countdown
   recordAudioComment();
 };

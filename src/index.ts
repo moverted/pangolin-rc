@@ -44,10 +44,13 @@ app.post('/transcribe', async (c) => {
   try {
     const formData = await c.req.formData();
     const audio = formData.get('audio') as unknown as File;
-    const episodeId = formData.get('episodeId') as string;
-    const showId = (formData.get('showId') as string) || '';
+    let   episodeId = formData.get('episodeId') as string;
+    let   showId = (formData.get('showId') as string) || '';
     const userEmail = (formData.get('userEmail') as string) || '';
-    const timestampMs = parseInt(formData.get('timestampMs') as string) || 0;
+    let   timestampMs = parseInt(formData.get('timestampMs') as string) || 0;
+    // Optional: this audio is a REPLY to a friend's comment (the OTT reply path —
+    // the second viewer's phone is free to record while the show is on the TV).
+    const replyTo = ((formData.get('replyTo') as string) || '').trim();
 
     if (!audio || !episodeId) {
       return c.json({ error: 'missing audio or episodeId' }, 400);
@@ -74,6 +77,32 @@ app.post('/transcribe', async (c) => {
       return c.json({ error: 'unknown user' }, 401);
     }
 
+    // Audio reply: thread it under the parent and anchor it at the parent's mark
+    // (so it surfaces with the original), but only if the replier is a mutual
+    // follow of the parent's author — same authorization as a text reply.
+    let replyParent: string | null = null;
+    if (replyTo) {
+      const parent: any = await c.env.DB
+        .prepare('SELECT id, user_email, episode_id, show_id, timestamp_ms FROM watch_comment WHERE id = ?')
+        .bind(replyTo)
+        .first();
+      if (!parent) return c.json({ error: 'parent comment not found' }, 404);
+      const mutual = await c.env.DB
+        .prepare(
+          `SELECT 1 FROM follows a
+             JOIN follows b ON b.follower_email = a.followee_email
+                           AND b.followee_email = a.follower_email
+            WHERE a.follower_email = ? AND a.followee_email = ?`
+        )
+        .bind(email, parent.user_email)
+        .first();
+      if (!mutual) return c.json({ error: 'not permitted to reply' }, 403);
+      replyParent = parent.id;
+      episodeId = parent.episode_id;
+      showId = parent.show_id || showId;
+      timestampMs = parent.timestamp_ms;   // anchor at the parent's mark, not the device clock
+    }
+
     const commentId = crypto.randomUUID();
     const r2Key = `audio-comments/${showId || 'unknown'}/${episodeId}/${commentId}`;
     const buffer = await audio.arrayBuffer();
@@ -98,18 +127,19 @@ app.post('/transcribe', async (c) => {
 
     const now = Date.now();
     await c.env.DB.prepare(
-      `INSERT INTO watch_comment (id, user_email, episode_id, show_id, timestamp_ms, transcription, audio_r2_key, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO watch_comment (id, user_email, episode_id, show_id, timestamp_ms, transcription, audio_r2_key, reply_to, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-      .bind(commentId, email, episodeId, showId || null, timestampMs, transcription || null, r2Key, now)
+      .bind(commentId, email, episodeId, showId || null, timestampMs, transcription || null, r2Key, replyParent, now)
       .run();
 
-    console.log('Audio comment saved:', commentId);
+    console.log(replyParent ? 'Audio reply saved:' : 'Audio comment saved:', commentId);
     return c.json({
       id: commentId,
       audioUrl: `${new URL(c.req.url).origin}/transcribe/audio/${commentId}`,
       transcription,
       timestamp: timestampMs,
+      replyTo: replyParent,
     });
   } catch (error) {
     console.error('Audio upload error:', error);
