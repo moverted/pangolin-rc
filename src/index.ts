@@ -548,6 +548,23 @@ app.patch('/bug-reports/:id/claude', async (c) => {
   return c.json({ ok: true, id, claude_status: status });
 });
 
+// Admin flips the "send to Claude" flag straight from the review panel. Turning
+// it on (re)queues the bug (claude_status='queued'); turning it off pulls it from
+// the work queue. Admin-gated like the rest.
+app.patch('/bug-reports/:id/send-to-claude', async (c) => {
+  const id = c.req.param('id');
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const email = (body.email || '').trim().toLowerCase();
+  if (!(await isAdmin(c.env, email))) return c.json({ error: 'forbidden' }, 403);
+  const on = !!body.send_to_claude;
+  const res = on
+    ? await c.env.DB.prepare("UPDATE bug_report SET send_to_claude = 1, claude_status = 'queued' WHERE id = ?").bind(id).run()
+    : await c.env.DB.prepare('UPDATE bug_report SET send_to_claude = 0 WHERE id = ?').bind(id).run();
+  if (!res.meta.changes) return c.json({ error: 'not found' }, 404);
+  return c.json({ ok: true, id, send_to_claude: on ? 1 : 0, claude_status: on ? 'queued' : undefined });
+});
+
 app.post('/bug-reports', async (c) => {
   try {
     const form = await c.req.formData();
