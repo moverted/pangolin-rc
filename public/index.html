@@ -435,6 +435,13 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true,
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(VW, VH);
 renderer.setClearColor(0x000000, 0);
+// three.js already recovers a lost GPU context internally (it preventDefaults the loss
+// and reinitialises on restore). This is a belt-and-suspenders net: skip our own work
+// while the context is gone, and force a clean re-layout/render the moment it returns,
+// so a context blip can never leave the cube stranded black.
+let contextLost = false;
+canvas.addEventListener('webglcontextlost', () => { contextLost = true; }, false);
+canvas.addEventListener('webglcontextrestored', () => { contextLost = false; layout(); }, false);
 
 const scene  = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(50, VW / VH, 0.1, 500);
@@ -868,6 +875,16 @@ function attachShellBack(frame) {
   }, { capture: true, passive: true });
 }
 
+// Tell a face whether it is the focused/locked side. Faces pause their cosmetic
+// animation loops while blurred (an idle side riding the spinning cube does no work),
+// which both stops the stale-looking churn and removes the per-iframe repaint cost
+// that piles into the mid-spin GPU spike. The watch timer on the Log face is exempt
+// (it keeps advancing while blurred) — see that face's handler.
+function signalFace(cfg, active) {
+  if (cfg && cfg.frame && cfg.frame.contentWindow)
+    cfg.frame.contentWindow.postMessage({ type: active ? 'cube:focus' : 'cube:blur' }, '*');
+}
+
 // Pierre (+Y, material index 2) is a chat window. While its input is focused
 // and the soft keyboard is open, the animation loop pins that square to the top
 // of the visible viewport instead of 3D-projecting it onto the cube face — so
@@ -884,6 +901,10 @@ let   _chatPrev    = false;  // last chatMode (to re-run layout when the keyboar
 let t = 0;
 (function animate() {
   requestAnimationFrame(animate);
+  // Keep rescheduling, but do no GPU/DOM work while the tab is hidden or the GL
+  // context is briefly gone. Backgrounding is the highest-pressure window for iOS to
+  // evict the tab; rendering the cube + reprojecting six iframes there buys nothing.
+  if (document.hidden || contextLost) return;
   t += 0.01;
 
   if (snapping) {
@@ -944,33 +965,38 @@ let t = 0;
     _fN.copy(cfg.normal).applyQuaternion(cube.quaternion);
     const dot = _fN.z;
     if (dot > 0.02) {
-      const pts = cfg.corners.map(c => {
-        _fW.copy(c).applyQuaternion(cube.quaternion).add(cube.position);
-        _fP.copy(_fW).project(camera);
-        return { x: (_fP.x + 1) / 2 * VW, y: (1 - _fP.y) / 2 * VH };
-      });
-      const tx = faceCssMatrix3d(pts);
-      // The active locked face is positioned by the pin below (centered / top),
-      // not the cube-face projection — so don't overwrite it here.
-      if (!(locked && +fi === activeFace) && cfg._tx !== tx) {
-        cfg.frame.style.transform = tx; cfg._tx = tx;
+      const active = locked && +fi === activeFace;
+      // The heavy per-frame work is the corner projection + matrix3d solve + the
+      // resulting iframe re-composite. Skip it for (a) the active locked face — it is
+      // positioned by the pin below, not this projection — and (b) faces grazing
+      // edge-on (dot ≤ 0.06), which are ≤6% opaque: a frame of stale transform there
+      // is invisible. This trims the mid-spin composite spike that can crash the GPU.
+      if (!active && dot > 0.06) {
+        const pts = cfg.corners.map(c => {
+          _fW.copy(c).applyQuaternion(cube.quaternion).add(cube.position);
+          _fP.copy(_fW).project(camera);
+          return { x: (_fP.x + 1) / 2 * VW, y: (1 - _fP.y) / 2 * VH };
+        });
+        const tx = faceCssMatrix3d(pts);
+        if (cfg._tx !== tx) { cfg.frame.style.transform = tx; cfg._tx = tx; }
       }
-      const opacity = (locked && activeFace === +fi) ? 1 : dot;
+      const opacity = active ? 1 : dot;
       if (Math.abs(cfg._op - opacity) > 0.004) {
         cfg.el.style.opacity = opacity.toFixed(3);
         cfg._op = opacity;
       }
       // Only the locked/active face is interactive — every other face stays inert
       // while it rides the spinning cube.
-      const active = locked && activeFace === +fi;
       if (cfg._active !== active) {
         cfg.el.style.pointerEvents = active ? 'all' : 'none';
         cfg._active = active;
+        signalFace(cfg, active);   // focus the new face / blur the old → it pauses its loops
       }
     } else if (cfg._op > 0) {
       cfg.el.style.opacity = '0';
       cfg.el.style.pointerEvents = 'none';
-      cfg._op = 0; cfg._active = false;
+      cfg._op = 0;
+      if (cfg._active) { cfg._active = false; signalFace(cfg, false); }   // spun off-screen → blur
     }
   }
 
