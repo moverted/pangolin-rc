@@ -504,11 +504,14 @@ async function isAdmin(env: Env, email: string): Promise<boolean> {
 app.get('/bug-reports', async (c) => {
   const email = (c.req.query('email') || '').trim().toLowerCase();
   if (!(await isAdmin(c.env, email))) return c.json({ error: 'forbidden' }, 403);
-  // Open = anything not yet resolved. Newest first; capped for a tappable list.
+  // Active = anything not in a resolved-type status. status is free-text hand
+  // triage, so match case-insensitively and blocklist (not allowlist) the
+  // terminal words — an unexpected/typo'd status still surfaces rather than
+  // silently hiding a live bug. Newest first; capped for a tappable list.
   const rows = await c.env.DB.prepare(
     `SELECT id, user_email, note, view, url, screenshot_url, status, send_to_claude, claude_status, created_at
        FROM bug_report
-      WHERE status NOT IN ('fixed', 'wontfix')
+      WHERE LOWER(COALESCE(status, '')) NOT IN ('fixed', 'wontfix', 'closed', 'resolved', 'done', 'duplicate')
       ORDER BY created_at DESC
       LIMIT 100`
   ).all();
