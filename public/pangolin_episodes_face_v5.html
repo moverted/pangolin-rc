@@ -762,7 +762,12 @@ function logMinute(){
   epMin[focus]=val; minPreview=null; awaitingLog=false; cooled=false; epPreApp[focus]=false;
   try{ localStorage.removeItem('pg_launch'); }catch(_){}
   const done=val>=rt-1;
-  watchingLive[focus]=false;   // logging pauses the watch → "waiting" (static), never animates
+  // Logging stops the live timer for good: clear the start stamp (and re-base the
+  // session at the logged minute) exactly like completeWatch / placeAwayTime do. Just
+  // flipping watchingLive off left started_at set, so emitProgress persisted an OPEN
+  // watch — which re-armed the timer on reload and let a background/return walk the
+  // progress forward via placeAwayTime. CONTINUE re-arms from sessionBase.
+  watchingLive[focus]=false; startedAt[focus]=null; sessionBase[focus]=val;
   if(done){ epDone[focus]=true; epBp[focus]=false; markWatchedThrough(focus); logSession(focus,{minutes:rt,finished:true,bp:false}); }
   else logSession(focus,{minutes:val,finished:false,bp:false});
   emitProgress(focus, done, false, val);
