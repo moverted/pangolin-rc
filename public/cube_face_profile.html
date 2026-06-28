@@ -108,11 +108,48 @@
   .bug-count.zero{background:var(--muted-2);color:#0b0b14;}
   .bug-caret{font-size:11px;transition:transform .15s ease;}
   .bug-caret.open{transform:rotate(90deg);}
-  .bug-list{margin-top:10px;display:flex;flex-direction:column;gap:8px;}
-  .bug-item{
-    background:var(--bg-2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;
+  .bug-list{
+    margin-top:10px;display:flex;flex-direction:column;gap:8px;
+    max-height:55vh;overflow-y:auto;-webkit-overflow-scrolling:touch;
+    padding-right:4px;scrollbar-width:thin;scrollbar-color:var(--amber-dim) transparent;
   }
-  .bug-item .bnote{color:var(--muted);font-size:13px;line-height:1.4;word-break:break-word;}
+  .bug-list::-webkit-scrollbar{width:6px;}
+  .bug-list::-webkit-scrollbar-thumb{background:var(--amber-dim);border-radius:999px;}
+  .bug-item{
+    background:var(--bg-2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;cursor:pointer;
+  }
+  .bug-item.open{border-color:rgba(239,168,60,.35);}
+  /* Collapsed: clamp the note to 3 lines. Open: reveal the whole thing. */
+  .bug-item .bnote{
+    color:var(--muted);font-size:13px;line-height:1.4;word-break:break-word;
+    display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;
+  }
+  .bug-item.open .bnote{display:block;-webkit-line-clamp:unset;overflow:visible;}
+  /* Expanded detail: full URL, id, and the screenshot inline. */
+  .bug-item .bexpand{
+    display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--line);
+    flex-direction:column;gap:6px;
+    font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.04em;color:var(--muted-2);
+  }
+  .bug-item.open .bexpand{display:flex;}
+  .bug-item .bexpand .row{display:flex;gap:8px;word-break:break-all;}
+  .bug-item .bexpand .k{color:var(--amber-dim);text-transform:uppercase;flex:none;min-width:44px;}
+  .bug-item .bexpand a{color:var(--amber);text-decoration:none;word-break:break-all;}
+  .bug-item .bexpand img{max-width:100%;border:1px solid var(--line);border-radius:8px;margin-top:2px;}
+  /* Send-to-Claude switch, live-toggleable by the admin from the panel. */
+  .bug-item .btoggle{display:flex;align-items:center;gap:8px;cursor:pointer;align-self:flex-start;}
+  .bug-item .btoggle input{
+    appearance:none;-webkit-appearance:none;width:34px;height:18px;border-radius:999px;
+    background:var(--muted-2);position:relative;cursor:pointer;transition:background .15s ease;flex:none;margin:0;
+  }
+  .bug-item .btoggle input:checked{background:#7fd1c0;}
+  .bug-item .btoggle input:disabled{opacity:.5;cursor:default;}
+  .bug-item .btoggle input::after{
+    content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:999px;
+    background:#0b0b14;transition:transform .15s ease;
+  }
+  .bug-item .btoggle input:checked::after{transform:translateX(16px);}
+  .bug-item .btoggle .lbl{color:#7fd1c0;text-transform:uppercase;letter-spacing:.06em;}
   .bug-item .bmeta{
     margin-top:6px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;
     font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:.06em;
@@ -600,11 +637,47 @@
       const when=document.createElement('span'); when.textContent=fmtWhen(b.created_at); meta.appendChild(when);
       if(b.view){ const v=document.createElement('span'); v.className='bview'; v.textContent=b.view; meta.appendChild(v); }
       if(b.user_email){ const u=document.createElement('span'); u.textContent=b.user_email; meta.appendChild(u); }
-      if(b.screenshot_url){ const a=document.createElement('a'); a.className='bshot'; a.href=b.screenshot_url; a.target='_blank'; a.rel='noopener'; a.textContent='📷 shot'; meta.appendChild(a); }
-      if(b.send_to_claude){ const cl=document.createElement('span'); cl.className='bclaude';
-        cl.textContent='🤖 claude'+(b.claude_status&&b.claude_status!=='queued'?(' · '+b.claude_status):''); meta.appendChild(cl); }
+      if(b.screenshot_url){ const a=document.createElement('a'); a.className='bshot'; a.href=b.screenshot_url; a.target='_blank'; a.rel='noopener'; a.textContent='📷 shot';
+        a.addEventListener('click',e=>e.stopPropagation()); meta.appendChild(a); }
+      // Claude badge stays in sync with the live toggle below.
+      const cl=document.createElement('span'); cl.className='bclaude';
+      const setClaudeBadge=()=>{ cl.style.display=b.send_to_claude?'':'none';
+        cl.textContent='🤖 claude'+(b.claude_status&&b.claude_status!=='queued'?(' · '+b.claude_status):''); };
+      setClaudeBadge(); meta.appendChild(cl);
       const st=document.createElement('span'); st.className='bstatus'; st.textContent=b.status||'new'; meta.appendChild(st);
-      item.appendChild(meta); host.appendChild(item);
+      item.appendChild(meta);
+
+      // Expanded detail — tap the card to toggle. Full URL, id, and inline screenshot.
+      const ex=document.createElement('div'); ex.className='bexpand';
+      const addRow=(k,valNode)=>{ const row=document.createElement('div'); row.className='row';
+        const ks=document.createElement('span'); ks.className='k'; ks.textContent=k; row.appendChild(ks);
+        row.appendChild(valNode); ex.appendChild(row); };
+      if(b.url){ const a=document.createElement('a'); a.href=b.url; a.target='_blank'; a.rel='noopener'; a.textContent=b.url;
+        a.addEventListener('click',e=>e.stopPropagation()); addRow('url',a); }
+      if(b.id!=null){ const s=document.createElement('span'); s.textContent=String(b.id); addRow('id',s); }
+      if(b.screenshot_url){ const img=document.createElement('img'); img.loading='lazy'; img.src=b.screenshot_url; img.alt='screenshot'; ex.appendChild(img); }
+      // Live send-to-Claude switch — admin flips it without leaving the panel.
+      const tog=document.createElement('label'); tog.className='btoggle';
+      const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=!!b.send_to_claude;
+      const tl=document.createElement('span'); tl.className='lbl'; tl.textContent='🤖 send to claude';
+      tog.appendChild(cb); tog.appendChild(tl); ex.appendChild(tog);
+      tog.addEventListener('click',e=>e.stopPropagation());  // don't toggle the card open/closed
+      cb.addEventListener('change',async()=>{
+        const want=cb.checked; cb.disabled=true;
+        try{
+          const r=await fetch(API+'/bug-reports/'+encodeURIComponent(b.id)+'/send-to-claude',{
+            method:'PATCH',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({email:state.email,send_to_claude:want})});
+          if(!r.ok) throw 0;
+          b.send_to_claude=want?1:0; if(want) b.claude_status='queued';
+          setClaudeBadge();
+        }catch(_){ cb.checked=!want; }   // revert on failure
+        finally{ cb.disabled=false; }
+      });
+      item.appendChild(ex);
+
+      item.addEventListener('click',()=>item.classList.toggle('open'));
+      host.appendChild(item);
     });
   }
   function fmtWhen(ts){
