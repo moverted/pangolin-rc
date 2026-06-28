@@ -12,6 +12,12 @@ const unmirror = (c: any, table: string, key: string) =>
   c.executionCtx.waitUntil(deleteRow(c.env, table, key).catch((e: unknown) => console.error('airtable unmirror', table, e)));
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// SEAM:policy — friend slots per tier. A slot is an outgoing follow (an invite or
+// a confirmed friend); admin is unlimited. Following someone you already follow
+// is idempotent and never counts twice.
+const FRIEND_SLOTS: Record<string, number> = { admin: Infinity, elite_pro: 5, elite: 2, basic: 1 };
+const slotLimit = (tier?: string | null) => FRIEND_SLOTS[tier || 'basic'] ?? 1;
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 const safeParse = (s: string) => { try { return JSON.parse(s); } catch { return {}; } };
 const int = (v: unknown, min = -Infinity) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(min, Math.trunc(v)) : null);
@@ -392,7 +398,11 @@ profileRoutes.get('/:email/follows', async (c) => {
   const incoming = (followers.results || [])
     .filter((r: any) => !followingSet.has(r.email))
     .map((r: any) => ({ email: r.email, username: r.username || null }));
-  return c.json({ following: out, friends: out.filter((x: any) => x.friend), incoming });
+  // Slot quota for the UI: used = outgoing follows; limit null = unlimited (admin).
+  const me = await c.env.DB.prepare('SELECT user_type FROM users WHERE email = ?').bind(email).first<any>();
+  const limit = slotLimit(me?.user_type);
+  const slots = { tier: me?.user_type || 'basic', limit: Number.isFinite(limit) ? limit : null, used: out.length };
+  return c.json({ following: out, friends: out.filter((x: any) => x.friend), incoming, slots });
 });
 
 // Find members to add, by username or email fragment (excludes yourself). Each
@@ -433,6 +443,19 @@ profileRoutes.post('/:email/follow', async (c) => {
   if (target === email) return c.json({ error: "can't follow yourself" }, 400);
   const exists = await c.env.DB.prepare('SELECT email, username FROM users WHERE email = ?').bind(target).first<any>();
   if (!exists) return c.json({ error: 'no such member' }, 404);
+  // Slot cap (SEAM:policy): outgoing follows are limited by tier. Re-following
+  // someone is idempotent and never blocked; admin is unlimited.
+  const me = await c.env.DB.prepare('SELECT user_type FROM users WHERE email = ?').bind(email).first<any>();
+  const limit = slotLimit(me?.user_type);
+  if (Number.isFinite(limit)) {
+    const already = await c.env.DB
+      .prepare('SELECT 1 FROM follows WHERE follower_email = ? AND followee_email = ?').bind(email, target).first();
+    if (!already) {
+      const used = await c.env.DB
+        .prepare('SELECT COUNT(*) AS c FROM follows WHERE follower_email = ?').bind(email).first<{ c: number }>();
+      if ((used?.c ?? 0) >= limit) return c.json({ error: 'slot_limit', limit }, 403);
+    }
+  }
   const now = Date.now();
   await c.env.DB.prepare(
     'INSERT OR IGNORE INTO follows (follower_email, followee_email, created_at) VALUES (?, ?, ?)')
