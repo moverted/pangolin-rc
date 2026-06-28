@@ -58,7 +58,10 @@
   .battery::after{content:"";position:absolute;right:-3px;top:4px;width:2px;height:7px;background:var(--text);border-radius:0 1px 1px 0;}
 
   /* stage : the cube sits in space; the face is a square */
-  .stage{flex:1;display:flex;align-items:center;justify-content:center;padding:18px;}
+  /* min-height:0 is load-bearing: as a flex:1 child it must be allowed to shrink
+     below its content so the overflow lands in .scroll (and not blow past the
+     480px face iframe, where it'd just be clipped and unscrollable). */
+  .stage{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:18px;}
 
   .face{
     position:relative;
@@ -946,6 +949,7 @@
   function revealEdit(){
     cam.classList.remove('hidden');                 // bring back the change-photo affordance
     if(pname.dataset.editing) return;
+    pname.dataset.prev=(pname.textContent||'').trim();   // remember, to revert if the new name is taken
     pname.dataset.editing='1'; pname.classList.add('editing');
     pname.contentEditable='true'; pname.focus();
     const r=document.createRange(); r.selectNodeContents(pname);
@@ -956,10 +960,19 @@
     delete pname.dataset.editing; pname.classList.remove('editing'); pname.contentEditable='false';
     const name=(pname.textContent||'').trim()||'Guest'; pname.textContent=name;
     if(hasPhoto) cam.classList.add('hidden');       // re-hide the icon if a photo is set
-    try{ localStorage.setItem('pg_username', name); }catch(_){}
+    const prev=pname.dataset.prev||'';
     const email=session();
-    if(email) fetch(API+'/profile/signup',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({email, username:name})}).catch(()=>{});
+    if(email && name!==prev){
+      // Usernames are unique; on 409 revert to the previous name and say so.
+      fetch(API+'/profile/signup',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({email, username:name})})
+        .then(r=>{
+          if(r.status===409){ pname.textContent=prev||'Guest';
+            try{ localStorage.setItem('pg_username', prev); }catch(_){}
+            alert('That name is taken — pick another.'); }
+          else { try{ localStorage.setItem('pg_username', name); }catch(_){} }
+        }).catch(()=>{ try{ localStorage.setItem('pg_username', name); }catch(_){} });
+    } else { try{ localStorage.setItem('pg_username', name); }catch(_){} }
   }
   pname.addEventListener('blur', commitName);
   pname.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); pname.blur(); } });

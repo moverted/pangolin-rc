@@ -67,6 +67,16 @@ profileRoutes.post('/signup', async (c) => {
     }
   }
 
+  // Usernames are unique, case-insensitive. Reject a name already held by someone
+  // else (your own name is fine — re-login / re-save). Without this, two members
+  // can be indistinguishable in friend search and co-view.
+  if (username) {
+    const taken = await c.env.DB
+      .prepare('SELECT email FROM users WHERE lower(username) = lower(?) AND email <> ?')
+      .bind(username, email).first();
+    if (taken) return c.json({ error: 'username_taken', status: 'username_taken' }, 409);
+  }
+
   await c.env.DB.prepare(
     `INSERT INTO users (email, username, phone, photo_url, timezone, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)
