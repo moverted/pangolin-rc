@@ -233,6 +233,21 @@
   .fl-x{flex:0 0 auto;background:none;border:0;color:var(--muted-2);font-size:17px;line-height:1;cursor:pointer;padding:0 4px;}
   .fl-x:hover{color:var(--amber);}
   .fl-empty{color:var(--muted);font-size:12.5px;line-height:1.5;padding:10px 0;}
+  /* search results + section sub-labels + follow-back / invite actions */
+  .fl-sub{font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--muted-2);margin:18px 0 2px;}
+  .fl-results{margin-top:9px;}
+  .fl-results:empty{margin:0;}
+  .fl-btn{flex:0 0 auto;background:none;border:1px solid var(--amber);color:var(--amber);border-radius:999px;
+    padding:5px 11px;font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;letter-spacing:.08em;
+    text-transform:uppercase;cursor:pointer;}
+  .fl-btn:disabled{opacity:.5;cursor:default;}
+  .fl-btn.dim{border-color:var(--card-line);color:var(--muted-2);}
+  .fl-invite{margin-top:16px;width:100%;background:none;border:1px dashed var(--card-line);border-radius:12px;
+    color:var(--muted);padding:13px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;
+    letter-spacing:.06em;text-transform:uppercase;cursor:pointer;}
+  .fl-invite:hover{border-color:var(--amber);color:var(--amber);}
+  .fl-hint{color:var(--muted-2);font-size:11px;line-height:1.5;margin-top:10px;}
 
   .dev{border-bottom:1px solid var(--line-soft);}
   .dev:last-of-type{border-bottom:none;}
@@ -393,14 +408,29 @@
             </div>
 
             <div class="following">
-              <div class="dhead"><h2>Following</h2><span class="dhint">mutual = friend</span></div>
+              <div class="dhead"><h2>Friends</h2><span class="dhint">mutual = friend</span></div>
               <div class="dhead-rule"></div>
-              <div id="followList"></div>
+
+              <!-- Find people by name or email — no need to know their exact address -->
               <div class="fl-add">
-                <input id="followEmail" type="email" inputmode="email" placeholder="follow by email" autocomplete="off">
+                <input id="friendSearch" type="text" inputmode="search" placeholder="find by name or email" autocomplete="off">
                 <button id="followBtn">Follow</button>
               </div>
               <div class="fl-msg" id="followMsg"></div>
+              <div class="fl-results" id="searchResults"></div>
+
+              <!-- People who follow you but you haven't followed back yet -->
+              <div id="incomingWrap" style="display:none;">
+                <div class="fl-sub">Follows you</div>
+                <div id="incomingList"></div>
+              </div>
+
+              <!-- Who you follow (mutual = friend) -->
+              <div class="fl-sub" id="followingLabel" style="display:none;">Following</div>
+              <div id="followList"></div>
+
+              <button class="fl-invite" id="inviteBtn">＋ Invite a friend by text</button>
+              <div class="fl-hint">Friends' comments surface when you co-view a show — turn it on per show on the episode screen.</div>
             </div>
           </div>
         </div>
@@ -758,48 +788,105 @@
 
   $('addDevice').addEventListener('click', ()=> nav('pierre', session()?{intent:'device'}:{intent:'join'}) );
 
-  // ---- Following: follow members by email; a mutual pair is a friend ----
+  // ---- Friends: find/add members, follow back incoming, invite off-platform.
+  // A mutual follow (you → them AND them → you) is a "friend" — the unit co-viewing
+  // keys on. So the section makes both directions easy to complete.
   const escF = s => String(s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
   function flMsg(t, err){ const m=$('followMsg'); if(m){ m.textContent=t||''; m.classList.toggle('err', !!err); } }
+  function flAvatar(u){ const nm=u.username||String(u.email).split('@')[0];
+    return `<div class="fl-av">${escF(nm.charAt(0).toUpperCase())}</div><div class="fl-name">${escF(nm)}<small>${escF(u.email)}</small></div>`; }
+
   function renderFollows(list){
-    const box=$('followList'); if(!box) return;
-    if(!session()){ box.innerHTML='<div class="fl-empty">Sign in to follow people.</div>'; return; }
-    if(!list || !list.length){ box.innerHTML='<div class="fl-empty">Not following anyone yet. Add a friend’s email below — once you follow each other, you’re friends.</div>'; return; }
-    box.innerHTML=list.map(f=>{
-      const nm=f.username||String(f.email).split('@')[0];
-      return `<div class="fl-row"><div class="fl-av">${escF(nm.charAt(0).toUpperCase())}</div>`
-        +`<div class="fl-name">${escF(nm)}<small>${escF(f.email)}</small></div>`
-        +(f.friend?'<span class="fl-friend">friend</span>':'')
-        +`<button class="fl-x" data-unfollow="${escF(f.email)}" aria-label="Unfollow">×</button></div>`;
-    }).join('');
+    const box=$('followList'), lbl=$('followingLabel'); if(!box) return;
+    if(!session()){ box.innerHTML='<div class="fl-empty">Sign in to add friends.</div>'; if(lbl) lbl.style.display='none'; return; }
+    if(!list || !list.length){ box.innerHTML='<div class="fl-empty">No one yet. Search above or invite a friend — once you follow each other, you’re friends and their comments show up when you co-view.</div>'; if(lbl) lbl.style.display='none'; return; }
+    if(lbl) lbl.style.display='block';
+    box.innerHTML=list.map(f=>`<div class="fl-row">${flAvatar(f)}`
+      +(f.friend?'<span class="fl-friend">friend</span>':'')
+      +`<button class="fl-x" data-unfollow="${escF(f.email)}" aria-label="Unfollow">×</button></div>`).join('');
+  }
+  function renderIncoming(list){
+    const wrap=$('incomingWrap'), box=$('incomingList'); if(!wrap||!box) return;
+    if(!list || !list.length){ wrap.style.display='none'; box.innerHTML=''; return; }
+    wrap.style.display='block';
+    box.innerHTML=list.map(u=>`<div class="fl-row">${flAvatar(u)}`
+      +`<button class="fl-btn" data-follow="${escF(u.email)}">Follow back</button></div>`).join('');
   }
   async function loadFollows(){
-    if(!session()){ renderFollows(null); return; }
+    if(!session()){ renderFollows(null); renderIncoming(null); return; }
     try{ const r=await fetch(API+'/profile/'+encodeURIComponent(session())+'/follows');
-      if(r.ok){ const d=await r.json(); renderFollows(d.following||[]); } }catch(_){}
+      if(r.ok){ const d=await r.json(); renderFollows(d.following||[]); renderIncoming(d.incoming||[]); } }catch(_){}
   }
-  async function doFollow(){
-    const email=session(), inp=$('followEmail'); if(!email){ flMsg('Sign in first', true); return; }
-    const target=((inp&&inp.value)||'').trim().toLowerCase(); if(!target) return;
-    const btn=$('followBtn'); if(btn) btn.disabled=true; flMsg('');
+
+  // Search members by name/email; annotate each with my edge so the button reads
+  // Follow / Follow back / Following / friend.
+  let searchT=null;
+  function onSearch(){
+    const q=(($('friendSearch')||{}).value||'').trim();
+    clearTimeout(searchT);
+    if(q.length<2){ $('searchResults').innerHTML=''; return; }
+    searchT=setTimeout(()=>runSearch(q), 220);
+  }
+  async function runSearch(q){
+    if(!session()) return;
+    try{
+      const r=await fetch(API+'/profile/'+encodeURIComponent(session())+'/find?q='+encodeURIComponent(q));
+      if(!r.ok) return; const d=await r.json(); renderResults(d.results||[]);
+    }catch(_){}
+  }
+  function renderResults(list){
+    const box=$('searchResults'); if(!box) return;
+    if(!list.length){ box.innerHTML='<div class="fl-empty">No members match — invite them below.</div>'; return; }
+    box.innerHTML=list.map(u=>{
+      const action = u.friend ? '<span class="fl-friend">friend</span>'
+        : u.following ? '<button class="fl-btn dim" disabled>Following</button>'
+        : `<button class="fl-btn" data-follow="${escF(u.email)}">${u.follows_me?'Follow back':'Follow'}</button>`;
+      return `<div class="fl-row">${flAvatar(u)}${action}</div>`;
+    }).join('');
+  }
+
+  // Shared follow used by the Follow button, search results, and follow-back.
+  async function followMember(target){
+    const email=session(); if(!email){ flMsg('Sign in first', true); return; }
+    target=String(target||'').toLowerCase().trim(); if(!target) return;
+    flMsg('');
     try{
       const r=await fetch(API+'/profile/'+encodeURIComponent(email)+'/follow',{method:'POST',
         headers:{'Content-Type':'application/json'},body:JSON.stringify({target})});
       const d=await r.json().catch(()=>({}));
-      if(r.ok){ if(inp) inp.value='';
+      if(r.ok){
         flMsg(d.friend ? ('You’re friends with '+(d.username||target)) : ('Following '+(d.username||target)));
-        loadFollows(); }
-      else flMsg(d.error||'Could not follow', true);
+        const inp=$('friendSearch'); if(inp){ inp.value=''; } $('searchResults').innerHTML='';
+        loadFollows();
+      } else flMsg(d.error||'Could not follow', true);
     }catch(_){ flMsg('Could not follow', true); }
-    finally{ if(btn) btn.disabled=false; }
   }
-  document.addEventListener('click', e=>{ const x=e.target.closest('[data-unfollow]'); if(!x||!session()) return;
-    fetch(API+'/profile/'+encodeURIComponent(session())+'/follow/'+encodeURIComponent(x.getAttribute('data-unfollow')),{method:'DELETE'})
-      .then(()=>loadFollows()).catch(()=>{}); });
-  (function wireFollow(){
-    const btn=$('followBtn'), inp=$('followEmail');
-    if(btn) btn.onclick=doFollow;
-    if(inp) inp.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); doFollow(); } });
+
+  // Invite someone not on pangolinRC yet — a native SMS draft to the join page,
+  // signed with your name. No text server (matches the reply hand-off).
+  function inviteFriend(){
+    const me=(($('pname')&&$('pname').textContent)||'').trim();
+    const url=location.origin+'/';
+    const body=(me?(me+' wants to watch alongside you on pangolinRC. '):'Watch alongside me on pangolinRC. ')+'Join: '+url;
+    window.location.href='sms:?&body='+encodeURIComponent(body);
+  }
+
+  // Click delegation: unfollow (×) and follow / follow-back buttons.
+  document.addEventListener('click', e=>{
+    if(!session()) return;
+    const un=e.target.closest('[data-unfollow]');
+    if(un){ fetch(API+'/profile/'+encodeURIComponent(session())+'/follow/'+encodeURIComponent(un.getAttribute('data-unfollow')),{method:'DELETE'})
+      .then(()=>loadFollows()).catch(()=>{}); return; }
+    const fo=e.target.closest('[data-follow]');
+    if(fo){ followMember(fo.getAttribute('data-follow')); }
+  });
+  (function wireFriends(){
+    const btn=$('followBtn'), inp=$('friendSearch'), inv=$('inviteBtn');
+    // The Follow button follows an exact address if one's typed, else runs search.
+    if(btn) btn.onclick=()=>{ const v=((inp&&inp.value)||'').trim(); if(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) followMember(v); else if(v.length>=2) runSearch(v); };
+    if(inp){ inp.addEventListener('input', onSearch);
+      inp.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); btn&&btn.onclick(); } }); }
+    if(inv) inv.onclick=inviteFriend;
     loadFollows();
   })();
   window.addEventListener('storage', e=>{ if(e.key==='pg_user'||e.key==='pg_refresh') refresh(); });

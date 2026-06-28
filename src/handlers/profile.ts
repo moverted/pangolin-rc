@@ -378,13 +378,50 @@ profileRoutes.get('/:email/follows', async (c) => {
     `SELECT f.followee_email AS email, u.username
        FROM follows f LEFT JOIN users u ON u.email = f.followee_email
       WHERE f.follower_email = ? ORDER BY f.created_at DESC`).bind(email).all();
-  const followers = await c.env.DB
-    .prepare('SELECT follower_email AS email FROM follows WHERE followee_email = ?').bind(email).all();
+  const followers = await c.env.DB.prepare(
+    `SELECT f.follower_email AS email, u.username
+       FROM follows f LEFT JOIN users u ON u.email = f.follower_email
+      WHERE f.followee_email = ? ORDER BY f.created_at DESC`).bind(email).all();
   const back = new Set((followers.results || []).map((r: any) => r.email));
   const out = (following.results || []).map((r: any) => ({
     email: r.email, username: r.username || null, friend: back.has(r.email),
   }));
-  return c.json({ following: out, friends: out.filter((x: any) => x.friend) });
+  const followingSet = new Set(out.map((x: any) => x.email));
+  // Incoming = people who follow you that you don't follow back. Following one
+  // back completes the mutual pair (= friend), which is what co-viewing keys on.
+  const incoming = (followers.results || [])
+    .filter((r: any) => !followingSet.has(r.email))
+    .map((r: any) => ({ email: r.email, username: r.username || null }));
+  return c.json({ following: out, friends: out.filter((x: any) => x.friend), incoming });
+});
+
+// Find members to add, by username or email fragment (excludes yourself). Each
+// result is annotated with your edge to them so the UI can show Follow / Follow
+// back / Friend without a second round-trip. This is the discovery the add-friend
+// flow needs — you no longer have to know someone's exact email to follow them.
+profileRoutes.get('/:email/find', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  const q = (c.req.query('q') || '').trim().toLowerCase();
+  if (q.length < 2) return c.json({ results: [] });
+  const like = `%${q.replace(/[%_\\]/g, '')}%`;   // strip LIKE wildcards from user input
+  const found = await c.env.DB.prepare(
+    `SELECT email, username FROM users
+      WHERE email <> ? AND (lower(email) LIKE ? OR lower(username) LIKE ?)
+      ORDER BY (username IS NULL), username LIMIT 8`).bind(email, like, like).all();
+  const fromMe = await c.env.DB
+    .prepare('SELECT followee_email AS e FROM follows WHERE follower_email = ?').bind(email).all();
+  const toMe = await c.env.DB
+    .prepare('SELECT follower_email AS e FROM follows WHERE followee_email = ?').bind(email).all();
+  const iFollow = new Set((fromMe.results || []).map((r: any) => r.e));
+  const followsMe = new Set((toMe.results || []).map((r: any) => r.e));
+  const results = (found.results || []).map((r: any) => ({
+    email: r.email,
+    username: r.username || null,
+    following: iFollow.has(r.email),
+    follows_me: followsMe.has(r.email),
+    friend: iFollow.has(r.email) && followsMe.has(r.email),
+  }));
+  return c.json({ results });
 });
 
 // Follow a member by email (idempotent). Target must be an existing member.
