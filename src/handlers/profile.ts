@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { pushRow, pushRows, deleteRow } from './airtable';
+import { ensureTitleSummary } from './catalog';
 
 // Account + device API. SEAM:identity — email is the key, no auth in this build.
 export const profileRoutes = new Hono<{ Bindings: Env }>();
@@ -259,9 +260,10 @@ profileRoutes.get('/:email/titles', async (c) => {
   const email = c.req.param('email').toLowerCase();
   const rows = await c.env.DB.prepare(
     `SELECT wt.title_id, t.name, t.kind, t.status AS title_status, t.poster, t.platform,
-            t.premiered, t.total_episodes AS total, wt.status, wt.active_map_id,
+            t.premiered, t.summary, t.total_episodes AS total, wt.status, wt.active_map_id,
             wt.current_episode_id, wt.started_at, wt.updated_at,
             (SELECT COUNT(*) FROM watch_episode we WHERE we.user_email=wt.user_email AND we.title_id=wt.title_id AND we.done=1) AS watched,
+            (SELECT COALESCE(SUM(we.minute),0) FROM watch_episode we WHERE we.user_email=wt.user_email AND we.title_id=wt.title_id) AS minutes,
             (SELECT COUNT(*) FROM episodes e WHERE e.title_id=wt.title_id AND e.airdate IS NOT NULL AND e.airdate <= date('now')) AS released,
             (SELECT e.season FROM episodes e JOIN watch_episode we ON we.episode_id=e.episode_id AND we.user_email=wt.user_email WHERE e.title_id=wt.title_id AND we.done=1 ORDER BY e.season DESC, e.number DESC LIMIT 1) AS last_season,
             (SELECT e.number FROM episodes e JOIN watch_episode we ON we.episode_id=e.episode_id AND we.user_email=wt.user_email WHERE e.title_id=wt.title_id AND we.done=1 ORDER BY e.season DESC, e.number DESC LIMIT 1) AS last_number
@@ -275,11 +277,13 @@ profileRoutes.get('/:email/titles', async (c) => {
 profileRoutes.get('/:email/titles/:title_id', async (c) => {
   const email = c.req.param('email').toLowerCase();
   const titleId = c.req.param('title_id');
-  const title = await c.env.DB.prepare('SELECT * FROM titles WHERE title_id = ?').bind(titleId).first();
+  const title = await c.env.DB.prepare('SELECT * FROM titles WHERE title_id = ?').bind(titleId).first<any>();
   if (!title) return c.json({ error: 'not found' }, 404);
+  // Fill a missing synopsis once (titles tracked before the summary column existed).
+  if (title.summary == null) title.summary = await ensureTitleSummary(c.env, titleId);
   const watch_title = await c.env.DB.prepare('SELECT * FROM watch_title WHERE user_email=? AND title_id=?').bind(email, titleId).first();
   const eps = await c.env.DB.prepare(
-    `SELECT e.episode_id, e.season, e.number, e.name, e.runtime, e.airdate, e.next_episode_id,
+    `SELECT e.episode_id, e.season, e.number, e.name, e.runtime, e.airdate, e.summary, e.next_episode_id,
             COALESCE(we.done,0) AS done, COALESCE(we.minute,0) AS minute, COALESCE(we.bp,0) AS bp, we.sessions
        FROM episodes e LEFT JOIN watch_episode we ON we.user_email=? AND we.episode_id=e.episode_id
       WHERE e.title_id=? ORDER BY e.season, e.number`).bind(email, titleId).all();

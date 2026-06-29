@@ -15,12 +15,17 @@ export const catalogRoutes = new Hono<{ Bindings: Env }>();
 
 export interface EpisodeRow {
   episode_id: string; title_id: string; season: number | null; number: number | null;
-  name: string | null; runtime: number | null; airdate: string | null;
+  name: string | null; runtime: number | null; airdate: string | null; summary: string | null;
   next_episode_id: string | null; updated_at: number;
 }
 
 const epId = (titleId: string, season: number, number: number) => `${titleId}:s${season}e${number}`;
 const released = (airdate: string | null, now: number) => !!airdate && new Date(airdate + 'T23:59:59').getTime() <= now;
+
+// TVmaze summaries arrive as HTML (`<p>…</p>`); TMDB overviews are plain text.
+// Strip tags + collapse whitespace so the same field renders cleanly everywhere.
+export const cleanSummary = (s: unknown) =>
+  (typeof s === 'string' ? s.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim() : '') || null;
 
 // Normalize a request into { source, ref, titleId }. Accepts a prefixed title_id
 // ('tvmaze:81110' / 'tmdb:123') or an explicit { source, ref }. Bare ids = tvmaze.
@@ -39,7 +44,7 @@ function resolveRef(body: any): { source: string; ref: string; titleId: string }
 // Read a title's episodes from D1 in canonical (air) order.
 export async function loadEpisodes(env: Env, titleId: string): Promise<EpisodeRow[]> {
   const rows = await env.DB.prepare(
-    `SELECT episode_id, title_id, season, number, name, runtime, airdate, next_episode_id, updated_at
+    `SELECT episode_id, title_id, season, number, name, runtime, airdate, summary, next_episode_id, updated_at
        FROM episodes WHERE title_id = ? ORDER BY season, number`).bind(titleId).all<EpisodeRow>();
   return rows.results || [];
 }
@@ -53,16 +58,16 @@ async function materializeTitle(env: Env, source: string, ref: string, titleId: 
 
   const now = Date.now();
   let titleRow: any;
-  let epInputs: { season: number; number: number; name: string; runtime: number | null; airdate: string | null }[] = [];
+  let epInputs: { season: number; number: number; name: string; runtime: number | null; airdate: string | null; summary: string | null }[] = [];
 
   if (source === 'tmdb') {
     const m = await fetchTmdbMovie(env, ref);
     if (!m) return null;
     titleRow = { title_id: titleId, source, name: m.title || '', kind: 'movie', status: 'Film',
-      poster: m.poster || null, platform: '', total_episodes: 1,
+      poster: m.poster || null, platform: '', total_episodes: 1, summary: cleanSummary(m.overview),
       premiered: m.year ? `${m.year}-01-01` : null, updated_at: now };
     epInputs = [{ season: 1, number: 1, name: m.title || '', runtime: m.runtime || 120,
-      airdate: m.year ? `${m.year}-01-01` : null }];
+      airdate: m.year ? `${m.year}-01-01` : null, summary: cleanSummary(m.overview) }];
   } else {
     let show: any;
     try {
@@ -76,9 +81,9 @@ async function materializeTitle(env: Env, source: string, ref: string, titleId: 
     titleRow = { title_id: titleId, source, name: show.name || '', kind: 'show', status: show.status || 'Unknown',
       poster: (show.image && (show.image.original || show.image.medium)) || null,
       platform: (show.webChannel && show.webChannel.name) || (show.network && show.network.name) || '',
-      total_episodes: eps.length, premiered: show.premiered || null, updated_at: now };
+      total_episodes: eps.length, summary: cleanSummary(show.summary), premiered: show.premiered || null, updated_at: now };
     epInputs = eps.map((e: any) => ({ season: e.season, number: e.number, name: e.name || '',
-      runtime: e.runtime || null, airdate: e.airdate || null }));
+      runtime: e.runtime || null, airdate: e.airdate || null, summary: cleanSummary(e.summary) }));
   }
 
   // Build episode rows with canonical next_episode_id links (NULL on the finale).
@@ -86,7 +91,7 @@ async function materializeTitle(env: Env, source: string, ref: string, titleId: 
     const nxt = epInputs[i + 1];
     return {
       episode_id: epId(titleId, e.season, e.number), title_id: titleId,
-      season: e.season, number: e.number, name: e.name, runtime: e.runtime, airdate: e.airdate,
+      season: e.season, number: e.number, name: e.name, runtime: e.runtime, airdate: e.airdate, summary: e.summary,
       next_episode_id: nxt ? epId(titleId, nxt.season, nxt.number) : null,
       updated_at: now,
     };
@@ -94,16 +99,44 @@ async function materializeTitle(env: Env, source: string, ref: string, titleId: 
 
   const stmts = [
     env.DB.prepare(`INSERT OR REPLACE INTO titles
-      (title_id, source, name, kind, status, poster, platform, total_episodes, premiered, updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?)`).bind(titleRow.title_id, titleRow.source, titleRow.name, titleRow.kind,
-        titleRow.status, titleRow.poster, titleRow.platform, titleRow.total_episodes, titleRow.premiered, titleRow.updated_at),
+      (title_id, source, name, kind, status, poster, platform, total_episodes, summary, premiered, updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?)`).bind(titleRow.title_id, titleRow.source, titleRow.name, titleRow.kind,
+        titleRow.status, titleRow.poster, titleRow.platform, titleRow.total_episodes, titleRow.summary, titleRow.premiered, titleRow.updated_at),
     ...episodes.map((e) => env.DB.prepare(`INSERT OR REPLACE INTO episodes
-      (episode_id, title_id, season, number, name, runtime, airdate, next_episode_id, updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?)`).bind(e.episode_id, e.title_id, e.season, e.number, e.name, e.runtime,
-        e.airdate, e.next_episode_id, e.updated_at)),
+      (episode_id, title_id, season, number, name, runtime, airdate, summary, next_episode_id, updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?)`).bind(e.episode_id, e.title_id, e.season, e.number, e.name, e.runtime,
+        e.airdate, e.summary, e.next_episode_id, e.updated_at)),
   ];
   await env.DB.batch(stmts);
   return { episodes, titleRow, created: true };
+}
+
+// Lazy backfill: titles materialized before the `summary` column existed have a
+// NULL summary. On the next detail read we fetch it once from the source and
+// persist it, so old shows pick up a synopsis without a bulk migration. Best
+// effort — returns the (possibly still-null) summary; never throws.
+export async function ensureTitleSummary(env: Env, titleId: string): Promise<string | null> {
+  const row = await env.DB.prepare('SELECT source, summary FROM titles WHERE title_id = ?').bind(titleId).first<any>();
+  if (!row) return null;
+  if (row.summary != null) return row.summary;          // already filled (incl. '' if upstream had none)
+  const i = titleId.indexOf(':');
+  const ref = i >= 0 ? titleId.slice(i + 1) : titleId;
+  let summary: string | null = null;
+  try {
+    if (row.source === 'tmdb') {
+      const m = await fetchTmdbMovie(env, ref);
+      summary = cleanSummary(m?.overview);
+    } else {
+      const r = await fetch(`https://api.tvmaze.com/shows/${encodeURIComponent(ref)}`);
+      if (r.ok) summary = cleanSummary(((await r.json()) as any).summary);
+    }
+  } catch { return row.summary; }
+  // Persist even an empty string so we don't re-fetch a title that genuinely has
+  // no synopsis. Skip the write only if the lookup itself failed (summary null).
+  if (summary != null) {
+    await env.DB.prepare('UPDATE titles SET summary = ? WHERE title_id = ?').bind(summary, titleId).run();
+  }
+  return summary;
 }
 
 // POST /catalog/initiate — materialize a title for a member at a watch pattern.

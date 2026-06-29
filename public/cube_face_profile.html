@@ -452,9 +452,9 @@
             </div>
 
             <div class="stats">
-              <div class="stat"><div class="num" id="stShows">128</div><div class="lbl">SHOWS</div></div>
-              <div class="stat"><div class="num" id="stEps">1,340</div><div class="lbl">EPISODES</div></div>
-              <div class="stat"><div class="num" id="stThird">$284</div><div class="lbl" id="stThirdLbl">SAVED</div></div>
+              <div class="stat"><div class="num" id="stShows">0</div><div class="lbl">SHOWS</div></div>
+              <div class="stat"><div class="num" id="stEps">0</div><div class="lbl">EPISODES</div></div>
+              <div class="stat"><div class="num" id="stThird">0</div><div class="lbl" id="stThirdLbl">MINUTES</div></div>
             </div>
           </div>
         </div>
@@ -621,12 +621,15 @@
   async function loadStats(email){
     if(DEMO) return;
     try{
-      const r=await fetch(API+'/profile/'+encodeURIComponent(email)+'/watch');
+      // Catalog-backed: /watch was dropped with the episode-as-unit migration, so the
+      // old call 404'd and the placeholder numbers were never replaced. /titles carries
+      // per-title watched + minute counts we sum here.
+      const r=await fetch(API+'/profile/'+encodeURIComponent(email)+'/titles');
       if(!r.ok) return;
-      const shows=(await r.json()).shows||[];
+      const titles=(await r.json()).titles||[];
       let eps=0, mins=0;
-      shows.forEach(s=>{ eps+=(s.watched||0); const ep=s.episodes||{}; for(const k in ep) mins+=Math.round(ep[k].min||0); });
-      $('stShows').textContent=String(shows.length);
+      titles.forEach(t=>{ eps+=(t.watched||0); mins+=Math.round(t.minutes||0); });
+      $('stShows').textContent=String(titles.length);
       $('stEps').textContent=eps.toLocaleString();
       $('stThird').textContent=mins.toLocaleString(); $('stThirdLbl').textContent='MINUTES';
     }catch(_){}
@@ -929,10 +932,23 @@
     const me=(($('pname')&&$('pname').textContent)||'').trim();
     return me ? (me+' wants to watch alongside you on pangolinRC. ') : 'Watch alongside me on pangolinRC. ';
   }
+  // This face runs inside the cube's iframe; setting the iframe's own location to an
+  // sms:/mailto: scheme is unreliable (it gets swallowed and nothing opens). Drive
+  // the TOP window instead — these schemes hand off to the OS without unloading the
+  // page. Falls back to the local frame if top access is ever blocked.
+  function openExternal(url){
+    try{ (window.top||window).location.href=url; }
+    catch(_){ window.location.href=url; }
+  }
   // Text invite: a blank sms: draft (you pick the recipient in Messages). We can't
   // check membership without an address, so it stays pure outreach.
   function inviteByText(){
-    window.location.href='sms:&body='+encodeURIComponent(inviteSig()+'Join: '+location.origin+'/');
+    const msg=inviteSig()+'Join: '+location.origin+'/';
+    // Prefer the native share sheet (allowed via the iframe's allow="web-share");
+    // it lets you pick Messages/WhatsApp/etc. Fall back to a recipient-less sms:
+    // draft — note the '?' before 'body', without it iOS ignores the body.
+    if(navigator.share){ navigator.share({text:msg}).catch(()=>{}); return; }
+    openExternal('sms:?&body='+encodeURIComponent(msg));
   }
   // Email invite: ask for the address, and if it's already a member, follow them
   // in-app instead of sending a join link; otherwise open a mailto: draft to them.
@@ -947,8 +963,8 @@
       const d=await r.json().catch(()=>({}));
       if(d.member){ flMsg((d.username||addr)+' is already on pangolinRC — following them.'); followMember(addr); return; }
     }catch(_){ /* lookup failed → fall through to the draft */ }
-    window.location.href='mailto:'+encodeURIComponent(addr)+'?subject='+encodeURIComponent('Watch alongside me on pangolinRC')
-      +'&body='+encodeURIComponent(inviteSig()+'\n\nJoin here: '+location.origin+'/');
+    openExternal('mailto:'+encodeURIComponent(addr)+'?subject='+encodeURIComponent('Watch alongside me on pangolinRC')
+      +'&body='+encodeURIComponent(inviteSig()+'\n\nJoin here: '+location.origin+'/'));
   }
 
   // Click delegation: unfollow (×), follow / follow-back, and open-slot taps.

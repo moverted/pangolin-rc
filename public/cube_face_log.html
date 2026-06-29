@@ -484,7 +484,7 @@ function expandedCard(s, mode){
   const poster = s.poster ? 'style="background-image:url('+s.poster+')"'
                           : 'style="background:linear-gradient(150deg,#2a201a,#16100c)"';
   const btn=(cls,act,ic,l1,l2)=>'<button class="exc-btn '+cls+'" data-act="'+act+'" data-id="'+s.id+'">'+
-    '<span class="ic">'+ic+'</span><span class="lbl">'+l1+'<br>'+l2+'</span></button>';
+    '<span class="ic">'+ic+'</span><span class="lbl">'+l1+(l2?'<br>'+l2:'')+'</span></button>';
   // COMPLETED: one corner pill, "WATCH AGAIN" → pops to the LOG side (the
   // episodes face) where the streamer wheel lets you change the viewing method,
   // e.g. theater → a streamer once it's available. No second button.
@@ -498,7 +498,7 @@ function expandedCard(s, mode){
         '<div class="viewings" id="vw-'+s.id+'"><div class="vw-empty">loading viewings…</div></div>'+
         '</div>';
   }
-  const btns = btn('watch','watch','&#9654;&#65039;',s.kind==='movie'?'WATCH':'WATCH',s.kind==='movie'?'FILM':'NEXT')+btn('stop','stop','&#128721;','STOP','WATCHING');
+  const btns = btn('watch','watch','&#9654;&#65039;','WATCH','')+btn('stop','stop','&#128721;','STOP','WATCHING');
   // Seasons column (filled async after render via fillSeasons; films have none).
   const seasonsCol = isMovie ? '' : '<div class="exc-seasons" id="seas-'+s.id+'"></div>';
   return '<div class="exp-card" data-id="'+s.id+'">'+
@@ -586,9 +586,27 @@ function render(){
     else if(act==="remove"){ removePermanently(id); }
   }));
   // Completed card expanded → fill its per-viewing list (tickets + reflections).
-  if(activeTab==="completed" && selectedId){ const s=LOG.find(x=>x.id===selectedId); if(s) loadViewings(s); }
+  if(activeTab==="completed" && selectedId){ const s=LOG.find(x=>x.id===selectedId); if(s){ loadViewings(s); ensureSyn(s); } }
   // Current card expanded → fill its SEASONS chips (async; films get none).
-  else if(selectedId){ const s=LOG.find(x=>x.id===selectedId); if(s) fillSeasons(s); }
+  else if(selectedId){ const s=LOG.find(x=>x.id===selectedId); if(s){ fillSeasons(s); ensureSyn(s); } }
+}
+
+// Backfill a missing synopsis on the expanded card. /titles only carries summary
+// once the column is populated; titles tracked before it existed fill lazily on the
+// detail read, so we fetch detail here and drop the text into the open card.
+async function ensureSyn(s){
+  if(!s || s.summary || !s.titleId) return;
+  const email=acct(); if(!email) return;
+  try{
+    const r=await fetch(API+"/profile/"+encodeURIComponent(email)+"/titles/"+encodeURIComponent(s.titleId));
+    if(!r.ok) return;
+    const d=await r.json();
+    const syn=d && d.title && d.title.summary;
+    if(!syn) return;
+    s.summary=syn;
+    if(selectedId!==s.id) return;   // card collapsed/changed mid-fetch
+    document.querySelectorAll('.exp-card[data-id="'+s.id+'"] .exc-syn').forEach(el=>{ el.textContent=syn; });
+  }catch(_){}
 }
 
 /* CURRENT-tab selection: tap a show to open its action panel in place, tap its
@@ -693,6 +711,7 @@ function recordFromTitle(t){
   const isMovie=t.kind==='movie';
   return { id:"acct-"+t.title_id, titleId:t.title_id, tvmazeId:t.title_id, kind:t.kind,
     q:t.name, name:t.name, poster:t.poster||null, platform:t.platform||"",
+    summary:t.summary||"",
     status:t.title_status||(isMovie?"Film":"Unknown"), failed:false,
     episodes:[], total:t.total||0, released:t.released||0, watched:t.watched||0,
     lastWatched: t.last_season ? {season:t.last_season,number:t.last_number,title:"",at:today} : null,
