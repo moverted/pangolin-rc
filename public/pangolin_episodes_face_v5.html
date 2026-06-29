@@ -548,6 +548,7 @@
 <script>
 const NOW=new Date(); const DAY=864e5;
 let allEps=[], eps=[], watched=0, watchTs=[], watchDate={}, binged={}, ranks={}, notes={}, focus=0, cooled=false;
+let titleSummary='';   // show-level synopsis, used when an episode has none of its own
 let seasonStatus='', curShowId=null, curShowName='', curService='', svcLaunchable=false;
 // A film loads as a one-episode "show" so all the minute-bar / start-finish /
 // logging machinery works unchanged; isMovie just hides the season/episode chrome
@@ -801,6 +802,25 @@ let mediaRecorder = null;
 let audioChunks = [];
 let audioBlobs = {};  // Store audio blobs by transcript ID for playback
 
+// Inline clip playback. window.open() of an audio URL is unreliable inside the
+// cube's iframe (and on iOS it just opens a blank tab), so play through a single
+// shared <audio> element instead. Tapping the same clip again pauses it; the
+// speaker glyph flips to ⏸ while playing. Falls back to opening the URL only if
+// playback is outright rejected.
+let _clip = null, _clipBtn = null, _clipUrl = '';
+function _resetClipBtn(){ if(_clipBtn && _clipBtn.dataset.glyph){ _clipBtn.innerHTML=_clipBtn.dataset.glyph; } _clipBtn=null; }
+function playClip(url, btn){
+  if(!url){ alert('No audio available'); return; }
+  // Tap the currently-playing clip → pause + reset.
+  if(_clip && _clipUrl===url && !_clip.paused){ _clip.pause(); _resetClipBtn(); return; }
+  if(_clip){ _clip.pause(); _resetClipBtn(); }
+  _clip = new Audio(url); _clipUrl = url; _clipBtn = btn || null;
+  if(_clipBtn){ if(!_clipBtn.dataset.glyph) _clipBtn.dataset.glyph=_clipBtn.innerHTML; _clipBtn.innerHTML='⏸'; }
+  _clip.onended = _resetClipBtn;
+  _clip.onerror = ()=>{ _resetClipBtn(); window.open(url,'_blank'); };
+  _clip.play().catch(()=>{ _resetClipBtn(); window.open(url,'_blank'); });
+}
+
 function paintTranscripts(){
   const label=$('transcriptLabel');
   const container=$('transcripts');
@@ -849,12 +869,7 @@ function paintTranscripts(){
 
     speakerBtn.onclick = (e) => {
       e.preventDefault();
-      if(t.audioUrl){
-        // Open audio in new tab for playback or download
-        window.open(t.audioUrl, '_blank');
-      } else {
-        alert('No audio available');
-      }
+      playClip(t.audioUrl, speakerBtn);
     };
 
     // Transcript text, with a one-time ✎ to fix Whisper's guess (own comments
@@ -906,14 +921,14 @@ function coviewRow(c, nested, replied){
       const sp=document.createElement('button');
       sp.style.cssText='width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(108,192,112,.2);border:2px solid #6cc070;cursor:pointer;color:#6cc070;font-size:15px;flex-shrink:0;';
       sp.innerHTML='🔊';
-      sp.onclick=(e)=>{ e.preventDefault(); window.open(c.audioUrl,'_blank'); };
+      sp.onclick=(e)=>{ e.preventDefault(); playClip(c.audioUrl, sp); };
       line.appendChild(sp);
     }
   } else if(c.revealed && c.audioUrl){
     const sp=document.createElement('button');
     sp.style.cssText='width:48px;height:48px;padding:0;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(108,192,112,.2);border:2px solid #6cc070;cursor:pointer;color:#6cc070;font-size:20px;flex-shrink:0;';
     sp.innerHTML='🔊';
-    sp.onclick=(e)=>{ e.preventDefault(); window.open(c.audioUrl,'_blank'); };
+    sp.onclick=(e)=>{ e.preventDefault(); playClip(c.audioUrl, sp); };
     line.appendChild(sp);
   } else if(!nested){
     const lock=document.createElement('div');
@@ -1164,11 +1179,21 @@ async function replyFlow(target){
     }catch(_){ /* the SMS draft below is the fallback path */ }
   }
   coviewMarkReplied(target.id);
-  paintTranscripts(); updateMicMode();
+  // Reload co-view so the reply threads in under the friend's comment (the audio
+  // path already does this; the text path used to skip it, so the reply appeared
+  // to vanish).
+  loadCoview(); updateMicMode();
   // Native text hand-off — no SMS server, just the OS Messages compose sheet.
   const intro=`re: ${target.epCode} ${target.time} — `;
-  if(target.phone){ window.location.href = 'sms:'+target.phone+'?&body='+encodeURIComponent(intro+text); }
+  if(target.phone){ openExternal('sms:'+target.phone+'?&body='+encodeURIComponent(intro+text)); }
   else { alert('Reply saved — '+target.author+" hasn't added a phone number, so no text was sent."); }
+}
+
+// Same iframe caveat as the profile face: sms:/mailto: must be driven from the top
+// window, not the embedded face's own location, or the hand-off is swallowed.
+function openExternal(url){
+  try{ (window.top||window).location.href=url; }
+  catch(_){ window.location.href=url; }
 }
 
 async function startRecording(){
@@ -1437,7 +1462,7 @@ function paint(){
     if(showEr) $('epReadoutTxt').textContent = 'EP '+(focus+1)+'/'+total; }
   $('epTtl').textContent=f.name||(isMovie?'Film':('Episode '+(focus+1)));
   $('epAired').textContent= isMovie ? (f.airdate?String(f.airdate).slice(0,4):'') : (f.airdate?fmt(f.airdate):'');
-  $('syn').textContent=strip(f.summary)||'No synopsis available yet.';
+  $('syn').textContent=strip(f.summary)||strip(titleSummary)||'No synopsis available yet.';
 
   const rk=$('rank'); rk.innerHTML='';
   for(let n=0;n<=10;n++){ const b=document.createElement('b'); b.textContent=n;
@@ -1800,7 +1825,8 @@ async function loadTitle(titleId, pattern, opts){
   const show = { id:titleId, name:t.name||'', image: t.poster?{original:t.poster, medium:t.poster}:null,
     premiered:t.premiered||'', webChannel:{name:t.platform||''}, network:null,
     averageRuntime:(eps0[0]&&eps0[0].runtime)||45, genres: isMovie?['Film']:[], status:t.status||'' };
-  const list = eps0.map(e=>({season:e.season,number:e.number,name:e.name,runtime:e.runtime,airdate:e.airdate}));
+  const list = eps0.map(e=>({season:e.season,number:e.number,name:e.name,runtime:e.runtime,airdate:e.airdate,summary:e.summary||''}));
+  titleSummary = t.summary || '';   // show-level fallback for the episode-face synopsis
   // The member's per-episode progress, keyed "season-number", so applyPattern's
   // applySavedDetail restores done/minute/bp/sessions exactly.
   const saved = {};
@@ -1816,7 +1842,7 @@ async function loadTitle(titleId, pattern, opts){
 async function loadShowWithPattern(id,pattern){
   isMovie=false;
   try{ const r=await fetch(`https://api.tvmaze.com/shows/${id}?embed=episodes`); if(!r.ok) throw 0;
-    const s=await r.json(); boot(s,(s._embedded&&s._embedded.episodes)||[],false); applyPattern(pattern||{kind:'beginning'});
+    const s=await r.json(); titleSummary=s.summary||''; boot(s,(s._embedded&&s._embedded.episodes)||[],false); applyPattern(pattern||{kind:'beginning'});
   }catch(e){ $('name').textContent='Show not found'; }
 }
 
@@ -1839,6 +1865,7 @@ async function loadMovie(m,pattern){
     premiered:day, genres:['Film'], averageRuntime:rt, runtime:rt };
   const ep={ season:1, number:1, name:movie.title||movie.name||'', runtime:rt,
     airdate:day, summary:movie.overview||'' };
+  titleSummary = movie.overview || '';
   boot(show,[ep],false);
   applyPattern(pattern||{kind:'beginning'});
 }
