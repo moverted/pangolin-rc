@@ -123,6 +123,39 @@
   .exc-btn.watch:active{transform:scale(.97)}
   .exc-btn.stop{color:#e9b9b9;background:transparent;border:1px solid var(--line)}
   .exc-btn.stop:active{color:#ff8a8a;border-color:#ff8a8a;transform:scale(.97)}
+  .exc-btn.share{color:var(--amber);background:transparent;border:1px solid var(--amber)}
+  .exc-btn.share:active{background:rgba(233,162,60,.16);transform:scale(.97)}
+
+  /* Share dialog: a modal over the whole face. Friend list (all checked by
+     default) + invite-by-text + send. */
+  .sh-ov{position:fixed;inset:0;z-index:60;display:flex;align-items:flex-end;justify-content:center;
+    background:rgba(8,6,4,.72);backdrop-filter:blur(2px)}
+  .sh-card{width:100%;max-width:440px;max-height:86%;display:flex;flex-direction:column;
+    background:var(--panel,#211a13);border:1px solid var(--amber);border-radius:16px 16px 0 0;
+    box-shadow:0 -10px 40px -16px rgba(0,0,0,.9);padding:16px 16px 20px}
+  .sh-head{display:flex;align-items:flex-start;gap:10px;margin-bottom:12px}
+  .sh-head .t{flex:1;min-width:0;font-family:var(--display);font-weight:700;font-size:16px;line-height:1.15;color:var(--text)}
+  .sh-x{flex:0 0 auto;background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1;padding:2px 4px}
+  .sh-all{display:flex;align-items:center;gap:9px;padding:9px 4px;cursor:pointer;
+    font-family:var(--mono);font-size:11px;letter-spacing:.12em;color:var(--amber);border-bottom:1px solid var(--line)}
+  .sh-list{overflow-y:auto;-webkit-overflow-scrolling:touch;margin:2px 0 4px;flex:1;min-height:40px}
+  .sh-row{display:flex;align-items:center;gap:10px;padding:10px 4px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,.05)}
+  .sh-row .nm{flex:1;min-width:0;font-size:14px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sh-ck{flex:0 0 auto;width:20px;height:20px;border-radius:6px;border:1.5px solid var(--line);
+    display:flex;align-items:center;justify-content:center;font-size:13px;color:#1a130b}
+  .sh-row.on .sh-ck{background:var(--amber);border-color:var(--amber)}
+  .sh-empty{padding:14px 4px;color:var(--muted);font-size:12.5px;line-height:1.5}
+  .sh-note{width:100%;box-sizing:border-box;margin-top:6px;background:rgba(255,255,255,.04);
+    border:1px solid var(--line);border-radius:10px;color:var(--text);font-family:inherit;font-size:13px;padding:10px}
+  .sh-actions{display:flex;gap:10px;margin-top:12px}
+  .sh-btn{flex:1;border:none;border-radius:11px;padding:13px 8px;cursor:pointer;
+    font-family:var(--display);font-weight:700;font-size:13px}
+  .sh-send{color:#1a130b;background:linear-gradient(135deg,#f2b457,#e89f3d)}
+  .sh-send:disabled{opacity:.45}
+  .sh-text{color:var(--amber);background:transparent;border:1px solid var(--amber)}
+  .sh-toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:70;
+    background:rgba(20,15,10,.96);border:1px solid var(--amber);color:var(--text);
+    padding:11px 18px;border-radius:12px;font-size:13px;box-shadow:0 10px 30px -12px rgba(0,0,0,.8)}
   /* completed card: green treatment + single WATCH AGAIN pill in the corner */
   .exp-card.completed{position:relative;border-color:#3f7a44;
     box-shadow:0 0 0 1px #3f7a44,0 10px 26px -14px rgba(108,192,112,.55)}
@@ -498,7 +531,7 @@ function expandedCard(s, mode){
         '<div class="viewings" id="vw-'+s.id+'"><div class="vw-empty">loading viewings…</div></div>'+
         '</div>';
   }
-  const btns = btn('watch','watch','&#9654;&#65039;','WATCH','')+btn('stop','stop','&#128721;','STOP','WATCHING');
+  const btns = btn('watch','watch','&#9654;&#65039;','WATCH','')+btn('share','share','&#127873;','SHARE','')+btn('stop','stop','&#128721;','STOP','WATCHING');
   // Seasons column (filled async after render via fillSeasons; films have none).
   const seasonsCol = isMovie ? '' : '<div class="exc-seasons" id="seas-'+s.id+'"></div>';
   return '<div class="exp-card" data-id="'+s.id+'">'+
@@ -581,6 +614,7 @@ function render(){
     ev.stopPropagation();
     const act=el.dataset.act, id=el.dataset.id, s=LOG.find(x=>x.id===id); if(!s)return;
     if(act==="watch"){ if(s.isNew){s.isNew=false;s.lastDate=new Date().toISOString().slice(0,10);} cube.rotateTo("episodes",episodesPayload(s)); render(); renderPierre(); }
+    else if(act==="share"){ openShareDialog(s); }
     else if(act==="stop"){ selectedId=null; setTimeout(()=>stopShow(id),60); }
     else if(act==="tryagain"){ tryAgain(id); }
     else if(act==="remove"){ removePermanently(id); }
@@ -607,6 +641,102 @@ async function ensureSyn(s){
     if(selectedId!==s.id) return;   // card collapsed/changed mid-fetch
     document.querySelectorAll('.exp-card[data-id="'+s.id+'"] .exc-syn').forEach(el=>{ el.textContent=syn; });
   }catch(_){}
+}
+
+/* ─── 🎁 Share: push a title to chosen friends; it lands on their BROWSE rail ─── */
+// sms:/mailto: from inside a cube face must drive the top window (the embedded
+// face's own location swallows the scheme). navigator.share is preferred.
+function openExternal(url){ try{ (window.top||window).location.href=url; }catch(_){ window.location.href=url; } }
+function shToast(msg){
+  document.querySelectorAll('.sh-toast').forEach(t=>t.remove());
+  const t=document.createElement('div'); t.className='sh-toast'; t.textContent=msg;
+  document.body.appendChild(t); setTimeout(()=>t.remove(),2600);
+}
+function closeShareDialog(){ const o=document.getElementById('shOv'); if(o) o.remove(); }
+
+async function openShareDialog(s){
+  closeShareDialog();
+  const email=acct();
+  const ov=document.createElement('div'); ov.className='sh-ov'; ov.id='shOv';
+  ov.innerHTML=
+    '<div class="sh-card">'+
+      '<div class="sh-head"><div class="t">🎁 Share “'+esc(s.name||'this')+'”</div>'+
+        '<button class="sh-x" id="shX">✕</button></div>'+
+      '<div class="sh-all" id="shAll"><span class="sh-ck">✓</span><span>ALL FRIENDS</span></div>'+
+      '<div class="sh-list" id="shList"><div class="sh-empty">Loading friends…</div></div>'+
+      '<input class="sh-note" id="shNote" type="text" maxlength="280" placeholder="add a note (optional)">'+
+      '<div class="sh-actions">'+
+        '<button class="sh-btn sh-text" id="shText">✉️ Invite by text</button>'+
+        '<button class="sh-btn sh-send" id="shSend" disabled>Share</button>'+
+      '</div>'+
+    '</div>';
+  document.body.appendChild(ov);
+  ov.addEventListener('click',e=>{ if(e.target===ov) closeShareDialog(); });
+  document.getElementById('shX').onclick=closeShareDialog;
+
+  // Invite by text shares the title outward to a non-member (or any contact).
+  const inviteMsg=()=>{ const me=(localStorage.getItem('pg_username')||'').trim();
+    return (me?me+' is watching “':'Watch “')+(s.name||'this show')+'” on pangolinRC: '+location.origin+'/'; };
+  document.getElementById('shText').onclick=()=>{
+    const msg=inviteMsg();
+    if(navigator.share){ navigator.share({text:msg}).catch(()=>{}); return; }
+    openExternal('sms:?&body='+encodeURIComponent(msg));
+  };
+
+  const sendBtn=document.getElementById('shSend'), listEl=document.getElementById('shList'),
+        allEl=document.getElementById('shAll');
+  if(!email){ listEl.innerHTML='<div class="sh-empty">Sign in to share with friends. You can still invite by text above.</div>';
+    allEl.style.display='none'; return; }
+
+  let friends=[];
+  try{
+    const r=await fetch(API+'/profile/'+encodeURIComponent(email)+'/follows');
+    if(r.ok){ friends=((await r.json()).friends)||[]; }
+  }catch(_){}
+  if(!friends.length){
+    listEl.innerHTML='<div class="sh-empty">No friends yet — add friends on your Profile, then share with them. For now, invite by text above.</div>';
+    allEl.style.display='none'; return;
+  }
+  const sel=new Set(friends.map(f=>f.email));   // all selected by default
+  const sync=()=>{
+    sendBtn.disabled=!sel.size;
+    sendBtn.textContent=sel.size?('Share with '+sel.size):'Share';
+    allEl.querySelector('.sh-ck').textContent=(sel.size===friends.length)?'✓':'';
+  };
+  listEl.innerHTML=friends.map(f=>{
+    const nm=esc(f.username||f.email);
+    return '<div class="sh-row on" data-em="'+esc(f.email)+'"><span class="nm">'+nm+'</span>'+
+           '<span class="sh-ck">✓</span></div>';
+  }).join('');
+  listEl.querySelectorAll('.sh-row').forEach(row=>{
+    row.onclick=()=>{ const em=row.dataset.em;
+      if(sel.has(em)){ sel.delete(em); row.classList.remove('on'); row.querySelector('.sh-ck').textContent=''; }
+      else { sel.add(em); row.classList.add('on'); row.querySelector('.sh-ck').textContent='✓'; }
+      sync(); };
+  });
+  allEl.onclick=()=>{
+    const all=sel.size===friends.length;
+    sel.clear(); if(!all) friends.forEach(f=>sel.add(f.email));
+    listEl.querySelectorAll('.sh-row').forEach(row=>{
+      const on=sel.has(row.dataset.em); row.classList.toggle('on',on); row.querySelector('.sh-ck').textContent=on?'✓':''; });
+    sync();
+  };
+  sync();
+
+  sendBtn.onclick=async()=>{
+    if(!sel.size) return;
+    sendBtn.disabled=true; sendBtn.textContent='Sharing…';
+    const note=(document.getElementById('shNote').value||'').trim();
+    try{
+      const r=await fetch(API+'/profile/'+encodeURIComponent(email)+'/share',{method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ title_id:s.titleId, to:[...sel], note, show_name:s.name, poster:s.poster })});
+      const d=await r.json().catch(()=>({}));
+      closeShareDialog();
+      const n=d.shared||0;
+      shToast(n? ('🎁 Shared with '+n+' friend'+(n>1?'s':'')) : 'Already shared with them');
+    }catch(_){ sendBtn.disabled=false; sync(); shToast('Could not share — try again'); }
+  };
 }
 
 /* CURRENT-tab selection: tap a show to open its action panel in place, tap its

@@ -522,6 +522,88 @@ profileRoutes.delete('/:email/follow/:target', async (c) => {
   return c.json({ ok: true });
 });
 
+// ─── Shares: a member pushes a title to specific friends ─────────────────────
+// Distinct from the passive feed — a share is a deliberate recommendation that
+// lands on each recipient's BROWSE "From friends" rail until they open/dismiss it.
+// Only confirmed friends (mutual follows) are valid recipients, enforced here.
+
+// The caller's confirmed friends (mutual follow A→B and B→A).
+async function friendEmails(c: any, email: string): Promise<Set<string>> {
+  const { results } = await c.env.DB.prepare(
+    `SELECT a.followee_email AS email FROM follows a
+       JOIN follows b ON b.follower_email = a.followee_email
+                     AND b.followee_email = a.follower_email
+      WHERE a.follower_email = ?`).bind(email).all();
+  return new Set((results || []).map((r: any) => r.email));
+}
+
+// POST /:email/share — body { title_id, to:[emails], note?, show_name?, poster? }.
+// Inserts one share row per friend recipient, skipping any who already have an
+// open (undismissed) share of this title from this sender. Returns how many landed.
+profileRoutes.post('/:email/share', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  let body: any; try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const titleId = String(body.title_id || '').trim();
+  const note = (String(body.note || '').trim().slice(0, 280)) || null;
+  const to: string[] = Array.isArray(body.to) ? body.to.map((e: any) => String(e).toLowerCase().trim()).filter(Boolean) : [];
+  if (!titleId || !to.length) return c.json({ error: 'title_id and to[] required' }, 400);
+  const me = await c.env.DB.prepare('SELECT 1 FROM users WHERE email = ?').bind(email).first();
+  if (!me) return c.json({ error: 'unknown user' }, 401);
+
+  const friends = await friendEmails(c, email);
+  let recipients: string[] = [...new Set<string>(to)].filter((e) => friends.has(e) && e !== email);
+  if (!recipients.length) return c.json({ shared: 0 });
+
+  // Skip friends who already have this title open on their rail (no duplicate cards).
+  const ph = recipients.map(() => '?').join(',');
+  const { results: dup } = await c.env.DB.prepare(
+    `SELECT to_email FROM shares
+      WHERE from_email = ? AND title_id = ? AND dismissed_at IS NULL AND to_email IN (${ph})`)
+    .bind(email, titleId, ...recipients).all();
+  const have = new Set((dup || []).map((r: any) => r.to_email));
+  recipients = recipients.filter((e) => !have.has(e));
+  if (!recipients.length) return c.json({ shared: 0 });
+
+  const t = await c.env.DB.prepare('SELECT name, poster FROM titles WHERE title_id = ?').bind(titleId).first<any>();
+  const showName = t?.name || (body.show_name ? String(body.show_name).slice(0, 200) : null);
+  const poster = t?.poster || (body.poster ? String(body.poster).slice(0, 500) : null);
+  const now = Date.now();
+  await c.env.DB.batch(recipients.map((rcpt) => c.env.DB.prepare(
+    `INSERT INTO shares (id, from_email, to_email, title_id, show_name, poster, note, created_at)
+     VALUES (?,?,?,?,?,?,?,?)`).bind(crypto.randomUUID(), email, rcpt, titleId, showName, poster, note, now)));
+  return c.json({ shared: recipients.length });
+});
+
+// GET /:email/shares — the open shares on this member's BROWSE rail, newest first,
+// joined with the live title (name/poster/kind) and the sender's username.
+profileRoutes.get('/:email/shares', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  const { results } = await c.env.DB.prepare(
+    `SELECT s.id, s.title_id, s.note, s.created_at, s.from_email,
+            COALESCE(t.name, s.show_name) AS show_name,
+            COALESCE(t.poster, s.poster) AS poster, t.kind, u.username AS from_name
+       FROM shares s
+       LEFT JOIN titles t ON t.title_id = s.title_id
+       LEFT JOIN users  u ON u.email = s.from_email
+      WHERE s.to_email = ? AND s.dismissed_at IS NULL
+      ORDER BY s.created_at DESC`).bind(email).all();
+  const shares = (results || []).map((r: any) => ({
+    id: r.id, titleId: r.title_id, showName: r.show_name || '', poster: r.poster || null,
+    kind: r.kind || 'show', note: r.note || '', from: r.from_name || r.from_email,
+    fromEmail: r.from_email, createdAt: r.created_at,
+  }));
+  return c.json({ shares });
+});
+
+// DELETE /:email/shares/:id — recipient clears a share off their rail (soft delete).
+profileRoutes.delete('/:email/shares/:id', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  const id = c.req.param('id');
+  await c.env.DB.prepare('UPDATE shares SET dismissed_at = ? WHERE id = ? AND to_email = ?')
+    .bind(Date.now(), id, email).run();
+  return c.json({ ok: true });
+});
+
 // Aggregated activity feed: the member's own activity + everyone they follow,
 // newest first, each row tagged actor + relationship (self / friend / following).
 profileRoutes.get('/:email/feed', async (c) => {
