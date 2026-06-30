@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { pushRow, pushRows } from './airtable';
-import { fetchTmdbMovie } from './tmdb';
+import { fetchTmdbMovie, fetchTmdbTvRuntime } from './tmdb';
 
 // ─── Shared catalog + server-side materialization ────────────────────────────
 //
@@ -213,6 +213,99 @@ catalogRoutes.post('/initiate', async (c) => {
   })().catch((e) => console.error('airtable initiate mirror', e)));
 
   return c.json({ title_id: ref.titleId, kind: titleRow.kind, episodes: episodes.length, current_episode_id: currentEp });
+});
+
+// File a bug into the admin review list (D1 source of truth + Airtable mirror).
+// Used by the runtime-check below; no screenshot/email path — these are system-filed.
+async function fileSystemBug(env: Env, note: string, view: string, email: string | null): Promise<void> {
+  const id = crypto.randomUUID();
+  const now = Date.now();
+  const row = {
+    id, user_email: email || null, note, view, url: null as string | null,
+    user_agent: null as string | null, viewport: null as string | null,
+    screenshot_url: null as string | null, status: 'new', send_to_claude: 0,
+    claude_status: null as string | null, created_at: now,
+  };
+  await env.DB.prepare(
+    `INSERT INTO bug_report (id, user_email, note, view, url, user_agent, viewport, screenshot_url, status, send_to_claude, claude_status, created_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+  ).bind(row.id, row.user_email, row.note, row.view, row.url, row.user_agent, row.viewport,
+         row.screenshot_url, row.status, row.send_to_claude, row.claude_status, row.created_at).run();
+  await pushRow(env, 'bug_report', row).catch((e) => console.warn('runtime bug mirror failed:', String(e).substring(0, 200)));
+}
+
+// POST /catalog/runtime-check — a member completed an episode after a live watch that
+// ran short of the stored runtime. TVmaze (TV) runtimes are sometimes a rounded slot,
+// so we ask TMDB for a second opinion: if TMDB's runtime sits closer to what the member
+// actually logged, we trust the two corroborating signals and CORRECT the episode's
+// runtime, then file an info bug. If TMDB can't confirm, we file a plain mismatch for
+// manual review. Movies (source 'tmdb') already come from TMDB and are skipped.
+catalogRoutes.post('/runtime-check', async (c) => {
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const email = (typeof body.email === 'string' ? body.email : '').trim().toLowerCase() || null;
+  const titleId = String(body.title_id || '');
+  const season = Number(body.season);
+  const number = Number(body.number);
+  const watched = Number(body.watched_min);
+  if (!titleId || !Number.isFinite(season) || !Number.isFinite(number) || !(watched > 0)) {
+    return c.json({ error: 'title_id, season, number, watched_min required' }, 400);
+  }
+  const episodeId = epId(titleId, season, number);
+
+  const ep = await c.env.DB.prepare('SELECT runtime FROM episodes WHERE episode_id = ?').bind(episodeId).first<{ runtime: number | null }>();
+  if (!ep) return c.json({ checked: false, reason: 'unknown episode' });
+  const stored = Number(ep.runtime) || 0;
+
+  const title = await c.env.DB.prepare('SELECT source, name FROM titles WHERE title_id = ?').bind(titleId).first<{ source: string; name: string }>();
+  if (!title) return c.json({ checked: false, reason: 'unknown title' });
+  if (title.source !== 'tvmaze') return c.json({ checked: false, reason: 'not a tvmaze title' });
+
+  // Guard: only act on a real mismatch (≥5 min). Within tolerance → nothing to do.
+  const storedGap = Math.abs(stored - watched);
+  if (!(stored > 0) || storedGap < 5) return c.json({ checked: false, reason: 'within tolerance' });
+
+  // Resolve the TVmaze show's external ids for the TMDB cross-reference.
+  const ref = titleId.slice(titleId.indexOf(':') + 1);
+  let ext: { imdb?: string | null; tvdb?: string | null } = {};
+  try {
+    const r = await fetch(`https://api.tvmaze.com/shows/${encodeURIComponent(ref)}`);
+    if (r.ok) {
+      const s: any = await r.json();
+      ext = { imdb: s?.externals?.imdb || null, tvdb: s?.externals?.thetvdb != null ? String(s.externals.thetvdb) : null };
+    }
+  } catch { /* fail soft — TMDB lookup just won't resolve */ }
+  const tmdbRt = await fetchTmdbTvRuntime(c.env, ext, season, number);
+
+  // TMDB "confirms" the member when it lands closer to the logged time than the stored
+  // value did, and differs from stored by a meaningful margin (≥3 min).
+  const tmdbCloser = tmdbRt != null && Math.abs(tmdbRt - watched) < storedGap && Math.abs(tmdbRt - stored) >= 3;
+
+  let corrected = false;
+  if (tmdbCloser && tmdbRt != null) {
+    await c.env.DB.prepare('UPDATE episodes SET runtime = ?, updated_at = ? WHERE episode_id = ?')
+      .bind(tmdbRt, Date.now(), episodeId).run();
+    corrected = true;
+  }
+
+  // One bug per still-open episode finding: an auto-correction shrinks the gap for the
+  // next viewer (→ "within tolerance", no re-file), so only the un-confirmed case can
+  // recur — dedupe it against the open list by the episode id embedded in the note.
+  const dupe = await c.env.DB.prepare(
+    `SELECT 1 FROM bug_report
+       WHERE note LIKE ? AND LOWER(COALESCE(status, '')) NOT IN ('fixed','wontfix','closed','resolved','done','duplicate')
+       LIMIT 1`
+  ).bind(`%(${episodeId})%`).first();
+  if (!dupe) {
+    const w = Math.round(watched);
+    const note = corrected
+      ? `Runtime auto-corrected via TMDB (${episodeId}): "${title.name}" S${season}E${number} — TVmaze had ${stored} min, member logged ~${w} min, TMDB says ${tmdbRt} min. Episode runtime updated to ${tmdbRt}. Review whether the rest of the title needs the same fix.`
+      : `Runtime mismatch (${episodeId}): "${title.name}" S${season}E${number} — TVmaze ${stored} min vs member-logged ~${w} min` +
+        (tmdbRt != null ? `; TMDB ${tmdbRt} min (not closer — no auto-correction).` : `; TMDB lookup failed.`) + ' Manual review.';
+    c.executionCtx.waitUntil(fileSystemBug(c.env, note, 'episodes · runtime-check', email).catch((e) => console.warn('runtime bug file failed:', String(e).substring(0, 200))));
+  }
+
+  return c.json({ checked: true, stored, watched: Math.round(watched), tmdbRuntime: tmdbRt, corrected });
 });
 
 // GET /catalog/titles/:title_id/episodes — canonical episode list (no user state).

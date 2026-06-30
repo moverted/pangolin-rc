@@ -275,9 +275,13 @@ app.get('/transcribe/coview', async (c) => {
   const allowed = want.filter((e) => friends.has(e));
   if (!allowed.length) return c.json({ comments: [] });
 
+  // Friends' comments AND the caller's OWN replies. The own-replies clause is what
+  // makes a reply visible: a reply you send threads back under the friend's comment,
+  // and a friend's reply to YOUR comment already arrives via the friend clause — the
+  // client threads those under your own (non-coview) comment rows.
   const ph = allowed.map(() => '?').join(',');
-  const where = ['c.show_id = ?', `c.user_email IN (${ph})`];
-  const binds: any[] = [showId, ...allowed];
+  const where = ['c.show_id = ?', `(c.user_email IN (${ph}) OR (c.user_email = ? AND c.reply_to IS NOT NULL))`];
+  const binds: any[] = [showId, ...allowed, email];
   if (episodeId) { where.push('c.episode_id = ?'); binds.push(episodeId); }
   const { results } = await c.env.DB
     .prepare(
