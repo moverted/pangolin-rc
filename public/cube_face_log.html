@@ -981,7 +981,7 @@ async function addToLog(show, pattern){
   const existing=LOG.find(s=>s.titleId===titleId || (s.name&&s.name.toLowerCase()===norm));
   if(existing){
     if(existing.stopped){ existing.stopped=false; patchTitle(existing,{status:'current'}); }
-    existing.lastDate=new Date().toISOString().slice(0,10); render(); renderPierre(); return;
+    existing.lastDate=new Date().toISOString().slice(0,10); consumeWatchOpen(); render(); renderPierre(); return;
   }
   const email=acct(); if(!email) return;   // signed-out: nothing to materialize against
   try{
@@ -990,11 +990,45 @@ async function addToLog(show, pattern){
     if(!r.ok) return;
     LOG = await loadAccount(email);                       // bring in the new title with real counts
     const s=LOG.find(x=>x.titleId===titleId); if(s){ s.isNew=true; s.addedSeq=++addSeq; }
+    consumeWatchOpen();
     render(); renderPierre();
   }catch(e){ /* Pierre validated the title; ignore transient failures */ }
 }
 
+// Re-pull the account whenever WATCH rotates into view, so a show added from BROWSE or
+// Pierre (or any face) while we weren't focused appears without a full page reload — the
+// catalog/initiate already persisted it, this just resyncs the list. Belt-and-suspenders
+// to the addShow message, which can race the iframe's own cold-load. NEW badges already
+// in memory are preserved across the resync.
+// A title chosen on another face (BROWSE/Pierre stamps pg_watch_open) opens here:
+// select its card and switch to its bucket so WATCH lands "already open" on it. Cleared
+// once consumed, so a later manual pick on WATCH isn't overridden.
+function consumeWatchOpen(){
+  let want=''; try{ want=localStorage.getItem('pg_watch_open')||''; }catch(_){}
+  if(!want) return;
+  const s=LOG.find(x=>x.titleId===want);
+  if(!s) return;                       // not in the list yet → try again on the next sync
+  selectedId=s.id; activeTab=bucketOf(s);
+  try{ localStorage.removeItem('pg_watch_open'); }catch(_){}
+}
+
+let _refreshing=false;
+async function refreshLog(){
+  if(DEMO || _refreshing) return;
+  const email=acct(); if(!email) return;
+  _refreshing=true;
+  try{
+    const prevNew=new Map(LOG.filter(s=>s.isNew).map(s=>[s.titleId, s.addedSeq]));
+    const fresh=await loadAccount(email);
+    fresh.forEach(s=>{ if(prevNew.has(s.titleId)){ s.isNew=true; s.addedSeq=prevNew.get(s.titleId); } });
+    fresh.sort((a,b)=>new Date(b.lastDate)-new Date(a.lastDate));
+    LOG=fresh; consumeWatchOpen(); render(); renderPierre();
+  }catch(_){ /* transient; keep the current list */ }
+  _refreshing=false;
+}
+
 window.addEventListener("message",(e)=>{
+  if(e.data && e.data.type==="cube:focus"){ refreshLog(); return; }   // resync on rotate-in
   if(e.data && e.data.type==="cube:payload" && e.data.face==="log"){
     const p=e.data.payload||{};
     if(p.addShow && p.addShow.id) addToLog(p.addShow, p.pattern);
@@ -1288,6 +1322,7 @@ document.getElementById("savpop").addEventListener("click",()=>document.getEleme
   // it sits in the default CURRENT tab — don't yank the user off another bucket.
   const _resume=resumeShow();
   if(_resume && activeTab==="current" && bucketOf(_resume)==="current") selectedId=_resume.id;
+  consumeWatchOpen();   // a title chosen right before a reload still opens here
   render();renderPierre();})();
 
 // Re-hydrate when the session changes (login/logout in another face).
