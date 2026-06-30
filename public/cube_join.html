@@ -268,8 +268,12 @@ async function fetchShow(name){
 }
 function openShow(id, name){
   if (window.parent !== window){
-    if (typeof window.parent.cubeRotateTo === 'function') window.parent.cubeRotateTo('episodes', { show:{ id, name } });
-    else window.parent.postMessage({ type:'cube:rotateTo', face:'episodes', payload:{ show:{ id, name } } }, '*');
+    // addToLog:true loads the show on BOTH faces at selection time — the episode
+    // (LOG) face AND the WATCH list — instead of waiting on the async episode:track
+    // relay, which could land before the Watch iframe was ready and get dropped.
+    const payload = { show:{ id, name }, addToLog:true };
+    if (typeof window.parent.cubeRotateTo === 'function') window.parent.cubeRotateTo('episodes', payload);
+    else window.parent.postMessage({ type:'cube:rotateTo', face:'episodes', payload }, '*');
   }
 }
 // Open a catalog title by its full id ('tvmaze:…' | 'tmdb:…'), routing films through
@@ -277,7 +281,7 @@ function openShow(id, name){
 // on payload shape). Used by the "From friends" rail, where shares carry a title_id.
 function openTitle(titleId, name){
   const payload = String(titleId).startsWith('tmdb:')
-    ? { movie:{ id:titleId, title:name } } : { show:{ id:titleId, name } };
+    ? { movie:{ id:titleId, title:name }, addToLog:true } : { show:{ id:titleId, name }, addToLog:true };
   if (window.parent !== window){
     if (typeof window.parent.cubeRotateTo === 'function') window.parent.cubeRotateTo('episodes', payload);
     else window.parent.postMessage({ type:'cube:rotateTo', face:'episodes', payload }, '*');

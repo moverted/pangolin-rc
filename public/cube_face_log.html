@@ -994,7 +994,28 @@ async function addToLog(show, pattern){
   }catch(e){ /* Pierre validated the title; ignore transient failures */ }
 }
 
+// Re-pull the account whenever WATCH rotates into view, so a show added from BROWSE or
+// Pierre (or any face) while we weren't focused appears without a full page reload — the
+// catalog/initiate already persisted it, this just resyncs the list. Belt-and-suspenders
+// to the addShow message, which can race the iframe's own cold-load. NEW badges already
+// in memory are preserved across the resync.
+let _refreshing=false;
+async function refreshLog(){
+  if(DEMO || _refreshing) return;
+  const email=acct(); if(!email) return;
+  _refreshing=true;
+  try{
+    const prevNew=new Map(LOG.filter(s=>s.isNew).map(s=>[s.titleId, s.addedSeq]));
+    const fresh=await loadAccount(email);
+    fresh.forEach(s=>{ if(prevNew.has(s.titleId)){ s.isNew=true; s.addedSeq=prevNew.get(s.titleId); } });
+    fresh.sort((a,b)=>new Date(b.lastDate)-new Date(a.lastDate));
+    LOG=fresh; render(); renderPierre();
+  }catch(_){ /* transient; keep the current list */ }
+  _refreshing=false;
+}
+
 window.addEventListener("message",(e)=>{
+  if(e.data && e.data.type==="cube:focus"){ refreshLog(); return; }   // resync on rotate-in
   if(e.data && e.data.type==="cube:payload" && e.data.face==="log"){
     const p=e.data.payload||{};
     if(p.addShow && p.addShow.id) addToLog(p.addShow, p.pattern);
