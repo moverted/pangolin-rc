@@ -266,7 +266,11 @@ async function fetchShow(name){
     return { id:d.id, name:d.name, img:(d.image && (d.image.medium || d.image.original)) || '' };
   }catch(_){ return null; }
 }
+// Remember the title just chosen so the WATCH face opens (selects/expands) the same
+// card when you rotate to it — bare TVmaze ids are normalized to the catalog title_id.
+function markWatchOpen(titleId){ try{ localStorage.setItem('pg_watch_open', String(titleId)); }catch(_){} }
 function openShow(id, name){
+  markWatchOpen(String(id).startsWith('tvmaze:') ? id : 'tvmaze:'+id);
   if (window.parent !== window){
     // addToLog:true loads the show on BOTH faces at selection time — the episode
     // (LOG) face AND the WATCH list — instead of waiting on the async episode:track
@@ -280,6 +284,7 @@ function openShow(id, name){
 // the movie hand-off and shows through the show hand-off (the Watch face branches
 // on payload shape). Used by the "From friends" rail, where shares carry a title_id.
 function openTitle(titleId, name){
+  markWatchOpen(titleId);   // already a full catalog id ('tvmaze:…' | 'tmdb:…')
   const payload = String(titleId).startsWith('tmdb:')
     ? { movie:{ id:titleId, title:name }, addToLog:true } : { show:{ id:titleId, name }, addToLog:true };
   if (window.parent !== window){

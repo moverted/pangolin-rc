@@ -638,6 +638,8 @@
   function handoff(show, pattern){
     addFlow=null;
     pierreSay("Putting on "+show.name+". Over to the screen.");
+    // Remember the chosen title so the WATCH face opens that card on rotate-in.
+    try{ localStorage.setItem('pg_watch_open', String(show.id).startsWith('tvmaze:')?String(show.id):'tvmaze:'+show.id); }catch(_){}
     if(window.parent!==window)
       window.parent.postMessage({type:'cube:rotateTo', face:'episodes',
         payload:{show:{id:show.id,name:show.name}, pattern, addToLog:true}}, '*');
@@ -670,6 +672,7 @@
   function handoffMovie(m){
     addFlow=null;
     pierreSay("Putting on "+m.title+". Over to the screen.");
+    try{ localStorage.setItem('pg_watch_open', 'tmdb:'+String(m.id).replace(/^tmdb:/,'')); }catch(_){}
     if(window.parent!==window)
       window.parent.postMessage({type:'cube:rotateTo', face:'episodes',
         payload:{movie:{id:m.id,title:m.title,year:m.year,poster:m.poster,overview:m.overview,runtime:m.runtime},
