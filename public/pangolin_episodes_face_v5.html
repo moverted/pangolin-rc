@@ -586,9 +586,12 @@ let epMin={}, epDone={}, epBp={}, startedAt={}, avgRuntime=45, minPreview=null, 
 // watchingLive[i]=true → episode i is in the animated "watching" state, entered ONLY
 // by the START/CONTINUE button. A plain log action drops it to static "waiting".
 let watchingLive={};
-// Per-episode viewing-session log entries: [{date,minutes,finished,bp,startTs,finishTs}].
+// Per-episode viewing-session log entries: [{date,minutes,finished,bp,startTs,lastTs,finishTs}].
 // sessionBase[i] = the scrubber position when the current START session began.
 let epSessions={}, sessionBase={};
+// Highest whole minute already persisted for the live watch (per episode), so the
+// 5s tick only writes to the server when the minute actually advances.
+let _lastLoggedMin={};
 // The full saved per-episode detail (keyed "season-number") for THIS show, kept
 // so a season-wrap can re-apply the next season's history. Null = none saved.
 let savedDetail=null;
@@ -633,7 +636,7 @@ function boot(show,list,isDefault){
   avgRuntime = show.averageRuntime || show.runtime || 45;
   watched=Math.min(2,eps.filter(released).length);
   watchTs=[]; watchDate={}; binged={}; ranks={}; notes={}; cooled=false;
-  epMin={}; epDone={}; epBp={}; startedAt={}; epPreApp={}; epSessions={}; sessionBase={}; minPreview=null; awaitingLog=false; watchingLive={};
+  epMin={}; epDone={}; epBp={}; startedAt={}; epPreApp={}; epSessions={}; sessionBase={}; minPreview=null; awaitingLog=false; watchingLive={}; _lastLoggedMin={};
   savedDetail=null;                  // a fresh boot; applyPattern sets the real detail
   // Seed watches are pre-app data: dark green on the bar, but never binge.
   for(let i=0;i<watched;i++){ const t=Date.now()-(watched-i)*45*6e4; watchTs.push(t); watchDate[i]=new Date(t); epDone[i]=true; epMin[i]=runtimeOf(i); epPreApp[i]=true; }
@@ -754,8 +757,10 @@ function openWatchViewing(i){
   const arr=epSessions[i], last=arr[arr.length-1];
   if(last && last.state==='watching') return;      // already open
   const now=Date.now();
+  // lastTs tracks the most recent persisted tick (= startTs at first). A reload re-arms
+  // the live watch from lastTs + minutes, so the bar resumes at the real position.
   arr.push({dk:dayKey(now), date:mdFmt(now), minutes:Math.round(epMin[i]||0),
-            finished:false, bp:false, state:'watching', validated:false, startTs:now, finishTs:null});
+            finished:false, bp:false, state:'watching', validated:false, startTs:now, lastTs:now, finishTs:null});
 }
 // Close (or append) a viewing for episode i. opts.validated defaults true (a user
 // action); the timer's placement passes false.
@@ -1528,6 +1533,7 @@ function forceAdvance(){
 function startEpisode(){
   startedAt[focus]=Date.now(); sessionBase[focus]=epMin[focus]||0; minPreview=null; awaitingLog=false;
   watchingLive[focus]=true;   // enter the animated "watching" state
+  _lastLoggedMin[focus]=Math.floor(epMin[focus]||0);   // baseline so the next whole minute persists
   openWatchViewing(focus);    // persist the open watching viewing (survives reload)
   emitProgress(focus, false, false, Math.round(epMin[focus]||0));
   paint();
@@ -1795,7 +1801,7 @@ $('reset').onclick=()=>{
   // switching seasons later can't re-restore old progress, then reload season 1.
   savedDetail=null;
   watched=0; watchTs=[]; watchDate={}; binged={}; ranks={}; notes={}; cooled=false;
-  epMin={}; epDone={}; epBp={}; startedAt={}; epPreApp={}; epSessions={}; sessionBase={}; minPreview=null; awaitingLog=false; watchingLive={};
+  epMin={}; epDone={}; epBp={}; startedAt={}; epPreApp={}; epSessions={}; sessionBase={}; minPreview=null; awaitingLog=false; watchingLive={}; _lastLoggedMin={};
   const real=[...new Set(allEps.map(sNum))].filter(s=>s>=1);
   const s1=real.length?Math.min(...real):1;
   eps=allEps.filter(e=>sNum(e)===s1); if(!eps.length) eps=allEps;
@@ -1913,9 +1919,13 @@ function tickWatch(){
   const rt=runtimeOf(i), live=Math.min(rt, liveMin(i));
   epMin[i]=live;
   const arr=epSessions[i]||[], last=arr[arr.length-1];
-  if(last && last.state==='watching') last.minutes=Math.round(live);   // keep the open viewing in step
-  if(live>=rt-1e-6) completeWatch(i);
-  else paintMinute();
+  if(last && last.state==='watching'){ last.minutes=Math.round(live); last.lastTs=Date.now(); }
+  if(live>=rt-1e-6){ completeWatch(i); return; }
+  // Write each whole-minute advance to the log/server so progress is durable (and a
+  // reload resumes from the real position, not where START was pressed). ~1 write/min.
+  const m=Math.floor(live);
+  if(m > (_lastLoggedMin[i] ?? -1)){ _lastLoggedMin[i]=m; emitProgress(i, false, false, Math.round(live)); }
+  paintMinute();
 }
 setInterval(tickWatch, 5000);
 
@@ -2027,6 +2037,37 @@ async function loadMovie(m,pattern){
   boot(show,[ep],false);
   applyPattern(pattern||{kind:'beginning'});
 }
+// Re-arm a live watch that was interrupted by a reload. The minute bar is recomputed
+// from wall-clock (liveMin), but its anchor (startedAt) lives only in memory — so a reload
+// would otherwise snap the bar back to the last saved minute and kill the timer ("lost
+// your place"). The open {state:'watching', minutes, lastTs} session persists (minutes is
+// the position at the last persisted tick, lastTs is when), so we rebuild the live state
+// from it: base = minutes, anchor = lastTs → liveMin keeps the real position and ticking
+// resumes, even counting the reload gap. Guarded against a stale open watch (idle longer
+// than the runtime) so a reload can never silently auto-complete an abandoned episode.
+function rearmOpenWatch(){
+  for(let i=0;i<eps.length;i++){
+    if(epDone[i]) continue;
+    const arr=epSessions[i]; if(!arr||!arr.length) continue;
+    const last=arr[arr.length-1];
+    if(!last || last.state!=='watching' || !last.startTs || last.finishTs) continue;
+    const rt=runtimeOf(i), anchor=last.lastTs||last.startTs, gap=(Date.now()-anchor)/60000;
+    if(gap < 0 || gap > rt + 5){
+      // Stale: too old to still be live. Drop the dangling "watching" marker to a
+      // paused partial at its last known minute — never auto-complete from a reload.
+      last.state='paused'; last.finishTs=anchor;
+      continue;
+    }
+    focus=i;
+    sessionBase[i]=last.minutes||0;
+    startedAt[i]=anchor;
+    watchingLive[i]=true;
+    epMin[i]=Math.min(rt, sessionBase[i] + gap);
+    _lastLoggedMin[i]=Math.floor(epMin[i]);
+    return true;
+  }
+  return false;
+}
 function applyPattern(p){
   const seasons=[...new Set(allEps.map(sNum))]; if(!seasons.length) return;
   let bpFill=false;   // 'at' records the earlier episodes as BP (Before Pierre), not Pierre watches
@@ -2052,7 +2093,7 @@ function applyPattern(p){
     watched=0;
   }
   watchTs=[]; watchDate={}; binged={}; ranks={}; notes={}; cooled=false;
-  epMin={}; epDone={}; epBp={}; startedAt={}; epPreApp={}; epSessions={}; sessionBase={}; minPreview=null; awaitingLog=false; watchingLive={};
+  epMin={}; epDone={}; epBp={}; startedAt={}; epPreApp={}; epSessions={}; sessionBase={}; minPreview=null; awaitingLog=false; watchingLive={}; _lastLoggedMin={};
   // Pierre "Catch up live" / "Pick an episode" pre-mark watches: pre-app, never binge.
   // For a "watch from this episode" (bpFill), the earlier ones are flagged BP.
   for(let i=0;i<watched;i++){ const t=Date.now()-(watched-i)*45*6e4; watchTs.push(t); watchDate[i]=new Date(t); epDone[i]=true; epMin[i]=runtimeOf(i); epPreApp[i]=true; if(bpFill) epBp[i]=true; }
@@ -2061,11 +2102,15 @@ function applyPattern(p){
   savedDetail=(pendingRestore&&pendingRestore.episodes)||null;
   applySavedDetail();
   focus=Math.min(watched, eps.length-1);
+  // First resume an in-app live watch left open across a reload (keeps WATCHING and the
+  // real position). Skip when a streamer launch supplied its own start ts — that path
+  // below "offers" placement for the time away instead.
+  const rearmed = !(pendingRestore && pendingRestore.startedAt) && rearmOpenWatch();
   // Restore the partial current episode, then — if a watch was left open (saved
   // started_at) — offer placement for all the time since, exactly like a return:
   // it can span episodes and is unvalidated until confirmed.
   if(pendingRestore && !epDone[focus]){
-    if(typeof pendingRestore.minute==='number' && pendingRestore.minute>0) epMin[focus]=pendingRestore.minute;
+    if(typeof pendingRestore.minute==='number' && pendingRestore.minute>0 && !rearmed) epMin[focus]=pendingRestore.minute;
     if(pendingRestore.startedAt){
       startedAt[focus]=pendingRestore.startedAt; watchingLive[focus]=true;
       placeAwayTime((Date.now()-pendingRestore.startedAt)/60000);
