@@ -67,6 +67,57 @@ export async function fetchTmdbMovie(env: Env, id: string) {
   return card(await res.json());
 }
 
+// TMDB as a SECOND OPINION on a TVmaze episode's runtime. TVmaze is the TV source,
+// but its per-episode runtime is sometimes a rounded slot (e.g. "Ghosts" at 30 when
+// episodes run ~22). Given a TVmaze show's external ids we resolve the matching TMDB
+// tv id (via /find), then read the episode-level runtime — falling back to the show's
+// episode_run_time average. Returns minutes, or null on any miss (fail-soft, no throw).
+export async function fetchTmdbTvRuntime(
+  env: Env,
+  ext: { imdb?: string | null; tvdb?: string | null },
+  season: number,
+  number: number,
+): Promise<number | null> {
+  if (!env.TMDB_API_KEY) return null;
+  // 1) Map an external id → TMDB tv id. IMDB first (most reliable), then TheTVDB.
+  const find = async (id: string, source: string): Promise<number | null> => {
+    try {
+      const res = await tmdbFetch(env, `/find/${encodeURIComponent(id)}`, { external_source: source });
+      if (!res.ok) return null;
+      const d = (await res.json()) as { tv_results?: any[] };
+      const hit = (d.tv_results || [])[0];
+      return hit && typeof hit.id === 'number' ? hit.id : null;
+    } catch { return null; }
+  };
+  let tvId: number | null = null;
+  if (ext.imdb) tvId = await find(ext.imdb, 'imdb_id');
+  if (tvId == null && ext.tvdb) tvId = await find(ext.tvdb, 'tvdb_id');
+  if (tvId == null) return null;
+
+  // 2) Episode-level runtime, the precise signal.
+  if (Number.isFinite(season) && Number.isFinite(number)) {
+    try {
+      const res = await tmdbFetch(env, `/tv/${tvId}/season/${season}/episode/${number}`);
+      if (res.ok) {
+        const e = (await res.json()) as { runtime?: number };
+        if (typeof e.runtime === 'number' && e.runtime > 0) return e.runtime;
+      }
+    } catch { /* fall through to the show average */ }
+  }
+
+  // 3) Fallback: the show's typical episode runtime. Multiple values can be listed
+  //    (specials etc.); the smallest is the regular-episode length most often.
+  try {
+    const res = await tmdbFetch(env, `/tv/${tvId}`);
+    if (res.ok) {
+      const s = (await res.json()) as { episode_run_time?: number[] };
+      const rts = (s.episode_run_time || []).filter((n) => typeof n === 'number' && n > 0);
+      if (rts.length) return Math.min(...rts);
+    }
+  } catch { /* nothing more to try */ }
+  return null;
+}
+
 // GET /tmdb/movie/:id  → { movie: card-with-runtime }
 tmdbRoutes.get('/movie/:id', async (c) => {
   if (!c.env.TMDB_API_KEY) return c.json({ error: 'movies not configured' }, 503);

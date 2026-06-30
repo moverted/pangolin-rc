@@ -12,6 +12,9 @@
     --dgreen:#2E6B45; --green:#5BBF7B; --grey:#5A5149;
     --dred:#7E2A24; --amber:#F0A93B; --amber-deep:#1a1206;
     --text:#F8F2E8; --dim:#D2C8B8; --faint:#A29684;
+    /* Co-view comment tiers: your own (white), a friend's comment (light orange),
+       a friend's reply (light green). Used to colour the transcript rows. */
+    --mine:#FFFFFF; --friend:#F0C070; --reply:#A8E0A0;
     --sheet:rgba(13,10,7,.66);
     --display:'Space Grotesk',system-ui,sans-serif;
     --body:'Inter',system-ui,sans-serif;
@@ -200,6 +203,9 @@
   .mic-center:active{ transform:scale(.95); }
   .mic-center.recording{ background:var(--amber); color:var(--amber-deep);
     box-shadow:0 0 24px var(--amber); border-color:var(--amber-deep); }
+  /* Recording a REPLY: the countdown stays green to match the REPLY mic. */
+  .mic-center.recording.replyrec{ background:#6cc070; color:#06140b;
+    box-shadow:0 0 24px rgba(108,192,112,.8); border-color:#06140b; }
   /* REPLY mode: a revealed friend comment is waiting for an answer. */
   .mic-center.replymode{ background:rgba(108,192,112,.2); color:#6cc070; border-color:#6cc070;
     box-shadow:0 0 18px rgba(108,192,112,.4); }
@@ -208,6 +214,21 @@
   .mic-center.recording svg, .mic-center.replymode svg{ display:none; }
   .mic-center #micLabel{ font-size:20px; font-weight:700; font-family:var(--mono); letter-spacing:.05em; }
   .mic-center.replymode #micLabel{ font-size:13px; }
+  /* Co-view notification: a friend's comment surfacing at its mark slides in from the
+     top like an OS notification. Tap to play (a tap also guarantees audio on iOS). */
+  .coview-toast{ position:absolute; left:10px; right:10px; top:8px; z-index:60;
+    display:flex; align-items:center; gap:10px; padding:9px 11px; border-radius:13px;
+    background:rgba(20,16,10,.94); border:1px solid var(--friend); color:var(--text);
+    box-shadow:0 12px 34px rgba(0,0,0,.55); cursor:pointer; font-family:var(--body);
+    transform:translateY(-150%); opacity:0; transition:transform .34s ease, opacity .34s ease; }
+  .coview-toast.show{ transform:translateY(0); opacity:1; }
+  .coview-toast .ct-ico{ width:34px; height:34px; flex-shrink:0; border-radius:50%;
+    display:flex; align-items:center; justify-content:center; font-size:17px;
+    background:rgba(240,192,112,.2); border:2px solid var(--friend); color:var(--friend); }
+  .coview-toast .ct-body{ flex:1; min-width:0; }
+  .coview-toast .ct-who{ color:var(--friend); font-weight:700; font-size:13px; }
+  .coview-toast .ct-txt{ font-size:12px; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .coview-toast .ct-x{ flex-shrink:0; color:var(--dim); font-size:15px; padding:2px 4px; }
   /* Mic for audio comments: narrow, sits at the end of the logging row */
   .sfbtn.mic{ flex:0 0 auto; padding-left:15px; padding-right:15px; font-size:14px;
     --accent:var(--amber); border-color:var(--accent); color:var(--accent); }
@@ -402,6 +423,13 @@
   <div class="bg bg-fallback" id="bg"></div>
   <div class="scrim"></div>
 
+  <!-- co-view notification: a friend's comment surfacing at its mark slides in here -->
+  <div id="coviewToast" class="coview-toast" style="display:none;">
+    <div class="ct-ico">💬</div>
+    <div class="ct-body"><div class="ct-who"></div><div class="ct-txt"></div></div>
+    <div class="ct-x">✕</div>
+  </div>
+
   <!-- fixed top bar (Feed-style): stays put while the content below scrolls -->
   <div class="topbar">
     <div class="facebar">
@@ -492,12 +520,10 @@
       <!-- Audio comment transcripts: displays recorded comments with timestamp -->
       <div style="margin-top:24px; border-top:1px solid rgba(255,255,255,.1); padding-top:16px;">
         <div class="block-label" style="margin-bottom:12px;" id="transcriptLabel">Comments · 0</div>
-        <!-- Co-viewing: pick friends whose comments surface here, spoiler-gated —
-             who + when always show; the words unlock only once you pass the mark. -->
-        <div id="coviewRow" style="display:none; margin-bottom:14px;">
-          <div style="font-size:11px; color:var(--dim); margin-bottom:8px;">Co-view with · their words unlock as you reach each mark</div>
-          <div id="coviewFriends" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
-        </div>
+        <!-- Co-viewing: every mutual friend's comments surface here automatically,
+             spoiler-gated — who + when always show; the words unlock only once you
+             pass the mark. No per-show opt-in: once you're friends, you always see
+             each other's comments and replies. -->
         <div id="transcripts" style="font-size:12px; font-family:var(--body); color:var(--dim); line-height:1.6;"></div>
       </div>
     </div>
@@ -618,7 +644,7 @@ function boot(show,list,isDefault){
   if(!DEMO && curShowId && window.parent!==window)
     window.parent.postMessage({type:'episode:track', tvmazeId:curShowId, name:curShowName, kind:isMovie?'movie':'show', poster:img||null}, '*');
   // Load this show's saved audio comments into the Transcripts panel.
-  if(!DEMO){ loadComments(); loadFriends(); loadCoview(); loadTickets(); }
+  if(!DEMO){ loadComments(); loadFriends(); loadTickets(); }  // loadFriends → loadCoview
 }
 
 // Timestamps of real in-app watches only (preApp false). Pre-app data is skipped.
@@ -802,23 +828,56 @@ let mediaRecorder = null;
 let audioChunks = [];
 let audioBlobs = {};  // Store audio blobs by transcript ID for playback
 
-// Inline clip playback. window.open() of an audio URL is unreliable inside the
-// cube's iframe (and on iOS it just opens a blank tab), so play through a single
-// shared <audio> element instead. Tapping the same clip again pauses it; the
-// speaker glyph flips to ⏸ while playing. Falls back to opening the URL only if
-// playback is outright rejected.
-let _clip = null, _clipBtn = null, _clipUrl = '';
+// Inline clip playback through ONE reused <audio> element. Reusing a single element
+// (rather than `new Audio()` per clip) is what lets a friend's comment autoplay later
+// even on iOS: iOS only blesses an element that was first played inside a user gesture,
+// after which you can swap its src and play() programmatically for the rest of the
+// session. So we "prime" this element on the START tap (primeAudio) — then the marker
+// autoplay works an hour later without another tap. Tapping the same clip pauses it.
+let _clip = null, _clipBtn = null, _clipUrl = '', _onEnded = null, _audioPrimed = false;
+// A 44-byte zero-length silent WAV — just enough to start+stop playback in the gesture.
+const _SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
 function _resetClipBtn(){ if(_clipBtn && _clipBtn.dataset.glyph){ _clipBtn.innerHTML=_clipBtn.dataset.glyph; } _clipBtn=null; }
-function playClip(url, btn){
-  if(!url){ alert('No audio available'); return; }
+function _ensureClip(){
+  if(!_clip){
+    _clip = new Audio();
+    _clip.addEventListener('ended', ()=>{ _resetClipBtn(); const f=_onEnded; _onEnded=null; if(f) f(); });
+    _clip.addEventListener('error', ()=>{ _resetClipBtn(); });
+  }
+  return _clip;
+}
+// Unlock programmatic playback from within a user gesture (the START/CONTINUE tap).
+// Plays a muted silent blip and stops it; after this, .play() works without a gesture.
+function primeAudio(){
+  if(_audioPrimed) return;
+  const a=_ensureClip();
+  try{
+    a.muted=true; a.src=_SILENT_WAV;
+    const done=()=>{ try{ a.pause(); a.currentTime=0; }catch(_){ } a.muted=false; _audioPrimed=true; };
+    const p=a.play();
+    if(p && p.then) p.then(done).catch(()=>{ a.muted=false; });
+    else done();
+  }catch(_){ a.muted=false; }
+}
+// Belt-and-suspenders: the FIRST real interaction anywhere on the face also primes,
+// so audio is unlocked even if the very first thing tapped wasn't the left button.
+['pointerdown','touchstart','click'].forEach(ev=>
+  window.addEventListener(ev, ()=>primeAudio(), { once:false, passive:true }));
+// opts.silent  → autoplay path: a blocked play() must NOT pop a blank tab (the
+//                window.open fallback is only sane for an explicit tap).
+// opts.onEnded → fired when the clip finishes (used to time the reply window).
+function playClip(url, btn, opts){
+  opts = opts || {};
+  if(!url){ if(!opts.silent) alert('No audio available'); return; }
+  const a=_ensureClip();
   // Tap the currently-playing clip → pause + reset.
-  if(_clip && _clipUrl===url && !_clip.paused){ _clip.pause(); _resetClipBtn(); return; }
-  if(_clip){ _clip.pause(); _resetClipBtn(); }
-  _clip = new Audio(url); _clipUrl = url; _clipBtn = btn || null;
+  if(_clipUrl===url && !a.paused){ a.pause(); _resetClipBtn(); return; }
+  _resetClipBtn();
+  _clipUrl = url; _clipBtn = btn || null; _onEnded = opts.onEnded || null;
   if(_clipBtn){ if(!_clipBtn.dataset.glyph) _clipBtn.dataset.glyph=_clipBtn.innerHTML; _clipBtn.innerHTML='⏸'; }
-  _clip.onended = _resetClipBtn;
-  _clip.onerror = ()=>{ _resetClipBtn(); window.open(url,'_blank'); };
-  _clip.play().catch(()=>{ _resetClipBtn(); window.open(url,'_blank'); });
+  a.muted=false; a.src = url;
+  const p = a.play();
+  if(p && p.then) p.catch(()=>{ _resetClipBtn(); if(!opts.silent) window.open(url,'_blank'); });
 }
 
 function paintTranscripts(){
@@ -832,6 +891,12 @@ function paintTranscripts(){
   label.textContent=`Comments · ${transcripts.length + coviewComments.length}`;
   container.innerHTML='';
   console.log('Rendering', transcripts.length, 'transcripts');
+  // Replies (from co-view) thread under their parent — which may be a friend's
+  // comment OR one of your OWN comments. Index them up front so both render paths
+  // can pull their children; `replied` marks comments you've already answered.
+  const replied = coviewRepliedSet();
+  const repliesByParent = {};
+  coviewComments.forEach(c=>{ if(c.replyTo){ (repliesByParent[c.replyTo] ||= []).push(c); } });
   transcripts.forEach((t, idx)=>{
     console.log('Adding transcript:', t);
     const line=document.createElement('div');
@@ -878,6 +943,7 @@ function paintTranscripts(){
     textDiv.style.flex = '1';
     textDiv.style.minWidth = '0';
     textDiv.style.fontSize = '1.4em';
+    textDiv.style.color = 'var(--mine)';   // your own comments render white
     const pencil = (t.id && !t.edited)
       ? ` <a href="#" data-edit="${t.id}" title="Fix transcription (once)" style="background:var(--dred);color:var(--text);text-decoration:none;font-size:1em;vertical-align:-0.05em;padding:0 .26em;border-radius:.26em;line-height:1.4;">✎</a>`
       : '';
@@ -888,6 +954,8 @@ function paintTranscripts(){
     line.appendChild(speakerBtn);
     line.appendChild(textDiv);
     container.appendChild(line);
+    // A friend's reply to THIS (your own) comment threads right under it.
+    (repliesByParent[t.id]||[]).forEach(rep=> container.appendChild(coviewRow(rep, true, replied)));
   });
 
   // Friends' comments (co-viewing). Spoiler-gated: who + when always render; the
@@ -895,9 +963,6 @@ function paintTranscripts(){
   // + one minute — the server withholds text/audio until then, so this can't be
   // peeked in DOM. Replies thread under the comment they answer.
   coviewIndicator(container);
-  const replied = coviewRepliedSet();
-  const repliesByParent = {};
-  coviewComments.forEach(c=>{ if(c.replyTo){ (repliesByParent[c.replyTo] ||= []).push(c); } });
 
   coviewComments.filter(c=>!c.replyTo).forEach((c)=>{
     container.appendChild(coviewRow(c, false, replied));
@@ -910,24 +975,27 @@ function paintTranscripts(){
 // 🔒 + "reveals at M:SS". A reply may be text-only (the SMS path) or carry audio
 // (the OTT path) — an audio reply gets its own ↳🔊 play button.
 function coviewRow(c, nested, replied){
+  // Colour tier: a friend's comment is light orange, a friend's reply light green.
+  const tier   = nested ? 'var(--reply)' : 'var(--friend)';
+  const tierRgb = nested ? '168,224,160' : '240,192,112';
   const line=document.createElement('div');
   line.style.cssText=`margin-bottom:12px;display:flex;align-items:center;gap:12px;${nested?'margin-left:28px;opacity:.92;':''}`;
 
   if(nested){
     const tick=document.createElement('div');
-    tick.style.cssText='width:34px;text-align:right;color:#6cc070;font-size:16px;flex-shrink:0;';
+    tick.style.cssText=`width:34px;text-align:right;color:${tier};font-size:16px;flex-shrink:0;`;
     tick.innerHTML='↳';
     line.appendChild(tick);
     if(c.revealed && c.audioUrl){
       const sp=document.createElement('button');
-      sp.style.cssText='width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(108,192,112,.2);border:2px solid #6cc070;cursor:pointer;color:#6cc070;font-size:15px;flex-shrink:0;';
+      sp.style.cssText=`width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(${tierRgb},.2);border:2px solid ${tier};cursor:pointer;color:${tier};font-size:15px;flex-shrink:0;`;
       sp.innerHTML='🔊';
       sp.onclick=(e)=>{ e.preventDefault(); playClip(c.audioUrl, sp); };
       line.appendChild(sp);
     }
   } else if(c.revealed && c.audioUrl){
     const sp=document.createElement('button');
-    sp.style.cssText='width:48px;height:48px;padding:0;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(108,192,112,.2);border:2px solid #6cc070;cursor:pointer;color:#6cc070;font-size:20px;flex-shrink:0;';
+    sp.style.cssText=`width:48px;height:48px;padding:0;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(${tierRgb},.2);border:2px solid ${tier};cursor:pointer;color:${tier};font-size:20px;flex-shrink:0;`;
     sp.innerHTML='🔊';
     sp.onclick=(e)=>{ e.preventDefault(); playClip(c.audioUrl, sp); };
     line.appendChild(sp);
@@ -939,8 +1007,8 @@ function coviewRow(c, nested, replied){
   }
 
   const txt=document.createElement('div');
-  txt.style.flex='1'; txt.style.minWidth='0';
-  const who=`<span style="color:#6cc070;">${escHtml(c.author)}</span>`;
+  txt.style.flex='1'; txt.style.minWidth='0'; txt.style.color=tier;   // friend=orange, reply=green
+  const who=`<span style="color:${tier};font-weight:600;">${escHtml(c.author)}</span>`;
   const when=`<strong>${escHtml(c.epCode)} ${c.time}</strong>`;
   if(!c.revealed){
     txt.innerHTML=`${when} · ${who} — <em style="opacity:.6;">reveals at ${c.time}</em>`;
@@ -948,7 +1016,7 @@ function coviewRow(c, nested, replied){
     txt.innerHTML=`${who} — ${escHtml(c.text)}`;
   } else {
     // Audio is the default; the words sit behind a tap (audio default + per-comment text).
-    const repliedTag = replied.has(c.id) ? ' <span style="color:#6cc070;opacity:.8;">· ✓ replied</span>' : '';
+    const repliedTag = replied.has(c.id) ? ` <span style="color:${tier};opacity:.8;">· ✓ replied</span>` : '';
     txt.innerHTML=`${when} · ${who}${repliedTag} — <a href="#" style="color:var(--amber);text-decoration:none;">show text ▾</a><span style="display:none;">${escHtml(c.text)}</span>`;
     const a=txt.querySelector('a'), span=txt.querySelector('span:last-child');
     a.onclick=(e)=>{ e.preventDefault(); const open=span.style.display!=='none';
@@ -1026,12 +1094,9 @@ async function editTranscript(t){
 // when you cross the next locked mark to pull the newly-revealed content.
 let coviewComments = [];        // [{author, epCode, time, ms, revealed, text, audioUrl}]
 let coviewNextLock = Infinity;  // smallest still-locked mark (ms), for live re-fetch
-let coviewFriends  = [];        // [{email, username}] — mutual follows, for the picker
+let coviewFriends  = [];        // [{email, username}] — all mutual follows, auto-included
 let _coviewFocus   = -1;        // episode the loaded co-view comments belong to
-
-function coviewKey(){ return curShowId ? 'pg_coview:'+curShowId : null; }
-function coviewSet(){ try{ return JSON.parse(localStorage.getItem(coviewKey())||'[]'); }catch(_){ return []; } }
-function coviewSave(arr){ const k=coviewKey(); if(k){ try{ localStorage.setItem(k, JSON.stringify(arr)); }catch(_){} } }
+let _announcedKey   = '';       // show#episode of the last load — tells a first load from a live crossing
 // Furthest-watched position in the focused episode, in ms — the reveal watermark.
 function coviewSeenMs(){
   const m = epDone[focus] ? runtimeOf(focus)
@@ -1039,46 +1104,24 @@ function coviewSeenMs(){
   return Math.round(Math.max(0, m) * 60000);
 }
 
-// Pull the mutual-follow list once so the picker can render friend chips.
+// Pull the mutual-follow list, then load their comments. Every confirmed friend is
+// auto-included — no per-show opt-in. Drives loadCoview once the list is in hand.
 async function loadFriends(){
   const email = (typeof acctEmail==='function' ? acctEmail() : '');
-  if(!email){ coviewFriends=[]; renderCoviewPicker(); return; }
+  if(!email){ coviewFriends=[]; return; }
   try{
     const r = await fetch(`${API_BASE}/profile/${encodeURIComponent(email)}/follows`);
     if(r.ok){ const d=await r.json(); coviewFriends=(d.friends||[]).map(f=>({email:f.email, username:f.username||f.email})); }
-  }catch(_){ /* no friends list → picker stays hidden */ }
-  renderCoviewPicker();
-}
-function renderCoviewPicker(){
-  const row=$('coviewRow'), wrap=$('coviewFriends');
-  if(!row||!wrap) return;
-  if(!curShowId || !coviewFriends.length){ row.style.display='none'; return; }
-  row.style.display='block';
-  const on=new Set(coviewSet());
-  wrap.innerHTML='';
-  coviewFriends.forEach(f=>{
-    const chip=document.createElement('button');
-    const sel=on.has(f.email);
-    chip.textContent=f.username;
-    chip.style.cssText='padding:5px 12px;border-radius:999px;cursor:pointer;font-family:var(--body);font-size:12px;'+
-      (sel ? 'background:rgba(108,192,112,.2);border:1px solid #6cc070;color:#6cc070;'
-           : 'background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.15);color:var(--dim);');
-    chip.onclick=()=>{
-      const set=new Set(coviewSet());
-      if(set.has(f.email)) set.delete(f.email); else set.add(f.email);
-      coviewSave([...set]);
-      renderCoviewPicker();
-      loadCoview();
-    };
-    wrap.appendChild(chip);
-  });
+  }catch(_){ /* no friends list → nothing to co-view */ }
+  loadCoview();
 }
 
 // Fetch friends' comments for the focused episode at the current watermark.
+// All mutual friends are included; the server re-checks the follow both ways.
 async function loadCoview(){
   coviewComments=[]; coviewNextLock=Infinity; _coviewFocus=focus;
   const email = (typeof acctEmail==='function' ? acctEmail() : '');
-  const set = coviewSet(), e = eps[focus];
+  const set = coviewFriends.map(f=>f.email), e = eps[focus];
   if(!curShowId || !email || !e || !set.length){ paintTranscripts(); return; }
   try{
     const u = new URL(`${API_BASE}/transcribe/coview`);
@@ -1099,6 +1142,20 @@ async function loadCoview(){
         revealed:!!c.revealed, audioUrl:c.audioUrl||null,
         text:(c.transcription && c.transcription.trim()) || 'Audio recorded' };
     });
+    // Surface a friend's comment as a top-bar notification. Any revealed comment you
+    // haven't been notified about (persistent "heard" set) pops the banner — on first
+    // load OR as you reach it. A comment that crosses the line during a LIVE watch also
+    // tries to autoplay; otherwise one tap on the banner plays it (the reliable path
+    // where browsers block autoplay). Each comment notifies at most once, ever.
+    const epKey = (curShowId||'')+'#'+focus;
+    const firstForEp = (_announcedKey !== epKey);
+    _announcedKey = epKey;
+    const heard = coviewHeardSet();
+    const fresh = coviewComments.filter(c=>!c.replyTo && c.revealed && c.audioUrl && !heard.has(c.id));
+    if(fresh.length){
+      surfaceCoview(fresh[fresh.length-1], !firstForEp);   // latest unheard; autoplay only on a live crossing
+      fresh.forEach(c=> coviewMarkHeard(c.id));
+    }
     updateMicMode();
   }catch(_){ /* leave whatever we have */ }
   paintTranscripts();
@@ -1117,22 +1174,81 @@ function coviewCheckReveal(){
 // unanswered comment. Tapping records the reply in-app and opens a native SMS
 // draft to the friend (no text server: it's an sms: deep link). Replied ids are
 // remembered locally so the mic reverts and the row shows "✓ replied".
-function coviewRepliedKey(){ return curShowId ? 'pg_coview_replied:'+curShowId : null; }
+function coviewRepliedKey(){ const e=(typeof acctEmail==='function'?acctEmail():''); return (curShowId && e) ? 'pg_coview_replied:'+e+':'+curShowId : null; }
 function coviewRepliedSet(){ try{ return new Set(JSON.parse(localStorage.getItem(coviewRepliedKey())||'[]')); }catch(_){ return new Set(); } }
 function coviewMarkReplied(id){ const k=coviewRepliedKey(); if(!k||!id) return;
   const s=coviewRepliedSet(); s.add(id); try{ localStorage.setItem(k, JSON.stringify([...s])); }catch(_){} }
 
-// The comment the REPLY mic points at: the latest revealed original (has audio,
-// so it's not itself a reply) that you haven't already answered.
+// The reply window. A friend's comment is only answerable while it's *current*:
+// from when it surfaces at your mark (it autoplays) through the clip, and for one
+// minute after it ends. Outside that window the mic is a plain record button again.
+// activeReply holds the one comment inside its window; surfaceCoview (called from
+// loadCoview for any unheard revealed comment) arms it, shows the banner, and on a
+// live crossing also autoplays.
+let activeReply = null;      // { c, closesAt }  closesAt = ms epoch
+let _replyTimer = null;
+function scheduleReplyClose(){
+  if(_replyTimer){ clearTimeout(_replyTimer); _replyTimer=null; }
+  if(!activeReply) return;
+  _replyTimer = setTimeout(()=>{ activeReply=null; updateMicMode(); }, Math.max(0, activeReply.closesAt - Date.now()));
+}
+// "Heard" = comments you've already been notified about, persisted per account+show so
+// the banner shows once and doesn't re-nag on every reload.
+function coviewHeardKey(){ const e=(typeof acctEmail==='function'?acctEmail():''); return (curShowId && e) ? 'pg_coview_heard:'+e+':'+curShowId : null; }
+function coviewHeardSet(){ try{ return new Set(JSON.parse(localStorage.getItem(coviewHeardKey())||'[]')); }catch(_){ return new Set(); } }
+function coviewMarkHeard(id){ const k=coviewHeardKey(); if(!k||!id) return; const s=coviewHeardSet(); s.add(id); try{ localStorage.setItem(k, JSON.stringify([...s])); }catch(_){} }
+
+// Surface a friend's comment: arm the reply window, show the banner, and (on a live
+// crossing) try to autoplay. The window stays open through the clip + 1 min after.
+function surfaceCoview(c, autoplay){
+  if(!c || !c.audioUrl) return;
+  activeReply = { c, closesAt: Date.now() + 67000 };
+  showCoviewToast(c);
+  if(autoplay){
+    playClip(c.audioUrl, null, { silent:true, onEnded:()=>{
+      if(activeReply && activeReply.c.id===c.id){ activeReply.closesAt = Date.now()+60000; scheduleReplyClose(); }
+    }});
+  }
+  scheduleReplyClose();
+  updateMicMode();
+}
+
+// A friend's comment just reached its mark → slide a notification in from the top.
+// Tapping it plays the clip (a user tap guarantees audio even where autoplay is
+// blocked) and leaves the REPLY mic armed; ✕ or a timeout dismisses it.
+let _toastTimer = null;
+function showCoviewToast(c){
+  const t=$('coviewToast'); if(!t || !c) return;
+  t.querySelector('.ct-who').textContent = c.author || 'friend';
+  const preview = (c.text && c.text !== 'Audio recorded') ? c.text : '🔊 voice comment';
+  t.querySelector('.ct-txt').textContent = `${c.epCode} ${c.time} · ${preview}`;
+  t.style.display='flex';
+  requestAnimationFrame(()=> t.classList.add('show'));
+  t.onclick=(e)=>{
+    if(e.target.classList.contains('ct-x')){ hideCoviewToast(); return; }
+    // Explicit tap → audio is guaranteed; re-arm the reply window so the mic goes green.
+    activeReply = { c, closesAt: Date.now() + 67000 };
+    playClip(c.audioUrl, null, { onEnded:()=>{
+      if(activeReply && activeReply.c.id===c.id){ activeReply.closesAt = Date.now()+60000; scheduleReplyClose(); }
+    }});
+    scheduleReplyClose(); updateMicMode();
+    hideCoviewToast();
+  };
+  if(_toastTimer) clearTimeout(_toastTimer);
+  _toastTimer=setTimeout(hideCoviewToast, 9000);
+}
+function hideCoviewToast(){
+  const t=$('coviewToast'); if(!t) return;
+  t.classList.remove('show');
+  if(_toastTimer){ clearTimeout(_toastTimer); _toastTimer=null; }
+  setTimeout(()=>{ if(!t.classList.contains('show')) t.style.display='none'; }, 360);
+}
+// The comment the REPLY mic points at: whatever's inside its (still-open) window
+// and that you haven't already answered.
 function coviewReplyTarget(){
-  const replied=coviewRepliedSet();
-  let best=null;
-  coviewComments.forEach(c=>{
-    if(c.replyTo || !c.revealed || !c.audioUrl) return;   // replies & locked rows can't be targets
-    if(replied.has(c.id)) return;
-    if(!best || c.revealMs>best.revealMs) best=c;
-  });
-  return best;
+  if(!activeReply || Date.now() >= activeReply.closesAt) return null;
+  if(coviewRepliedSet().has(activeReply.c.id)) return null;
+  return activeReply.c;
 }
 
 // Reflect the reply target on the mic: green + "REPLY" when one is pending, plain
@@ -1232,6 +1348,7 @@ async function startRecording(){
   if(micBtn){
     micBtn.classList.remove('replymode');   // recording overrides any pending REPLY prompt
     micBtn.classList.add('recording');
+    if(pendingReply) micBtn.classList.add('replyrec');   // green countdown for a reply
     if(micLabel){
       micLabel.style.display = 'block';
       micLabel.textContent = `${recordingCountdown}s`;
@@ -1256,7 +1373,7 @@ function stopRecording(){
   const micBtn = $('micBtn');
   const micLabel = $('micLabel');
   if(micBtn){
-    micBtn.classList.remove('recording');
+    micBtn.classList.remove('recording', 'replyrec');
     if(micLabel){
       micLabel.style.display = 'none';
       micLabel.textContent = '';
@@ -1310,11 +1427,11 @@ function stopRecording(){
     if(curShowId) formData.append('showId', curShowId);
     formData.append('timestampMs', mins * 60000);
 
-    // Use the same account source the rest of the face uses (localStorage
-    // pg_user). The server FKs user_email → users(email); a missing/'anonymous'
-    // email is what caused the D1_ERROR upload failures.
-    const userEmail = (typeof acctEmail==='function' ? acctEmail() : '') ||
-                      window.parent?.currentUser?.email || '';
+    // Single identity of record: localStorage pg_user — the SAME source loadComments
+    // lists by. Falling back to window.parent.currentUser here let a comment be written
+    // under one account but listed under another, which read as "comments paired to the
+    // device." The server FKs user_email → users(email); a missing email is guarded below.
+    const userEmail = (typeof acctEmail==='function' ? acctEmail() : '');
     if(!userEmail){
       transcripts.unshift({ epCode: code, time: timeStr, text: '[not signed in — sign in to save audio]' });
       paintTranscripts();
@@ -1355,11 +1472,17 @@ function stopRecording(){
         loadCoview();
       } else {
         // A normal comment: store the playback URL + transcript, persisted now.
+        // Carry the server's comment id (+ edit state) so the one-time ✎ pencil
+        // renders immediately — without id the pencil only appeared after a reload.
+        const txt = (data.transcription && data.transcription.trim()) || '';
         transcripts.unshift({
+          id: data.id,
+          edited: false,
+          hasText: !!txt,
           epCode: code,
           time: timeStr,
           audioUrl: data.audioUrl,
-          text: (data.transcription && data.transcription.trim()) || 'Audio recorded'
+          text: txt || 'Audio recorded'
         });
         paintTranscripts();
       }
@@ -1417,6 +1540,27 @@ function latestFinishBefore(before){
     for(const s of arr){ if(typeof s.finishTs==='number' && s.finishTs<before && s.finishTs>m) m=s.finishTs; } }
   return m;
 }
+// Runtime-mismatch check. When a member completes an episode after a real live watch
+// that ran well short of the stored runtime, the stored runtime is probably too long
+// (e.g. "Ghosts" stored at 30 min but episodes run ~22). We accept the completion
+// instantly (the override) and hand the actual watched minutes to the server, which
+// asks TMDB for a second opinion: if TMDB sits closer to what was logged it corrects
+// the catalog runtime, otherwise it files a mismatch for the admin. Debounced via
+// pg_rt_warned:<key> so re-watches don't re-ping the server.
+function reportRuntimeMismatch(i, watchedMin, rt){
+  try{
+    const e = eps[i] || {};
+    const key = 'pg_rt_warned:'+(curShowId||'?')+':'+epCode(e);
+    if(localStorage.getItem(key)) return;            // already checked this episode
+    localStorage.setItem(key, '1');
+    fetch(`${API_BASE}/catalog/runtime-check`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ email:(typeof acctEmail==='function'?acctEmail():''),
+        title_id:curShowId, season:(e.season||1), number:(e.number||0),
+        watched_min:Math.round(watchedMin) }) }).catch(()=>{});
+  }catch(_){ /* best-effort; never block completion */ }
+}
+
 // FINISH: logs the episode fully watched and advances.
 //  · With a live watch open, tapping done inside a minute is a tap-through, not a
 //    sitting → BP.
@@ -1427,6 +1571,9 @@ function latestFinishBefore(before){
 // BP never counts toward a binge and renders grey with no date.
 function finishEpisode(){
   const rt=runtimeOf(focus), now=Date.now();
+  // Capture the real live-watched span BEFORE the backdate branch overwrites startedAt,
+  // so the runtime-mismatch check below sees true elapsed (not a synthesized full runtime).
+  const liveElapsed = startedAt[focus]!=null ? (now-startedAt[focus])/60000 : null;
   let bp;
   if(startedAt[focus]!=null){
     bp = (now - startedAt[focus]) < 60000;
@@ -1442,6 +1589,11 @@ function finishEpisode(){
   markWatchedThrough(focus);
   logSession(focus,{minutes:rt,finished:true,bp:bp});
   emitProgress(focus, true, bp, rt);
+  // Completing after a genuine live watch that ran short of the stored runtime (watched
+  // ≥ half, yet ≥ 5 min still "remaining") points at a too-long catalog runtime → warn admin.
+  if(liveElapsed!=null && liveElapsed>=5 && liveElapsed>=rt*0.5 && (rt-liveElapsed)>=5){
+    reportRuntimeMismatch(focus, liveElapsed, rt);
+  }
   finaleCheck(); advanceFocus(); paint();
 }
 
@@ -1479,27 +1631,34 @@ function paint(){
     else if(inProgress){ st.className='epstatus waiting'; st.innerHTML='(WAITING<span class="wait-dots"></span>)'; }
     else { st.className='epstatus'; st.textContent=''; }
   }
-  // Left button state machine: START → LOG PARTIAL (while watching) → CONTINUE (when paused/scrubbed)
-  // The center indicator shows WATCHING>>. animation only while actively watching.
+  // Left button state machine. Four crisp states, each carrying an explicit action in
+  // dataset.action so the click handler never has to parse the (dynamic) label:
+  //   scrubbed (awaitingLog) → LOG <n> min   (commit the scrubbed position)
+  //   watching               → LOG PARTIAL    (commit the live position)
+  //   in progress, paused    → CONTINUE       (re-arm the timer)
+  //   not started            → START
   const stBtn=$('startEpBtn');
   if(stBtn){
-    if(watching) {
-      // Actively watching → show LOG PARTIAL button
+    stBtn.disabled = false;
+    stBtn.classList.remove('logpart', 'continue');
+    if(awaitingLog) {
+      // A scrubbed preview is staged → the button itself commits it (no tap-elsewhere).
+      const pv = Math.round(minPreview!=null ? minPreview : (epMin[focus]||0));
+      stBtn.textContent = `LOG ${pv} min`;
+      stBtn.classList.add('logpart');
+      stBtn.dataset.action = 'log';
+    } else if(watching) {
       stBtn.textContent = 'LOG PARTIAL';
       stBtn.classList.add('logpart');
-      stBtn.classList.remove('continue');
-      stBtn.disabled = false;
+      stBtn.dataset.action = 'log';
     } else if(inProgress) {
-      // In progress but not watching → show CONTINUE (paused or scrubbed)
       stBtn.textContent = 'CONTINUE';
       stBtn.classList.add('continue');
-      stBtn.classList.remove('logpart');
-      stBtn.disabled = false;
+      stBtn.dataset.action = 'continue';
     } else {
-      // Not started → show START (only if progress is 0, i.e. not scrubbed)
       stBtn.textContent = (epMin[focus]||0) > 0 ? 'CONTINUE' : 'START';
-      stBtn.classList.remove('logpart', 'continue');
-      stBtn.disabled = false;
+      if((epMin[focus]||0) > 0) stBtn.classList.add('continue');
+      stBtn.dataset.action = 'start';
     }
   }
   // Update the elapsed time display with animation frames if watching
@@ -1615,7 +1774,7 @@ function paintMinute(){
   $('minRem').textContent=Math.max(0,Math.round(rt-cur))+' min';      // right: remaining
   coviewCheckReveal();   // unlock friends' comments as your mark passes theirs
   const mid=$('minMid');                                              // middle: total / prompt / BP
-  if(awaitingLog){ mid.textContent='tap to log · grab again to adjust'; mid.classList.add('phrase'); }
+  if(awaitingLog){ mid.textContent='press LOG to save · grab again to adjust'; mid.classList.add('phrase'); }
   else { mid.classList.remove('phrase'); mid.textContent = epBp[focus] ? 'BP' : (Math.round(rt)+' min'); }
 }
 
@@ -1645,12 +1804,14 @@ $('reset').onclick=()=>{
 // Tap feedback: flip the button's colors and let them flip back.
 function flashBtn(el){ if(!el) return; el.classList.remove('flip'); void el.offsetWidth;
   el.classList.add('flip'); el.addEventListener('animationend',()=>el.classList.remove('flip'),{once:true}); }
-// Left button: START / LOG PARTIAL / CONTINUE state machine
+// Left button: dispatch on dataset.action (set by paint's state machine) so a dynamic
+// label like "LOG 12 min" still routes correctly. start/continue both re-arm the timer.
 $('startEpBtn').onclick=()=>{
   const btn=$('startEpBtn'); flashBtn(btn);
-  if(btn.textContent==='START') startEpisode();
-  else if(btn.textContent==='LOG PARTIAL') logIt();
-  else if(btn.textContent==='CONTINUE') startEpisode();  // CONTINUE re-starts the timer
+  primeAudio();   // ANY left-button tap (START/CONTINUE/LOG…) blesses audio for later autoplay
+  const a=btn.dataset.action;
+  if(a==='log') logIt();
+  else startEpisode();   // 'start' and 'continue' both (re-)arm the live timer
 };
 $('finishEpBtn').onclick=()=>{ flashBtn($('finishEpBtn')); if(isTheater()) openTicket(); else finishEpisode(); };
 $('micBtn').onclick=()=>{
@@ -1779,20 +1940,16 @@ minBar.addEventListener('pointerdown',ev=>{ ev.preventDefault(); minBar.setPoint
   // after a scrub let the visibility handler log time-away as a watch. The live
   // anchor belongs solely to START / CONTINUE (startEpisode).
   minDragging=true;
-  minPreview=minFromX(ev.clientX); awaitingLog=false; paintMinute(); });
+  minPreview=minFromX(ev.clientX); awaitingLog=false; paint(); });
 minBar.addEventListener('pointermove',ev=>{ if(!minDragging)return; minPreview=minFromX(ev.clientX); paintMinute(); });
-minBar.addEventListener('pointerup',ev=>{ if(!minDragging)return; minDragging=false; awaitingLog=true; paintMinute(); });
+// On release the staged position becomes commit-ready: the left button flips to
+// "LOG <n> min" (see paint's state machine), so we repaint the whole face — no
+// more "tap anywhere" to commit. Grabbing the bar again re-stages a new position.
+minBar.addEventListener('pointerup',ev=>{ if(!minDragging)return; minDragging=false; awaitingLog=true; paint(); });
 minBar.addEventListener('pointercancel',()=>{ minDragging=false; });
 
 // Episode selection moved to the top-bar EP readout + picker sheet (openEpSheet).
 // The old green preview-slider bar was removed to stop it reading as a season slider.
-
-// "tap anywhere to log it": one tap outside the controls commits the staged minute.
-document.querySelector('.face').addEventListener('click',e=>{
-  if(!awaitingLog) return;
-  if(e.target.closest('.minbar,.minhandle,.bar,.rank,.notebtn,.ctl,.wrow,.seasondots,.svc-lit')) return;
-  e.stopPropagation(); logMinute();
-}, true);
 
 const acctEmail = () => { try{ return localStorage.getItem('pg_user')||''; }catch(_){ return ''; } };
 
@@ -1967,11 +2124,11 @@ async function launchShow(L){
   if(L.autoFinish){ finishEpisode(); return; }   // full-finish the launched episode + advance focus
   if(L.partial){
     // Stage the elapsed-time guess on the scrubber, capped below runtime so it
-    // reads as a partial. "tap anywhere to log it" (awaitingLog) commits it.
+    // reads as a partial. The left button shows "LOG <n> min" (awaitingLog) to commit it.
     const rt=runtimeOf(focus);
     const guess=Math.max(0, Math.min(rt-1, Math.round((Date.now()-(L.startedAt||Date.now()))/60000)));
     if(!startedAt[focus]) startedAt[focus]=L.startedAt||Date.now();
-    minPreview=guess; awaitingLog=true; paintMinute();
+    minPreview=guess; awaitingLog=true; paint();
   }
 }
 function showEmpty(){ const e=$('emptyFace'); if(e) e.classList.add('show'); reportCurrent(); }
