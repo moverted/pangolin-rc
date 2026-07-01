@@ -941,9 +941,14 @@ async function refreshTitle(titleId){
    last watched if there is one, otherwise from the beginning). The Watch face now
    loads episodes from the catalog by title_id. */
 function episodesPayload(s, fromStart){
-  const pat = (!fromStart && !s.comfort && s.lastWatched && s.watched>0)
-    ? {kind:"resume", season:s.lastWatched.season, number:s.lastWatched.number}
-    : {kind:"beginning"};
+  // Resume LANDS ON the server's current episode (first not-done). BP-backfill keeps
+  // that pointer honest even when earlier episodes were never logged, so it's the
+  // partially-watched episode, or the next one if the current is finished.
+  let pat = {kind:"beginning"};
+  if(!fromStart && !s.comfort && s.currentEpisodeId){
+    const m = /:s(\d+)e(\d+)$/i.exec(s.currentEpisodeId);
+    if(m) pat = {kind:"resume", season:+m[1], number:+m[2], on:true};
+  }
   return { titleId:s.titleId, kind:s.kind, name:s.name, pattern:pat };
 }
 

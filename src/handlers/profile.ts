@@ -318,9 +318,9 @@ profileRoutes.post('/:email/episodes/:episode_id', async (c) => {
   const exists = await c.env.DB.prepare('SELECT email FROM users WHERE email = ?').bind(email).first();
   if (!exists) return c.json({ error: 'unknown user' }, 404);
   const ep = await c.env.DB.prepare(
-    `SELECT e.title_id, e.name AS episode_name, t.name AS show_name
+    `SELECT e.title_id, e.season, e.number, e.name AS episode_name, t.name AS show_name
        FROM episodes e JOIN titles t ON t.title_id = e.title_id WHERE e.episode_id = ?`
-  ).bind(episode_id).first<{ title_id: string; episode_name: string | null; show_name: string | null }>();
+  ).bind(episode_id).first<{ title_id: string; season: number; number: number; episode_name: string | null; show_name: string | null }>();
   if (!ep) return c.json({ error: 'unknown episode' }, 404);
   let body: any;
   try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
@@ -337,6 +337,29 @@ profileRoutes.post('/:email/episodes/:episode_id', async (c) => {
        done=excluded.done, minute=excluded.minute, bp=excluded.bp, sessions=excluded.sessions, updated_at=excluded.updated_at,
        show_name=excluded.show_name, episode_name=excluded.episode_name`
   ).bind(email, episode_id, ep.title_id, ep.show_name, ep.episode_name, done, minute, bp, sessions, now).run();
+  // Backfill: watching/starting an episode implies you've seen everything before it.
+  // Mark every EARLIER episode (air order) with no record yet as BP (Before Pierre) —
+  // done=1, bp=1 — so the resume pointer skips the ones you never logged (e.g. you
+  // jumped straight into S2E5). BP rows are hidden/greyed in the Log but still count.
+  if ((done || minute > 0) && ep.season != null && ep.number != null) {
+    // Earlier episodes that are neither done nor in-progress (no row, or an empty
+    // done=0/minute=0 row) → mark BP-done so the resume pointer skips them.
+    const earlier = await c.env.DB.prepare(
+      `SELECT e.episode_id, e.name FROM episodes e
+         LEFT JOIN watch_episode we ON we.user_email = ? AND we.episode_id = e.episode_id
+        WHERE e.title_id = ? AND (e.season < ? OR (e.season = ? AND e.number < ?))
+          AND COALESCE(we.done, 0) = 0 AND COALESCE(we.minute, 0) = 0`
+    ).bind(email, ep.title_id, ep.season, ep.season, ep.number).all<{ episode_id: string; name: string | null }>();
+    const rows = earlier.results || [];
+    if (rows.length) {
+      const up = c.env.DB.prepare(
+        `INSERT INTO watch_episode
+           (user_email, episode_id, title_id, show_name, episode_name, done, minute, bp, sessions, updated_at)
+         VALUES (?,?,?,?,?,1,0,1,NULL,?)
+         ON CONFLICT(user_email, episode_id) DO UPDATE SET done=1, bp=1, updated_at=excluded.updated_at`);
+      await c.env.DB.batch(rows.map((r) => up.bind(email, r.episode_id, ep.title_id, ep.show_name, r.name, now)));
+    }
+  }
   const recomputed = await recomputeTitle(c.env, email, ep.title_id);
   mirror(c, 'watch_episode', { user_email: email, episode_id, title_id: ep.title_id,
     show_name: ep.show_name, episode_name: ep.episode_name, done, minute, bp, sessions, updated_at: now });

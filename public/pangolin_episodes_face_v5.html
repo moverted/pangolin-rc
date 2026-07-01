@@ -2092,7 +2092,9 @@ function applyPattern(p){
   } else if(p.kind==='resume' && p.season){
     eps=allEps.filter(e=>sNum(e)===p.season); if(!eps.length) eps=allEps;
     const idx=eps.findIndex(e=>(e.number||0)===p.number);
-    watched=idx>=0?idx+1:0;
+    // p.on → land ON this episode (it's the current/next-to-watch); else focus the
+    // one after it (legacy: number = last finished, e.g. the season-chip jump).
+    watched = p.on ? Math.max(0, idx) : (idx>=0?idx+1:0);
   } else if(p.kind==='at' && p.season){
     // "Watch from this episode": land ON the pick. You're dropping into the middle,
     // so every earlier episode (this season and the ones before) is recorded as BP.
