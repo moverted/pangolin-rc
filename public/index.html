@@ -28,6 +28,7 @@
     #canvas {
       position: absolute; inset: 0; width: 100%; height: 100%;
       cursor: grab; touch-action: none;
+      transition: opacity 0.25s ease;   /* fade the cube out when a face is open */
     }
     #canvas:active { cursor: grabbing; }
 
@@ -131,7 +132,7 @@
       display: none; position: absolute; right: 16px; bottom: 292px; z-index: 31;
       width: 46px; height: 46px; border: 0; background: rgba(10,12,16,0.55);
       border-radius: 13px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
-      box-shadow: 0 4px 14px rgba(0,0,0,0.4); cursor: pointer; opacity: 0.85;
+      cursor: pointer; opacity: 0.85;
       align-items: center; justify-content: center; perspective: 120px;
       -webkit-tap-highlight-color: transparent; transition: transform 0.12s ease, opacity 0.15s ease;
     }
@@ -625,6 +626,7 @@ function lock() {
   if (fi === PIERRE_FACE) focusPierre();
   bounceFromEmptyWatch(fi);
   if (window._setWheelCube) window._setWheelCube(fi !== PIERRE_FACE);   // console back-cube (not on keyboard face)
+  canvas.style.opacity = '0';   // hide the cube behind the open face (no grey square in the top stage)
 }
 
 function unlock() {
@@ -633,6 +635,7 @@ function unlock() {
   locked = false;
   camTargetZ = 8.5;
   if (window._setWheelCube) window._setWheelCube(false);
+  canvas.style.opacity = '1';   // cube returns as the free-nav object
   hideFaceInfo();
   snapping = false; // release to free rotation
   velX = 0; velY = 0;
@@ -1282,9 +1285,11 @@ function updateDeviceChip() {
   const svc = currentEpisode ? streamerLabel(currentEpisode.service) : '';
   const launchable = !!(currentEpisode && currentEpisode.name && serviceLink(currentEpisode.service, currentEpisode.name));
   const kind = selectedDeviceKind();
-  const icon = kind === 'phone' ? '📱' : kind === 'none' ? '🚫' : '📺';
-  // Device on top, streamer stacked beneath it.
-  chip.innerHTML = '<span class="dc-row"><span class="dc-ic">' + icon + '</span><span class="dc-dev">' + esc(dev) + '</span></span>' +
+  // No device → plain "NO DEVICE" (no 🚫). Otherwise icon + device, streamer stacked under.
+  const devRow = kind === 'none'
+    ? '<span class="dc-dev">NO DEVICE</span>'
+    : '<span class="dc-ic">' + (kind === 'phone' ? '📱' : '📺') + '</span><span class="dc-dev">' + esc(dev) + '</span>';
+  chip.innerHTML = '<span class="dc-row">' + devRow + '</span>' +
     (launchable && svc ? '<span class="dc-svc">' + esc(svc) + '</span>' : '');
   chip.classList.toggle('dimmed', !(launchable && svc));
   chip.classList.add('show');
@@ -1416,10 +1421,14 @@ updatePlayState();   // start dimmed until a launchable show is loaded
     if(!cfg || !cfg.frame || !cfg.frame.contentWindow) return null;
     try { return cfg.frame.contentWindow.document; } catch(_) { return null; }
   }
+  // The scrollable region varies per face: WATCH .scroll, FEED .body, BROWSE .bscroll.
+  function scrollContainer(doc){
+    return doc.querySelector('.scroll, .body, .bscroll') || doc.scrollingElement || doc.body;
+  }
   function wheelScroll(dy){
     if(!locked) return;                                  // only acts on the OPEN face
     const doc = activeDoc(); if(!doc) return;
-    const sc = doc.querySelector('.scroll') || doc.scrollingElement || doc.body;
+    const sc = scrollContainer(doc);
     if(sc) sc.scrollTop += dy;
   }
   // ── SELECT highlight cursor: a glowing outline that steps DOWN the open face's
@@ -1432,15 +1441,21 @@ updatePlayState();   // start dimmed until a launchable show is loaded
   // shows → tabs; LOG walks Start → mic → Finish → the rank chips → Note to Pierre.
   function faceGroups(){
     if(activeFace === FACE_INDEX.log)        // WATCH face (cube_face_log)
-      return ['.addbtn, .exc-btn, .exc-again, .exc-seas-chip',
-              '.vw-head, .ep-play, .ep-tix, .ep-share',
-              '.tile',
-              '.tab'];
+      return ['.exc-seas-chip',                                      // seasons (back from WATCH)
+              '.exp-card [data-act="watch"]',                        // ▶ WATCH / WATCH AGAIN (start here)
+              '.exp-card [data-act="share"], .exp-card [data-act="stop"]',
+              '.vw-head, .ep-play, .ep-tix, .ep-share',              // episodes
+              '.tile',                                               // the other shows
+              '.addbtn, .tab'];
     if(activeFace === FACE_INDEX.episodes)   // LOG face (pangolin_episodes)
-      return ['#svcCorner, .svc-lit, #epReadout',  // streamer (top-corner) + episode selector
-              '#startEpBtn, #micBtn, #finishEpBtn', // row-sorted → START · mic · FINISH
+      return ['#startEpBtn, #micBtn, #finishEpBtn', // START/CONTINUE (start) · mic · FINISH
+              '#svcCorner, .svc-lit, #epReadout',   // streamer (top-corner) + episode selector
               '.rank b',
               '#noteBtn'];
+    if(activeFace === FACE_INDEX.feed)        // FEED (cube_feed)
+      return ['.card'];
+    if(activeFace === FACE_INDEX.join)        // BROWSE / JOIN (cube_join)
+      return ['.bcard, .res', '.join, #next, #back, #done, #signout, button'];
     return ['button, .tile, .tab, .vw-head, .crow, [role="button"]'];   // generic fallback
   }
   function faceSelectables(doc){
@@ -1479,7 +1494,7 @@ updatePlayState();   // start dimmed until a launchable show is loaded
     doc._wheelHL = box;
     const reflow = ()=>{ if(box._el && box.style.opacity !== '0'){ const r = box._el.getBoundingClientRect();
       box.style.top = r.top+'px'; box.style.left = r.left+'px'; box.style.width = r.width+'px'; box.style.height = r.height+'px'; } };
-    const sc = doc.querySelector('.scroll'); if(sc) sc.addEventListener('scroll', reflow, {passive:true});
+    const sc = scrollContainer(doc); if(sc) sc.addEventListener('scroll', reflow, {passive:true});
     if(doc.defaultView) doc.defaultView.addEventListener('scroll', reflow, {passive:true});
     return box;
   }
@@ -1495,12 +1510,20 @@ updatePlayState();   // start dimmed until a launchable show is loaded
   // highlight between items instead of scrolling; SELECT confirms (activates) the
   // highlighted item and exits; a long-press cancels out of the mode.
   let selectMode = false;
+  // Where the first SELECT click lands per face: WATCH on ▶ WATCH (back→seasons,
+  // forward→the rest), LOG on START/CONTINUE. Others start at the first item.
+  function faceStartIndex(doc, els){
+    let sel = null;
+    if(activeFace === FACE_INDEX.log)            sel = '.exp-card [data-act="watch"]';
+    else if(activeFace === FACE_INDEX.episodes) sel = '#startEpBtn';
+    if(sel){ const el = doc.querySelector(sel); const i = el ? els.indexOf(el) : -1; if(i >= 0) return i; }
+    return 0;
+  }
   function enterSelect(){
     const doc = activeDoc(); if(!doc) return;
     const els = faceSelectables(doc); if(!els.length) return;
     selectMode = true;
-    const box = doc._wheelHL, cur = (box && box._el) ? els.indexOf(box._el) : -1;
-    placeHL(doc, els[cur >= 0 ? cur : 0]); tick(10);
+    placeHL(doc, els[faceStartIndex(doc, els)]); tick(10);   // always begin at the face's start control
   }
   function moveSelect(dir){
     const doc = activeDoc(); if(!doc) return;

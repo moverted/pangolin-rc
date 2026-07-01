@@ -265,8 +265,8 @@ profileRoutes.get('/:email/titles', async (c) => {
             (SELECT COUNT(*) FROM watch_episode we WHERE we.user_email=wt.user_email AND we.title_id=wt.title_id AND we.done=1) AS watched,
             (SELECT COALESCE(SUM(we.minute),0) FROM watch_episode we WHERE we.user_email=wt.user_email AND we.title_id=wt.title_id) AS minutes,
             (SELECT COUNT(*) FROM episodes e WHERE e.title_id=wt.title_id AND e.airdate IS NOT NULL AND e.airdate <= date('now')) AS released,
-            (SELECT e.season FROM episodes e JOIN watch_episode we ON we.episode_id=e.episode_id AND we.user_email=wt.user_email WHERE e.title_id=wt.title_id AND we.done=1 ORDER BY e.season DESC, e.number DESC LIMIT 1) AS last_season,
-            (SELECT e.number FROM episodes e JOIN watch_episode we ON we.episode_id=e.episode_id AND we.user_email=wt.user_email WHERE e.title_id=wt.title_id AND we.done=1 ORDER BY e.season DESC, e.number DESC LIMIT 1) AS last_number
+            (SELECT e.season FROM episodes e JOIN watch_episode we ON we.episode_id=e.episode_id AND we.user_email=wt.user_email WHERE e.title_id=wt.title_id AND (we.done=1 OR we.minute>0) ORDER BY e.season DESC, e.number DESC LIMIT 1) AS last_season,
+            (SELECT e.number FROM episodes e JOIN watch_episode we ON we.episode_id=e.episode_id AND we.user_email=wt.user_email WHERE e.title_id=wt.title_id AND (we.done=1 OR we.minute>0) ORDER BY e.season DESC, e.number DESC LIMIT 1) AS last_number
        FROM watch_title wt JOIN titles t ON t.title_id = wt.title_id
       WHERE wt.user_email = ? ORDER BY wt.updated_at DESC`).bind(email).all();
   return c.json({ titles: rows.results || [] });
@@ -618,8 +618,8 @@ profileRoutes.get('/:email/feed', async (c) => {
   const placeholders = actors.map(() => '?').join(',');
   const rows = await c.env.DB.prepare(
     `SELECT wt.user_email, wt.title_id AS show_id, t.name AS show_name, t.kind, wt.status, wt.updated_at, u.username,
-            (SELECT e.season FROM episodes e JOIN watch_episode we ON we.episode_id=e.episode_id AND we.user_email=wt.user_email WHERE e.title_id=wt.title_id AND we.done=1 ORDER BY e.season DESC, e.number DESC LIMIT 1) AS last_season,
-            (SELECT e.number FROM episodes e JOIN watch_episode we ON we.episode_id=e.episode_id AND we.user_email=wt.user_email WHERE e.title_id=wt.title_id AND we.done=1 ORDER BY e.season DESC, e.number DESC LIMIT 1) AS last_number
+            (SELECT e.season FROM episodes e JOIN watch_episode we ON we.episode_id=e.episode_id AND we.user_email=wt.user_email WHERE e.title_id=wt.title_id AND (we.done=1 OR we.minute>0) ORDER BY e.season DESC, e.number DESC LIMIT 1) AS last_season,
+            (SELECT e.number FROM episodes e JOIN watch_episode we ON we.episode_id=e.episode_id AND we.user_email=wt.user_email WHERE e.title_id=wt.title_id AND (we.done=1 OR we.minute>0) ORDER BY e.season DESC, e.number DESC LIMIT 1) AS last_number
        FROM watch_title wt
        JOIN titles t ON t.title_id = wt.title_id
        LEFT JOIN users u ON u.email = wt.user_email
