@@ -63,7 +63,7 @@
     #controls {
       position: fixed; bottom: 0; left: 0; right: 0;
       z-index: 30;
-      padding: 20px 24px 44px;
+      padding: 20px 24px 80px;   /* raised bottom so the wheel clears the browser's URL bar */
       background: linear-gradient(to top, rgba(12,9,7,0.97) 55%, transparent);
       display: flex; flex-direction: column; gap: 14px; justify-content: center; align-items: center;
     }
@@ -71,7 +71,7 @@
 
     /* ── iPod-style click wheel ── */
     #wheel {
-      position: relative; width: 184px; height: 184px;
+      position: relative; width: 258px; height: 258px;
       touch-action: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
     }
     #wheel .wheel-ring {
@@ -110,7 +110,7 @@
     /* Console chrome flanks the click wheel: device indicator upper-LEFT, with the
        streamer stacked under it; the floating cube sits upper-RIGHT. */
     #device-chip {
-      display: none; position: absolute; left: 16px; bottom: 178px; z-index: 31;
+      display: none; position: absolute; left: 16px; bottom: 292px; z-index: 31;
       flex-direction: column; align-items: flex-start; gap: 3px; max-width: 42vw;
       padding: 7px 11px; border-radius: 12px;
       border: 1px solid #3a2f22; background: rgba(33,26,19,0.85);
@@ -128,7 +128,7 @@
 
     /* floating cube — back to cube nav, upper-right of the wheel */
     #wheel-cube {
-      display: none; position: absolute; right: 16px; bottom: 178px; z-index: 31;
+      display: none; position: absolute; right: 16px; bottom: 292px; z-index: 31;
       width: 46px; height: 46px; border: 0; background: rgba(10,12,16,0.55);
       border-radius: 13px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
       box-shadow: 0 4px 14px rgba(0,0,0,0.4); cursor: pointer; opacity: 0.85;
@@ -365,11 +365,7 @@
        open show by synthetically clicking the WATCH face's own buttons. Replaces
        the old playback remote (kept hidden below so existing btn-play JS holds). -->
   <div id="wheel" aria-label="Control wheel">
-    <div class="wheel-ring" id="wheelRing">
-      <span class="wlbl top">&#9654; WATCH</span>
-      <span class="wlbl left">&#127873;<br>SHARE</span>
-      <span class="wlbl right">&#128721;<br>STOP</span>
-    </div>
+    <div class="wheel-ring" id="wheelRing"></div>
     <button class="wheel-center" id="wheelCenter" aria-label="Select">SELECT</button>
   </div>
 
@@ -572,8 +568,8 @@ let camTargetZ = 8.5;
 // Reserved bottom "console" band — the open face sits in a TOP stage and this
 // band below it is shared by the click wheel (normal) and the soft keyboard (when
 // typing; the keyboard branch top-pins the face on its own). Capped on short
-// screens so the face never collapses. Matches the wheel footprint (~184px + chrome).
-const CONSOLE_H = 236;
+// screens so the face never collapses. Matches the wheel footprint (~258px + chrome).
+const CONSOLE_H = 360;
 
 // Double-tap detection
 let lastTapTime = 0;
@@ -1030,7 +1026,7 @@ let t = 0;
   // Free cube floats in the TOP stage too (lift ≈ half the console band, converted
   // from screen px to world units at the free-mode camera distance). Locked → recenter
   // (the open face is positioned by its own top-stage pin).
-  const cH = Math.min(CONSOLE_H, VH * 0.34);
+  const cH = Math.min(CONSOLE_H, VH * 0.44);
   const liftY = (cH / 2) * (2 * 8.5 * 0.46631) / VH;   // px → world @ z=8.5, fov 50°
   const targetY = locked ? 0 : liftY + Math.sin(t * 0.75) * 0.12;
   cube.position.y += (targetY - cube.position.y) * 0.08;
@@ -1123,14 +1119,14 @@ let t = 0;
         x = (vv.offsetLeft || 0) + (vv.width - size) / 2;
         y = vv.offsetTop + margin;
       } else if (vv && ORI === 0) {               // portrait: TOP stage; console band reserved below
-        const cH = Math.min(CONSOLE_H, vv.height * 0.34);     // for the wheel (capped on short screens)
+        const cH = Math.min(CONSOLE_H, vv.height * 0.44);     // for the wheel (capped on short screens)
         const availH = vv.height - cH;
         size  = Math.min(vv.width, availH) - margin * 2;      // keep square; fit the top band
         scale = size / IFRAME_SZ;
         x = (vv.offsetLeft || 0) + (vv.width - size) / 2;
         y = (vv.offsetTop  || 0) + (availH - size) / 2;        // centered in the top stage
       } else {                                    // landscape / no visualViewport: logical viewport
-        const cH = Math.min(CONSOLE_H, VH * 0.34);
+        const cH = Math.min(CONSOLE_H, VH * 0.44);
         const availH = VH - cH;
         size  = Math.min(VW, availH) - margin * 2;
         scale = size / IFRAME_SZ;
@@ -1426,14 +1422,6 @@ updatePlayState();   // start dimmed until a launchable show is loaded
     const sc = doc.querySelector('.scroll') || doc.scrollingElement || doc.body;
     if(sc) sc.scrollTop += dy;
   }
-  function wheelAction(act){
-    if(!locked) return;
-    const doc = activeDoc(); if(!doc) return;
-    const btn = doc.querySelector('.exp-card [data-act="'+act+'"]')
-             || (act === 'watch' ? doc.querySelector('.exc-again') : null);   // completed card → WATCH AGAIN
-    if(btn){ btn.click(); tick(14); }
-  }
-
   // ── SELECT highlight cursor: a glowing outline that steps DOWN the open face's
   //    selectable buttons (one per SELECT tap, wraps at the bottom). Long-press
   //    SELECT to activate the highlighted button. A floating overlay in the face's
@@ -1589,18 +1577,7 @@ updatePlayState();   // start dimmed until a launchable show is loaded
     }
     e.preventDefault();
   });
-  const end = e=>{
-    if(!active) return; active = false;
-    // Edge taps (quick WATCH/SHARE/STOP) only in plain scroll mode — not while
-    // moving the highlight or scrubbing an open picker.
-    if(selectMode || (locked && activeDialog(activeDoc()))) return;
-    const dist = Math.hypot((e.clientX||sx) - sx, (e.clientY||sy) - sy);
-    if(moved < 0.18 && dist < 12){                       // a clean tap on a ring edge = that action
-      const dx = (e.clientX||cx) - cx, dy = (e.clientY||cy) - cy;
-      if(Math.abs(dx) >= Math.abs(dy)) wheelAction(dx < 0 ? 'share' : 'stop');
-      else if(dy < 0)                  wheelAction('watch');
-    }
-  };
+  const end = () => { active = false; };   // ring: no edge actions (use SELECT + the highlight)
   ring.addEventListener('pointerup', end);
   ring.addEventListener('pointercancel', ()=>{ active = false; });
 
