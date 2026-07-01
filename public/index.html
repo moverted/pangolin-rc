@@ -104,6 +104,19 @@
       display: flex; align-items: center; justify-content: center;
     }
     #wheel .wheel-center:active { transform: translate(-50%,-50%) scale(0.94); }
+    /* A friend's comment reached this moment: the center button glows amber and
+       breathes so the viewer knows a press will play it. A real tap = solicited
+       audio, which is the workaround for iOS refusing unsolicited/asleep autoplay.
+       Cleared once the clip is played or its reply window closes. */
+    #wheel .wheel-center.armed {
+      border-color: rgba(240,169,59,0.95);
+      color: #ffcf7a;
+      animation: wheelArmPulse 1.15s ease-in-out infinite;
+    }
+    @keyframes wheelArmPulse {
+      0%,100% { box-shadow: 0 2px 8px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.05), 0 0 6px rgba(240,169,59,0.45), 0 0 0 1px rgba(240,169,59,0.35); }
+      50%     { box-shadow: 0 2px 8px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.05), 0 0 20px rgba(240,169,59,0.85), 0 0 0 2px rgba(240,169,59,0.55); }
+    }
 
     /* device + streamer indicator: what the play button launches, and where.
        Device comes from the Profile picker (pg_device); streamer from the show
@@ -1604,6 +1617,36 @@ updatePlayState();   // start dimmed until a launchable show is loaded
   ring.addEventListener('pointerup', end);
   ring.addEventListener('pointercancel', ()=>{ active = false; });
 
+  // A friend's comment reached the current moment: light the center button and
+  // remember how to play it. Either co-view engine (the shell caption engine or the
+  // in-face engine over window.parent) arms it; the SELECT handler below plays it
+  // inside its own gesture — the iOS-safe way to sound audio autoplay would block.
+  let _coviewPlay = null;
+  function wheelArmCoview(playFn){
+    _coviewPlay = (typeof playFn === 'function') ? playFn : null;
+    if(center) center.classList.add('armed');
+    coviewArmAlert();                                    // sound + vibrate + OS notification
+  }
+  function wheelDisarmCoview(){
+    _coviewPlay = null;
+    if(center) center.classList.remove('armed');
+  }
+  // Nudge the viewer that a comment is ready: the wheel tick, a vibration, and a
+  // best-effort OS notification (mirrors scheduleEpisodeEnd). None of this can wake a
+  // locked iOS screen — it alerts a phone that's awake/foregrounded, which Screen Wake
+  // Lock keeps it during an active co-view session (see acquireWakeLock).
+  function coviewArmAlert(){
+    tick(24);
+    try {
+      if('Notification' in window && Notification.permission === 'granted'){
+        const n = new Notification('A friend commented — press SELECT to hear it.', { tag: 'pangolin-coview' });
+        n.onclick = () => window.focus();
+      }
+    } catch(_){}
+  }
+  window.wheelArmCoview = wheelArmCoview;
+  window.wheelDisarmCoview = wheelDisarmCoview;
+
   // SELECT: tap to turn the highlight ON (ring then moves it); tap again to confirm
   // (activate the highlighted item) and exit; long-press to cancel out of the mode.
   if(center){
@@ -1619,9 +1662,10 @@ updatePlayState();   // start dimmed until a launchable show is loaded
       e.preventDefault();
     });
     const stop = ()=>{ if(holdT){ clearTimeout(holdT); holdT = 0;
-      if(!held){                                         // tap = confirm dialogue / toggle select / activate
+      if(!held){                                         // tap = confirm dialogue / play comment / toggle select
         const dlg = activeDialog(activeDoc());
-        if(dlg){ dlg.confirm(); tick(18); hideHL(activeDoc()); }
+        if(dlg){ dlg.confirm(); tick(18); hideHL(activeDoc()); }        // an open picker keeps priority
+        else if(_coviewPlay){ const f = _coviewPlay; wheelDisarmCoview(); tick(18); f(); }  // play the armed comment in-gesture
         else selectMode ? exitSelect(true) : enterSelect();
       } } };
     center.addEventListener('pointerup', stop);
@@ -1705,6 +1749,24 @@ function capUpdateAlignLbl() {
 }
 function capReflectSlider() { _capAlign.value = String(Math.max(-30, Math.min(30, (capSession ? capSession.nudgeMs : 0) / 1000))); }
 
+// Screen Wake Lock: keep the phone awake while it's captioning/co-viewing a TV so it
+// doesn't sleep and miss a friend's comment glow. The lock auto-releases when the tab
+// hides, so re-acquire on visibility return. This cannot wake an already-asleep screen
+// (the accepted web limit) — it only prevents sleep during an active session.
+let _wakeLock = null;
+async function acquireWakeLock() {
+  try { if ('wakeLock' in navigator && !_wakeLock) {
+    _wakeLock = await navigator.wakeLock.request('screen');
+    _wakeLock.addEventListener('release', () => { _wakeLock = null; });
+  } } catch (_) {}
+}
+async function releaseWakeLock() {
+  try { if (_wakeLock) { const w = _wakeLock; _wakeLock = null; await w.release(); } } catch (_) {}
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && capSession) acquireWakeLock();
+});
+
 async function capStart(ep) {
   const id = capEpisodeId(ep);
   if (!id) return;
@@ -1712,6 +1774,8 @@ async function capStart(ep) {
   const nudgeMs = capSavedNudge(id);
   capSession = { episodeId: id, cues: [], mode: 'file', startedAt: Date.now(), nudgeMs, paused: false, pausedAt: 0, pausedAccum: 0,
                  coview: [], coIdx: 0, coPlaying: false, coAudio: null };
+  acquireWakeLock();                                          // keep the screen on for the co-view session
+  try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch {}
   capReflectSlider(); capUpdateAlignLbl();
   _capText.textContent = ''; _capText.classList.add('gap');
   capHideCoview();
@@ -1752,6 +1816,8 @@ function capStop() {
   capSession = null;
   if (_capTick) { clearInterval(_capTick); _capTick = null; }
   capHideCoview();
+  if (window.wheelDisarmCoview) window.wheelDisarmCoview();
+  releaseWakeLock();
   _capEl.classList.remove('show');
 }
 function capPosMs() {
@@ -1812,9 +1878,16 @@ function capPlayCoview(clip) {
   const done = () => {
     if (capSession) { capSession.coPlaying = false; capSession.coAudio = null; }
     capHideCoview();
+    if (window.wheelDisarmCoview) window.wheelDisarmCoview();
   };
   a.onended = done; a.onerror = done;
-  a.play().catch(() => { if (capSession) capSession.coPlaying = false; });
+  a.play().then(() => {
+    if (window.wheelDisarmCoview) window.wheelDisarmCoview();   // autoplay allowed → no need to light SELECT
+  }).catch(() => {
+    // Blocked (iOS won't sound unsolicited audio): light SELECT so a real press replays it.
+    if (capSession) capSession.coPlaying = false;
+    if (window.wheelArmCoview) window.wheelArmCoview(() => { try { a.play(); } catch(_){} });
+  });
 }
 function capHideCoview() {
   _capCoEl.classList.remove('show');
