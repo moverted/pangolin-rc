@@ -574,6 +574,7 @@
 <script>
 const NOW=new Date(); const DAY=864e5;
 let allEps=[], eps=[], watched=0, watchTs=[], watchDate={}, binged={}, ranks={}, notes={}, focus=0, cooled=false;
+let _lastPaintFocus=-1;   // last episode the Comments panel was scoped to (re-sync on focus change)
 let titleSummary='';   // show-level synopsis, used when an episode has none of its own
 let seasonStatus='', curShowId=null, curShowName='', curService='', svcLaunchable=false;
 // A film loads as a one-episode "show" so all the minute-bar / start-finish /
@@ -893,16 +894,21 @@ function paintTranscripts(){
     console.warn('Transcript elements not found in DOM');
     return;
   }
-  label.textContent=`Comments · ${transcripts.length + coviewComments.length}`;
+  // Current-episode only: the Comments panel mirrors the focused episode (co-view
+  // is already scoped to it in loadCoview). Filter our own comments to match so the
+  // LOG face stays "right now"; the full per-episode history lives on the WATCH face.
+  const curCode = eps[focus] ? epCode(eps[focus]) : '';
+  const mine = curCode ? transcripts.filter(t=>t.epCode===curCode) : transcripts;
+  label.textContent=`Comments · ${mine.length + coviewComments.length}`;
   container.innerHTML='';
-  console.log('Rendering', transcripts.length, 'transcripts');
+  console.log('Rendering', mine.length, 'transcripts');
   // Replies (from co-view) thread under their parent — which may be a friend's
   // comment OR one of your OWN comments. Index them up front so both render paths
   // can pull their children; `replied` marks comments you've already answered.
   const replied = coviewRepliedSet();
   const repliesByParent = {};
   coviewComments.forEach(c=>{ if(c.replyTo){ (repliesByParent[c.replyTo] ||= []).push(c); } });
-  transcripts.forEach((t, idx)=>{
+  mine.forEach((t, idx)=>{
     console.log('Adding transcript:', t);
     const line=document.createElement('div');
     line.style.marginBottom='12px';
@@ -1672,10 +1678,12 @@ function paint(){
   const fnBtn=$('finishEpBtn'); if(fnBtn) fnBtn.disabled = false;
   updateTheaterUI();   // keep the FINISH/🎟 TICKET label in sync after any repaint
 
-  // Watchlist: ONE row per episode (history only), newest activity first. Tapping a
-  // row expands its children — every viewing session for that episode plus the note.
+  // Watchlist: the CURRENT episode only (the focused one). The LOG face is "right
+  // now" — its row carries that episode's sessions, tickets and note. The full
+  // per-episode history lives on the WATCH face.
   const epRows=[];
   for(let i=0;i<eps.length;i++){
+    if(i!==focus) continue;                       // current episode only
     const sess=epSessions[i]||[];
     if(!sess.length && !epDone[i]) continue;
     // Recency for sorting: a live session has no finishTs yet, so also count its
@@ -1693,7 +1701,7 @@ function paint(){
     if(pa!==pb) return pa?-1:1;
     return b.lastTs-a.lastTs;
   });
-  $('wlLabel').textContent='Watched · '+watched;
+  $('wlLabel').textContent='This Episode';
   const wl=$('watchlist'); wl.innerHTML='';
   if(!epRows.length) wl.innerHTML='<div class="empty">Nothing logged yet.</div>';
   epRows.forEach(({i,e,sess})=>{
@@ -1726,6 +1734,11 @@ function paint(){
     row.querySelectorAll('.wtix').forEach(img=>img.onclick=e=>{ e.stopPropagation(); window.open(img.src,'_blank'); });
     wl.appendChild(row);
   });
+  // Focus changed → re-scope the Comments panel to the new current episode. If the
+  // co-view set belongs to a different episode, reload it (it repaints on return);
+  // otherwise just re-filter our own comments.
+  if(_lastPaintFocus!==focus){ _lastPaintFocus=focus;
+    if(_coviewFocus!==focus) loadCoview(); else paintTranscripts(); }
   reportCurrent();
 }
 
@@ -2424,6 +2437,16 @@ function setFromWheel(){
     {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({service:chosenSvc.label})}); }catch(_){} }
   renderSvcCorner(); reportCurrent(); closeWheel();
 }
+
+// Shell click-wheel scrub hooks: step the streamer reel one row / confirm the pick.
+window.__reelStep = function(dir){
+  if(!$('svcWheel').classList.contains('show')) return;
+  const lim = reelLen*SW_COPIES-1;
+  const idx = Math.max(0, Math.min(lim, Math.round(SW_C - reelY/SW_ITEM) + dir));
+  setReelY(reelIdxToY(idx), true, 150);
+  clearTimeout(window.__reelRC); window.__reelRC = setTimeout(recenter, 200);
+};
+window.__reelSet = function(){ if($('svcWheel').classList.contains('show')) setFromWheel(); };
 
 const swWin=$('svcWin');
 swWin.addEventListener('pointerdown',e=>{ swDragging=true; swMoved=false; swStartY=e.clientY; swBaseY=reelY;

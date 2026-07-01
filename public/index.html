@@ -69,25 +69,85 @@
     }
     #media-controls { display: flex; gap: 32px; align-items: center; }
 
+    /* ── iPod-style click wheel ── */
+    #wheel {
+      position: relative; width: 184px; height: 184px;
+      touch-action: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
+    }
+    #wheel .wheel-ring {
+      position: absolute; inset: 0; border-radius: 50%; cursor: pointer;
+      background:
+        radial-gradient(closest-side, rgba(0,0,0,0) 36%, rgba(0,0,0,0.0) 37%,
+          rgba(34,28,22,0.96) 38%, rgba(24,20,16,0.96) 100%);
+      border: 1px solid rgba(240,169,59,0.18);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), inset 0 0 22px rgba(0,0,0,0.55), 0 8px 22px rgba(0,0,0,0.5);
+    }
+    #wheel .wheel-ring:active { box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), inset 0 0 30px rgba(0,0,0,0.6), 0 8px 22px rgba(0,0,0,0.5); }
+    #wheel .wlbl {
+      position: absolute; pointer-events: none; text-align: center;
+      font-family: 'JetBrains Mono', monospace, sans-serif; font-size: 9.5px; font-weight: 600;
+      letter-spacing: 0.06em; line-height: 1.25; color: rgba(240,169,59,0.92);
+      text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+    }
+    #wheel .wlbl.top   { top: 12px; left: 50%; transform: translateX(-50%); }
+    #wheel .wlbl.left  { left: 13px; top: 50%; transform: translateY(-50%); }
+    #wheel .wlbl.right { right: 13px; top: 50%; transform: translateY(-50%); }
+    #wheel .wheel-center {
+      position: absolute; left: 50%; top: 50%; width: 35%; height: 35%; transform: translate(-50%,-50%);
+      border-radius: 50%; cursor: pointer;
+      background: linear-gradient(135deg, #2c241b, #19140f);
+      border: 1px solid rgba(240,169,59,0.22);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.05);
+      color: rgba(240,169,59,0.92); font-family: 'JetBrains Mono', monospace, sans-serif;
+      font-size: 9.5px; font-weight: 600; letter-spacing: 0.1em;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #wheel .wheel-center:active { transform: translate(-50%,-50%) scale(0.94); }
+
     /* device + streamer indicator: what the play button launches, and where.
        Device comes from the Profile picker (pg_device); streamer from the show
        the Watch face has loaded. Tap to jump to the Profile device picker. */
+    /* Console chrome flanks the click wheel: device indicator upper-LEFT, with the
+       streamer stacked under it; the floating cube sits upper-RIGHT. */
     #device-chip {
-      display: none; align-items: center; gap: 7px; max-width: 82vw;
-      padding: 5px 13px; border-radius: 999px;
+      display: none; position: absolute; left: 16px; bottom: 178px; z-index: 31;
+      flex-direction: column; align-items: flex-start; gap: 3px; max-width: 42vw;
+      padding: 7px 11px; border-radius: 12px;
       border: 1px solid #3a2f22; background: rgba(33,26,19,0.85);
       font-family: 'Comic Neue', cursive; font-size: 12px; font-weight: 700;
-      letter-spacing: 0.02em; line-height: 1; white-space: nowrap;
-      overflow: hidden; text-overflow: ellipsis;
+      letter-spacing: 0.02em; line-height: 1.1; white-space: nowrap;
       cursor: pointer; -webkit-tap-highlight-color: transparent;
       transition: opacity 0.15s, border-color 0.15s;
     }
     #device-chip.show { display: inline-flex; }
     #device-chip:active { border-color: #e89f3d; }
+    #device-chip .dc-row { display: inline-flex; align-items: center; gap: 6px; }
     #device-chip .dc-dev { color: #f3ebe0; }
-    #device-chip .dc-sep { color: #a7967f; opacity: 0.6; }
-    #device-chip .dc-svc { color: #e89f3d; }
+    #device-chip .dc-svc { color: #e89f3d; font-size: 11px; }
     #device-chip.dimmed { opacity: 0.78; }
+
+    /* floating cube — back to cube nav, upper-right of the wheel */
+    #wheel-cube {
+      display: none; position: absolute; right: 16px; bottom: 178px; z-index: 31;
+      width: 46px; height: 46px; border: 0; background: rgba(10,12,16,0.55);
+      border-radius: 13px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+      box-shadow: 0 4px 14px rgba(0,0,0,0.4); cursor: pointer; opacity: 0.85;
+      align-items: center; justify-content: center; perspective: 120px;
+      -webkit-tap-highlight-color: transparent; transition: transform 0.12s ease, opacity 0.15s ease;
+    }
+    #wheel-cube.show { display: flex; }
+    #wheel-cube:active { transform: scale(0.9); }
+    #wheel-cube .wc-cube { position: relative; width: 20px; height: 20px; transform-style: preserve-3d;
+      transform: rotateX(-22deg) rotateY(-38deg); animation: wcspin 11s linear infinite; }
+    @keyframes wcspin { from { transform: rotateX(-22deg) rotateY(0deg); } to { transform: rotateX(-22deg) rotateY(360deg); } }
+    #wheel-cube .wc-face { position: absolute; width: 20px; height: 20px; box-sizing: border-box;
+      border: 1.5px solid #f0a93b; background: rgba(240,169,59,0.12); }
+    #wheel-cube .wc-front  { transform: translateZ(10px);                 background: rgba(240,169,59,0.16); }
+    #wheel-cube .wc-back   { transform: rotateY(180deg) translateZ(10px); background: rgba(240,169,59,0.08); }
+    #wheel-cube .wc-right  { transform: rotateY(90deg)  translateZ(10px); background: rgba(240,169,59,0.06); }
+    #wheel-cube .wc-left   { transform: rotateY(-90deg) translateZ(10px); background: rgba(240,169,59,0.10); }
+    #wheel-cube .wc-top    { transform: rotateX(90deg)  translateZ(10px); background: rgba(240,169,59,0.24); }
+    #wheel-cube .wc-bottom { transform: rotateX(-90deg) translateZ(10px); background: rgba(240,169,59,0.04); }
 
     .media-btn {
       width: 52px; height: 52px; border-radius: 50%;
@@ -290,7 +350,30 @@
 
 <div id="controls">
   <div id="device-chip" role="button" aria-label="Playback device — tap to change"></div>
-  <div id="media-controls">
+
+  <!-- floating cube (back to cube nav), upper-right of the wheel -->
+  <button id="wheel-cube" aria-label="Back to cube">
+    <span class="wc-cube">
+      <span class="wc-face wc-front"></span><span class="wc-face wc-back"></span>
+      <span class="wc-face wc-right"></span><span class="wc-face wc-left"></span>
+      <span class="wc-face wc-top"></span><span class="wc-face wc-bottom"></span>
+    </span>
+  </button>
+
+  <!-- iPod-style click wheel: the ring scrolls the open face; the four card
+       actions (WATCH top / SHARE left / STOP right / SELECT center) drive the
+       open show by synthetically clicking the WATCH face's own buttons. Replaces
+       the old playback remote (kept hidden below so existing btn-play JS holds). -->
+  <div id="wheel" aria-label="Control wheel">
+    <div class="wheel-ring" id="wheelRing">
+      <span class="wlbl top">&#9654; WATCH</span>
+      <span class="wlbl left">&#127873;<br>SHARE</span>
+      <span class="wlbl right">&#128721;<br>STOP</span>
+    </div>
+    <button class="wheel-center" id="wheelCenter" aria-label="Select">SELECT</button>
+  </div>
+
+  <div id="media-controls" style="display:none">
     <button class="media-btn" id="btn-rw" aria-label="Rewind">
       <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
         <path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/>
@@ -486,6 +569,12 @@ let snapQ     = new THREE.Quaternion();
 // Camera target z
 let camTargetZ = 8.5;
 
+// Reserved bottom "console" band — the open face sits in a TOP stage and this
+// band below it is shared by the click wheel (normal) and the soft keyboard (when
+// typing; the keyboard branch top-pins the face on its own). Capped on short
+// screens so the face never collapses. Matches the wheel footprint (~184px + chrome).
+const CONSOLE_H = 236;
+
 // Double-tap detection
 let lastTapTime = 0;
 
@@ -539,6 +628,7 @@ function lock() {
   }
   if (fi === PIERRE_FACE) focusPierre();
   bounceFromEmptyWatch(fi);
+  if (window._setWheelCube) window._setWheelCube(fi !== PIERRE_FACE);   // console back-cube (not on keyboard face)
 }
 
 function unlock() {
@@ -546,6 +636,7 @@ function unlock() {
   if (activeFace === PIERRE_FACE) focusPierreBlur();
   locked = false;
   camTargetZ = 8.5;
+  if (window._setWheelCube) window._setWheelCube(false);
   hideFaceInfo();
   snapping = false; // release to free rotation
   velX = 0; velY = 0;
@@ -849,7 +940,7 @@ for (const cfg of Object.values(FACE_OVERLAYS)) {
   el.appendChild(frame);
   appEl.appendChild(el);
   cfg.el = el; cfg.frame = frame; cfg._op = 0; cfg._active = false; cfg._tx = '';
-  frame.addEventListener('load', () => attachShellBack(frame));
+  frame.addEventListener('load', () => { attachShellBack(frame); hideFaceCube(frame); });
 }
 
 // An open face is a same-origin iframe that captures every touch, so the shell's
@@ -858,6 +949,19 @@ for (const cfg of Object.values(FACE_OVERLAYS)) {
 // the cube — making double-tap a symmetric in/out transport. Pinch-back already
 // lives inside each face. Pierre is skipped: it owns its in-chat gestures and a
 // textarea double-tap is text-selection, not "exit".
+// The floating cube now lives in the console (next to the wheel), so hide each
+// face's own in-content .cubeback. Same-origin style injection — no face edits.
+function hideFaceCube(frame) {
+  try {
+    const doc = frame.contentWindow && frame.contentWindow.document;
+    if (!doc || doc.getElementById('__nofacecube')) return;
+    const s = doc.createElement('style');
+    s.id = '__nofacecube';
+    s.textContent = '.cubeback{display:none!important}';
+    (doc.head || doc.documentElement).appendChild(s);
+  } catch (_) {}
+}
+
 function attachShellBack(frame) {
   let doc; try { doc = frame.contentWindow && frame.contentWindow.document; } catch (_) { return; }
   if (!doc) return;
@@ -923,7 +1027,12 @@ let t = 0;
   }
 
   // Bob — settle to center when locked
-  const targetY = locked ? 0 : Math.sin(t * 0.75) * 0.12;
+  // Free cube floats in the TOP stage too (lift ≈ half the console band, converted
+  // from screen px to world units at the free-mode camera distance). Locked → recenter
+  // (the open face is positioned by its own top-stage pin).
+  const cH = Math.min(CONSOLE_H, VH * 0.34);
+  const liftY = (cH / 2) * (2 * 8.5 * 0.46631) / VH;   // px → world @ z=8.5, fov 50°
+  const targetY = locked ? 0 : liftY + Math.sin(t * 0.75) * 0.12;
   cube.position.y += (targetY - cube.position.y) * 0.08;
 
   // Smooth camera zoom
@@ -1013,16 +1122,20 @@ let t = 0;
         scale = size / IFRAME_SZ;
         x = (vv.offsetLeft || 0) + (vv.width - size) / 2;
         y = vv.offsetTop + margin;
-      } else if (vv && ORI === 0) {               // portrait: center in the ACTUALLY-visible band so
-        size  = Math.min(vv.width, vv.height) - margin * 2;   // browser chrome / safe areas don't push the
-        scale = size / IFRAME_SZ;                             // trunk faces (BROWSE/WATCH/LOG/FEED) off-center
-        x = (vv.offsetLeft || 0) + (vv.width  - size) / 2;
-        y = (vv.offsetTop  || 0) + (vv.height - size) / 2;
-      } else {                                    // landscape / no visualViewport: logical viewport (rotation-aware)
-        size  = Math.min(VW, VH) - margin * 2;
+      } else if (vv && ORI === 0) {               // portrait: TOP stage; console band reserved below
+        const cH = Math.min(CONSOLE_H, vv.height * 0.34);     // for the wheel (capped on short screens)
+        const availH = vv.height - cH;
+        size  = Math.min(vv.width, availH) - margin * 2;      // keep square; fit the top band
+        scale = size / IFRAME_SZ;
+        x = (vv.offsetLeft || 0) + (vv.width - size) / 2;
+        y = (vv.offsetTop  || 0) + (availH - size) / 2;        // centered in the top stage
+      } else {                                    // landscape / no visualViewport: logical viewport
+        const cH = Math.min(CONSOLE_H, VH * 0.34);
+        const availH = VH - cH;
+        size  = Math.min(VW, availH) - margin * 2;
         scale = size / IFRAME_SZ;
         x = (VW - size) / 2;
-        y = (VH - size) / 2;
+        y = (availH - size) / 2;
       }
       cfg.frame.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
       cfg._tx = '';                               // force projection to re-apply when unlocked
@@ -1174,12 +1287,23 @@ function updateDeviceChip() {
   const launchable = !!(currentEpisode && currentEpisode.name && serviceLink(currentEpisode.service, currentEpisode.name));
   const kind = selectedDeviceKind();
   const icon = kind === 'phone' ? '📱' : kind === 'none' ? '🚫' : '📺';
-  chip.innerHTML = '<span class="dc-ic">' + icon + '</span><span class="dc-dev">' + esc(dev) + '</span>' +
-    (launchable && svc ? '<span class="dc-sep">·</span><span class="dc-svc">' + esc(svc) + '</span>' : '');
+  // Device on top, streamer stacked beneath it.
+  chip.innerHTML = '<span class="dc-row"><span class="dc-ic">' + icon + '</span><span class="dc-dev">' + esc(dev) + '</span></span>' +
+    (launchable && svc ? '<span class="dc-svc">' + esc(svc) + '</span>' : '');
   chip.classList.toggle('dimmed', !(launchable && svc));
   chip.classList.add('show');
 }
 document.getElementById('device-chip').addEventListener('click', () => cubeRotateTo('profile'));
+
+// Console floating cube → back to cube nav. Shown only while a face is open.
+(function initWheelCube(){
+  const wc = document.getElementById('wheel-cube');
+  if(!wc) return;
+  wc.addEventListener('click', () => { if(locked) unlock(); });
+  // Track lock state each frame is overkill; piggyback on the existing lock/unlock
+  // by observing `locked` on a light interval is unnecessary — toggle from lock/unlock.
+  window._setWheelCube = (on) => wc.classList.toggle('show', !!on);
+})();
 // The Profile face writes pg_device in its own iframe; the top window hears it as
 // a storage event. Re-read so the chip reflects a device change immediately.
 window.addEventListener('storage', (e) => { if (e.key === 'pg_device') updateDeviceChip(); });
@@ -1252,6 +1376,259 @@ async function launchCurrent() {
 }
 document.getElementById('btn-play').addEventListener('click', launchCurrent);
 updatePlayState();   // start dimmed until a launchable show is loaded
+
+// ─── iPod-style click wheel: the ring scrolls the open face; the four card actions
+// (WATCH top / SHARE left / STOP right / SELECT center) drive the open show by
+// synthetically clicking the WATCH face's own controls (same-origin iframe), so all
+// existing behaviour — rotate-to-episodes, share dialog, stop animation — is reused.
+(function initWheel(){
+  const ring   = document.getElementById('wheelRing');
+  const center = document.getElementById('wheelCenter');
+  if(!ring) return;
+
+  // Feedback: a synthesized "click" (the iPod tick) on every wheel click, plus a
+  // vibration on platforms that support it. iOS Safari ignores navigator.vibrate,
+  // so the sound is the iPhone fallback — but it plays everywhere. The AudioContext
+  // must be unlocked inside a user gesture (primeAudio on pointer-down).
+  let _ac = null;
+  function primeAudio(){
+    try {
+      if(!_ac){ const AC = window.AudioContext || window.webkitAudioContext; if(AC) _ac = new AC(); }
+      if(_ac && _ac.state === 'suspended') _ac.resume();
+    } catch(_){}
+  }
+  function clickSound(){
+    try {
+      if(!_ac){ primeAudio(); if(!_ac) return; }
+      const t = _ac.currentTime;
+      const o = _ac.createOscillator(), g = _ac.createGain();
+      o.type = 'square'; o.frequency.setValueAtTime(1750, t);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.14, t + 0.001);   // sharp attack
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.03);  // quick decay → a tick
+      o.connect(g); g.connect(_ac.destination);
+      o.start(t); o.stop(t + 0.04);
+    } catch(_){}
+  }
+  function tick(ms){
+    clickSound();
+    try { if(navigator.vibrate) navigator.vibrate(ms); } catch(_){}
+  }
+
+  function activeDoc(){
+    const cfg = FACE_OVERLAYS[activeFace];
+    if(!cfg || !cfg.frame || !cfg.frame.contentWindow) return null;
+    try { return cfg.frame.contentWindow.document; } catch(_) { return null; }
+  }
+  function wheelScroll(dy){
+    if(!locked) return;                                  // only acts on the OPEN face
+    const doc = activeDoc(); if(!doc) return;
+    const sc = doc.querySelector('.scroll') || doc.scrollingElement || doc.body;
+    if(sc) sc.scrollTop += dy;
+  }
+  function wheelAction(act){
+    if(!locked) return;
+    const doc = activeDoc(); if(!doc) return;
+    const btn = doc.querySelector('.exp-card [data-act="'+act+'"]')
+             || (act === 'watch' ? doc.querySelector('.exc-again') : null);   // completed card → WATCH AGAIN
+    if(btn){ btn.click(); tick(14); }
+  }
+
+  // ── SELECT highlight cursor: a glowing outline that steps DOWN the open face's
+  //    selectable buttons (one per SELECT tap, wraps at the bottom). Long-press
+  //    SELECT to activate the highlighted button. A floating overlay in the face's
+  //    own document glides between targets and re-glues itself on scroll. ──
+  // Curated, per-face traversal order for the SELECT highlight. Each entry is a
+  // GROUP (visited in order); within a group, elements are visited top→bottom,
+  // left→right. So WATCH walks the open show's buttons → its episodes → the other
+  // shows → tabs; LOG walks Start → mic → Finish → the rank chips → Note to Pierre.
+  function faceGroups(){
+    if(activeFace === FACE_INDEX.log)        // WATCH face (cube_face_log)
+      return ['.addbtn, .exc-btn, .exc-again, .exc-seas-chip',
+              '.vw-head, .ep-play, .ep-tix, .ep-share',
+              '.tile',
+              '.tab'];
+    if(activeFace === FACE_INDEX.episodes)   // LOG face (pangolin_episodes)
+      return ['#svcCorner, .svc-lit, #epReadout',  // streamer (top-corner) + episode selector
+              '#startEpBtn, #micBtn, #finishEpBtn', // row-sorted → START · mic · FINISH
+              '.rank b',
+              '#noteBtn'];
+    return ['button, .tile, .tab, .vw-head, .crow, [role="button"]'];   // generic fallback
+  }
+  function faceSelectables(doc){
+    const seen = new Set(), out = [];
+    const cY = el => { const r = el.getBoundingClientRect(); return r.top + r.height/2; };
+    for(const g of faceGroups()){
+      const got = Array.prototype.slice.call(doc.querySelectorAll(g))
+        .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0 && !el.disabled
+                   && el.className !== 'wheel-hl' && !seen.has(el));
+      // Cluster into ROWS by vertical center (so a wrapped grid like the season chips
+      // reads 1,2,3 / 4,5,6 — not column-major — while a tall control like the mic
+      // still shares START/FINISH's row), then order each row left→right.
+      got.sort((a,b)=> cY(a) - cY(b));
+      const rows = [];
+      for(const el of got){
+        const cy = cY(el), h = el.getBoundingClientRect().height, row = rows[rows.length-1];
+        if(row && Math.abs(cy - row.cy) <= Math.max(h, row.h)/2 + 4){
+          row.items.push(el); row.cy = (row.cy*row.n + cy)/(row.n+1); row.n++; row.h = Math.max(row.h, h);
+        } else rows.push({ cy, h, n:1, items:[el] });
+      }
+      for(const row of rows){
+        row.items.sort((a,b)=> a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+        for(const el of row.items){ seen.add(el); out.push(el); }
+      }
+    }
+    return out;
+  }
+  function ensureHL(doc){
+    if(doc._wheelHL && doc.body.contains(doc._wheelHL)) return doc._wheelHL;
+    const st = doc.createElement('style');
+    st.textContent = '.wheel-hl{position:fixed;pointer-events:none;z-index:99999;border-radius:12px;'
+      + 'outline:2px solid #f0a93b;box-shadow:0 0 0 3px rgba(240,169,59,.28),0 0 18px rgba(240,169,59,.55);'
+      + 'transition:top .22s cubic-bezier(.34,1.3,.5,1),left .2s ease,width .18s ease,height .18s ease,opacity .15s;opacity:0}';
+    doc.head.appendChild(st);
+    const box = doc.createElement('div'); box.className = 'wheel-hl'; doc.body.appendChild(box);
+    doc._wheelHL = box;
+    const reflow = ()=>{ if(box._el && box.style.opacity !== '0'){ const r = box._el.getBoundingClientRect();
+      box.style.top = r.top+'px'; box.style.left = r.left+'px'; box.style.width = r.width+'px'; box.style.height = r.height+'px'; } };
+    const sc = doc.querySelector('.scroll'); if(sc) sc.addEventListener('scroll', reflow, {passive:true});
+    if(doc.defaultView) doc.defaultView.addEventListener('scroll', reflow, {passive:true});
+    return box;
+  }
+  function placeHL(doc, el){
+    const box = ensureHL(doc); box._el = el;
+    el.scrollIntoView({ block:'nearest', behavior:'smooth' });
+    requestAnimationFrame(()=>{ const r = el.getBoundingClientRect();
+      box.style.top = r.top+'px'; box.style.left = r.left+'px'; box.style.width = r.width+'px'; box.style.height = r.height+'px'; box.style.opacity = '1'; });
+  }
+  function hideHL(doc){ if(doc && doc._wheelHL) doc._wheelHL.style.opacity = '0'; }
+
+  // SELECT toggles a highlight (selection) MODE. While on, the ring moves the
+  // highlight between items instead of scrolling; SELECT confirms (activates) the
+  // highlighted item and exits; a long-press cancels out of the mode.
+  let selectMode = false;
+  function enterSelect(){
+    const doc = activeDoc(); if(!doc) return;
+    const els = faceSelectables(doc); if(!els.length) return;
+    selectMode = true;
+    const box = doc._wheelHL, cur = (box && box._el) ? els.indexOf(box._el) : -1;
+    placeHL(doc, els[cur >= 0 ? cur : 0]); tick(10);
+  }
+  function moveSelect(dir){
+    const doc = activeDoc(); if(!doc) return;
+    const els = faceSelectables(doc); if(!els.length) return;
+    const box = doc._wheelHL, cur = (box && box._el) ? els.indexOf(box._el) : -1;
+    const next = ((cur < 0 ? (dir > 0 ? -1 : 0) : cur) + dir + els.length) % els.length;
+    placeHL(doc, els[next]); tick(8);
+  }
+  function exitSelect(activate){
+    const doc = activeDoc();
+    if(activate && doc){ const box = doc._wheelHL; if(box && box._el){ box._el.click(); tick(18); } }
+    selectMode = false;
+    hideHL(doc);
+  }
+
+  // ── Open-dialogue scrub: when a picker overlay is open, the ring automatically
+  //    scrubs its options (no need to arm select-mode). Episode sheet = a list of
+  //    chips (highlight steps through them in order); streamer = a reel (the ring
+  //    turns it back and forth). SELECT confirms; long-press cancels. ──
+  function activeDialog(doc){
+    if(!doc) return null;
+    if(doc.querySelector('#epSheet.show'))
+      return { type:'list', items(){ return Array.prototype.slice.call(doc.querySelectorAll('#epSheetGrid .epchip'))
+                 .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0); },
+               confirm(){ const b = doc._wheelHL; if(b && b._el){ b._el.click(); } },
+               cancel(){ const x = doc.querySelector('#epSheetX'); if(x) x.click(); } };
+    if(doc.querySelector('#svcWheel.show'))
+      return { type:'reel',
+               confirm(){ try { doc.defaultView.__reelSet(); } catch(_){} },
+               cancel(){ const c = doc.querySelector('#svcCancel'); if(c) c.click(); } };
+    return null;
+  }
+  function dialogStep(doc, dlg, dir){
+    if(dlg.type === 'reel'){ try { doc.defaultView.__reelStep(dir); } catch(_){}; tick(8); return; }
+    const items = dlg.items(); if(!items.length) return;           // list: highlight steps through chips
+    const box = doc._wheelHL;
+    let cur = (box && box._el) ? items.indexOf(box._el) : -1;
+    if(cur < 0) cur = items.findIndex(el => el.classList.contains('cur'));   // start on the current chip
+    if(cur < 0) cur = dir > 0 ? -1 : 0;
+    placeHL(doc, items[(cur + dir + items.length) % items.length]); tick(8);
+  }
+
+  const SCROLL_PER_REV = 720;          // px scrolled per full finger revolution
+  const STEP_NOTCH = 0.95;             // radians of rotation per highlight step (~54°) — bigger = less sensitive
+  let cx=0, cy=0, lastAng=0, moved=0, sx=0, sy=0, active=false, stepAccum=0;
+  const ang = (x,y)=>Math.atan2(y-cy, x-cx);
+
+  ring.addEventListener('pointerdown', e=>{
+    primeAudio();                                        // unlock iOS audio inside the gesture
+    if(!locked) selectMode = false;                      // never carry select-mode across faces
+    const r = ring.getBoundingClientRect();
+    cx = r.left + r.width/2; cy = r.top + r.height/2;
+    lastAng = ang(e.clientX, e.clientY); moved = 0; stepAccum = 0; sx = e.clientX; sy = e.clientY;
+    active = true; try { ring.setPointerCapture(e.pointerId); } catch(_){}
+    e.preventDefault();
+  });
+  ring.addEventListener('pointermove', e=>{
+    if(!active) return;
+    let a = ang(e.clientX, e.clientY), d = a - lastAng;
+    if(d >  Math.PI) d -= 2*Math.PI;                     // wrap across ±π
+    if(d < -Math.PI) d += 2*Math.PI;
+    lastAng = a; moved += Math.abs(d);
+    const dlg = locked ? activeDialog(activeDoc()) : null;
+    if(dlg){                                             // a picker is open → ring scrubs its options
+      stepAccum += d;
+      while(stepAccum >=  STEP_NOTCH){ dialogStep(activeDoc(), dlg, +1); stepAccum -= STEP_NOTCH; }
+      while(stepAccum <= -STEP_NOTCH){ dialogStep(activeDoc(), dlg, -1); stepAccum += STEP_NOTCH; }
+    } else if(selectMode){                               // ring drives the highlight, notch by notch
+      stepAccum += d;
+      while(stepAccum >=  STEP_NOTCH){ moveSelect(+1); stepAccum -= STEP_NOTCH; }   // clockwise → next/down
+      while(stepAccum <= -STEP_NOTCH){ moveSelect(-1); stepAccum += STEP_NOTCH; }   // ccw → prev/up
+    } else {
+      wheelScroll((d / (2*Math.PI)) * SCROLL_PER_REV);   // clockwise → scroll down
+    }
+    e.preventDefault();
+  });
+  const end = e=>{
+    if(!active) return; active = false;
+    // Edge taps (quick WATCH/SHARE/STOP) only in plain scroll mode — not while
+    // moving the highlight or scrubbing an open picker.
+    if(selectMode || (locked && activeDialog(activeDoc()))) return;
+    const dist = Math.hypot((e.clientX||sx) - sx, (e.clientY||sy) - sy);
+    if(moved < 0.18 && dist < 12){                       // a clean tap on a ring edge = that action
+      const dx = (e.clientX||cx) - cx, dy = (e.clientY||cy) - cy;
+      if(Math.abs(dx) >= Math.abs(dy)) wheelAction(dx < 0 ? 'share' : 'stop');
+      else if(dy < 0)                  wheelAction('watch');
+    }
+  };
+  ring.addEventListener('pointerup', end);
+  ring.addEventListener('pointercancel', ()=>{ active = false; });
+
+  // SELECT: tap to turn the highlight ON (ring then moves it); tap again to confirm
+  // (activate the highlighted item) and exit; long-press to cancel out of the mode.
+  if(center){
+    let holdT = 0, held = false;
+    center.addEventListener('pointerdown', e=>{
+      primeAudio();                                      // unlock iOS audio inside the gesture
+      if(!locked) return;
+      held = false;
+      holdT = setTimeout(()=>{ held = true;              // long-press = cancel (dialogue → select-mode)
+        const dlg = activeDialog(activeDoc());
+        if(dlg){ dlg.cancel(); hideHL(activeDoc()); } else if(selectMode){ exitSelect(false); }
+      }, 450);
+      e.preventDefault();
+    });
+    const stop = ()=>{ if(holdT){ clearTimeout(holdT); holdT = 0;
+      if(!held){                                         // tap = confirm dialogue / toggle select / activate
+        const dlg = activeDialog(activeDoc());
+        if(dlg){ dlg.confirm(); tick(18); hideHL(activeDoc()); }
+        else selectMode ? exitSelect(true) : enterSelect();
+      } } };
+    center.addEventListener('pointerup', stop);
+    center.addEventListener('pointercancel', ()=>{ if(holdT){ clearTimeout(holdT); holdT = 0; } });
+    center.addEventListener('pointerleave', ()=>{ if(holdT){ clearTimeout(holdT); holdT = 0; } });
+  }
+})();
 
 // On return from the launched app, surface the minute guess: rotate to the
 // Episode face and hand it the launch. Runs on pageshow + visibility so it works

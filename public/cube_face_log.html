@@ -29,6 +29,7 @@
     --base:#181210; --base-2:#211915; --line:#352a23;
     --amber:#E9A23C; --watched:#1c5a37; --avail:#46c46f; --unrel:#463d36;
     --countdown:#caa15e; --ash:#6b5d52; --plan:#bb8ae6; --text:#f5efe9; --muted:#b3a193;
+    --mine:#FFFFFF; --friend:#F0C070; --reply:#A8E0A0;   /* comment tiers: me / friend / reply */
     --display:"Space Grotesk",sans-serif; --body:"Inter",sans-serif; --mono:"JetBrains Mono",monospace;
   }
   *{box-sizing:border-box;margin:0;padding:0}
@@ -186,6 +187,40 @@
   .vw-ref{font-size:11.5px;line-height:1.4;color:var(--text)}
   .vw-ref .rq{color:var(--muted);font-family:var(--mono);font-size:9px;letter-spacing:.04em}
   .vw-empty{font-family:var(--mono);font-size:10px;color:var(--muted);padding:2px 0}
+  /* Per-episode archive (WATCH): one collapsible block per episode, folding session
+     timestamps + tickets + comments + replies + reflections together. */
+  .ep-arch{margin-top:11px;display:flex;flex-direction:column;gap:7px}
+  .ep-sessions{display:flex;flex-direction:column;gap:2px;margin-bottom:2px}
+  .ep-sess{font-family:var(--mono);font-size:10px;color:var(--muted);line-height:1.45}
+  .ep-sess .ts{color:var(--ash)}
+  .ep-sess.bp{color:var(--ash);opacity:.8}
+  .ep-line{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .ep-cap{font-family:var(--mono);font-size:9.5px;color:var(--muted)}
+  .ep-tix{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:5px 11px;cursor:pointer;
+    font-family:var(--mono);font-weight:700;font-size:10px;letter-spacing:.05em;
+    color:#f3d9a0;background:rgba(58,13,18,.5);border:1px solid rgba(243,217,160,.45)}
+  .ep-tix:active{transform:scale(.96)}
+  .ep-cmt{display:flex;align-items:flex-start;gap:7px;font-size:11.5px;line-height:1.4;padding:1px 0}
+  .ep-cmt .ep-mark{font-family:var(--mono);font-size:9px;color:var(--muted);flex:none;margin-top:1px}
+  .ep-cmt .ep-who{font-family:var(--mono);font-size:9px;flex:none;margin-top:1px;opacity:.9}
+  .ep-cmt .ep-txt{flex:1;min-width:0}
+  .ep-cmt.mine .ep-txt{color:var(--mine)}
+  .ep-cmt.friend .ep-txt,.ep-cmt.friend .ep-who{color:var(--friend)}
+  .ep-cmt.reply{padding-left:16px}
+  .ep-cmt.reply .ep-txt,.ep-cmt.reply .ep-who{color:var(--reply)}
+  .ep-play{flex:none;width:22px;height:22px;border-radius:50%;cursor:pointer;font-size:11px;line-height:1;
+    display:flex;align-items:center;justify-content:center;color:var(--amber);
+    background:rgba(233,162,60,.16);border:1px solid var(--amber)}
+  .ep-play:active{transform:scale(.9)}
+  .ep-refl{font-size:11.5px;line-height:1.4;color:var(--text);font-style:italic}
+  .ep-refl .rq{color:var(--muted);font-family:var(--mono);font-size:9px;letter-spacing:.04em;font-style:normal}
+  .ep-actions{margin-top:3px}
+  .ep-share{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:6px 12px;cursor:pointer;
+    font-family:var(--mono);font-weight:700;font-size:10.5px;letter-spacing:.05em;
+    color:var(--amber);background:transparent;border:1px solid var(--amber)}
+  .ep-share:active{transform:scale(.96)}
+  /* CURRENT card action bar scrolls normally with the card (no sticky pinning — it
+     janked the scroll on reverse). */
   /* tap the ticket-stub button → full ticket image */
   .imglb{position:fixed;inset:0;z-index:50;display:none;align-items:center;justify-content:center;
     background:rgba(4,3,2,.93);padding:24px;cursor:zoom-out}
@@ -306,8 +341,6 @@
   <div class="pierre">
     <div class="read"><span class="dot"></span><span class="line" id="pierreLine"><span class="q">asking Pierre...</span></span></div>
     <div class="chips">
-      <button class="chip on" data-q="last">last watched</button>
-      <button class="chip" data-q="watching">watching now</button>
       <span class="spacer"></span>
       <button class="chip demo" id="finishBtn">&#8629; finished</button>
     </div>
@@ -354,7 +387,7 @@ const SUBS=[
 const TOTAL_SAVED=SUBS.reduce((a,s)=>a+(s.full-s.paid)*s.months,0);
 
 const NOW=new Date();
-let LOG=[], activeTab="current", pierreQ="last", addSeq=0, selectedId=null;
+let LOG=[], activeTab="current", addSeq=0, selectedId=null;
 const face=document.getElementById("face");
 
 // DEMO = showcase build (dummy savings + "finished" chip); MVP = clean product.
@@ -444,18 +477,15 @@ function resumeShow(){
     || null;
 }
 
+// Pierre always reads the last thing viewed — whether you stopped mid-episode or
+// finished it. No mode toggle; a paused mark shows when you're mid-episode.
 function renderPierre(){
   const el=document.getElementById("pierreLine");
-  if(pierreQ==="last"){
-    const s=Pierre.lastEpisodeWatched(); if(!s){el.innerHTML='<span class="q">nothing logged yet</span>';return;}
-    const e=s.lastWatched;
-    const where = s.kind==='movie' ? ' <span class="q">&middot; film</span>' : (" S"+e.season+" E"+e.number);
-    el.innerHTML='<span class="q">Last:</span> <b>'+esc(s.name)+"</b>"+where+' <span class="q">&middot; '+relDate(e.at)+"</span>";
-  }else{
-    const list=Pierre.currentlyWatching(); if(!list.length){el.innerHTML='<span class="q">all caught up</span>';return;}
-    const names=list.slice(0,2).map(s=>"<b>"+esc(s.name)+"</b>").join(", ");
-    el.innerHTML='<span class="q">Mid:</span> '+names+(list.length>2?' <span class="q">+'+(list.length-2)+"</span>":"");
-  }
+  const s=Pierre.lastEpisodeWatched(); if(!s){el.innerHTML='<span class="q">nothing logged yet</span>';return;}
+  const e=s.lastWatched;
+  const where = s.kind==='movie' ? ' <span class="q">&middot; film</span>' : (" S"+e.season+" E"+e.number);
+  const mid = (s.lastMinute>0) ? ' <span class="q">&middot; paused at '+s.lastMinute+'m</span>' : '';
+  el.innerHTML='<span class="q">Last:</span> <b>'+esc(s.name)+"</b>"+where+mid+' <span class="q">&middot; '+relDate(e.at)+"</span>";
 }
 
 function episodeBar(s){
@@ -528,7 +558,7 @@ function expandedCard(s, mode){
           '<div class="exc-info"><div class="exc-title">'+titleHTML(s.name)+'</div>'+
             '<div class="exc-meta done">'+metaTxt+'</div>'+
             '<div class="exc-syn">'+syn+'</div></div></div>'+
-        '<div class="viewings" id="vw-'+s.id+'"><div class="vw-empty">loading viewings…</div></div>'+
+        '<div class="ep-arch" id="arch-'+s.id+'"><div class="vw-empty">loading episodes…</div></div>'+
         '</div>';
   }
   const btns = btn('watch','watch','&#9654;&#65039;','WATCH','')+btn('share','share','&#127873;','SHARE','')+btn('stop','stop','&#128721;','STOP','WATCHING');
@@ -539,7 +569,9 @@ function expandedCard(s, mode){
         '<div class="exc-info"><div class="exc-title">'+titleHTML(s.name)+'</div>'+
           '<div class="exc-meta">'+metaTxt+'</div><div class="exc-syn">'+syn+'</div></div>'+
         seasonsCol+'</div>'+
-      '<div class="exc-btns">'+btns+'</div></div>';
+      '<div class="exc-btns">'+btns+'</div>'+
+      '<div class="ep-arch" id="arch-'+s.id+'"><div class="vw-empty">loading episodes…</div></div>'+
+      '</div>';
 }
 // Grid for a selectable tab: the selected show becomes a full-width expanded card
 // at the top, the rest follow as tiles.
@@ -575,9 +607,10 @@ function counts(){
 function render(){
   counts();
   publishLog();
-  // The "Last: …" line + chips are noise on the COMPLETED tab — drop them there.
+  // The "Last: …" line is noise on the COMPLETED tab, and slides away whenever a
+  // show is expanded (the open card carries its own context).
   const pierreEl=document.querySelector('.pierre');
-  if(pierreEl) pierreEl.style.display = activeTab==='completed' ? 'none' : '';
+  if(pierreEl) pierreEl.style.display = (activeTab==='completed' || selectedId) ? 'none' : '';
   const grid=document.getElementById("grid");
   if(activeTab==="comfort" || activeTab==="returning"){
     // Comfort + Returning are being reworked: under-construction notice for now.
@@ -604,9 +637,10 @@ function render(){
     const s=LOG.find(x=>x.id===t.dataset.id); if(!s||s.failed)return;
     selectCurrent(s.id);
   }));
-  // Tap the expanded card (outside its buttons) to collapse it.
+  // Tap the expanded card (outside its buttons / archive) to collapse it. The
+  // per-episode archive handles its own taps (expand blocks, play, tickets, share).
   grid.querySelectorAll(".exp-card").forEach(c=>c.addEventListener("click",ev=>{
-    if(ev.target.closest("[data-act]")||ev.target.closest(".viewings"))return;   // viewings handle their own taps
+    if(ev.target.closest("[data-act]")||ev.target.closest(".ep-arch"))return;
     selectCurrent(c.dataset.id);
   }));
   // Expanded-card actions: Watch next / Stop watching (CURRENT) · Try again / Remove (COMPLETED).
@@ -619,10 +653,11 @@ function render(){
     else if(act==="tryagain"){ tryAgain(id); }
     else if(act==="remove"){ removePermanently(id); }
   }));
-  // Completed card expanded → fill its per-viewing list (tickets + reflections).
-  if(activeTab==="completed" && selectedId){ const s=LOG.find(x=>x.id===selectedId); if(s){ loadViewings(s); ensureSyn(s); } }
-  // Current card expanded → fill its SEASONS chips (async; films get none).
-  else if(selectedId){ const s=LOG.find(x=>x.id===selectedId); if(s){ fillSeasons(s); ensureSyn(s); } }
+  // Completed card expanded → per-episode archive INCLUDING force-advanced (BP) eps.
+  if(activeTab==="completed" && selectedId){ const s=LOG.find(x=>x.id===selectedId); if(s){ loadEpisodeArchive(s,true); ensureSyn(s); } }
+  // Current card expanded → SEASONS chips + per-episode archive EXCLUDING BP eps,
+  // and the action buttons shrink-stick to the top as the archive scrolls.
+  else if(selectedId){ const s=LOG.find(x=>x.id===selectedId); if(s){ fillSeasons(s); loadEpisodeArchive(s,false); ensureSyn(s); } }
 }
 
 // Backfill a missing synopsis on the expanded card. /titles only carries summary
@@ -1199,56 +1234,146 @@ function askFinaleComment(title, done){
   ov.onclick=e=>{ if(e.target===ov) finish(''); };   // tap the backdrop to skip
 }
 
-// ─── Completed-card viewings: one ticket = one viewing, newest open ──────────
-async function loadViewings(s){
-  const host=document.getElementById('vw-'+s.id); if(!host) return;
-  const email=acct(); if(!email || !s.titleId){ host.innerHTML='<div class="vw-empty">sign in to see viewings</div>'; return; }
-  let tickets=[], refs=[];
-  try{
-    const [tr,rr]=await Promise.all([
-      fetch(API+'/tickets?showId='+encodeURIComponent(s.titleId)+'&email='+encodeURIComponent(email)),
-      fetch(API+'/reflections?showId='+encodeURIComponent(s.titleId)+'&email='+encodeURIComponent(email))
-    ]);
-    if(tr.ok) tickets=(await tr.json()).tickets||[];
-    if(rr.ok) refs=(await rr.json()).reflections||[];
-  }catch(_){}
-  renderViewings(host, s, tickets, refs);
+// ─── Per-episode archive: every completed episode's full record in one place ──
+// Folds session timestamps, tickets, audio comments, friends' co-view comments +
+// replies, and reflections into ONE collapsible block per episode (no more "viewing
+// info separate from comment data"). CURRENT cards pass includeBp=false (real
+// watches only); COMPLETED passes true (the full record, BP episodes included).
+function epCodeOf(season, number){ return 'S'+String(season||1).padStart(2,'0')+'E'+String(number||0).padStart(2,'0'); }
+function hmClock(ms){ try{ return new Date(ms).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}); }catch(_){ return ''; } }
+function markAt(ms){ const m=Math.round((ms||0)/60000); return Math.floor(m/60)+':'+String(m%60).padStart(2,'0'); }
+// One shared, in-DOM <audio> element keeps playback INSIDE the face — a fresh
+// `new Audio()` inside the cube iframe can hand the clip to an external player.
+let _archAudio=null;
+function playAudio(url){
+  if(!url) return;
+  if(!_archAudio){ _archAudio=document.createElement('audio'); _archAudio.setAttribute('playsinline',''); _archAudio.preload='none'; document.body.appendChild(_archAudio); }
+  try{ _archAudio.pause(); }catch(_){}
+  _archAudio.src=url; _archAudio.currentTime=0;
+  _archAudio.play().catch(()=>{});
 }
 
-function renderViewings(host, s, tickets, refs){
-  // One viewing per ticket (newest first). No tickets → a single streaming/other
-  // viewing so reflections + share still have a home.
-  let viewings = tickets.map(t=>({ id:t.id, when:[t.date,t.theater].filter(Boolean).join(' &middot; ')||relDate(s.lastDate), stub:t.ticketUrl }));
-  if(!viewings.length) viewings=[{ id:null, when:(s.lastDate?relDate(s.lastDate):'Watched'), stub:null }];
-  // Attach reflections by ticket_id; film-level (null) ride on the newest viewing.
-  const bucket={}; viewings.forEach(v=>bucket[v.id||'_']=[]);
-  refs.forEach(r=>{ const k=(r.ticketId && bucket[r.ticketId]!==undefined)?r.ticketId:(viewings[0].id||'_'); bucket[k].push(r); });
+async function loadEpisodeArchive(s, includeBp){
+  const host=document.getElementById('arch-'+s.id); if(!host) return;
+  const email=acct(); if(!email || !s.titleId){ host.innerHTML='<div class="vw-empty">sign in to see episodes</div>'; return; }
+  const sid=encodeURIComponent(s.titleId), em=encodeURIComponent(email);
+  let detail={episodes:[]}, comments=[], tickets=[], refs=[], coview=[];
+  try{
+    // Co-view needs the mutual-follow set first; the rest fan out in parallel.
+    let friends=[];
+    try{ const fr=await fetch(API+'/profile/'+em+'/follows'); if(fr.ok) friends=((await fr.json()).friends||[]).map(f=>f.email); }catch(_){}
+    const reqs=[
+      fetch(API+'/profile/'+em+'/titles/'+sid),
+      fetch(API+'/transcribe/comments?showId='+sid+'&email='+em),
+      fetch(API+'/tickets?showId='+sid+'&email='+em),
+      fetch(API+'/reflections?showId='+sid+'&email='+em),
+      // seenMs=MAX → a completed episode reveals all of its co-view comments.
+      friends.length ? fetch(API+'/transcribe/coview?showId='+sid+'&email='+em+'&with='+encodeURIComponent(friends.join(','))+'&seenMs='+Number.MAX_SAFE_INTEGER) : null
+    ];
+    const [dr,cr,tr,rr,vr]=await Promise.all(reqs.map(r=>r||Promise.resolve(null)));
+    if(dr&&dr.ok) detail=await dr.json();
+    if(cr&&cr.ok) comments=(await cr.json()).comments||[];
+    if(tr&&tr.ok) tickets=(await tr.json()).tickets||[];
+    if(rr&&rr.ok) refs=(await rr.json()).reflections||[];
+    if(vr&&vr.ok) coview=(await vr.json()).comments||[];
+  }catch(_){}
+  renderEpisodeArchive(host, s, {episodes:detail.episodes||[], comments, tickets, refs, coview}, includeBp);
+}
 
-  host.innerHTML = viewings.map((v,i)=>{
-    const open=i===0;                       // most recent open; older collapse behind a caret
-    const rl=bucket[v.id||'_']||[];
-    const refsHtml = rl.length
-      ? '<div class="vw-refs">'+rl.map(r=>'<div class="vw-ref">&ldquo;'+esc(r.text)+'&rdquo; <span class="rq">'+relDate(new Date(r.createdAt).toISOString())+'</span></div>').join('')+'</div>'
-      : '<div class="vw-empty">no reflections yet</div>';
-    const stubBtn = v.stub ? '<button class="vw-stub" data-img="'+esc(v.stub)+'"><span>&#127903;</span> ticket</button>' : '';
-    return '<div class="vw'+(open?' open':'')+'">'+
-      '<div class="vw-head"><span class="vw-caret">&#8250;</span><span class="vw-when">'+v.when+'</span></div>'+
-      '<div class="vw-body">'+
-        '<div class="vw-actions">'+stubBtn+'<button class="vw-share" data-tid="'+(v.id||'')+'">&#8599; share a thought</button></div>'+
-        refsHtml+
-      '</div></div>';
+function renderEpisodeArchive(host, s, data, includeBp){
+  const isMovie = s.kind==='movie';
+  // Completed episodes only; drop force-advanced (BP) unless this is COMPLETED.
+  let eps=(data.episodes||[]).filter(e=>e.done && (includeBp || !e.bp));
+  // A film has no real episode rows — fold its whole record into one block.
+  if(isMovie || !eps.length){
+    if(isMovie || data.tickets.length || data.comments.length || data.refs.length || data.coview.length)
+      eps=[{ key:isMovie?'🎬':'', name:isMovie?'Film':'', sessions:[], bp:false, _all:true }];
+  }
+  if(!eps.length){ host.innerHTML='<div class="vw-empty">nothing logged yet</div>'; return; }
+
+  const key=e=>e.key!==undefined?e.key:epCodeOf(e.season,e.number);
+  const ticketsByEp={}, commentsByEp={}, coviewByEp={};
+  data.tickets.forEach(t=>{ (ticketsByEp[t.episodeId||'']||=[]).push(t); });
+  data.comments.forEach(c=>{ (commentsByEp[c.episodeId||'']||=[]).push(c); });
+  data.coview.forEach(c=>{ (coviewByEp[c.episodeId||'']||=[]).push(c); });
+  // Reflections tie to a ticket → its episode; orphan (null-ticket) ones ride newest.
+  const ticketEp={}; data.tickets.forEach(t=>{ ticketEp[t.id]=t.episodeId||''; });
+  const reflByEp={}, orphanRefs=[];
+  data.refs.forEach(r=>{ const k=(r.ticketId && ticketEp[r.ticketId]!==undefined)?ticketEp[r.ticketId]:null;
+    if(k!==null) (reflByEp[k]||=[]).push(r); else orphanRefs.push(r); });
+
+  // Newest-finished first (latest session finishTs, else latest ticket).
+  const sortTs=e=>{ let m=0; (e.sessions||[]).forEach(x=>{ const t=Math.max(x.finishTs||0,x.startTs||0); if(t>m) m=t; });
+    (ticketsByEp[key(e)]||[]).forEach(t=>{ if((t.createdAt||0)>m) m=t.createdAt; }); return m; };
+  eps.sort((a,b)=>sortTs(b)-sortTs(a));
+
+  host.innerHTML = eps.map((e,i)=>{
+    const k = e._all ? (Object.keys(ticketsByEp)[0] ?? Object.keys(commentsByEp)[0] ?? Object.keys(coviewByEp)[0] ?? '') : key(e);
+    const sessions=e.sessions||[];
+    const fin=sessions.filter(x=>x.finished).pop();
+    const when = e._all ? (s.lastDate?relDate(s.lastDate):'') : (fin?fin.date:'');
+    const head = e._all ? (isMovie?'🎬 Film':'Viewing') : ('<b>'+key(e)+'</b>'+(e.name?' '+esc(e.name):''));
+    const refl = (reflByEp[k]||[]).concat(i===0?orphanRefs:[]);
+    const body = archiveBody(s, sessions, ticketsByEp[k]||[], commentsByEp[k]||[], coviewByEp[k]||[], refl, includeBp);
+    return '<div class="vw">'+
+      '<div class="vw-head"><span class="vw-caret">&#8250;</span><span class="vw-when">'+head+
+        (when?' <span class="th">&middot; '+when+'</span>':'')+'</span></div>'+
+      '<div class="vw-body">'+body+'</div></div>';
   }).join('');
 
   host.querySelectorAll('.vw-head').forEach(h=>h.addEventListener('click',()=>h.parentElement.classList.toggle('open')));
-  host.querySelectorAll('.vw-stub').forEach(b=>b.addEventListener('click',()=>showImg(b.dataset.img)));
-  host.querySelectorAll('.vw-share').forEach(b=>b.addEventListener('click',()=>viewingShare(s, b.dataset.tid||null)));
+  host.querySelectorAll('.ep-tix').forEach(b=>b.addEventListener('click',()=>showImg(b.dataset.img)));
+  host.querySelectorAll('.ep-play').forEach(b=>b.addEventListener('click',()=>playAudio(b.dataset.audio)));
+  host.querySelectorAll('.ep-share').forEach(b=>b.addEventListener('click',()=>viewingShare(s, b.dataset.tid||null, includeBp)));
 }
 
-// Share a thought → native share card AND persist it as a reflection on this viewing.
-function viewingShare(s, ticketId){
+// One episode block's inner body: sessions, tickets, my comments, friends' comments
+// + replies, reflections — everything for that episode, together.
+function archiveBody(s, sessions, tickets, comments, coview, refl, includeBp){
+  let h='';
+  // 1) session timestamps (date · finished/paused · Nm · in→out); BP dimmed.
+  if(sessions.length){
+    h+='<div class="ep-sessions">'+sessions.slice().reverse().map(x=>{
+      if(x.bp) return '<div class="ep-sess bp">BP &middot; force-advanced</div>';
+      const span=x.startTs?(' <span class="ts">&middot; '+hmClock(x.startTs)+'&rarr;'+(x.finishTs?hmClock(x.finishTs):'…')+'</span>'):'';
+      return '<div class="ep-sess">'+esc(x.date||'')+' &middot; '+(x.finished?'finished':'paused')+' &middot; '+(x.minutes||0)+'m'+span+'</div>';
+    }).join('')+'</div>';
+  }
+  // 2) tickets
+  tickets.forEach(t=>{ const cap=[t.date,t.time,t.theater].filter(Boolean).join(' · ');
+    h+='<div class="ep-line"><button class="ep-tix" data-img="'+esc(t.ticketUrl)+'"><span>&#127903;</span> ticket</button>'+
+       (cap?'<span class="ep-cap">'+esc(cap)+'</span>':'')+'</div>'; });
+  // 3+4) comments + replies. Replies (co-view) thread under their parent, which may
+  // be one of MY comments or a friend's comment. /transcribe/comments returns my
+  // OWN replies too, but co-view already threads those — dedupe so they show once.
+  const repliesByParent={}; coview.forEach(c=>{ if(c.replyTo) (repliesByParent[c.replyTo]||=[]).push(c); });
+  const cvIds=new Set(coview.map(c=>c.id));
+  comments.filter(c=>!cvIds.has(c.id)).forEach(c=>{ h+=myCommentLine(c); (repliesByParent[c.id]||[]).forEach(r=>h+=coviewLine(r,true)); });
+  coview.filter(c=>!c.replyTo).forEach(c=>{ h+=coviewLine(c,false); (repliesByParent[c.id]||[]).forEach(r=>h+=coviewLine(r,true)); });
+  // 5) reflections
+  refl.forEach(r=>{ h+='<div class="ep-refl">&ldquo;'+esc(r.text)+'&rdquo; <span class="rq">'+relDate(new Date(r.createdAt).toISOString())+'</span></div>'; });
+  // 6) share a thought (lands as a reflection on this episode's first ticket, if any)
+  h+='<div class="ep-actions"><button class="ep-share" data-tid="'+((tickets[0]&&tickets[0].id)||'')+'">&#8599; share a thought</button></div>';
+  return h;
+}
+function myCommentLine(c){
+  const play=c.audioUrl?'<button class="ep-play" data-audio="'+esc(c.audioUrl)+'">&#9654;</button>':'';
+  return '<div class="ep-cmt mine">'+play+'<span class="ep-mark">'+markAt(c.timestampMs)+'</span>'+
+    '<span class="ep-txt">'+esc(c.transcription||'Audio')+'</span></div>';
+}
+function coviewLine(c, nested){
+  const play=c.audioUrl?'<button class="ep-play" data-audio="'+esc(c.audioUrl)+'">&#9654;</button>':'';
+  return '<div class="ep-cmt '+(nested?'reply':'friend')+'">'+play+
+    '<span class="ep-who">'+esc(c.author||'friend')+(nested?' &#8617;':'')+'</span>'+
+    '<span class="ep-mark">'+markAt(c.timestampMs)+'</span>'+
+    '<span class="ep-txt">'+esc(c.transcription||'Audio')+'</span></div>';
+}
+
+// Share a thought → native share card AND persist it as a reflection; refresh archive.
+function viewingShare(s, ticketId, includeBp){
   askFinaleComment(s.name, txt=>{
     shareFinale(s.name, s.poster, s.platform, txt);
-    if(txt){ saveReflection(s.titleId, ticketId, txt).then(()=>loadViewings(s)); }
+    if(txt){ saveReflection(s.titleId, ticketId, txt).then(()=>loadEpisodeArchive(s, includeBp)); }
   });
 }
 async function saveReflection(showId, ticketId, text){
@@ -1290,8 +1415,6 @@ function removePermanently(id){
 function switchTab(name){activeTab=name; selectedId=null;
   document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("on",x.dataset.tab===name));render();}
 document.querySelectorAll(".tab").forEach(t=>t.addEventListener("click",()=>switchTab(t.dataset.tab)));
-document.querySelectorAll(".chip[data-q]").forEach(c=>c.addEventListener("click",()=>{
-  document.querySelectorAll(".chip[data-q]").forEach(x=>x.classList.remove("on"));c.classList.add("on");pierreQ=c.dataset.q;renderPierre();}));
 function firstCurrent(){return LOG.filter(s=>bucketOf(s)==="current"&&!s.failed&&!s.forceCompleted&&!s.stopped&&s.watched<s.released)[0]
   || LOG.filter(s=>bucketOf(s)==="current"&&!s.failed&&!s.forceCompleted&&!s.stopped)[0];}
 document.getElementById("finishBtn").addEventListener("click",()=>{const t=firstCurrent();if(t){if(activeTab!=="current")switchTab("current");setTimeout(()=>finishShow(t.id),60);}});
