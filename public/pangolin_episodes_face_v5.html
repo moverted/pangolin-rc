@@ -1201,7 +1201,9 @@ let _replyTimer = null;
 function scheduleReplyClose(){
   if(_replyTimer){ clearTimeout(_replyTimer); _replyTimer=null; }
   if(!activeReply) return;
-  _replyTimer = setTimeout(()=>{ activeReply=null; updateMicMode(); }, Math.max(0, activeReply.closesAt - Date.now()));
+  _replyTimer = setTimeout(()=>{ activeReply=null; updateMicMode();
+    try { if(window.parent && window.parent.wheelDisarmCoview) window.parent.wheelDisarmCoview(); } catch(_){}   // reply window closed → clear the SELECT glow
+  }, Math.max(0, activeReply.closesAt - Date.now()));
 }
 // "Heard" = comments you've already been notified about, persisted per account+show so
 // the banner shows once and doesn't re-nag on every reload.
@@ -1220,8 +1222,21 @@ function surfaceCoview(c, autoplay){
       if(activeReply && activeReply.c.id===c.id){ activeReply.closesAt = Date.now()+60000; scheduleReplyClose(); }
     }});
   }
+  // Light the shell's SELECT button so a real press can sound the clip where autoplay
+  // was blocked (iOS). Same-origin, so we hand the parent a play fn it invokes in-gesture.
+  try { if(window.parent && window.parent.wheelArmCoview) window.parent.wheelArmCoview(()=> playPendingCoview()); } catch(_){}
   scheduleReplyClose();
   updateMicMode();
+}
+// Play whatever the reply window currently points at (the surfaced friend's clip),
+// via the primed shared <audio>. Called from the shell's SELECT gesture, so the
+// play() is user-solicited even on iOS.
+function playPendingCoview(){
+  const t = coviewReplyTarget() || (activeReply && activeReply.c);
+  if(!t || !t.audioUrl) return;
+  playClip(t.audioUrl, null, { onEnded:()=>{
+    if(activeReply && activeReply.c.id===t.id){ activeReply.closesAt = Date.now()+60000; scheduleReplyClose(); }
+  }});
 }
 
 // A friend's comment just reached its mark → slide a notification in from the top.
