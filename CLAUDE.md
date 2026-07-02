@@ -6,6 +6,24 @@
 
 ---
 
+## Cube map (canonical vocabulary)
+
+The instance UI is a 3D cube; each of its six faces is a self-contained page loaded into an iframe, hosted and routed by the shell. This table is the single source of truth for face naming — all docs, comments, and prompts defer to it. Filenames follow `cube_<name>_face.html` (lowercase). Face label is the label shown on the cube in the UI.
+
+| Face label | Filename | Job |
+|---|---|---|
+| FEED | `public/cube_feed_face.html` | The latest drops — the surfaced feed of new content. |
+| WATCH | `public/cube_watch_face.html` | The show list — decide what to watch. |
+| PIERRE | `public/cube_pierre_face.html` | Your host — the keyboard-driven chat face. |
+| PROFILE | `public/cube_profile_face.html` | That's you — account, devices, and profile. |
+| LOG | `public/cube_log_face.html` | Your viewing log — track and log your progress. |
+| BROWSE | `public/cube_browse_face.html` | Get in on it — the join/browse face (UI label currently reads "JOIN"). |
+| _(shell — not a face)_ | `public/index.html` | Hosts the cube, loads each face in an iframe, and owns cross-face routing. |
+
+> Note: the shell is `public/index.html` (the Pages site root), not `cube_shell.html` — it is deliberately not renamed to the face pattern, and renaming the root would change serving behavior. `WATCH`/`LOG` labels are intentionally swapped relative to their historical filenames (`cube_watch_face.html` was `cube_face_log.html`; `cube_log_face.html` was `pangolin_episodes_face_v5.html`).
+
+---
+
 ## 0. First principle
 
 > **Anyone permitted may submit. Only the authority may reveal.**
