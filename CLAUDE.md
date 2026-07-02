@@ -17,10 +17,11 @@ The instance UI is a 3D cube; each of its six faces is a self-contained page loa
 | PIERRE | `public/cube_pierre_face.html` | Your host — the keyboard-driven chat face. |
 | PROFILE | `public/cube_profile_face.html` | That's you — account, devices, and profile. |
 | LOG | `public/cube_log_face.html` | Your viewing log — track and log your progress. |
-| BROWSE | `public/cube_browse_face.html` | Get in on it — the join/browse face (UI label currently reads "JOIN"). |
-| _(shell — not a face)_ | `public/index.html` | Hosts the cube, loads each face in an iframe, and owns cross-face routing. |
+| BROWSE | `public/cube_browse_face.html` | Get in on it — the join/browse face. UI label JOIN, filename browse, label/file reconciliation pending product decision. |
+| _(shell — not a face)_ | `public/index.html` | Root shell (Pages site root). Bootstraps the cube: face loading, iframe wiring, flag passing. |
+| _(nav surface — not a face)_ | `public/clickwheel.*` | Click-wheel nav interaction surface, extracted from the shell. **In active development.** |
 
-> Note: the shell is `public/index.html` (the Pages site root), not `cube_shell.html` — it is deliberately not renamed to the face pattern, and renaming the root would change serving behavior. `WATCH`/`LOG` labels are intentionally swapped relative to their historical filenames (`cube_watch_face.html` was `cube_face_log.html`; `cube_log_face.html` was `pangolin_episodes_face_v5.html`).
+> Note: the shell is `public/index.html` (the Pages site root) and stays that name — it is deliberately not renamed to the face pattern, and renaming the root would change serving behavior. The click-wheel interaction is being extracted out of the shell into `clickwheel.*` (`.html` if it carries markup, `.js` if script-only), loaded by `index.html`; until that lands the code still lives inline in `index.html`. `WATCH`/`LOG` labels are intentionally swapped relative to their historical filenames (`cube_watch_face.html` was `cube_face_log.html`; `cube_log_face.html` was `pangolin_episodes_face_v5.html`).
 
 ---
 
