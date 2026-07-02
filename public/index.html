@@ -667,7 +667,7 @@ function focusPierreBlur() {
 // (e.g. a Log tile tap -> Episodes). The shell owns routing; faces post a
 // 'cube:rotateTo' message and this maps the face name to its cube index.
 // Visible labels: face 1 (cube_watch_face, the show list) shows WATCH — "decide what
-// to watch"; face 4 (pangolin_episodes, the tracker) shows LOG — "log your progress".
+// to watch"; face 4 (cube_log_face, the tracker) shows LOG — "log your progress".
 // The routing keys below still name the CONTENT (episodes/log), so the data flow
 // (episode progress -> the log writer) is unchanged; only positions + labels moved.
 const FACE_INDEX = { feed: 0, log: 1, pierre: 2, profile: 3, episodes: 4, join: 5 };
@@ -914,8 +914,8 @@ const FACE_OVERLAYS = {
       new THREE.Vector3(-0.9, -0.9, -0.9),  // BL
     ],
   },
-  4: {                                       // +Z face (side): LOG — the episode tracker (pangolin_episodes content)
-    src: '/pangolin_episodes_face_v5.html',
+  4: {                                       // +Z face (side): LOG — the episode tracker (cube_log_face content)
+    src: '/cube_log_face.html',
     normal: new THREE.Vector3(0, 0, 1),
     corners: [
       new THREE.Vector3(-0.9,  0.9,  0.9),  // TL
@@ -1447,7 +1447,7 @@ updatePlayState();   // start dimmed until a launchable show is loaded
               '.vw-head, .ep-play, .ep-tix, .ep-share',              // episodes
               '.tile',                                               // the other shows
               '.addbtn, .tab'];
-    if(activeFace === FACE_INDEX.episodes)   // LOG face (pangolin_episodes)
+    if(activeFace === FACE_INDEX.episodes)   // LOG face (cube_log_face)
       return ['#startEpBtn, #micBtn, #finishEpBtn', // START/CONTINUE (start) · mic · FINISH
               '#svcCorner, .svc-lit, #epReadout',   // streamer (top-corner) + episode selector
               '.rank b',

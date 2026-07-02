@@ -112,7 +112,7 @@ or changed.
   was already there. Sibling endpoints in the same file record a comment
   (`POST /transcribe`), play one back (`GET /transcribe/audio/{id}`), and list
   your *own* comments (`GET /transcribe/comments`).
-- **Who calls it:** The Episode face (`public/pangolin_episodes_face_v5.html`)
+- **Who calls it:** The Episode face (`public/cube_log_face.html`)
   for the spoiler-gated list, and the remote/caption view (`public/index.html`)
   for live playback.
 
@@ -139,7 +139,7 @@ or changed.
 - **Who can save one:** Signed-in members only (the row is tied to the user). The
   theater "where" is a personal pin — it is **not** shared as the crowd's
   streamer guess the way a normal streamer pick is.
-- **Who calls it:** The Episode face (`public/pangolin_episodes_face_v5.html`).
+- **Who calls it:** The Episode face (`public/cube_log_face.html`).
 
 ---
 
