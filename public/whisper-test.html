@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Whisper sync test</title>
+<style>
+  :root { --amber:#f0a93b; --dim:#9a8f7d; --bg:#141210; --card:#1d1915; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:#efe7d8;
+    font-family:'JetBrains Mono', ui-monospace, Menlo, monospace; font-size:13px;
+    padding:20px; line-height:1.5; }
+  h1 { font-size:15px; letter-spacing:.06em; color:var(--amber); margin:0 0 4px; }
+  p.sub { color:var(--dim); margin:0 0 18px; font-size:11.5px; }
+  .card { background:var(--card); border:1px solid rgba(240,169,59,0.18);
+    border-radius:12px; padding:14px; margin-bottom:14px; }
+  label { display:block; color:var(--dim); font-size:11px; margin-bottom:5px; letter-spacing:.04em; }
+  textarea, input[type=text] { width:100%; background:#0f0d0b; color:#efe7d8;
+    border:1px solid rgba(240,169,59,0.22); border-radius:8px; padding:9px;
+    font-family:inherit; font-size:12px; }
+  textarea { min-height:96px; resize:vertical; }
+  button { font-family:inherit; font-size:13px; font-weight:600; letter-spacing:.06em;
+    color:#191410; background:linear-gradient(135deg,#f6c069,#e79a2c);
+    border:none; border-radius:10px; padding:12px 22px; cursor:pointer; }
+  button:disabled { filter:grayscale(0.6) brightness(0.8); cursor:default; }
+  .status { color:var(--amber); font-size:11.5px; min-height:16px; margin-top:10px; }
+  .permit { color:var(--dim); font-size:11.5px; margin-top:8px; }
+  .fail { color:#e88; }
+  .out { display:grid; grid-template-columns:auto 1fr; gap:6px 12px; margin-top:4px; }
+  .out .k { color:var(--dim); font-size:11px; }
+  .out .v { color:#efe7d8; word-break:break-word; }
+  .conf { font-weight:700; }
+  .note { color:var(--dim); font-size:10.5px; margin-top:8px; }
+</style>
+</head>
+<body>
+  <h1>Whisper sync test</h1>
+  <p class="sub">Phase 1 standalone. On-device transcription (transformers.js, whisper-tiny, WASM). No audio leaves this device.</p>
+
+  <div class="card">
+    <label>Timecoded subtitles (SRT)</label>
+    <textarea id="srt" placeholder="Paste an SRT here. Or set a TMDB id below to fetch one (needs an OpenSubtitles API key, see note)."></textarea>
+    <div style="display:flex; gap:8px; margin-top:8px; align-items:flex-end;">
+      <div style="flex:1">
+        <label>TMDB id (optional SRT fetch)</label>
+        <input id="tmdb" type="text" placeholder="e.g. 1399" inputmode="numeric">
+      </div>
+      <button id="fetchSrt" type="button" style="padding:9px 14px;">Fetch SRT</button>
+    </div>
+    <div class="note">OpenSubtitles REST requires an Api-Key header and a login token to download. Until a key is wired in, use the paste box above. The fetch button is a stub that reports what it would need.</div>
+  </div>
+
+  <div class="card">
+    <button id="listen" type="button">Listen</button>
+    <div class="permit">We listen for ten seconds, find your place in the episode, and delete the sound.</div>
+    <div class="status" id="status"></div>
+  </div>
+
+  <div class="card" id="resultCard" style="display:none;">
+    <div class="out">
+      <div class="k">transcript</div><div class="v" id="rTranscript"></div>
+      <div class="k">matched line</div><div class="v" id="rLine"></div>
+      <div class="k">timecode</div><div class="v" id="rTime"></div>
+      <div class="k">confidence</div><div class="v conf" id="rConf"></div>
+    </div>
+    <div class="note" id="discardNote"></div>
+  </div>
+
+<script type="module">
+import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3';
+
+// Weights come from the hub and are cached by the browser after first load; never
+// look for a local copy. WASM backend keeps everything on-device.
+env.allowLocalModels = false;
+env.useBrowserCache = true;
+
+const MODEL = 'onnx-community/whisper-tiny.en';
+const CAPTURE_MS = 10000;
+const TARGET_SR = 16000;
+
+const $ = id => document.getElementById(id);
+const setStatus = (t, fail) => { const s = $('status'); s.textContent = t || ''; s.classList.toggle('fail', !!fail); };
+
+let _transcriber = null;
+async function getTranscriber() {
+  if (_transcriber) return _transcriber;
+  setStatus('loading listener, one time');
+  _transcriber = await pipeline('automatic-speech-recognition', MODEL, { dtype: 'q8' });
+  return _transcriber;
+}
+
+// ---- SRT parsing + fuzzy match --------------------------------------------
+function parseSrt(text) {
+  const cues = [];
+  const blocks = (text || '').replace(/\r/g, '').split(/\n\n+/);
+  for (const b of blocks) {
+    const m = b.match(/(\d\d:\d\d:\d\d[,.]\d\d\d)\s*-->\s*(\d\d:\d\d:\d\d[,.]\d\d\d)([\s\S]*)/);
+    if (!m) continue;
+    const body = m[3].split('\n').filter(l => !/^\d+$/.test(l.trim())).join(' ').trim();
+    cues.push({ start: m[1], end: m[2], text: body });
+  }
+  return cues;
+}
+function normalize(s) {
+  return (s || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function trigrams(s) {
+  const t = '  ' + normalize(s).replace(/\s/g, ' ') + '  ';
+  const g = new Set();
+  for (let i = 0; i < t.length - 2; i++) g.add(t.slice(i, i + 3));
+  return g;
+}
+// Dice similarity over character trigrams: robust to small transcription errors.
+function similarity(a, b) {
+  const A = trigrams(a), B = trigrams(b);
+  if (!A.size || !B.size) return 0;
+  let inter = 0;
+  for (const g of A) if (B.has(g)) inter++;
+  return (2 * inter) / (A.size + B.size);
+}
+function bestMatch(transcript, cues) {
+  let best = null, score = 0;
+  for (const c of cues) {
+    const s = similarity(transcript, c.text);
+    if (s > score) { score = s; best = c; }
+  }
+  return { cue: best, confidence: score };
+}
+
+// ---- Mic capture -> 16k mono Float32 --------------------------------------
+async function captureAudio16k() {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const rec = new MediaRecorder(stream);
+  const chunks = [];
+  rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+  const stopped = new Promise(res => { rec.onstop = res; });
+  rec.start();
+  await new Promise(r => setTimeout(r, CAPTURE_MS));
+  rec.stop();
+  await stopped;
+  stream.getTracks().forEach(t => t.stop());
+
+  const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' });
+  const arr = await blob.arrayBuffer();
+  const ac = new (window.AudioContext || window.webkitAudioContext)();
+  const decoded = await ac.decodeAudioData(arr);
+  ac.close();
+  const off = new OfflineAudioContext(1, Math.max(1, Math.ceil(decoded.duration * TARGET_SR)), TARGET_SR);
+  const src = off.createBufferSource();
+  src.buffer = decoded; src.connect(off.destination); src.start(0);
+  const rendered = await off.startRendering();
+  const samples = Float32Array.from(rendered.getChannelData(0));   // detached copy
+  return { samples, releasables: { chunks, arr, decoded, rendered } };
+}
+
+// ---- Flow -----------------------------------------------------------------
+$('listen').addEventListener('click', async () => {
+  const btn = $('listen');
+  btn.disabled = true;
+  $('resultCard').style.display = 'none';
+  let capture = null, transcript = null;
+  try {
+    const cues = parseSrt($('srt').value);
+    if (!cues.length) { setStatus("Paste an SRT first (or fetch one) so there's something to match against.", true); btn.disabled = false; return; }
+
+    const transcriber = await getTranscriber();
+    setStatus('listening for ten seconds');
+    capture = await captureAudio16k();
+
+    setStatus('finding your place');
+    const out = await transcriber(capture.samples);
+    transcript = (out && out.text ? out.text : '').trim();
+
+    if (!transcript) { setStatus("Couldn't hear dialogue. Try again in a talky moment, or set your place manually.", true); return; }
+
+    const { cue, confidence } = bestMatch(transcript, cues);
+    if (!cue) { setStatus("Couldn't hear dialogue. Try again in a talky moment, or set your place manually.", true); return; }
+
+    $('rTranscript').textContent = transcript;
+    $('rLine').textContent = cue.text;
+    $('rTime').textContent = cue.start + ' --> ' + cue.end;
+    $('rConf').textContent = confidence.toFixed(2);
+    $('resultCard').style.display = 'block';
+    setStatus('done');
+  } catch (e) {
+    const denied = e && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
+    setStatus(denied ? 'Microphone permission is off. Turn it on to sync, or set your place manually.'
+                     : "Couldn't hear dialogue. Try again in a talky moment, or set your place manually.", true);
+  } finally {
+    // Explicit discard: release the audio buffers and the transcript variable. Nothing
+    // about the sound is retained; only the four printed fields remain, in the DOM.
+    if (capture) {
+      capture.releasables.chunks.length = 0;
+      capture.releasables.arr = null;
+      capture.releasables.decoded = null;
+      capture.releasables.rendered = null;
+      capture.samples = null;
+      capture = null;
+    }
+    transcript = null;
+    $('discardNote').textContent = 'Audio buffers released; transcript variable cleared.';
+    btn.disabled = false;
+  }
+});
+
+// The OpenSubtitles path needs a real credential; surface exactly what is missing
+// rather than pretend to fetch. Paste remains the working Phase 1 input.
+$('fetchSrt').addEventListener('click', () => {
+  const id = $('tmdb').value.trim();
+  setStatus(id
+    ? 'SRT fetch for TMDB ' + id + ' needs an OpenSubtitles Api-Key + login token. Not wired yet, paste an SRT above.'
+    : 'Enter a TMDB id, or paste an SRT above.', !id ? true : false);
+});
+</script>
+</body>
+</html>
