@@ -1,0 +1,2 @@
+# Cube face renames → cube_<name>_face.html convention. Old paths kept as 301s.
+/cube_face_log.html            /cube_watch_face.html    301

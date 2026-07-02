@@ -666,7 +666,7 @@ function focusPierreBlur() {
 // Cross-face navigation: a face asks the shell to rotate to another face
 // (e.g. a Log tile tap -> Episodes). The shell owns routing; faces post a
 // 'cube:rotateTo' message and this maps the face name to its cube index.
-// Visible labels: face 1 (cube_face_log, the show list) shows WATCH — "decide what
+// Visible labels: face 1 (cube_watch_face, the show list) shows WATCH — "decide what
 // to watch"; face 4 (pangolin_episodes, the tracker) shows LOG — "log your progress".
 // The routing keys below still name the CONTENT (episodes/log), so the data flow
 // (episode progress -> the log writer) is unchanged; only positions + labels moved.
@@ -904,8 +904,8 @@ const FACE_OVERLAYS = {
       new THREE.Vector3( 0.9, -0.9, -0.9),  // BL
     ],
   },
-  1: {                                       // -X face (side): WATCH — the show list (cube_face_log content)
-    src: '/cube_face_log.html',
+  1: {                                       // -X face (side): WATCH — the show list (cube_watch_face content)
+    src: '/cube_watch_face.html',
     normal: new THREE.Vector3(-1, 0, 0),
     corners: [
       new THREE.Vector3(-0.9,  0.9, -0.9),  // TL
@@ -1440,7 +1440,7 @@ updatePlayState();   // start dimmed until a launchable show is loaded
   // left→right. So WATCH walks the open show's buttons → its episodes → the other
   // shows → tabs; LOG walks Start → mic → Finish → the rank chips → Note to Pierre.
   function faceGroups(){
-    if(activeFace === FACE_INDEX.log)        // WATCH face (cube_face_log)
+    if(activeFace === FACE_INDEX.log)        // WATCH face (cube_watch_face)
       return ['.exc-seas-chip',                                      // seasons (back from WATCH)
               '.exp-card [data-act="watch"]',                        // ▶ WATCH / WATCH AGAIN (start here)
               '.exp-card [data-act="share"], .exp-card [data-act="stop"]',

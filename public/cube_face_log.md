@@ -1,12 +1,12 @@
 # Cube Face: Log — Build and Integration Notes
 
-*Handoff for Claude Code. Pairs with `cube_face_log.html`. Same portable-note method as the Episodes doc. No em-dashes in any copy.*
+*Handoff for Claude Code. Pairs with `cube_watch_face.html`. Same portable-note method as the Episodes doc. No em-dashes in any copy.*
 
 ---
 
 ## What this file is
 
-`cube_face_log.html` is one self-contained HTML file. Inline CSS and JS, one Google Fonts link, one live data source (TVMaze). Hand it to Claude Code as-is.
+`cube_watch_face.html` is one self-contained HTML file. Inline CSS and JS, one Google Fonts link, one live data source (TVMaze). Hand it to Claude Code as-is.
 
 **Live-fetch caveat.** The file fetches TVMaze in the browser at load. Do not hardcode the data, do not "fix" the fetch, and do not treat the file as broken because a sandbox cannot reach the network. A show that fails to load renders a labelled fallback tile. This is expected.
 
