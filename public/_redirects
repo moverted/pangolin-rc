@@ -1,3 +1,7 @@
 # Cube face renames → cube_<name>_face.html convention. Old paths kept as 301s.
 /cube_face_log.html            /cube_watch_face.html    301
 /pangolin_episodes_face_v5.html /cube_log_face.html      301
+/cube_feed.html                /cube_feed_face.html     301
+/pierre.html                   /cube_pierre_face.html   301
+/cube_face_profile.html        /cube_profile_face.html  301
+/cube_join.html                /cube_browse_face.html   301

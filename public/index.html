@@ -865,7 +865,7 @@ function faceCssMatrix3d(pts) {
 // Keyed by BoxGeometry material index; corners in TL→TR→BR→BL order (local cube space)
 const FACE_OVERLAYS = {
   0: {                                       // +X face (side): FEED
-    src: '/cube_feed.html',
+    src: '/cube_feed_face.html',
     normal: new THREE.Vector3(1, 0, 0),
     corners: [
       new THREE.Vector3(0.9,  0.9,  0.9),   // TL
@@ -875,7 +875,7 @@ const FACE_OVERLAYS = {
     ],
   },
   2: {                                       // +Y face: PIERRE
-    src: '/pierre.html',
+    src: '/cube_pierre_face.html',
     normal: new THREE.Vector3(0, 1, 0),
     corners: [
       new THREE.Vector3(-0.9, 0.9, -0.9),   // TL
@@ -885,7 +885,7 @@ const FACE_OVERLAYS = {
     ],
   },
   3: {                                       // -Y face (bottom): PROFILE
-    src: '/cube_face_profile.html',
+    src: '/cube_profile_face.html',
     normal: new THREE.Vector3(0, -1, 0),
     corners: [
       new THREE.Vector3(-0.9, -0.9,  0.9),  // TL
@@ -895,7 +895,7 @@ const FACE_OVERLAYS = {
     ],
   },
   5: {                                       // -Z face (back): JOIN
-    src: '/cube_join.html',
+    src: '/cube_browse_face.html',
     normal: new THREE.Vector3(0, 0, -1),
     corners: [
       new THREE.Vector3( 0.9,  0.9, -0.9),  // TL
@@ -995,7 +995,7 @@ function signalFace(cfg, active) {
 const PIERRE_FACE  = 2;
 const vv           = window.visualViewport;
 const controlsEl   = document.getElementById('controls');
-let   chatFocused  = false;  // set from pierre.html via postMessage
+let   chatFocused  = false;  // set from cube_pierre_face.html via postMessage
 let   chatMode     = false;  // chatFocused + keyboard actually open
 let   _ctrlHidden  = false;  // are the media buttons currently hidden?
 let   _chatPrev    = false;  // last chatMode (to re-run layout when the keyboard toggles)
@@ -1452,9 +1452,9 @@ updatePlayState();   // start dimmed until a launchable show is loaded
               '#svcCorner, .svc-lit, #epReadout',   // streamer (top-corner) + episode selector
               '.rank b',
               '#noteBtn'];
-    if(activeFace === FACE_INDEX.feed)        // FEED (cube_feed)
+    if(activeFace === FACE_INDEX.feed)        // FEED (cube_feed_face)
       return ['.card'];
-    if(activeFace === FACE_INDEX.join)        // BROWSE / JOIN (cube_join)
+    if(activeFace === FACE_INDEX.join)        // BROWSE / JOIN (cube_browse_face)
       return ['.bcard, .res', '.join, #next, #back, #done, #signout, button'];
     return ['button, .tile, .tab, .vw-head, .crow, [role="button"]'];   // generic fallback
   }

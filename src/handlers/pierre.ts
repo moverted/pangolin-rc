@@ -91,7 +91,7 @@ async function verifyTurnstile(secret: string, token: string, ip?: string): Prom
 
 export const pierreRoutes = new Hono<{ Bindings: Env }>();
 
-// Frontend (pierre.html) → POST /pierre/chat  { messages: [{role, content}] }
+// Frontend (cube_pierre_face.html) → POST /pierre/chat  { messages: [{role, content}] }
 pierreRoutes.post('/chat', async (c) => {
   let body: { messages?: unknown; token?: unknown };
   try {

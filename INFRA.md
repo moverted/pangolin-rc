@@ -65,7 +65,7 @@ or changed.
   API to get his reply, then sends the reply back.
 - **Why it exists:** So the secret API key and Pierre's personality never live
   in the public web page. The browser can't see either.
-- **Who calls it:** The Pierre chat page (`public/pierre.html`).
+- **Who calls it:** The Pierre chat page (`public/cube_pierre_face.html`).
 - **Secret it needs:** `ANTHROPIC_API_KEY` — the Anthropic API key, stored as a
   Worker secret (not in any file). Set it with
   `wrangler secret put ANTHROPIC_API_KEY`. For local dev, put it in `.dev.vars`.
