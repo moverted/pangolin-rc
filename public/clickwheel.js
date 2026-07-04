@@ -76,8 +76,7 @@ import { getFocus, getActiveDoc, FACE_INDEX } from './cube_shell.js';
     if(activeFace === FACE_INDEX.episodes)   // LOG face (cube_log_face)
       return ['#startEpBtn, #micBtn, #finishEpBtn', // START/CONTINUE (start) · mic · FINISH
               '#svcCorner, .svc-lit, #epReadout',   // streamer (top-corner) + episode selector
-              '.rank b',
-              '#noteBtn'];
+              '#noteBtn'];                          // (rank chips removed — narrative reviews only)
     if(activeFace === FACE_INDEX.feed)        // FEED (cube_feed_face)
       return ['.card'];
     if(activeFace === FACE_INDEX.join)        // BROWSE / JOIN (cube_browse_face)
@@ -172,6 +171,14 @@ import { getFocus, getActiveDoc, FACE_INDEX } from './cube_shell.js';
   //    turns it back and forth). SELECT confirms; long-press cancels. ──
   function activeDialog(doc){
     if(!doc) return null;
+    // Pierre reflection overlay (LOG face, end of an episode): the ring scrolls
+    // the little chat, SELECT is the mic (start/stop), long-press closes.
+    if(doc.querySelector('#refl.show'))
+      return { type:'scroll', sc(){ return doc.querySelector('#reflChat'); },
+               confirm(){ const m = doc.querySelector('#reflMic');
+                 if(m && m.offsetParent) { m.click(); return; }
+                 const s = doc.querySelector('#reflSend'); if(s && s.offsetParent) s.click(); },
+               cancel(){ const x = doc.querySelector('#reflX'); if(x) x.click(); } };
     if(doc.querySelector('#epSheet.show'))
       return { type:'list', items(){ return Array.prototype.slice.call(doc.querySelectorAll('#epSheetGrid .epchip'))
                  .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0); },
@@ -184,6 +191,7 @@ import { getFocus, getActiveDoc, FACE_INDEX } from './cube_shell.js';
     return null;
   }
   function dialogStep(doc, dlg, dir){
+    if(dlg.type === 'scroll'){ const sc = dlg.sc && dlg.sc(); if(sc) sc.scrollTop += dir * 48; return; }
     if(dlg.type === 'reel'){ try { doc.defaultView.__reelStep(dir); } catch(_){}; tick(8); return; }
     const items = dlg.items(); if(!items.length) return;           // list: highlight steps through chips
     const box = doc._wheelHL;
@@ -254,5 +262,19 @@ import { getFocus, getActiveDoc, FACE_INDEX } from './cube_shell.js';
     center.addEventListener('pointerup', stop);
     center.addEventListener('pointercancel', ()=>{ if(holdT){ clearTimeout(holdT); holdT = 0; } });
     center.addEventListener('pointerleave', ()=>{ if(holdT){ clearTimeout(holdT); holdT = 0; } });
+
+    // Center label mirror: while the reflection overlay is up, SELECT becomes the
+    // mic (and the mic's countdown). The face drives it by setting data-count on
+    // #refl; the wheel just mirrors. Cheap poll, no new export surface.
+    const centerDefault = center.textContent;
+    setInterval(()=>{
+      let want = centerDefault;
+      if(getFocus().locked){
+        const doc = activeDoc();
+        const r = doc && doc.querySelector('#refl.show');
+        if(r) want = r.dataset.count || '🎙';
+      }
+      if(center.textContent !== want) center.textContent = want;
+    }, 350);
   }
 })();

@@ -17,7 +17,8 @@ const clean = (s: unknown) => (typeof s === 'string' ? s.trim().slice(0, 200) : 
 const year = (d: unknown) => (typeof d === 'string' && d.length >= 4 ? d.slice(0, 4) : null);
 
 // Build the fetch for a TMDB path, threading the key the right way for its format.
-function tmdbFetch(env: Env, path: string, params: Record<string, string> = {}) {
+// Exported: Pierre's server-side tools (handlers/pierre.ts) ride the same key.
+export function tmdbFetch(env: Env, path: string, params: Record<string, string> = {}) {
   const key = env.TMDB_API_KEY || '';
   const url = new URL(API + path);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);

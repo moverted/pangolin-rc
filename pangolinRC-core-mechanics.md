@@ -3,28 +3,6 @@
 > **What this is.** The content-free mechanical spine for pangolinRC: the actors, state machine, lifecycle, control surfaces, and access rules that govern how a payload moves from *submitted* to *revealed* to *revoked*. Everything domain-specific (subject matter, labels, copy, links, endpoints, and policy defaults) is intentionally left out and marked as a `SEAM`. This document describes *mechanism*; instances supply *content and policy*.
 >
 > **What this is NOT.** Not a database schema, not wiring, not the build for any one product. Connections and tables are deliberately deferred — the seams below mark exactly where they attach.
->
-> **iOS wrapper work** (Capacitor native shell) is governed by [`capacitor-integration-spec.md`](capacitor-integration-spec.md) at the repo root.
-
----
-
-## Cube map (canonical vocabulary)
-
-The instance UI is a 3D cube; each of its six faces is a self-contained page loaded into an iframe, hosted and routed by the shell. This table is the single source of truth for face naming — all docs, comments, and prompts defer to it. Filenames follow `cube_<name>_face.html` (lowercase). Face label is the label shown on the cube in the UI.
-
-| Face label | Filename | Job |
-|---|---|---|
-| FEED | `public/cube_feed_face.html` | The latest drops — the surfaced feed of new content. |
-| WATCH | `public/cube_watch_face.html` | The show list — decide what to watch. |
-| PIERRE | `public/cube_pierre_face.html` | Your host — the keyboard-driven chat face. |
-| PROFILE | `public/cube_profile_face.html` | That's you — account, devices, and profile. |
-| LOG | `public/cube_log_face.html` | Your viewing log — track and log your progress. |
-| BROWSE | `public/cube_browse_face.html` | Get in on it — the join/browse face. UI label JOIN, filename browse, label/file reconciliation pending product decision. |
-| _(shell — not a face)_ | `public/index.html` | Root shell (Pages site root). **Bootstrap only:** document skeleton, CSS, font links, and the two `<script type="module">` tags that load the app. Carries no JS itself — nearly frozen. |
-| _(off-cube layer — not a face)_ | `public/cube_shell.js` | The off-cube layer + shell. Owns face-focus state (which face is current, nav vs locked/active mode), the cube + its snap/turn transitions, the six face iframes and their projection, and all off-cube UI except the wheel (captions, Fire TV remote, device chip, floating back-cube, bug reporter, DEMO band). Exports the **CubeShell interface** (`getFocus` / `getActiveDoc` / `FACE_INDEX`). Designated home for future off-cube features. |
-| _(nav surface — not a face)_ | `public/clickwheel.js` | The iPod-style click-wheel widget ONLY: ring-scroll of the open face, SELECT highlight/dialog scrub, tick sound. Imports the CubeShell interface; owns no shared state and never mutates the cube directly. |
-
-> Note: the shell is `public/index.html` (the Pages site root) and stays that name — it is deliberately not renamed to the face pattern, and renaming the root would change serving behavior. The cube app is split into two native ES modules loaded by `index.html`: `cube_shell.js` (shell + off-cube layer) and `clickwheel.js` (the wheel). They link via native ESM (`import`/`export`), no bundler or build step: `clickwheel.js` imports the CubeShell interface from `cube_shell.js`, which is listed first so its exports exist when the wheel evaluates. Keep the export surface minimal — no method without a caller. `WATCH`/`LOG` labels are intentionally swapped relative to their historical filenames (`cube_watch_face.html` was `cube_face_log.html`; `cube_log_face.html` was `pangolin_episodes_face_v5.html`).
 
 ---
 
@@ -200,27 +178,3 @@ Wire in this sequence so each layer is testable before the next:
 `identity` · `policy` · `capture` (what a payload is) · `processing` (the jobs) · `routes/hosts` · `db` · `bucket` · `jobs` · `events` — plus all copy, labels, and links.
 
 These are intentionally unbuilt. Fill them per-instance; do not let any of them leak upward into the mechanics above.
-
----
-
-## Backend and deploy rules (added July 3, 2026)
-
-- **Wrangler deploys must include a message.** Every `wrangler deploy` and
-  `wrangler pages deploy` uses `--message` (or the commit message) describing
-  what changed. No blank deploys.
-- **BACKEND.md same-session rule.** Any session that touches the Worker, D1,
-  or deploy configuration adds its entry to BACKEND.md before the session
-  ends. No deferred logging.
-- **Legacy database is off-limits.** The D1 database `pangolin-rc`
-  (ID 4bd25737-94c1-4da3-b54a-b28d467ef505) is legacy, unknown schema,
-  25 tables. Never read from it, write to it, migrate it, or delete it
-  without Ted's explicit instruction.
-- **Events database identity.** The production events store is
-  `pangolinrc-events` (ID 25b069be-d44f-4d2b-89ae-c968bc97968b, region WNAM).
-  All events work targets this database only.
-- **iOS spec pointer.** The Capacitor/TestFlight integration plan lives in
-  `capacitor-integration-spec.md` at the repo root. Read it before any
-  iOS-related work.
-- **Freeze rule.** From July 20, 2026: polish in, surface area out. No new
-  features, faces, or API endpoints after that date until the tester round
-  concludes. Bug fixes and copy changes only.

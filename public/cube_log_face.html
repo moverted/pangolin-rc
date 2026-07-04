@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <title>PangolinRC — Episodes</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -308,8 +308,6 @@
 
   .block-label{ font-family:var(--mono); font-size:9.5px; letter-spacing:.16em;
     text-transform:uppercase; color:var(--faint); margin:0 0 10px; }
-  .rank{ display:flex; gap:5px; flex-wrap:wrap; margin-bottom:16px; }
-  .rank b{ width:30px; height:30px; border-radius:8px; display:flex; align-items:center;
     justify-content:center; font-family:var(--mono); font-size:12px; font-weight:700;
     background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.09);
     color:var(--dim); cursor:pointer; transition:.12s; }
@@ -338,7 +336,6 @@
     color:#cdebd6; padding:4px 9px; border-radius:999px; white-space:nowrap; letter-spacing:.03em; }
   .wdate.binged{ background:rgba(126,42,36,.92); color:#f4c9c4; }
   .wdate.bp{ background:rgba(122,122,128,.28); color:#b9b9bf; }   /* BP: grey, no green check */
-  .wscore{ font-family:var(--mono); font-size:11px; color:var(--amber); font-weight:700; width:34px; text-align:right; }
   .empty{ font-family:var(--mono); font-size:11px; color:var(--faint); padding:6px 0 2px; }
   /* WATCHING continuously cycles the build-up marker; WAITING is static. */
   .live-dots::after{ content:'>..'; animation:build 1.6s steps(1,end) infinite; }
@@ -419,6 +416,41 @@
   /* a logged ticket thumbnail on a watched row */
   .wtix{ display:inline-block; width:30px; height:30px; border-radius:6px; object-fit:cover;
     border:1px solid rgba(243,217,160,.5); margin-left:8px; vertical-align:middle; cursor:pointer; }
+
+  /* ── Pierre end-of-episode reflection ─────────────────────────────────── */
+  #refl{ position:fixed; inset:0; z-index:400; display:none; flex-direction:column;
+    background:rgba(10,7,4,.93); -webkit-backdrop-filter:blur(3px); backdrop-filter:blur(3px); }
+  #refl.show{ display:flex; }
+  #reflX{ position:absolute; top:10px; right:10px; width:30px; height:30px; border:none; border-radius:50%;
+    background:rgba(255,255,255,.08); color:var(--dim); font-size:14px; cursor:pointer; z-index:2;
+    -webkit-tap-highlight-color:transparent; }
+  #reflChat{ flex:1 1 auto; overflow-y:auto; padding:46px 16px 8px; display:flex; flex-direction:column; gap:8px; }
+  .rmsg{ max-width:82%; padding:8px 12px; border-radius:14px; font-family:var(--body); font-size:13.5px; line-height:1.4; }
+  .rmsg.me{ align-self:flex-end; background:rgba(240,169,59,.16); color:var(--text); border:1px solid rgba(240,169,59,.3); }
+  .rmsg.pp{ align-self:flex-start; background:rgba(255,255,255,.06); color:var(--dim); }
+  #reflDock{ flex:none; display:flex; align-items:flex-end; gap:10px; padding:6px 14px 4px; }
+  #reflPierre{ width:74px; height:74px; object-fit:contain; flex:none; filter:drop-shadow(0 4px 10px rgba(0,0,0,.5)); }
+  #reflBubble{ position:relative; flex:1; background:#f6efe2; color:#241a10; border-radius:14px;
+    padding:10px 13px; font-family:var(--body); font-weight:600; font-size:14px; line-height:1.35; }
+  #reflBubble::after{ content:''; position:absolute; left:-7px; bottom:14px;
+    border:7px solid transparent; border-right-color:#f6efe2; border-left:0; }
+  #reflBar{ flex:none; display:flex; align-items:center; justify-content:center; gap:10px; padding:8px 14px 4px; }
+  #reflMic{ width:58px; height:58px; border-radius:50%; border:1px solid rgba(240,169,59,.4);
+    background:radial-gradient(circle at 35% 30%, #2c241b, #19140f); color:var(--amber); font-size:22px;
+    cursor:pointer; position:relative; -webkit-tap-highlight-color:transparent; }
+  #reflMic.rec{ background:radial-gradient(circle at 35% 30%, #7E2A24, #4a1512); color:#fff; animation:reflpulse 1s infinite; }
+  @keyframes reflpulse{ 50%{ box-shadow:0 0 0 8px rgba(126,42,36,.25); } }
+  #reflCount{ position:absolute; bottom:-16px; left:0; right:0; font-family:var(--mono,monospace); font-size:10px; color:var(--amber); }
+  #reflEdit{ display:none; flex:1; gap:8px; align-items:flex-end; }
+  #reflText{ flex:1; min-height:44px; max-height:96px; resize:none; border-radius:12px; padding:10px 12px;
+    border:1px solid rgba(240,169,59,.35); background:rgba(255,255,255,.05); color:var(--text);
+    font-family:var(--body); font-size:14px; }
+  #reflSend{ width:44px; height:44px; border-radius:50%; border:none; background:var(--amber); color:var(--amber-deep);
+    font-size:17px; cursor:pointer; -webkit-tap-highlight-color:transparent; }
+  #reflActs{ flex:none; display:flex; gap:10px; justify-content:center; padding:6px 14px 16px; }
+  #reflActs button{ border:none; border-radius:999px; padding:9px 16px; font-family:var(--body); font-weight:700;
+    font-size:13px; cursor:pointer; background:rgba(255,255,255,.09); color:var(--text); -webkit-tap-highlight-color:transparent; }
+  #reflActs button.amber{ background:var(--amber); color:var(--amber-deep); }
 </style>
 </head>
 <body>
@@ -506,9 +538,6 @@
       <div class="epline"><span id="epNo">S — EP — / —</span><span class="sep">|</span><span class="ttl" id="epTtl"></span><span class="aired" id="epAired"></span><span class="epstatus" id="epStatus"></span></div>
       <p class="syn" id="syn"></p>
 
-      <div class="block-label">Your rank</div>
-      <div class="rank" id="rank"></div>
-
       <button class="notebtn" id="noteBtn">&#9998; Note to Pierre</button>
 
       <div class="wlhead">
@@ -571,9 +600,29 @@
   </button>
 </div>
 
+
+<!-- Pierre end-of-episode reflection: pops on FINISH. Mic-first (10s), transcript
+     is editable before it goes to Pierre; two exchanges max, then share or route. -->
+<div id="refl">
+  <button id="reflX" aria-label="Close">&#10005;</button>
+  <div id="reflChat"></div>
+  <div id="reflDock">
+    <img id="reflPierre" src="/pierre.png" alt="Pierre">
+    <div id="reflBubble"></div>
+  </div>
+  <div id="reflBar">
+    <button id="reflMic" aria-label="Record your reaction">&#127908;<span id="reflCount"></span></button>
+    <div id="reflEdit">
+      <textarea id="reflText" rows="2" placeholder="say it or type it&hellip;"></textarea>
+      <button id="reflSend" aria-label="Send">&#10148;</button>
+    </div>
+  </div>
+  <div id="reflActs"></div>
+</div>
+
 <script>
 const NOW=new Date(); const DAY=864e5;
-let allEps=[], eps=[], watched=0, watchTs=[], watchDate={}, binged={}, ranks={}, notes={}, focus=0, cooled=false;
+let allEps=[], eps=[], watched=0, watchTs=[], watchDate={}, binged={}, notes={}, focus=0, cooled=false;
 let _lastPaintFocus=-1;   // last episode the Comments panel was scoped to (re-sync on focus change)
 let titleSummary='';   // show-level synopsis, used when an episode has none of its own
 let seasonStatus='', curShowId=null, curShowName='', curService='', svcLaunchable=false;
@@ -636,7 +685,7 @@ function boot(show,list,isDefault){
 
   avgRuntime = show.averageRuntime || show.runtime || 45;
   watched=Math.min(2,eps.filter(released).length);
-  watchTs=[]; watchDate={}; binged={}; ranks={}; notes={}; cooled=false;
+  watchTs=[]; watchDate={}; binged={}; notes={}; cooled=false;
   epMin={}; epDone={}; epBp={}; startedAt={}; epPreApp={}; epSessions={}; sessionBase={}; minPreview=null; awaitingLog=false; watchingLive={}; _lastLoggedMin={};
   savedDetail=null;                  // a fresh boot; applyPattern sets the real detail
   // Seed watches are pre-app data: dark green on the bar, but never binge.
@@ -725,7 +774,7 @@ function switchToSeason(season){
   const next=allEps.filter(e=>sNum(e)===season);
   if(!next.length) return;
   eps=next; watched=0;
-  watchTs=[]; watchDate={}; binged={}; ranks={}; notes={}; cooled=false;
+  watchTs=[]; watchDate={}; binged={}; notes={}; cooled=false;
   epMin={}; epDone={}; epBp={}; startedAt={}; epPreApp={}; epSessions={}; sessionBase={};
   minPreview=null; awaitingLog=false; watchingLive={};
   applySavedDetail();                // bring back any saved progress for this season
@@ -1606,7 +1655,9 @@ function finishEpisode(){
   if(liveElapsed!=null && liveElapsed>=5 && liveElapsed>=rt*0.5 && (rt-liveElapsed)>=5){
     reportRuntimeMismatch(focus, liveElapsed, rt);
   }
+  const _reflIdx=focus;
   finaleCheck(); advanceFocus(); paint();
+  reflOpen(_reflIdx);   // Pierre catches the reaction while the credits roll
 }
 
 function paint(){
@@ -1628,11 +1679,6 @@ function paint(){
   $('epTtl').textContent=f.name||(isMovie?'Film':('Episode '+(focus+1)));
   $('epAired').textContent= isMovie ? (f.airdate?String(f.airdate).slice(0,4):'') : (f.airdate?fmt(f.airdate):'');
   $('syn').textContent=strip(f.summary)||strip(titleSummary)||'No synopsis available yet.';
-
-  const rk=$('rank'); rk.innerHTML='';
-  for(let n=0;n<=10;n++){ const b=document.createElement('b'); b.textContent=n;
-    if(ranks[focus]===n) b.classList.add('sel');
-    b.onclick=()=>{ ranks[focus]=n; paint(); }; rk.appendChild(b); }
 
   // Live status sits inline on the EP line (right side), not in the list below.
   const watching = !!watchingLive[focus];
@@ -1712,7 +1758,6 @@ function paint(){
       badge=`<span class="wdate${epBp[i]?' bp':(binged[i]?' binged':'')}">${stamp}</span>`; }
     else { const last=sess[sess.length-1];
       badge=`<span class="wdate">(${last?last.date+', '+last.minutes+'m':'in progress'})</span>`; }
-    const score = ranks[i]!==undefined ? ranks[i]+'/10' : '';
     let kids;
     if(sess.length){ kids=sess.slice().reverse().map(s=>{   // newest activity on top, matching the episode list
       const base = s.bp ? 'BP · before Pierre' : (s.state==='watching' ? 'watching' : (s.finished ? 'finished · '+s.minutes+'m' : 'paused · '+s.minutes+'m'));
@@ -1728,7 +1773,7 @@ function paint(){
     const tix = tickets.map(t=>`<img class="wtix" src="${escHtml(t.ticketUrl)}" alt="ticket stub">`).join('');
     const tixCaps = tickets.map(t=>`<div class="sess">${escHtml(ticketCaption(t))}</div>`).join('');
     row.innerHTML=`<div class="wmain"><span class="wt">${escHtml(epCode(e)+' '+(e.name||('Episode '+(i+1))))}</span>
-      ${badge}<span class="wscore">${score}</span>${tix}</div>
+      ${badge}${tix}</div>
       <div class="wdetail">${tixCaps}${kids}${note}</div>`;
     row.onclick=()=>row.classList.toggle('open');
     row.querySelectorAll('.wtix').forEach(img=>img.onclick=e=>{ e.stopPropagation(); window.open(img.src,'_blank'); });
@@ -1813,7 +1858,7 @@ $('reset').onclick=()=>{
   // Full reset across ALL seasons: drop the saved per-episode detail too, so
   // switching seasons later can't re-restore old progress, then reload season 1.
   savedDetail=null;
-  watched=0; watchTs=[]; watchDate={}; binged={}; ranks={}; notes={}; cooled=false;
+  watched=0; watchTs=[]; watchDate={}; binged={}; notes={}; cooled=false;
   epMin={}; epDone={}; epBp={}; startedAt={}; epPreApp={}; epSessions={}; sessionBase={}; minPreview=null; awaitingLog=false; watchingLive={}; _lastLoggedMin={};
   const real=[...new Set(allEps.map(sNum))].filter(s=>s>=1);
   const s1=real.length?Math.min(...real):1;
@@ -2107,7 +2152,7 @@ function applyPattern(p){
     eps=allEps.filter(e=>sNum(e)===s1); if(!eps.length) eps=allEps;
     watched=0;
   }
-  watchTs=[]; watchDate={}; binged={}; ranks={}; notes={}; cooled=false;
+  watchTs=[]; watchDate={}; binged={}; notes={}; cooled=false;
   epMin={}; epDone={}; epBp={}; startedAt={}; epPreApp={}; epSessions={}; sessionBase={}; minPreview=null; awaitingLog=false; watchingLive={}; _lastLoggedMin={};
   // Pierre "Catch up live" / "Pick an episode" pre-mark watches: pre-app, never binge.
   // For a "watch from this episode" (bpFill), the earlier ones are flagged BP.
@@ -2503,6 +2548,177 @@ if (window.parent !== window) {
     face.style.aspectRatio = 'unset';
   }
 }
+
+// ─── Pierre end-of-episode reflection ────────────────────────────────────────
+// The credits-still-rolling moment: Pierre pops up, you talk into the mic (10s),
+// the transcript lands in an editable box, then goes to Pierre in reflection
+// mode (2 exchanges max server-side). The recording also posts to /transcribe,
+// so the raw audio + transcript persist as a comment either way. The clickwheel
+// mirrors: SELECT = mic, ring = chat scroll, long-press = close.
+const REFL_PROMPTS = [
+  'Tell me how that hit you.',
+  'What do you think?',
+  'Are you hooked?',
+  'Worth your Tuesday?',
+  'Did that land the way you hoped?',
+  'Talk to me. What just happened in there?'
+];
+let reflMsgs=[], reflRounds=0, reflShow='', reflEp='', reflMins=0, reflBusy=false,
+    reflRec=null, reflChunks=[], reflTimer=null, reflLeft=0, reflLastThought='';
+
+function reflAdd(role, text){
+  const c=$('reflChat'); if(!c) return;
+  const d=document.createElement('div'); d.className='rmsg '+(role==='user'?'me':'pp');
+  d.textContent=text; c.appendChild(d); c.scrollTop=1e6;
+}
+function reflBubble(t){ const b=$('reflBubble'); if(b) b.textContent=t; }
+function reflActs(kind){
+  const a=$('reflActs'); if(!a) return; a.innerHTML='';
+  const mk=(label,cls,fn)=>{ const b=document.createElement('button'); b.textContent=label;
+    if(cls) b.className=cls; b.onclick=fn; a.appendChild(b); return b; };
+  if(kind==='share'){ mk('Share it','amber',reflShare); mk('Not now','',()=>reflActs('done')); }
+  else if(kind==='more'){ mk('Keep talking with Pierre \u2192','amber',reflMore); mk('Done','',reflClose); }
+  else if(kind==='done'){ mk('Done','amber',reflClose); }
+}
+
+function reflOpen(idx){
+  const e=eps[idx]; if(!e || DEMO) return;
+  reflShow=curShowName||''; reflEp=isMovie?'':epCode(e); reflMins=Math.round(runtimeOf(idx)||0);
+  reflMsgs=[]; reflRounds=0; reflLastThought=''; reflBusy=false;
+  const chat=$('reflChat'); if(chat) chat.innerHTML='';
+  $('reflEdit').style.display='none'; $('reflMic').style.display=''; $('reflActs').innerHTML='';
+  $('reflText').value='';
+  reflBubble(REFL_PROMPTS[Math.floor(Math.random()*REFL_PROMPTS.length)]);
+  const r=$('refl'); r.classList.add('show'); delete r.dataset.count;
+}
+function reflClose(){
+  reflAbandonRec();
+  const r=$('refl'); if(r){ r.classList.remove('show'); delete r.dataset.count; }
+}
+
+async function reflStartRec(){
+  if(reflBusy || reflTimer) return;
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({ audio:true });
+    reflChunks=[]; reflRec=new MediaRecorder(stream);
+    reflRec.ondataavailable=ev=>reflChunks.push(ev.data);
+    reflRec.start();
+  }catch(err){
+    reflBubble('I could not reach the mic. Type it instead?');
+    reflShowEdit(''); return;
+  }
+  reflLeft=10;
+  const r=$('refl'); r.dataset.count=reflLeft+'s';
+  $('reflMic').classList.add('rec'); $('reflCount').textContent=reflLeft+'s';
+  reflTimer=setInterval(()=>{
+    reflLeft--;
+    const left=Math.max(reflLeft,0)+'s';
+    $('reflCount').textContent=left; r.dataset.count=left;
+    if(reflLeft<=0) reflStopRec();
+  },1000);
+}
+function reflRecCleanup(){
+  if(reflTimer){ clearInterval(reflTimer); reflTimer=null; }
+  const r=$('refl'); if(r) delete r.dataset.count;
+  const m=$('reflMic'); if(m) m.classList.remove('rec');
+  const c=$('reflCount'); if(c) c.textContent='';
+}
+function reflAbandonRec(){
+  reflRecCleanup();
+  if(reflRec && reflRec.state!=='inactive'){ reflRec.onstop=()=>{ try{ reflRec.stream.getTracks().forEach(t=>t.stop()); }catch(_){} }; try{ reflRec.stop(); }catch(_){} }
+}
+function reflStopRec(){
+  reflRecCleanup();
+  if(!reflRec || reflRec.state==='inactive') return;
+  reflRec.onstop=async ()=>{
+    try{ reflRec.stream.getTracks().forEach(t=>t.stop()); }catch(_){}
+    if(!reflChunks.length){ reflBubble('The mic got shy. Type it?'); reflShowEdit(''); return; }
+    reflBubble('\u2026');
+    let txt='';
+    const email=acctEmail();
+    if(email && curShowId){
+      try{
+        const blob=new Blob(reflChunks,{ type:(reflChunks[0]&&reflChunks[0].type)||'audio/webm' });
+        const fd=new FormData();
+        fd.append('audio', blob);
+        fd.append('episodeId', reflEp || 'finale');
+        fd.append('showId', curShowId);
+        fd.append('timestampMs', String(reflMins*60000));
+        fd.append('userEmail', email);
+        const res=await fetch(API_BASE+'/transcribe',{ method:'POST', body:fd, mode:'cors' });
+        if(res.ok){ const d=await res.json(); txt=((d&&d.transcription)||'').trim(); }
+      }catch(_){}
+    }
+    reflBubble(txt ? 'Read it back, fix anything, then send it over.' : 'I could not quite catch that. Type it?');
+    reflShowEdit(txt);
+  };
+  try{ reflRec.stop(); }catch(_){}
+}
+function reflShowEdit(txt){
+  $('reflMic').style.display='none';
+  const ed=$('reflEdit'); ed.style.display='flex';
+  const ta=$('reflText'); ta.value=txt||'';
+  ta.focus();   // keyboard pops for the edit
+}
+
+async function reflSend(){
+  const ta=$('reflText'); const txt=(ta.value||'').trim();
+  if(!txt || reflBusy) return;
+  reflBusy=true; reflLastThought=txt;
+  reflAdd('user',txt); reflMsgs.push({ role:'user', content:txt });
+  ta.value=''; $('reflEdit').style.display='none';
+  reflBubble('\u2026');
+  let reply='';
+  try{
+    const res=await fetch(API_BASE+'/pierre/chat',{
+      method:'POST', headers:{ 'Content-Type':'application/json' },
+      body:JSON.stringify({ messages:reflMsgs, email:acctEmail()||undefined,
+        mode:'reflection', context:{ show:reflShow, ep:reflEp } })
+    });
+    if(res.ok){ reply=(((await res.json())||{}).reply||'').trim(); }
+  }catch(_){}
+  reflBusy=false;
+  if(!reply){
+    reflBubble('Pierre lost the signal, but your thought is saved.');
+    reflActs('done'); return;
+  }
+  let share=false;
+  if(reply.indexOf('[PANEL: Share]')>=0){ share=true; reply=reply.replace('[PANEL: Share]','').trim(); }
+  reply=reply.replace(/\[ROUTE:[^\]]*\]/g,'').trim();
+  reflMsgs.push({ role:'assistant', content:reply });
+  reflRounds++;
+  reflAdd('assistant',reply); reflBubble(reply);
+  if(share) reflActs('share');
+  else if(reflRounds>=2) reflActs('more');
+  else { $('reflMic').style.display=''; $('reflEdit').style.display='flex'; }
+}
+
+async function reflShare(){
+  const email=acctEmail();
+  const t=reflLastThought || (reflMsgs.filter(m=>m.role==='user').pop()||{}).content || '';
+  if(email && curShowId && t){
+    try{
+      await fetch(API_BASE+'/reflection',{ method:'POST', headers:{ 'Content-Type':'application/json' },
+        body:JSON.stringify({ userEmail:email, showId:curShowId, text:t }) });
+    }catch(_){}
+  }
+  const msg='\u201C'+t+'\u201D \u2014 after '+(reflShow||'the show')+(reflEp?' '+reflEp:'');
+  if(navigator.share){ try{ navigator.share({ text:msg }); }catch(_){} }
+  reflBubble('Shared. It lives on your card now.');
+  reflActs('done');
+}
+function reflMore(){
+  reflClose();
+  if(window.parent===window) return;
+  const payload={ intent:'note', show:reflShow, ep:reflEp };
+  if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('pierre',payload);
+  else window.parent.postMessage({ type:'cube:rotateTo', face:'pierre', payload },'*');
+}
+
+$('reflMic').addEventListener('click', ()=>{ reflTimer ? reflStopRec() : reflStartRec(); });
+$('reflSend').addEventListener('click', reflSend);
+$('reflX').addEventListener('click', reflClose);
+$('reflText').addEventListener('keydown', e=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); reflSend(); } });
 </script>
 </body>
 </html>

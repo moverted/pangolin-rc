@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <title>Pierre</title>
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -321,9 +321,13 @@
   // Recall: notes the member auto-journaled on the WATCH/LOG face live in a shared
   // same-origin journal (pg_journal). Surface the recent ones to Pierre once, as
   // background on the first turn, so he can bring them up when relevant.
+  const JOURNAL_MAX_AGE_MS = 45*24*60*60*1000;   // notes older than ~6 weeks age out
   function journalContext(){
     let j; try{ j = JSON.parse(localStorage.getItem('pg_journal')||'[]'); }catch(_){ return ''; }
-    if(!Array.isArray(j) || !j.length) return '';
+    if(!Array.isArray(j)) return '';
+    const cutoff = Date.now() - JOURNAL_MAX_AGE_MS;
+    j = j.filter(n => n && typeof n.ts === 'number' && n.ts >= cutoff); // no ts = old format = stale
+    if(!j.length) return '';
     const lines = j.slice(-6).reverse()
       .map(n => `• ${n.show||'a show'}${n.ep?(' '+n.ep):''}: "${String(n.text||'').replace(/"/g,'”')}"`).join('\n');
     return `(Background — notes I jotted while watching; weave in only if relevant, don't recite them:\n${lines}\n)\n\n`;
@@ -406,7 +410,7 @@
       const res = await fetch(`${API}/pierre/chat`,{
         method:"POST",
         headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({ messages: history, token })
+        body:JSON.stringify({ messages: history, token, email: pgSession()||undefined })
       });
       const data = await res.json();
       const reply = ((data && data.reply) || "").trim();
