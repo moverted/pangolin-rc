@@ -381,16 +381,19 @@
     text-align:center; text-shadow:0 1px 10px rgba(0,0,0,.7); }
   .swcap small{ display:block; font-family:var(--mono); font-weight:400; font-size:9px;
     letter-spacing:.14em; text-transform:uppercase; color:var(--faint); margin-top:6px; }
-  .swwin{ position:relative; width:100%; max-width:262px; height:220px; overflow:hidden;
-    touch-action:none; -webkit-tap-highlight-color:transparent;
-    -webkit-mask-image:linear-gradient(180deg, transparent, #000 26%, #000 74%, transparent);
-    mask-image:linear-gradient(180deg, transparent, #000 26%, #000 74%, transparent); }
-  .swreel{ position:absolute; left:0; right:0; top:0; will-change:transform; }
-  .switem{ height:44px; display:flex; align-items:center; justify-content:center; }
-  /* the fixed centre window where the chosen streamer settles */
-  .swsel{ position:absolute; left:8px; right:8px; top:88px; height:44px; pointer-events:none;
-    border-radius:11px; border:1px solid rgba(240,169,59,.6); background:rgba(240,169,59,.07);
-    box-shadow:0 0 18px rgba(240,169,59,.18) inset; }
+  /* the grid of square logo tiles, 4 across, scrolls inside the face if it runs long */
+  .svcgrid{ display:grid; grid-template-columns:repeat(4, 1fr); gap:10px;
+    width:100%; max-width:288px; max-height:240px; overflow-y:auto; padding:2px;
+    -webkit-overflow-scrolling:touch; touch-action:pan-y; }
+  .svctile{ position:relative; aspect-ratio:1/1; border-radius:12px; padding:9px;
+    display:flex; align-items:center; justify-content:center; cursor:pointer; overflow:hidden;
+    background:#15100a; border:1px solid var(--grey);
+    transition:transform .12s, border-color .12s; -webkit-tap-highlight-color:transparent; }
+  .svctile img{ max-width:100%; max-height:100%; object-fit:contain; border-radius:6px; display:block; }
+  .svctile .fallback{ font-family:var(--mono); font-weight:700; font-size:14px;
+    letter-spacing:.02em; color:var(--text); }
+  /* selected: amber border + slight scale, nothing else */
+  .svctile.sel{ border-color:var(--amber); transform:scale(1.06); }
   .swset{ font-family:var(--mono); font-weight:700; font-size:12px; letter-spacing:.14em;
     padding:12px 34px; border-radius:999px; cursor:pointer; border:none;
     background:var(--amber); color:var(--amber-deep); }
@@ -534,11 +537,8 @@
   <div class="svcwheel" id="svcWheel">
     <div class="swback" id="svcBack"></div>
     <div class="swpanel">
-      <div class="swcap">Where are you watching?<small>roll to your streamer</small></div>
-      <div class="swwin" id="svcWin">
-        <div class="swreel" id="svcReel"></div>
-        <div class="swsel"></div>
-      </div>
+      <div class="swcap">Where are you watching?<small>tap your streamer</small></div>
+      <div class="svcgrid" id="svcGrid" role="listbox" aria-label="Streaming services"></div>
       <button class="swset" id="svcSet">SET</button>
       <div class="swcancel" id="svcCancel">cancel</div>
     </div>
@@ -2235,30 +2235,35 @@ if (cubeBackBtn) cubeBackBtn.addEventListener('click', () => {
 // ===================== Streamer guesser / picker =====================
 // Brand-coloured wordmark "logos" — no image assets, fully self-contained. `aka`
 // holds the lowercase fragments matched against the show's webChannel/network name.
+// bg/fg/wght/ls drive the corner wordmark chip (svcLogoHTML). logo is the TMDB
+// watch-provider logo_path used by the picker grid (svcTileHTML); a blank logo
+// falls back to a mono monogram tile. Paths hardcoded from /watch/providers/tv
+// (US) for the tester round rather than fetched, so the grid needs no extra call.
 const SERVICES = [
-  {label:'NETFLIX',     bg:'#000000', fg:'#E50914', wght:800, ls:'-.04em', aka:['netflix']},
-  {label:'max',         bg:'#0046FF', fg:'#ffffff', wght:800, ls:'-.05em', aka:['hbo max','max']},
-  {label:'HBO',         bg:'#000000', fg:'#ffffff', wght:800, ls:'.02em',  aka:['hbo']},
-  {label:'Disney+',     bg:'#0B1A6E', fg:'#ffffff', wght:700, ls:'-.01em', aka:['disney']},
-  {label:'hulu',        bg:'#1CE783', fg:'#0a0a0a', wght:800, ls:'-.04em', aka:['hulu']},
-  {label:'prime video', bg:'#1399FF', fg:'#ffffff', wght:700, ls:'-.02em', aka:['prime','amazon']},
-  {label:'AppleTV+',    bg:'#000000', fg:'#ffffff', wght:700, ls:'-.02em', aka:['apple']},
-  {label:'peacock',     bg:'#050505', fg:'#ffffff', wght:700, ls:'-.02em', aka:['peacock','nbc']},
-  {label:'P+',          bg:'#0064FF', fg:'#ffffff', wght:800, ls:'0',      aka:['paramount','cbs','showtime','mtv','comedy central','nickelodeon']},
-  {label:'AMC+',        bg:'#000000', fg:'#ffffff', wght:800, ls:'.02em',  aka:['amc']},
-  {label:'STARZ',       bg:'#000000', fg:'#ffffff', wght:800, ls:'.06em',  aka:['starz']},
-  {label:'crunchyroll', bg:'#F47521', fg:'#ffffff', wght:700, ls:'-.02em', aka:['crunchyroll','funimation']},
-  {label:'FX',          bg:'#101018', fg:'#ffffff', wght:800, ls:'.02em',  aka:['fx','fxx']},
-  {label:'YouTube',     bg:'#ffffff', fg:'#FF0000', wght:800, ls:'-.03em', aka:['youtube']},
-  {label:'abc',         bg:'#000000', fg:'#ffffff', wght:600, ls:'-.03em', aka:['abc']},
-  {label:'FOX',         bg:'#16162a', fg:'#ffffff', wght:800, ls:'.04em',  aka:['fox']},
-  {label:'BBC',         bg:'#000000', fg:'#ffffff', wght:800, ls:'.06em',  aka:['bbc']},
-  {label:'PBS',         bg:'#2638C4', fg:'#ffffff', wght:800, ls:'.04em',  aka:['pbs']},
+  {label:'NETFLIX',     bg:'#000000', fg:'#E50914', wght:800, ls:'-.04em', aka:['netflix'], logo:'/pbpMk2JmcoNnQwx5JGpXngfoWtp.jpg'},
+  {label:'max',         bg:'#0046FF', fg:'#ffffff', wght:800, ls:'-.05em', aka:['hbo max','max'], logo:'/jbe4gVSfRlbPTdESXhEKpornsfu.jpg'},
+  {label:'HBO',         bg:'#000000', fg:'#ffffff', wght:800, ls:'.02em',  aka:['hbo'], logo:''},
+  {label:'Disney+',     bg:'#0B1A6E', fg:'#ffffff', wght:700, ls:'-.01em', aka:['disney'], logo:'/97yvRBw1GzX7fXprcF80er19ot.jpg'},
+  {label:'hulu',        bg:'#1CE783', fg:'#0a0a0a', wght:800, ls:'-.04em', aka:['hulu'], logo:'/bxBlRPEPpMVDc4jMhSrTf2339DW.jpg'},
+  {label:'prime video', bg:'#1399FF', fg:'#ffffff', wght:700, ls:'-.02em', aka:['prime','amazon'], logo:'/pvske1MyAoymrs5bguRfVqYiM9a.jpg'},
+  {label:'AppleTV+',    bg:'#000000', fg:'#ffffff', wght:700, ls:'-.02em', aka:['apple'], logo:'/mcbz1LgtErU9p4UdbZ0rG6RTWHX.jpg'},
+  {label:'peacock',     bg:'#050505', fg:'#ffffff', wght:700, ls:'-.02em', aka:['peacock','nbc'], logo:'/2aGrp1xw3qhwCYvNGAJZPdjfeeX.jpg'},
+  {label:'P+',          bg:'#0064FF', fg:'#ffffff', wght:800, ls:'0',      aka:['paramount','cbs','showtime','mtv','comedy central','nickelodeon'], name:'Paramount Plus', logo:'/fts6X10Jn4QT0X6ac3udKEn2tJA.jpg'},
+  {label:'AMC+',        bg:'#000000', fg:'#ffffff', wght:800, ls:'.02em',  aka:['amc'], logo:'/ovmu6uot1XVvsemM2dDySXLiX57.jpg'},
+  {label:'STARZ',       bg:'#000000', fg:'#ffffff', wght:800, ls:'.06em',  aka:['starz'], logo:'/yIKwylTLP1u8gl84Is7FItpYLGL.jpg'},
+  {label:'crunchyroll', bg:'#F47521', fg:'#ffffff', wght:700, ls:'-.02em', aka:['crunchyroll','funimation'], logo:'/fzN5Jok5Ig1eJ7gyNGoMhnLSCfh.jpg'},
+  {label:'FX',          bg:'#101018', fg:'#ffffff', wght:800, ls:'.02em',  aka:['fx','fxx'], logo:'/m4KUe3UoTnLgN4g6txYMnBqeUI5.jpg'},
+  {label:'YouTube',     bg:'#ffffff', fg:'#FF0000', wght:800, ls:'-.03em', aka:['youtube'], logo:'/pTnn5JwWr4p3pG8H6VrpiQo7Vs0.jpg'},
+  {label:'abc',         bg:'#000000', fg:'#ffffff', wght:600, ls:'-.03em', aka:['abc'], logo:'/aEp5AORtajnh2rc7O33ui8pj2um.jpg'},
+  {label:'FOX',         bg:'#16162a', fg:'#ffffff', wght:800, ls:'.04em',  aka:['fox'], logo:''},
+  {label:'BBC',         bg:'#000000', fg:'#ffffff', wght:800, ls:'.06em',  aka:['bbc'], logo:'/jfXLhMzHHmBYrtE9ZaW7as2RA98.jpg'},
+  {label:'PBS',         bg:'#2638C4', fg:'#ffffff', wght:800, ls:'.04em',  aka:['pbs'], logo:'/iLjStQKQwzyxXJb3jyNpvDmW9mx.jpg'},
   // Not a streamer: "watched it at a real cinema". aka is a token that won't
-  // match any show's network, so it's only ever a manual pick — and selecting it
+  // match any show's network, so it's only ever a manual pick, and selecting it
   // turns the FINISH button into a ticket upload (see isTheater / openTicket).
-  {label:'IRL Theater', bg:'#3a0d12', fg:'#f3d9a0', wght:700, ls:'-.01em', aka:['irl theater']},
+  {label:'IRL Theater', bg:'#3a0d12', fg:'#f3d9a0', wght:700, ls:'-.01em', aka:['irl theater'], name:'In-person theater', logo:''},
 ];
+const PROV_IMG = 'https://image.tmdb.org/t/p/w92';   // TMDB watch-provider logo base
 const THEATER_LABEL='IRL Theater';
 function isTheater(){ return !!(chosenSvc && chosenSvc.label===THEATER_LABEL); }
 function svcMatch(name){
@@ -2402,72 +2407,70 @@ function ticketCaption(t){
   return bits.length ? '🎟 '+bits.join(' · ') : '🎟 ticket';
 }
 
-// ----- the rolling reel -----
-const SW_ITEM=44, SW_C=2, SW_COPIES=5;   // 5 visible rows, selection centred at row 2
-let reelList=[], reelLen=0, reelY=0, swDragging=false, swStartY=0, swBaseY=0, swMoved=false;
+// ----- the logo-tile grid -----
+let gridList=[], gridSel=0;
 // An unrecognised streamer rides at the head of the catalogue so it stays pickable.
-function reelServices(){ return (guessSvc&&guessSvc._raw) ? [guessSvc, ...SERVICES] : SERVICES.slice(); }
-const reelIdxToY=i=>SW_ITEM*(SW_C-i);
-function setReelY(y, anim, dur){ const r=$('svcReel');
-  r.style.transition = anim ? 'transform '+(dur||220)+'ms cubic-bezier(.18,.7,.2,1)' : 'none';
-  r.style.transform='translateY('+y+'px)'; reelY=y; }
-function buildReel(){
-  reelList=reelServices(); reelLen=reelList.length;
-  let h=''; for(let c=0;c<SW_COPIES;c++) for(let i=0;i<reelLen;i++) h+='<div class="switem">'+svcLogoHTML(reelList[i])+'</div>';
-  $('svcReel').innerHTML=h;
+function pickerServices(){ return (guessSvc&&guessSvc._raw) ? [guessSvc, ...SERVICES] : SERVICES.slice(); }
+// A friendly spoken name for the tile (aria); label is the terse brand wordmark.
+function svcName(s){ return s.name || s.label; }
+// Fallback monogram when a service has no logo or its image fails to load.
+function svcInitials(label){ const t=(label||'').replace(/[^A-Za-z0-9]/g,''); return (t.slice(0,3)||'?').toUpperCase(); }
+function svcTileHTML(s,i){
+  const inner = s.logo
+    ? '<img src="'+PROV_IMG+s.logo+'" alt="" loading="lazy" onerror="svcTileFallback(this)">'
+    : '<span class="fallback">'+escHtml(svcInitials(s.label))+'</span>';
+  return '<button type="button" class="svctile'+(i===gridSel?' sel':'')+'" role="option"'+
+    ' aria-selected="'+(i===gridSel?'true':'false')+'" aria-label="'+escHtml(svcName(s))+'" data-i="'+i+'">'+inner+'</button>';
 }
-// Which catalogue entry is under the centre window right now.
-function currentRealIdx(){ const i=Math.round(SW_C - reelY/SW_ITEM); return ((i%reelLen)+reelLen)%reelLen; }
-// Snap back to the middle copy (without animating) so there's always room to drag.
-function recenter(){ const real=currentRealIdx(); setReelY(reelIdxToY(2*reelLen+real), false); }
+// Swap a broken logo image for its monogram — no broken-image icon ever shows.
+window.svcTileFallback=function(img){
+  const tile=img.closest('.svctile'); if(!tile) return;
+  const s=gridList[+tile.dataset.i]; if(!s){ img.remove(); return; }
+  tile.innerHTML='<span class="fallback">'+escHtml(svcInitials(s.label))+'</span>';
+};
+function buildGrid(){
+  gridList=pickerServices();
+  $('svcGrid').innerHTML=gridList.map((s,i)=>svcTileHTML(s,i)).join('');
+}
+// Move the highlight to tile i (amber border + scale), scrolling it into view.
+function setSel(i){
+  if(i<0 || i>=gridList.length) return;
+  gridSel=i; const g=$('svcGrid'); if(!g) return;
+  Array.prototype.forEach.call(g.children,(el,idx)=>{
+    const on=idx===i; el.classList.toggle('sel',on); el.setAttribute('aria-selected',on?'true':'false');
+    if(on) el.scrollIntoView({block:'nearest'});
+  });
+}
 function openWheel(){
   if(!curShowId) return;            // nothing loaded; a film with no pin is fine (gi defaults to 0)
-  buildReel();
-  let gi=chosenSvc?reelList.findIndex(s=>s.label===chosenSvc.label):0; if(gi<0) gi=0;
+  buildGrid();
+  let gi=chosenSvc?gridList.findIndex(s=>s.label===chosenSvc.label):0; if(gi<0) gi=0;
+  gridSel=gi;
   $('svcWheel').classList.add('show');
-  // Start a couple of copies up, then roll down through ~2 full sets onto the guess.
-  setReelY(reelIdxToY(gi), false);
-  void $('svcReel').offsetWidth;
-  setReelY(reelIdxToY(2*reelLen+gi), true, 1100);
-  setTimeout(()=>{ if($('svcWheel').classList.contains('show')) recenter(); }, 1160);
+  requestAnimationFrame(()=>setSel(gi));   // after layout so the tile can scroll into view
 }
 function closeWheel(){ $('svcWheel').classList.remove('show'); }
+// Commit the highlighted tile. Stores exactly what the reel did: chosenSvc.label
+// into the per-viewer pin and the crowd-guess POST — value + keys unchanged.
 function setFromWheel(){
-  chosenSvc=reelList[currentRealIdx()]; userPinned=true;
+  chosenSvc=gridList[gridSel]; if(!chosenSvc){ closeWheel(); return; }
+  userPinned=true;
   const k=svcKey(); if(k){ try{ localStorage.setItem(k, chosenSvc.label); }catch(_){} }   // stays for this viewer
   if(curShowId){ try{ fetch(API_BASE+'/streamer/'+encodeURIComponent(curShowId),     // becomes the next viewer's guess
     {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({service:chosenSvc.label})}); }catch(_){} }
   renderSvcCorner(); reportCurrent(); closeWheel();
 }
 
-// Shell click-wheel scrub hooks: step the streamer reel one row / confirm the pick.
+// Shell click-wheel scrub hooks: step the highlight one tile / confirm the pick.
 window.__reelStep = function(dir){
   if(!$('svcWheel').classList.contains('show')) return;
-  const lim = reelLen*SW_COPIES-1;
-  const idx = Math.max(0, Math.min(lim, Math.round(SW_C - reelY/SW_ITEM) + dir));
-  setReelY(reelIdxToY(idx), true, 150);
-  clearTimeout(window.__reelRC); window.__reelRC = setTimeout(recenter, 200);
+  setSel(Math.max(0, Math.min(gridList.length-1, gridSel+dir)));
 };
 window.__reelSet = function(){ if($('svcWheel').classList.contains('show')) setFromWheel(); };
 
-const swWin=$('svcWin');
-swWin.addEventListener('pointerdown',e=>{ swDragging=true; swMoved=false; swStartY=e.clientY; swBaseY=reelY;
-  setReelY(reelY,false); try{ swWin.setPointerCapture(e.pointerId); }catch(_){} });
-swWin.addEventListener('pointermove',e=>{ if(!swDragging) return; const dy=e.clientY-swStartY;
-  if(Math.abs(dy)>4) swMoved=true; setReelY(swBaseY+dy,false); });
-swWin.addEventListener('pointerup',e=>{ if(!swDragging) return; swDragging=false;
-  const lim=reelLen*SW_COPIES-1;
-  if(!swMoved){
-    // tap a logo to roll it to the centre
-    const rect=swWin.getBoundingClientRect();
-    const idx=Math.max(0,Math.min(lim, Math.floor(((e.clientY-rect.top)-reelY)/SW_ITEM)));
-    setReelY(reelIdxToY(idx),true,260); setTimeout(recenter,270); return;
-  }
-  // released after a drag → snap to the nearest row
-  const idx=Math.max(0,Math.min(lim, Math.round(SW_C - reelY/SW_ITEM)));
-  setReelY(reelIdxToY(idx),true,200); setTimeout(recenter,210);
-});
-swWin.addEventListener('pointercancel',()=>{ swDragging=false; });
+// Tap a tile to highlight it; SET (or the click-wheel confirm) commits.
+$('svcGrid').addEventListener('click',e=>{ const t=e.target.closest('.svctile'); if(!t) return;
+  e.stopPropagation(); setSel(+t.dataset.i); });
 
 $('svcSet').onclick=e=>{ e.stopPropagation(); setFromWheel(); };
 $('svcCancel').onclick=e=>{ e.stopPropagation(); closeWheel(); };
