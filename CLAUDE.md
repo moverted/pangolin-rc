@@ -3,6 +3,8 @@
 > **What this is.** The content-free mechanical spine for pangolinRC: the actors, state machine, lifecycle, control surfaces, and access rules that govern how a payload moves from *submitted* to *revealed* to *revoked*. Everything domain-specific (subject matter, labels, copy, links, endpoints, and policy defaults) is intentionally left out and marked as a `SEAM`. This document describes *mechanism*; instances supply *content and policy*.
 >
 > **What this is NOT.** Not a database schema, not wiring, not the build for any one product. Connections and tables are deliberately deferred — the seams below mark exactly where they attach.
+>
+> **iOS wrapper work** (Capacitor native shell) is governed by [`capacitor-integration-spec.md`](capacitor-integration-spec.md) at the repo root.
 
 ---
 
