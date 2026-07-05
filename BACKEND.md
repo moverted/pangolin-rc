@@ -13,6 +13,24 @@ Entry format:
 
 ---
 
+## 2026-07-04 — Pierre tasteBlock: films get recency + progress
+- Bug: "recall did not pull up the current movie" — the data was fine
+  (verified via `/profile/:email/titles`: all films present, titles join
+  intact), but tasteBlock flattened every film to "(film, started|watched)".
+  With six films sitting in `started`, Pierre couldn't tell tonight's watch
+  from one parked weeks ago.
+- `src/handlers/pierre.ts` tasteBlock: query now also selects
+  `wt.updated_at` and summed `watch_episode.minute`; film lines render
+  watched / "mid-watch, ~N min in" / started / on-the-list, and every line
+  (shows too) gets a coarse recency suffix (today / yesterday / Nd / Nw).
+  Block header tells Pierre a fresh started/mid-watch film is live NOW.
+- Read-only queries on existing tables; no schema change, no new routes.
+- `npx tsc --noEmit` clean. Not deployed from this session (no wrangler auth
+  in sandbox) — Ted deploys with a message per rules.
+- Same session, client side: `cube_pierre_face.html` journalContext() now
+  drops pg_journal notes older than 45 days (needs a Pages deploy to go
+  live; committed as 517f0f6 on `streamer-logo-grid`).
+
 ## 2026-07-03 — Pierre: TMDB tools + genre fluency
 - `src/handlers/pierre.ts`: the chat handler is now an agentic loop (max 3
   tool round-trips). Three model-invoked tools, server-side only, no new

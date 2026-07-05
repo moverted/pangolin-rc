@@ -100,10 +100,13 @@ async function tasteBlock(env: Env, email: string): Promise<string> {
     // one was replaced big-bang and any surviving copy holds stale rows.
     const rs = await env.DB.prepare(
       `SELECT t.name AS show_name, t.kind AS kind, wt.status AS status,
-              wt.current_episode_id AS cur_ep,
+              wt.current_episode_id AS cur_ep, wt.updated_at AS updated_at,
               (SELECT COUNT(*) FROM watch_episode we
                 WHERE we.user_email = wt.user_email
-                  AND we.title_id = wt.title_id AND we.done = 1) AS watched
+                  AND we.title_id = wt.title_id AND we.done = 1) AS watched,
+              (SELECT COALESCE(SUM(we.minute),0) FROM watch_episode we
+                WHERE we.user_email = wt.user_email
+                  AND we.title_id = wt.title_id) AS minutes
          FROM watch_title wt
          JOIN titles t ON t.title_id = wt.title_id
         WHERE wt.user_email = ?1 AND t.name IS NOT NULL
@@ -116,7 +119,9 @@ async function tasteBlock(env: Env, email: string): Promise<string> {
         kind: string;
         status: string | null;
         cur_ep: string | null;
+        updated_at: number | null;
         watched: number;
+        minutes: number;
       }>();
     const rows = rs.results || [];
     if (!rows.length)
@@ -125,16 +130,37 @@ async function tasteBlock(env: Env, email: string): Promise<string> {
         NUDGE
       );
 
+    // Coarse recency so "what am I watching right now" is answerable: a film
+    // touched today reads very differently from one parked three weeks ago.
+    const now = Date.now();
+    const ago = (ts: number | null): string => {
+      if (!ts) return '';
+      const d = Math.floor((now - ts) / 86400000);
+      if (d <= 0) return ', today';
+      if (d === 1) return ', yesterday';
+      if (d < 7) return `, ${d} days ago`;
+      if (d < 30) return `, ${Math.floor(d / 7)}w ago`;
+      return ', a while back';
+    };
     const lines = rows.map((r) => {
-      if (r.kind === 'movie') return `${r.show_name} (film, ${r.watched ? 'watched' : 'started'})`;
+      if (r.kind === 'movie') {
+        const state = r.watched
+          ? 'watched'
+          : r.minutes > 0
+            ? `mid-watch, ~${r.minutes} min in`
+            : r.status === 'current'
+              ? 'started'
+              : 'on the list';
+        return `${r.show_name} (film, ${state}${ago(r.updated_at)})`;
+      }
       // Resume pointer looks like 'tvmaze:81110:s2e4' — parse the position.
       const m = r.cur_ep ? /:s(\d+)e(\d+)$/i.exec(r.cur_ep) : null;
       const at = m ? `, at S${m[1]}E${m[2]}` : '';
       const st = r.status ? `, ${r.status}` : '';
-      return `${r.show_name} (${r.watched} eps in${at}${st})`;
+      return `${r.show_name} (${r.watched} eps in${at}${st}${ago(r.updated_at)})`;
     });
     let block =
-      'THIS PERSON\'S REAL LOG (from the product, most recent first — ground truth for their taste and where they are in each show. Recommend from it, never recite it back as a list, and never spoil anything past their logged position):\n- ' +
+      'THIS PERSON\'S REAL LOG (from the product, most recent first — ground truth for their taste and where they are in each show or film. A film marked started/mid-watch with a fresh timestamp is what they are watching RIGHT NOW or just paused; treat it as live. Recommend from this log, never recite it back as a list, and never spoil anything past their logged position):\n- ' +
       lines.join('\n- ');
 
     // Their own words: after-screening reflections + in-episode comment
