@@ -665,6 +665,10 @@ let t = 0;
       // edge-on (dot ≤ 0.06), which are ≤6% opaque: a frame of stale transform there
       // is invisible. This trims the mid-spin composite spike that can crash the GPU.
       if (!active && dot > 0.06) {
+        // Riding the cube again → back to the natural IFRAME_SZ box the
+        // matrix3d projection is solved against (the locked pin below may
+        // have resized it).
+        if (cfg.frame.style.width) { cfg.frame.style.width = ''; cfg.frame.style.height = ''; }
         const pts = cfg.corners.map(c => {
           _fW.copy(c).applyQuaternion(cube.quaternion).add(cube.position);
           _fP.copy(_fW).project(camera);
@@ -700,28 +704,34 @@ let t = 0;
     const cfg = FACE_OVERLAYS[activeFace];
     if (cfg && cfg.frame) {
       const margin = 10;
-      let size, scale, x, y;
+      let size, x, y;
       if (kbActive && vv) {                       // keyboard up (portrait): top of the visible band
         size  = Math.min(vv.width, vv.height) - margin * 2;
-        scale = size / IFRAME_SZ;
         x = (vv.offsetLeft || 0) + (vv.width - size) / 2;
         y = vv.offsetTop + margin;
       } else if (vv && ORI === 0) {               // portrait: TOP stage; console band reserved below
         const cH = Math.min(CONSOLE_H, vv.height * 0.44);     // for the wheel (capped on short screens)
         const availH = vv.height - cH;
         size  = Math.min(vv.width, availH) - margin * 2;      // keep square; fit the top band
-        scale = size / IFRAME_SZ;
         x = (vv.offsetLeft || 0) + (vv.width - size) / 2;
         y = (vv.offsetTop  || 0) + (availH - size) / 2;        // centered in the top stage
       } else {                                    // landscape / no visualViewport: logical viewport
         const cH = Math.min(CONSOLE_H, VH * 0.44);
         const availH = VH - cH;
         size  = Math.min(VW, availH) - margin * 2;
-        scale = size / IFRAME_SZ;
         x = (VW - size) / 2;
         y = (availH - size) / 2;
       }
-      cfg.frame.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+      // Pin at REAL pixel size, not scale(): iOS taps survive a CSS-scaled
+      // iframe but touch-scrolling inside one does not (the Pierre log's
+      // dead scroll). Sizing the box and translating only keeps native
+      // momentum scroll alive — and renders the face sharp instead of a
+      // 480px layout stretched to fit. The projection path restores the
+      // natural IFRAME_SZ box when the face rides the cube again.
+      const px = Math.round(size) + 'px';
+      const f = cfg.frame;
+      if (f.style.width !== px) { f.style.width = px; f.style.height = px; }
+      f.style.transform = `translate(${x}px, ${y}px)`;
       cfg._tx = '';                               // force projection to re-apply when unlocked
     }
   }

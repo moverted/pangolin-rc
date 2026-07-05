@@ -70,6 +70,7 @@
   .log{
     position:relative;z-index:2;
     flex:1;overflow-y:auto;
+    -webkit-overflow-scrolling:touch;   /* iOS momentum scroll, esp. inside the wrapper */
     padding:8px 16px 120px;   /* bottom clearance keeps text above Pierre */
     display:flex;flex-direction:column;gap:12px;
     scrollbar-width:thin;scrollbar-color:var(--line) transparent;
@@ -523,6 +524,25 @@
   // Clancy films together and they pick the unit they actually meant.
   async function resolveAnyName(text){
     showTyping();
+    // The log wins across both worlds: an exact title on their list skips the spread.
+    try{
+      const mineS=logLookup(await memberLog(), text, 'show');
+      const mineM=logLookup(_logCache||[], text, 'movie');
+      if(mineS && !mineM && /^tvmaze:\d+$/.test(mineS.title_id||'')){
+        const r=await fetch('https://api.tvmaze.com/shows/'+mineS.title_id.slice(7));
+        const show=r.ok?await r.json():null;
+        if(show && show.id){ clearTyping(); rememberLogRow(mineS); resolveShow(show); return; }
+      } else if(mineM && !mineS && /^tmdb:\d+$/.test(mineM.title_id||'')){
+        const id=Number(mineM.title_id.slice(5));
+        let card=null;
+        try{ const r=await fetch(`${API}/tmdb/movie/`+id); if(r.ok) card=(await r.json()).movie; }catch(_){}
+        clearTyping();
+        handoffMovie(card||{id:id, title:mineM.name, year:(mineM.premiered||'').slice(0,4),
+          poster:mineM.poster, overview:mineM.summary, runtime:null});
+        return;
+      }
+      // both a show AND a film with this exact name on the log → fall through to the spread
+    }catch(_){}
     const sP = fetch('https://api.tvmaze.com/search/shows?q='+encodeURIComponent(text))
       .then(r=>r.ok?r.json():[]).catch(()=>null);
     const mP = fetch(`${API}/tmdb/search?q=`+encodeURIComponent(text))
@@ -563,8 +583,47 @@
       (h.name&&show.name&&h.name.toLowerCase()===show.name.toLowerCase()))||null;
   }
 
+  /* ---- The log wins -----------------------------------------------------------
+     A "put it on" / "continue watching" handoff should reach for the show or film
+     already ON their list before searching the world — otherwise "Hacks" runs the
+     new-show flow and disambiguates against every Hacks ever made. */
+  let _logCache=null;
+  async function memberLog(){
+    if(_logCache) return _logCache;
+    const em=pgSession(); if(!em) return (_logCache=[]);
+    try{ const r=await fetch(`${API}/profile/${encodeURIComponent(em)}/titles`);
+      _logCache = r.ok ? ((await r.json()).titles||[]) : [];
+    }catch(_){ _logCache=[]; }
+    return _logCache;
+  }
+  function logLookup(list, name, kind){
+    const q=String(name||'').trim().toLowerCase(); if(!q) return null;
+    // rows arrive most-recent-first from the worker; first hit = freshest
+    return list.find(t=>t && t.kind===kind && (t.name||'').trim().toLowerCase()===q)||null;
+  }
+  // Let resolveShow see the log row's position/bucket, so it offers "jump back in
+  // at S1 E3" instead of treating a logged show as new.
+  function rememberLogRow(t){
+    const id=Number(String(t.title_id||'').replace(/^tvmaze:/,''))||null;
+    if(!id || addHistory.some(h=>h.tvmazeId===id)) return;
+    addHistory.push({tvmazeId:id, name:t.name, bucket:t.status,
+      stopped:t.status==='stopped', watched:t.watched||0,
+      forceCompleted:t.status==='completed',
+      lastWatched:(t.last_season!=null)?{season:t.last_season, number:t.last_number}:null});
+  }
+
   async function resolveShowName(text){
     showTyping();
+    // The log wins: a series already on their list resolves straight to it, with
+    // its resume position — no disambiguating against the world's other Hackses.
+    try{
+      const mine=logLookup(await memberLog(), text, 'show');
+      if(mine && /^tvmaze:\d+$/.test(mine.title_id||'')){
+        const r=await fetch('https://api.tvmaze.com/shows/'+mine.title_id.slice(7));
+        const show=r.ok?await r.json():null;
+        if(show && show.id){ clearTyping(); rememberLogRow(mine); resolveShow(show); return; }
+      }
+    }catch(_){ /* log unreachable → fall through to the world search */ }
     let results=[];
     try{ const r=await fetch('https://api.tvmaze.com/search/shows?q='+encodeURIComponent(text));
       results = r.ok ? await r.json() : []; }
@@ -652,6 +711,19 @@
   // FILM handoff: TMDB instead of TVmaze, single unit, loads via the movie payload.
   async function resolveMovieName(text){
     showTyping();
+    // The log wins here too: a film on their list goes straight to the screen.
+    try{
+      const mine=logLookup(await memberLog(), text, 'movie');
+      if(mine && /^tmdb:\d+$/.test(mine.title_id||'')){
+        const id=Number(mine.title_id.slice(5));
+        let card=null;
+        try{ const r=await fetch(`${API}/tmdb/movie/`+id); if(r.ok) card=(await r.json()).movie; }catch(_){}
+        clearTyping();
+        handoffMovie(card||{id:id, title:mine.name, year:(mine.premiered||'').slice(0,4),
+          poster:mine.poster, overview:mine.summary, runtime:null});
+        return;
+      }
+    }catch(_){ /* log unreachable → fall through to the world search */ }
     let results=[];
     try{ const r=await fetch(`${API}/tmdb/search?q=`+encodeURIComponent(text));
       results = r.ok ? ((await r.json()).results||[]) : []; }
