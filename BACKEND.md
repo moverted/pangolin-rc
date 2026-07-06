@@ -13,6 +13,26 @@ Entry format:
 
 ---
 
+## 2026-07-05 — Remote grows a nav set (D-pad / OK / home)
+- `src/handlers/remote.ts`: CMDS expanded from the four transport commands to
+  add `up, down, left, right, select, home`. No route changes, no schema
+  changes — same POST /remote/cmd/:code validation, same KV queue.
+- Client (Pages, same session): the wheel is now a full TV remote while a
+  real device is selected — ring = D-pad (axis toggle ↕/↔ in the wheel's
+  lower-left corner, persisted as pg_wheel_axis), SELECT tap = OK,
+  long-press = home, HOME button lower-right; transport buttons at the
+  cardinal points landed earlier today, play/pause mirrored into the Log
+  face's START/LOG PARTIAL/CONTINUE.
+- `bridge/firetv.mjs`: keycodes for the nav set (19/20/21/22/23/3); adb
+  connect failures are now detected from output text (exit code lies) and
+  never cached, keyevent errors reported + connection evicted for retry.
+  `bridge/webos.mjs`: UP/DOWN/LEFT/RIGHT/ENTER/HOME button names added.
+  **Bridge must be restarted** to pick up new keycodes.
+- Deploys needed: Worker (`wrangler deploy`) for the new CMDS — old Worker
+  409s the nav commands — plus a Pages deploy for the wheel.
+- `npx tsc --noEmit` clean. Not deployed from this session; Ted deploys
+  with a message per rules.
+
 ## 2026-07-04 — Pierre tasteBlock: films get recency + progress
 - Bug: "recall did not pull up the current movie" — the data was fine
   (verified via `/profile/:email/titles`: all films present, titles join

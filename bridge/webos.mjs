@@ -19,10 +19,12 @@ import { dirname, join } from 'node:path';
 
 const KEY_STORE = join(dirname(fileURLToPath(import.meta.url)), '.webos-keys.json');
 
-// Our four commands → pointer-socket button names. webOS has no play/pause
-// *toggle*, so `play` sends PLAY; a dedicated pause would be a separate button
-// if the lower-third grows one.
-const BUTTONS = { rw: 'REWIND', ff: 'FASTFORWARD', back: 'BACK', play: 'PLAY' };
+// Commands → pointer-socket button names: transport + the wheel's nav set
+// (D-pad / OK / home). webOS has no play/pause *toggle*, so `play` sends PLAY;
+// a dedicated pause would be a separate button if the lower-third grows one.
+const BUTTONS = { rw: 'REWIND', ff: 'FASTFORWARD', back: 'BACK', play: 'PLAY',
+                  up: 'UP', down: 'DOWN', left: 'LEFT', right: 'RIGHT',
+                  select: 'ENTER', home: 'HOME' };
 
 const REGISTER_TIMEOUT_MS = 60_000;   // long enough to walk over and accept the prompt
 const REQUEST_TIMEOUT_MS  = 8_000;

@@ -3,7 +3,7 @@
 // cube directly: it reads focus + reaches the open face's document through the
 // CubeShell interface it imports below, then drives that face's own content
 // (scroll + the SELECT highlight/dialog). See the cube map in CLAUDE.md.
-import { getFocus, getActiveDoc, FACE_INDEX } from './cube_shell.js';
+import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey } from './cube_shell.js';
 
 // ─── iPod-style click wheel: the ring scrolls the open face; the four card actions
 // (WATCH top / SHARE left / STOP right / SELECT center) drive the open show by
@@ -171,14 +171,6 @@ import { getFocus, getActiveDoc, FACE_INDEX } from './cube_shell.js';
   //    turns it back and forth). SELECT confirms; long-press cancels. ──
   function activeDialog(doc){
     if(!doc) return null;
-    // Pierre reflection overlay (LOG face, end of an episode): the ring scrolls
-    // the little chat, SELECT is the mic (start/stop), long-press closes.
-    if(doc.querySelector('#refl.show'))
-      return { type:'scroll', sc(){ return doc.querySelector('#reflChat'); },
-               confirm(){ const m = doc.querySelector('#reflMic');
-                 if(m && m.offsetParent) { m.click(); return; }
-                 const s = doc.querySelector('#reflSend'); if(s && s.offsetParent) s.click(); },
-               cancel(){ const x = doc.querySelector('#reflX'); if(x) x.click(); } };
     if(doc.querySelector('#epSheet.show'))
       return { type:'list', items(){ return Array.prototype.slice.call(doc.querySelectorAll('#epSheetGrid .epchip'))
                  .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0); },
@@ -200,6 +192,21 @@ import { getFocus, getActiveDoc, FACE_INDEX } from './cube_shell.js';
     if(cur < 0) cur = dir > 0 ? -1 : 0;
     placeHL(doc, items[(cur + dir + items.length) % items.length]); tick(8);
   }
+
+  // ── Device-remote mode: while a real TV is selected (remoteActive), the ring
+  //    is its D-pad and SELECT is OK (long-press = home). The axis toggle in the
+  //    wheel's lower-left corner flips what a ring notch sends: ↕ up/down (rows,
+  //    lists) or ↔ left/right (within a row). Persisted so it survives reloads. ──
+  let axisH = false;
+  try { axisH = localStorage.getItem('pg_wheel_axis') === 'h'; } catch(_){}
+  const axisBtn = document.getElementById('wbtn-axis');
+  function paintAxis(){ if(axisBtn) axisBtn.textContent = axisH ? '↔' : '↕'; }
+  paintAxis();
+  if(axisBtn) axisBtn.addEventListener('click', ()=>{
+    axisH = !axisH;
+    try { localStorage.setItem('pg_wheel_axis', axisH ? 'h' : 'v'); } catch(_){}
+    paintAxis(); tick(10);
+  });
 
   const SCROLL_PER_REV = 720;          // px scrolled per full finger revolution
   const STEP_NOTCH = 0.95;             // radians of rotation per highlight step (~54°) — bigger = less sensitive
@@ -226,6 +233,10 @@ import { getFocus, getActiveDoc, FACE_INDEX } from './cube_shell.js';
       stepAccum += d;
       while(stepAccum >=  STEP_NOTCH){ dialogStep(activeDoc(), dlg, +1); stepAccum -= STEP_NOTCH; }
       while(stepAccum <= -STEP_NOTCH){ dialogStep(activeDoc(), dlg, -1); stepAccum += STEP_NOTCH; }
+    } else if(remoteActive()){                           // a real TV is selected → ring is its D-pad
+      stepAccum += d;                                    // CW = down/right, CCW = up/left (per axis toggle)
+      while(stepAccum >=  STEP_NOTCH){ remoteKey(axisH ? 'right' : 'down'); tick(8); stepAccum -= STEP_NOTCH; }
+      while(stepAccum <= -STEP_NOTCH){ remoteKey(axisH ? 'left'  : 'up');   tick(8); stepAccum += STEP_NOTCH; }
     } else if(selectMode){                               // ring drives the highlight, notch by notch
       stepAccum += d;
       while(stepAccum >=  STEP_NOTCH){ moveSelect(+1); stepAccum -= STEP_NOTCH; }   // clockwise → next/down
@@ -245,36 +256,25 @@ import { getFocus, getActiveDoc, FACE_INDEX } from './cube_shell.js';
     let holdT = 0, held = false;
     center.addEventListener('pointerdown', e=>{
       primeAudio();                                      // unlock iOS audio inside the gesture
-      if(!getFocus().locked) return;
+      if(!getFocus().locked && !remoteActive()) return;  // remote mode works even in cube nav
       held = false;
-      holdT = setTimeout(()=>{ held = true;              // long-press = cancel (dialogue → select-mode)
-        const dlg = activeDialog(activeDoc());
-        if(dlg){ dlg.cancel(); hideHL(activeDoc()); } else if(selectMode){ exitSelect(false); }
+      holdT = setTimeout(()=>{ held = true;              // long-press = cancel dialogue / TV home / exit select
+        const dlg = getFocus().locked ? activeDialog(activeDoc()) : null;
+        if(dlg){ dlg.cancel(); hideHL(activeDoc()); }
+        else if(remoteActive()){ remoteKey('home'); tick(18); }   // TV home from anywhere
+        else if(selectMode){ exitSelect(false); }
       }, 450);
       e.preventDefault();
     });
     const stop = ()=>{ if(holdT){ clearTimeout(holdT); holdT = 0;
-      if(!held){                                         // tap = confirm dialogue / toggle select / activate
-        const dlg = activeDialog(activeDoc());
+      if(!held){                                         // tap = confirm dialogue / TV OK / toggle select
+        const dlg = getFocus().locked ? activeDialog(activeDoc()) : null;
         if(dlg){ dlg.confirm(); tick(18); hideHL(activeDoc()); }
+        else if(remoteActive()){ remoteKey('select'); tick(18); } // TV OK
         else selectMode ? exitSelect(true) : enterSelect();
       } } };
     center.addEventListener('pointerup', stop);
     center.addEventListener('pointercancel', ()=>{ if(holdT){ clearTimeout(holdT); holdT = 0; } });
     center.addEventListener('pointerleave', ()=>{ if(holdT){ clearTimeout(holdT); holdT = 0; } });
-
-    // Center label mirror: while the reflection overlay is up, SELECT becomes the
-    // mic (and the mic's countdown). The face drives it by setting data-count on
-    // #refl; the wheel just mirrors. Cheap poll, no new export surface.
-    const centerDefault = center.textContent;
-    setInterval(()=>{
-      let want = centerDefault;
-      if(getFocus().locked){
-        const doc = activeDoc();
-        const r = doc && doc.querySelector('#refl.show');
-        if(r) want = r.dataset.count || '🎙';
-      }
-      if(center.textContent !== want) center.textContent = want;
-    }, 350);
   }
 })();

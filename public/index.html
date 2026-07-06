@@ -130,6 +130,10 @@
     #wheel .wbtn.bottom { bottom: 2px; left: 50%; margin-left: -24px; }
     #wheel .wbtn.left   { left: 2px;   top: 50%;  margin-top: -24px; }
     #wheel .wbtn.right  { right: 2px;  top: 50%;  margin-top: -24px; }
+    /* lower diagonals: axis toggle (bottom-left) + TV home (bottom-right) */
+    #wheel .wbtn.bl     { left: 30px;  bottom: 30px; }
+    #wheel .wbtn.br     { right: 30px; bottom: 30px; }
+    #wheel .wbtn.axis   { font-size: 17px; font-weight: 400; }
 
     /* ── console keyboard: swaps in for the wheel while typing ── */
     #console-kb {
@@ -458,6 +462,10 @@
         <path d="M3 5v14l11-7z"/><path d="M16 5h2.6v14H16zM20.4 5H23v14h-2.6z"/>
       </svg>
     </button>
+    <!-- lower diagonals: axis toggle flips what the ring drives on the TV
+         (↕ rows / ↔ within a row — clickwheel.js owns it); HOME goes home. -->
+    <button class="wbtn bl axis" id="wbtn-axis" aria-label="Ring direction">&#8597;</button>
+    <button class="wbtn br" id="wbtn-home" aria-label="TV home">HOME</button>
   </div>
 
   <!-- Console keyboard: replaces the wheel while a text field on the open face

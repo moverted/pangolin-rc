@@ -859,6 +859,7 @@ bindRemote('btn-back', 'back');
 bindRemote('wbtn-rw',   'rw');
 bindRemote('wbtn-ff',   'ff');
 bindRemote('wbtn-back', 'back');
+bindRemote('wbtn-home', 'home');   // bottom-right corner — the TV's home screen
 // Play/pause is more than a keypress: it drives the TV's play/pause toggle AND
 // mirrors the press into the Log face's START / LOG PARTIAL / CONTINUE button,
 // so the live watch timer starts and pauses in lockstep with the screen
@@ -1030,6 +1031,7 @@ document.getElementById('device-chip').addEventListener('click', () => cubeRotat
     else if (k === 'SYM')   { sym = !sym; shift = false; render(); }
     else if (k === 'BS')    { backspace(); }
     else if (k === 'ENTER') { enter(); }
+    else if (k === 'SPACE') { insert(' '); }   // the key is labeled SPACE; it types ' '
     else {
       insert(k.length === 1 && shift ? k.toUpperCase() : k);
       if (shift) { shift = false; render(); }
@@ -1637,6 +1639,10 @@ document.getElementById('textteam').addEventListener('click', () => {
 //   getActiveDoc() → the open face's Document (or null); FACE_OVERLAYS stays private
 //   FACE_INDEX     → canonical face-name → cube-index map (exported above)
 export function getFocus() { return { locked, face: activeFace }; }
+// Device-remote hooks for the wheel: while a real TV is selected the ring is its
+// D-pad and SELECT is OK/home — the wheel asks remoteActive() and fires remoteKey().
+export function remoteActive() { return capHasDevice(); }
+export function remoteKey(cmd) { sendKey(cmd); }
 export function getActiveDoc() {
   const cfg = FACE_OVERLAYS[activeFace];
   if (!cfg || !cfg.frame || !cfg.frame.contentWindow) return null;

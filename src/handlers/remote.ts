@@ -1,7 +1,9 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 
-const CMDS = ['rw', 'play', 'ff', 'back'] as const;
+// Transport (rw/play/ff/back) + navigation (D-pad, OK, home) — the wheel's ring
+// and SELECT drive the nav set when a real device is selected.
+const CMDS = ['rw', 'play', 'ff', 'back', 'up', 'down', 'left', 'right', 'select', 'home'] as const;
 type Cmd = typeof CMDS[number];
 
 export const remoteRoutes = new Hono<{ Bindings: Env }>();

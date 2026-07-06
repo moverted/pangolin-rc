@@ -35,10 +35,16 @@ const POLL_MS    = Number(process.env.POLL_MS ?? 150);
 
 // ADB key event codes for Fire TV
 const KEYCODES = {
-  rw:   89,   // KEYCODE_MEDIA_REWIND
-  play: 85,   // KEYCODE_MEDIA_PLAY_PAUSE
-  ff:   90,   // KEYCODE_MEDIA_FAST_FORWARD
-  back: 4,    // KEYCODE_BACK
+  rw:     89,   // KEYCODE_MEDIA_REWIND
+  play:   85,   // KEYCODE_MEDIA_PLAY_PAUSE
+  ff:     90,   // KEYCODE_MEDIA_FAST_FORWARD
+  back:   4,    // KEYCODE_BACK
+  up:     19,   // KEYCODE_DPAD_UP
+  down:   20,   // KEYCODE_DPAD_DOWN
+  left:   21,   // KEYCODE_DPAD_LEFT
+  right:  22,   // KEYCODE_DPAD_RIGHT
+  select: 23,   // KEYCODE_DPAD_CENTER (OK)
+  home:   3,    // KEYCODE_HOME
 };
 
 // Which protocol drives a given device, from its model/type string. Fire TV speaks
