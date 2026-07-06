@@ -57,16 +57,26 @@ async function adb(ip, args) {
 }
 
 // Connect to an ip once and remember it, so repeated keypresses don't re-handshake.
+// NOTE: `adb connect` exits 0 even when it fails ("failed to connect…" goes to
+// stdout) — so success is judged by the output text, never the exit code. A
+// failed ip is NOT cached: every later keypress retries and reports, instead of
+// dying silently against a connection that never existed.
 const connected = new Set();
 async function ensureConnected(ip) {
-  if (connected.has(ip)) return;
+  if (connected.has(ip)) return true;
   try {
-    const out = await run(`adb connect ${ip}:5555`);
-    console.log(`[adb] ${out.stdout.trim()}`);
+    const { stdout } = await run(`adb connect ${ip}:5555`);
+    const out = stdout.trim();
+    console.log(`[adb] ${out}`);
+    if (/failed|refused|unable|cannot/i.test(out)) {
+      console.error('      ADB said no — on the device: Settings → My Fire TV → Developer Options → ADB Debugging ON, then accept the debugging prompt on screen.');
+      return false;
+    }
     connected.add(ip);
+    return true;
   } catch (e) {
     console.error(`[adb] connect ${ip} failed: ${e.message}`);
-    console.error('      Make sure ADB debugging is on and the device accepted the connection prompt.');
+    return false;
   }
 }
 
@@ -96,9 +106,14 @@ async function poll() {
 
     const keycode = KEYCODES[data.cmd];
     if (keycode === undefined) return;
-    await ensureConnected(ip);
-    await adb(ip, `shell input keyevent ${keycode}`);
-    console.log(`[remote] ${data.cmd} → ${ip} (adb) keyevent ${keycode}`);
+    if (!(await ensureConnected(ip))) return;
+    try {
+      await adb(ip, `shell input keyevent ${keycode}`);
+      console.log(`[remote] ${data.cmd} → ${ip} (adb) keyevent ${keycode}`);
+    } catch (e) {
+      connected.delete(ip);   // stale handshake (reboot, sleep) — retry on the next press
+      console.error(`[remote] ${data.cmd} → ${ip} (adb) failed: ${String(e.message).split('\n')[0]}`);
+    }
   } catch {
     // network hiccup — next tick retries (and re-handshakes if adb dropped)
   }
