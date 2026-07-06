@@ -46,9 +46,10 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey } from './c
   // The active face's document, resolved by the shell (FACE_OVERLAYS stays private
   // to cube_shell.js). Null when nothing is open or the frame isn't ready.
   function activeDoc(){ return getActiveDoc(); }
-  // The scrollable region varies per face: WATCH .scroll, FEED .body, BROWSE .bscroll.
+  // The scrollable region varies per face: WATCH/LOG .scroll, FEED .body,
+  // BROWSE .bscroll, PIERRE .log (the chat pane).
   function scrollContainer(doc){
-    return doc.querySelector('.scroll, .body, .bscroll') || doc.scrollingElement || doc.body;
+    return doc.querySelector('.scroll, .body, .bscroll, .log') || doc.scrollingElement || doc.body;
   }
   function wheelScroll(dy){
     if(!getFocus().locked) return;                       // only acts on the OPEN face
