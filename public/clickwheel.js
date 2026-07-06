@@ -199,14 +199,19 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey } from './c
   //    D-pad and SELECT is OK (long-press = home). The axis toggle in the screen's
   //    lower-left corner flips what a ring notch sends: ↕ up/down (rows, lists)
   //    or ↔ left/right (within a row). Persisted so it survives reloads. ──
-  let axisH = false;
-  try { axisH = localStorage.getItem('pg_wheel_axis') === 'h'; } catch(_){}
+  const AXIS_MODES = ['v', 'h', 'off'];   // ↕ rows/lists · ↔ within a row · ⊘ ring sends nothing
+  let axisMode = 'v';
+  try { const a = localStorage.getItem('pg_wheel_axis'); if(AXIS_MODES.includes(a)) axisMode = a; } catch(_){}
   const axisBtn = document.getElementById('wbtn-axis');
-  function paintAxis(){ if(axisBtn) axisBtn.textContent = axisH ? '↔' : '↕'; }
+  function paintAxis(){
+    if(!axisBtn) return;
+    axisBtn.textContent = axisMode === 'h' ? '↔' : axisMode === 'off' ? '⊘' : '↕';
+    axisBtn.classList.toggle('off', axisMode === 'off');
+  }
   paintAxis();
   if(axisBtn) axisBtn.addEventListener('click', ()=>{
-    axisH = !axisH;
-    try { localStorage.setItem('pg_wheel_axis', axisH ? 'h' : 'v'); } catch(_){}
+    axisMode = AXIS_MODES[(AXIS_MODES.indexOf(axisMode) + 1) % AXIS_MODES.length];
+    try { localStorage.setItem('pg_wheel_axis', axisMode); } catch(_){}
     paintAxis(); tick(10);
   });
 
@@ -235,10 +240,10 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey } from './c
       stepAccum += d;
       while(stepAccum >=  STEP_NOTCH){ dialogStep(activeDoc(), dlg, +1); stepAccum -= STEP_NOTCH; }
       while(stepAccum <= -STEP_NOTCH){ dialogStep(activeDoc(), dlg, -1); stepAccum += STEP_NOTCH; }
-    } else if(!getFocus().locked && remoteActive()){     // cube view + a real TV → ring is its D-pad
-      stepAccum += d;                                    // CW = down/right, CCW = up/left (per axis toggle)
-      while(stepAccum >=  STEP_NOTCH){ remoteKey(axisH ? 'right' : 'down'); tick(8); stepAccum -= STEP_NOTCH; }
-      while(stepAccum <= -STEP_NOTCH){ remoteKey(axisH ? 'left'  : 'up');   tick(8); stepAccum += STEP_NOTCH; }
+    } else if(!getFocus().locked && remoteActive() && axisMode !== 'off'){
+      stepAccum += d;   // cube view + a real TV → ring is its D-pad (⊘ mutes it; CW = down/right)
+      while(stepAccum >=  STEP_NOTCH){ remoteKey(axisMode === 'h' ? 'right' : 'down'); tick(8); stepAccum -= STEP_NOTCH; }
+      while(stepAccum <= -STEP_NOTCH){ remoteKey(axisMode === 'h' ? 'left'  : 'up');   tick(8); stepAccum += STEP_NOTCH; }
     } else if(selectMode){                               // ring drives the highlight, notch by notch
       stepAccum += d;
       while(stepAccum >=  STEP_NOTCH){ moveSelect(+1); stepAccum -= STEP_NOTCH; }   // clockwise → next/down
