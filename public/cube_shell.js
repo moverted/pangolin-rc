@@ -876,11 +876,17 @@ document.getElementById('wbtn-play').addEventListener('click', () => {
   const st  = doc && doc.getElementById('startEpBtn');
   if (st && !st.disabled) st.click();    // START / LOG PARTIAL / CONTINUE
 });
-// Show the wheel's transport buttons only while a real device is selected
+// Show the wheel's transport buttons — and the screen-corner remote chrome
+// (axis toggle + TV HOME) — only while a real device is selected
 // ("This Phone" / "No device" have nothing to drive — wheel stays clean).
 function updateWheelRemote() {
+  const on = capHasDevice();
   const w = document.getElementById('wheel');
-  if (w) w.classList.toggle('rc', capHasDevice());
+  if (w) w.classList.toggle('rc', on);
+  for (const id of ['wbtn-axis', 'wbtn-home']) {
+    const b = document.getElementById(id);
+    if (b) b.classList.toggle('show', on);
+  }
 }
 
 // ── The play button launches whatever the Episode face has loaded, on its own

@@ -130,10 +130,27 @@
     #wheel .wbtn.bottom { bottom: 2px; left: 50%; margin-left: -24px; }
     #wheel .wbtn.left   { left: 2px;   top: 50%;  margin-top: -24px; }
     #wheel .wbtn.right  { right: 2px;  top: 50%;  margin-top: -24px; }
-    /* lower diagonals: axis toggle (bottom-left) + TV home (bottom-right) */
-    #wheel .wbtn.bl     { left: 30px;  bottom: 30px; }
-    #wheel .wbtn.br     { right: 30px; bottom: 30px; }
-    #wheel .wbtn.axis   { font-size: 17px; font-weight: 400; }
+    /* screen-corner remote chrome: axis toggle (bottom-left) + TV home
+       (bottom-right), flanking the wheel at the edges of the console band.
+       Same device-mode gating as the wheel buttons (.show from cube_shell.js);
+       hidden while the console keyboard swaps in. */
+    .wcorner {
+      display: none; position: absolute; z-index: 31;
+      bottom: max(84px, calc(env(safe-area-inset-bottom, 0px) + 60px));
+      width: 46px; height: 46px; padding: 0; border-radius: 50%;
+      border: 1px solid rgba(240,169,59,0.28); background: rgba(33,26,19,0.85);
+      color: rgba(240,169,59,0.92); font-family: 'JetBrains Mono', monospace, sans-serif;
+      font-size: 9.5px; font-weight: 700; letter-spacing: 0.08em;
+      align-items: center; justify-content: center; cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.05);
+    }
+    .wcorner.show { display: flex; }
+    .wcorner:active { transform: scale(0.9); color: #f3ebe0; }
+    .wcorner.sent { border-color: #e89f3d; color: #e89f3d; }
+    #wbtn-axis { left: 14px; font-size: 18px; font-weight: 400; }
+    #wbtn-home { right: 14px; }
+    #controls:has(#console-kb.show) .wcorner { display: none; }
 
     /* ── console keyboard: swaps in for the wheel while typing ── */
     #console-kb {
@@ -462,11 +479,13 @@
         <path d="M3 5v14l11-7z"/><path d="M16 5h2.6v14H16zM20.4 5H23v14h-2.6z"/>
       </svg>
     </button>
-    <!-- lower diagonals: axis toggle flips what the ring drives on the TV
-         (↕ rows / ↔ within a row — clickwheel.js owns it); HOME goes home. -->
-    <button class="wbtn bl axis" id="wbtn-axis" aria-label="Ring direction">&#8597;</button>
-    <button class="wbtn br" id="wbtn-home" aria-label="TV home">HOME</button>
   </div>
+
+  <!-- screen-corner remote chrome (device mode only): the axis toggle flips
+       what the ring drives on the TV (↕ rows / ↔ within a row — clickwheel.js
+       owns it); HOME goes to the TV's home screen. -->
+  <button class="wcorner" id="wbtn-axis" aria-label="Ring direction">&#8597;</button>
+  <button class="wcorner" id="wbtn-home" aria-label="TV home">HOME</button>
 
   <!-- Console keyboard: replaces the wheel while a text field on the open face
        holds focus. Face fields are tagged inputmode="none" so the OS keyboard
