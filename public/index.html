@@ -110,6 +110,69 @@
       display: flex; align-items: center; justify-content: center;
     }
     #wheel .wheel-center:active { transform: translate(-50%,-50%) scale(0.94); }
+    /* ── transport buttons at the wheel's cardinal points: BACK top, play/pause
+       bottom, rw left, ff right. Printed on the ring like iPod labels, but live
+       buttons. Shown ONLY while the remote points at a real device — #wheel.rc,
+       toggled by cube_shell.js (updateWheelRemote). ── */
+    #wheel .wbtn {
+      display: none; position: absolute; z-index: 2;
+      width: 48px; height: 48px; padding: 0; border: 0; border-radius: 50%;
+      background: transparent; cursor: pointer; -webkit-tap-highlight-color: transparent;
+      color: rgba(240,169,59,0.92); font-family: 'JetBrains Mono', monospace, sans-serif;
+      font-size: 9.5px; font-weight: 700; letter-spacing: 0.08em;
+      align-items: center; justify-content: center;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+    }
+    #wheel.rc .wbtn { display: flex; }
+    #wheel .wbtn:active { transform: scale(0.88); color: #f3ebe0; }
+    #wheel .wbtn.sent { color: #e89f3d; }
+    #wheel .wbtn.top    { top: 2px;    left: 50%; margin-left: -24px; }
+    #wheel .wbtn.bottom { bottom: 2px; left: 50%; margin-left: -24px; }
+    #wheel .wbtn.left   { left: 2px;   top: 50%;  margin-top: -24px; }
+    #wheel .wbtn.right  { right: 2px;  top: 50%;  margin-top: -24px; }
+
+    /* ── console keyboard: swaps in for the wheel while typing ── */
+    #console-kb {
+      display: none; width: min(440px, 96vw); min-height: 258px;
+      flex-direction: column; gap: 7px; justify-content: center;
+      touch-action: manipulation; -webkit-user-select: none; user-select: none;
+    }
+    #console-kb.show { display: flex; }
+    #console-kb .kb-row { display: flex; gap: 6px; justify-content: center; }
+    #console-kb .kb-key {
+      flex: 1 1 0; max-width: 44px; height: 46px; padding: 0;
+      border-radius: 9px; border: 1px solid rgba(240,169,59,0.22);
+      background: linear-gradient(135deg, #2c241b, #19140f);
+      color: #f3ebe0; font-family: 'JetBrains Mono', monospace, sans-serif;
+      font-size: 15px; font-weight: 600;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05);
+      cursor: pointer; -webkit-tap-highlight-color: transparent;
+    }
+    #console-kb .kb-key:active { transform: translateY(1px); background: #3a2f22; }
+    #console-kb .kb-key.wide  { max-width: 64px; font-size: 13px; color: rgba(240,169,59,0.92); }
+    #console-kb .kb-key.space { max-width: none; flex: 4 1 0; }
+    #console-kb .kb-key.on    { background: #f0a93b; color: #1a1206; border-color: #8a5a10; }
+    #console-kb .kb-key.enter { color: #f0a93b; }
+
+    /* ── Pierre mic: the designed mic, centered in the console-chrome row ── */
+    #pierre-mic {
+      display: none; position: absolute; left: 50%; transform: translateX(-50%);
+      bottom: 352px; z-index: 31;
+      width: 46px; height: 46px; border-radius: 50%;
+      border: 2px solid #f0a93b; background: rgba(240,169,59,0.2); color: #f0a93b;
+      align-items: center; justify-content: center; cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.15s, box-shadow 0.15s;
+    }
+    #pierre-mic.show { display: flex; }
+    #pierre-mic:active { transform: translateX(-50%) scale(0.94); }
+    #pierre-mic.rec { background: #f0a93b; color: #1a1206; border-color: #8a5a10;
+      box-shadow: 0 0 18px rgba(240,169,59,0.8); }
+    #pierre-mic.rec svg, #pierre-mic.busy svg { display: none; }
+    #pierre-mic #pierre-mic-count { display: none;
+      font-family: 'JetBrains Mono', monospace, sans-serif; font-size: 13px; font-weight: 700; }
+    #pierre-mic.rec #pierre-mic-count, #pierre-mic.busy #pierre-mic-count { display: block; }
 
     /* device + streamer indicator: what the play button launches, and where.
        Device comes from the Profile picker (pg_device); streamer from the show
@@ -117,7 +180,7 @@
     /* Console chrome flanks the click wheel: device indicator upper-LEFT, with the
        streamer stacked under it; the floating cube sits upper-RIGHT. */
     #device-chip {
-      display: none; position: absolute; left: 16px; bottom: 292px; z-index: 31;
+      display: none; position: absolute; left: 16px; bottom: 352px; z-index: 31;
       flex-direction: column; align-items: flex-start; gap: 3px; max-width: 42vw;
       padding: 7px 11px; border-radius: 12px;
       border: 1px solid #3a2f22; background: rgba(33,26,19,0.85);
@@ -135,7 +198,7 @@
 
     /* floating cube — back to cube nav, upper-right of the wheel */
     #wheel-cube {
-      display: none; position: absolute; right: 16px; bottom: 292px; z-index: 31;
+      display: none; position: absolute; right: 16px; bottom: 352px; z-index: 31;
       width: 46px; height: 46px; border: 0; background: rgba(10,12,16,0.55);
       border-radius: 13px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
       cursor: pointer; opacity: 0.85;
@@ -376,7 +439,46 @@
   <div id="wheel" aria-label="Control wheel">
     <div class="wheel-ring" id="wheelRing"></div>
     <button class="wheel-center" id="wheelCenter" aria-label="Select">SELECT</button>
+    <!-- transport buttons (cardinal points) — visible only while a real device is
+         selected (#wheel.rc). They sit above the ring in the stack, so a tap lands
+         on the button and never starts a ring-scroll. Wired in cube_shell.js. -->
+    <button class="wbtn top" id="wbtn-back" aria-label="Back">BACK</button>
+    <button class="wbtn left" id="wbtn-rw" aria-label="Rewind / step back">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+        <path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/>
+      </svg>
+    </button>
+    <button class="wbtn right" id="wbtn-ff" aria-label="Fast forward / step forward">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+        <path d="m6 18 8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
+      </svg>
+    </button>
+    <button class="wbtn bottom" id="wbtn-play" aria-label="Play / Pause">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+        <path d="M3 5v14l11-7z"/><path d="M16 5h2.6v14H16zM20.4 5H23v14h-2.6z"/>
+      </svg>
+    </button>
   </div>
+
+  <!-- Console keyboard: replaces the wheel while a text field on the open face
+       holds focus. Face fields are tagged inputmode="none" so the OS keyboard
+       never rises (and never pans the cube); the console types for itself.
+       Keys are built and driven by cube_shell.js. -->
+  <div id="console-kb" aria-label="Keyboard"></div>
+
+  <!-- Pierre mic: voice entry for the chat face. Tap → 10s capture (tap again to
+       stop early); the transcript lands in Pierre's input, ready to edit + send.
+       Sits centered between the device chip and the back-cube; visible only while
+       the console keyboard is up on PIERRE (never with the wheel). Driven by cube_shell.js. -->
+  <button id="pierre-mic" aria-label="Record a thought (10 seconds)">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M12 1a3 3 0 0 0-3 3v12a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+      <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+      <line x1="12" y1="19" x2="12" y2="23"></line>
+      <line x1="8" y1="23" x2="16" y2="23"></line>
+    </svg>
+    <span id="pierre-mic-count"></span>
+  </button>
 
   <div id="media-controls" style="display:none">
     <button class="media-btn" id="btn-rw" aria-label="Rewind">
@@ -410,10 +512,10 @@
 <!-- Persistent bug reporter. Lives OUTSIDE #app so it stays pinned to the screen
      corner across every view (the cube + every open face iframe). data-html2canvas-ignore
      keeps the widget out of its own screenshot. -->
-<button id="bug-btn" data-html2canvas-ignore aria-label="Report a bug" title="Report a bug">🐞</button>
+<button id="bug-btn" data-html2canvas-ignore aria-label="Report a bug" title="Report a bug"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2l1.88 1.88"/><path d="M14.12 3.88L16 2"/><path d="M9 7.13v-1a3 3 0 1 1 6 0v1"/><path d="M18 11a4 4 0 0 0-4-4h-4a4 4 0 0 0-4 4v3c0 3.3 2.7 6 6 6s6-2.7 6-6z"/><path d="M12 20v-9"/><path d="M6.53 9C4.6 8.8 3 7.1 3 5"/><path d="M6 13H2"/><path d="M3 21c0-2.1 1.7-3.9 3.8-4"/><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"/><path d="M22 13h-4"/><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/></svg></button>
 <div id="bug-modal" data-html2canvas-ignore>
   <div id="bug-card">
-    <h3>🐞 Report a bug</h3>
+    <h3>Report a bug</h3>
     <p class="sub" id="bug-where">What went wrong?</p>
     <img id="bug-shot" alt="screenshot preview">
     <div id="bug-shot-note">Couldn't grab a screenshot — your note will still send.</div>

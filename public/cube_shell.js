@@ -192,6 +192,24 @@ function snapToFace(fi) {
   snapQ.setFromEuler(SNAP_EULER[fi]);
   snapping = true;
   layout();   // re-evaluate rotation gating for the new face (keyboard vs not)
+  // Console chrome is per-face state and EVERY navigation path funnels through
+  // here (lock, rotateToFace, swipe-while-locked) — set it in one place so a
+  // swipe to/from Pierre can't strand the mic visible elsewhere.
+  if (locked) {
+    if (window._setWheelCube) window._setWheelCube(true);   // console back-cube on every open face
+    pierreMicSync();
+  }
+}
+
+// The Pierre mic accompanies TYPING, not the wheel: visible only while the
+// console keyboard is up on the chat face. Re-checked on every keyboard
+// show/hide and face snap.
+function pierreMicSync() {
+  const kb = document.getElementById('console-kb');
+  if (window._setPierreMic)
+    window._setPierreMic(locked && activeFace === PIERRE_FACE
+      && (!!(kb && kb.classList.contains('show'))
+          || !!(window._pierreMicBusy && window._pierreMicBusy())));   // a live capture holds its ground
 }
 
 function lock() {
@@ -210,7 +228,6 @@ function lock() {
   }
   if (fi === PIERRE_FACE) focusPierre();
   bounceFromEmptyWatch(fi);
-  if (window._setWheelCube) window._setWheelCube(fi !== PIERRE_FACE);   // console back-cube (not on keyboard face)
   canvas.style.opacity = '0';   // hide the cube behind the open face (no grey square in the top stage)
 }
 
@@ -220,6 +237,8 @@ function unlock() {
   locked = false;
   camTargetZ = 8.5;
   if (window._setWheelCube) window._setWheelCube(false);
+  if (window._kbHide) window._kbHide();   // leaving a face closes the console keyboard
+  if (window._setPierreMic) window._setPierreMic(false);
   canvas.style.opacity = '1';   // cube returns as the free-nav object
   hideFaceInfo();
   snapping = false; // release to free rotation
@@ -524,7 +543,41 @@ for (const cfg of Object.values(FACE_OVERLAYS)) {
   el.appendChild(frame);
   appEl.appendChild(el);
   cfg.el = el; cfg.frame = frame; cfg._op = 0; cfg._active = false; cfg._tx = '';
-  frame.addEventListener('load', () => { attachShellBack(frame); hideFaceCube(frame); });
+  frame.addEventListener('load', () => { attachShellBack(frame); attachConsoleKb(frame); });
+}
+
+// ── Console keyboard wiring (face side) ──────────────────────────────────────
+// The iOS keyboard pans the WKWebView, dragging the cube behind the open face —
+// so faces never raise it. Every text field inside a face iframe is tagged
+// inputmode="none" and, while one holds focus, the console's own mini-QWERTY
+// (#console-kb, built below) swaps in for the wheel. Same-origin injection —
+// one attach point, no face edits.
+// True while a console-keyboard (or Pierre-mic) tap is in flight: tapping the
+// parent document can blur the face iframe's field, and the field's focusout
+// must NOT read that as "done typing" — it re-focuses instead of hiding.
+let kbPressing = false;
+function attachConsoleKb(frame) {
+  let doc; try { doc = frame.contentWindow && frame.contentWindow.document; } catch (_) { return; }
+  if (!doc || doc.__kbAttached) return; doc.__kbAttached = true;
+  const SEL = 'input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]), '
+            + 'textarea, [contenteditable=""], [contenteditable="true"]';
+  const tag = el => { try { el.setAttribute('inputmode', 'none'); } catch (_) {} };
+  try { doc.querySelectorAll(SEL).forEach(tag); } catch (_) {}
+  doc.addEventListener('focusin', e => {
+    const el = e.target && e.target.closest ? e.target.closest(SEL) : null;
+    if (!el) return;
+    tag(el);   // late-added fields get tagged on first focus
+    if (window._kbShow) window._kbShow(el);
+  }, true);
+  doc.addEventListener('focusout', e => {
+    const el = e.target;
+    setTimeout(() => {   // let focus settle — field-to-field moves shouldn't flicker
+      if (kbPressing) { try { el.focus({ preventScroll: true }); } catch (_) {} return; }
+      const ae = doc.activeElement;
+      if (ae && ae.closest && ae.closest(SEL)) return;
+      if (window._kbHide) window._kbHide();
+    }, 50);
+  }, true);
 }
 
 // An open face is a same-origin iframe that captures every touch, so the shell's
@@ -533,24 +586,13 @@ for (const cfg of Object.values(FACE_OVERLAYS)) {
 // the cube — making double-tap a symmetric in/out transport. Pinch-back already
 // lives inside each face. Pierre is skipped: it owns its in-chat gestures and a
 // textarea double-tap is text-selection, not "exit".
-// The floating cube now lives in the console (next to the wheel), so hide each
-// face's own in-content .cubeback. Same-origin style injection — no face edits.
-function hideFaceCube(frame) {
-  try {
-    const doc = frame.contentWindow && frame.contentWindow.document;
-    if (!doc || doc.getElementById('__nofacecube')) return;
-    const s = doc.createElement('style');
-    s.id = '__nofacecube';
-    s.textContent = '.cubeback{display:none!important}';
-    (doc.head || doc.documentElement).appendChild(s);
-  } catch (_) {}
-}
-
+// The console's floating cube (#wheel-cube, next to the wheel) is THE exit on
+// every open face — faces carry no in-content back button of their own.
 function attachShellBack(frame) {
   let doc; try { doc = frame.contentWindow && frame.contentWindow.document; } catch (_) { return; }
   if (!doc) return;
   if (FACE_OVERLAYS[PIERRE_FACE] && frame === FACE_OVERLAYS[PIERRE_FACE].frame) return;
-  // Trunk-side faces have their own floating cube back-button — no double-tap-back.
+  // Trunk-side faces exit via the console back-cube — no double-tap-back.
   const NO_DBLTAP_BACK = [FACE_INDEX.feed, FACE_INDEX.log, FACE_INDEX.episodes, FACE_INDEX.join];
   if (NO_DBLTAP_BACK.some(fi => FACE_OVERLAYS[fi] && frame === FACE_OVERLAYS[fi].frame)) return;
   let last = 0, sx = 0, sy = 0;
@@ -579,10 +621,8 @@ function signalFace(cfg, active) {
 // the browser's keyboard pan can't slide it off the top of the screen.
 const PIERRE_FACE  = 2;
 const vv           = window.visualViewport;
-const controlsEl   = document.getElementById('controls');
 let   chatFocused  = false;  // set from cube_pierre_face.html via postMessage
 let   chatMode     = false;  // chatFocused + keyboard actually open
-let   _ctrlHidden  = false;  // are the media buttons currently hidden?
 let   _chatPrev    = false;  // last chatMode (to re-run layout when the keyboard toggles)
 
 // ─── animation loop ───────────────────────────────────────────────────────
@@ -636,19 +676,10 @@ let t = 0;
 
   if (chatMode !== _chatPrev) { _chatPrev = chatMode; layout(); }                 // keyboard toggle → re-gate rotation
 
-  // While the Pierre chat is selected, hide the media buttons so they sit
-  // underneath the chat instead of floating on top of it. The cube canvas and
-  // the unlock hint are hidden too: the iOS keyboard pans the page, which drags
-  // the 3D cube (the grey box) around behind the pinned chat. With the chat
-  // owning the screen, the cube serves no purpose — and exit still works via the
-  // in-iframe pinch / double-tap, which posts 'pangolin-back'.
-  if (pierreActive !== _ctrlHidden) {
-    controlsEl.style.opacity = pierreActive ? '0' : '';
-    controlsEl.style.pointerEvents = pierreActive ? 'none' : '';
-    canvas.style.visibility = pierreActive ? 'hidden' : '';
-    pinchHint.style.visibility = pierreActive ? 'hidden' : '';
-    _ctrlHidden = pierreActive;
-  }
+  // Pierre keeps the console like every other face. The old hide-everything
+  // special case existed because the iOS keyboard panned the page and dragged
+  // the cube behind the pinned chat — the console keyboard (inputmode="none"
+  // on face fields) means the OS keyboard never rises, so nothing pans.
 
   // Face overlays — perspective-correct matrix3d tracking. The real iframe rides
   // the cube face as it spins (looks identical in nav), but it is INERT there:
@@ -820,6 +851,37 @@ bindRemote('btn-rw',   'rw');
 bindRemote('btn-ff',   'ff');
 bindRemote('btn-back', 'back');
 
+// ── Wheel transport buttons ──────────────────────────────────────────────
+// The same commands live ON the wheel at its cardinal points — BACK top,
+// rw left, ff right, play/pause bottom — visible only while the remote points
+// at a real device (#wheel.rc, kept fresh by updateWheelRemote via
+// updateDeviceChip, which runs on every pg_device change / pageshow / return).
+bindRemote('wbtn-rw',   'rw');
+bindRemote('wbtn-ff',   'ff');
+bindRemote('wbtn-back', 'back');
+// Play/pause is more than a keypress: it drives the TV's play/pause toggle AND
+// mirrors the press into the Log face's START / LOG PARTIAL / CONTINUE button,
+// so the live watch timer starts and pauses in lockstep with the screen
+// (start/continue arms it; a press mid-watch commits a LOG PARTIAL — exactly
+// the pause semantics). The caption cursor freezes/resumes with it too.
+document.getElementById('wbtn-play').addEventListener('click', () => {
+  const btn = document.getElementById('wbtn-play');
+  btn.classList.add('sent');
+  setTimeout(() => btn.classList.remove('sent'), 180);
+  sendKey('play');                       // the TV's own play/pause toggle
+  if (capSession) capTogglePause();      // keep the caption cursor in lockstep
+  const cfg = FACE_OVERLAYS[FACE_INDEX.episodes];   // LOG face (historical name)
+  const doc = cfg && cfg.frame && cfg.frame.contentDocument;
+  const st  = doc && doc.getElementById('startEpBtn');
+  if (st && !st.disabled) st.click();    // START / LOG PARTIAL / CONTINUE
+});
+// Show the wheel's transport buttons only while a real device is selected
+// ("This Phone" / "No device" have nothing to drive — wheel stays clean).
+function updateWheelRemote() {
+  const w = document.getElementById('wheel');
+  if (w) w.classList.toggle('rc', capHasDevice());
+}
+
 // ── The play button launches whatever the Episode face has loaded, on its own
 // streamer. The Episode reports the show's service (from TVMaze's web channel /
 // network); we open a deep search for the show on that service. Without a
@@ -880,16 +942,185 @@ function updateDeviceChip() {
   const svc = currentEpisode ? streamerLabel(currentEpisode.service) : '';
   const launchable = !!(currentEpisode && currentEpisode.name && serviceLink(currentEpisode.service, currentEpisode.name));
   const kind = selectedDeviceKind();
-  // No device → plain "NO DEVICE" (no 🚫). Otherwise icon + device, streamer stacked under.
-  const devRow = kind === 'none'
-    ? '<span class="dc-dev">NO DEVICE</span>'
-    : '<span class="dc-ic">' + (kind === 'phone' ? '📱' : '📺') + '</span><span class="dc-dev">' + esc(dev) + '</span>';
+  // No device → plain "NO DEVICE"; otherwise just the device name (no icon),
+  // streamer stacked under.
+  const devRow = '<span class="dc-dev">' + (kind === 'none' ? 'NO DEVICE' : esc(dev)) + '</span>';
   chip.innerHTML = '<span class="dc-row">' + devRow + '</span>' +
     (launchable && svc ? '<span class="dc-svc">' + esc(svc) + '</span>' : '');
   chip.classList.toggle('dimmed', !(launchable && svc));
   chip.classList.add('show');
+  updateWheelRemote();   // wheel transport buttons track the same device selection
 }
 document.getElementById('device-chip').addEventListener('click', () => cubeRotateTo('profile'));
+
+// ── Console keyboard (console side) ──────────────────────────────────────────
+// Mini-QWERTY in the console band: shown by attachConsoleKb's focusin relay,
+// hidden on focusout/unlock. Keys write straight into the focused face field
+// (same-origin reference) and fire real input events so face listeners react;
+// ↵ dispatches a keydown Enter, which is what Pierre's chat submits on.
+(function initConsoleKb(){
+  const kb = document.getElementById('console-kb');
+  const wheelEl = document.getElementById('wheel');
+  if (!kb || !wheelEl) return;
+  const ABC = [
+    ['q','w','e','r','t','y','u','i','o','p'],
+    ['a','s','d','f','g','h','j','k','l'],
+    ['SHIFT','z','x','c','v','b','n','m','BS'],
+    ['SYM',',','SPACE','.','ENTER']];
+  const SYM = [
+    ['1','2','3','4','5','6','7','8','9','0'],
+    ['-','/',':',';','(',')','$','&','@'],
+    ['*','\'','"','?','!','#','%','BS'],
+    ['SYM',',','SPACE','.','ENTER']];
+  let target = null, shift = false, sym = false;
+  function render(){
+    kb.innerHTML = '';
+    (sym ? SYM : ABC).forEach(r => {
+      const row = document.createElement('div'); row.className = 'kb-row';
+      r.forEach(k => {
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'kb-key';
+        b.dataset.k = k;
+        if (k === 'SPACE')      { b.classList.add('space'); b.textContent = 'space'; }
+        else if (k === 'SHIFT') { b.classList.add('wide'); if (shift) b.classList.add('on'); b.textContent = '⇧'; }
+        else if (k === 'BS')    { b.classList.add('wide'); b.textContent = '⌫'; }
+        else if (k === 'ENTER') { b.classList.add('wide', 'enter'); b.textContent = '↵'; }
+        else if (k === 'SYM')   { b.classList.add('wide'); b.textContent = sym ? 'abc' : '?123'; }
+        else b.textContent = shift ? k.toUpperCase() : k;
+        row.appendChild(b);
+      });
+      kb.appendChild(row);
+    });
+  }
+  function fire(el){ try { el.dispatchEvent(new el.ownerDocument.defaultView.Event('input', { bubbles: true })); } catch (_) {} }
+  function insert(txt){
+    const el = target; if (!el) return;
+    if (el.isContentEditable) { try { el.ownerDocument.execCommand('insertText', false, txt); } catch (_) {} return; }
+    const v = el.value || '';
+    // email/number inputs reject the selection APIs → append instead
+    try { el.setRangeText(txt, el.selectionStart ?? v.length, el.selectionEnd ?? v.length, 'end'); }
+    catch (_) { el.value = v + txt; }
+    fire(el);
+  }
+  function backspace(){
+    const el = target; if (!el) return;
+    if (el.isContentEditable) { try { el.ownerDocument.execCommand('delete', false); } catch (_) {} return; }
+    const v = el.value || '';
+    try {
+      let s = el.selectionStart, en = el.selectionEnd;
+      if (s == null || en == null) throw 0;
+      if (s === en && s > 0) s--;
+      el.setRangeText('', s, en, 'end');
+    } catch (_) { el.value = v.slice(0, -1); }
+    fire(el);
+  }
+  function enter(){
+    const el = target; if (!el) return;
+    const W = el.ownerDocument.defaultView;
+    try { el.dispatchEvent(new W.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); } catch (_) {}
+  }
+  // pointerdown preventDefault keeps the face field focused while keys are
+  // tapped; kbPressing covers browsers that blur the iframe anyway (the field's
+  // focusout re-focuses instead of hiding — the cursor stays in the box).
+  kb.addEventListener('pointerdown', e => { e.preventDefault(); kbPressing = true; });
+  window.addEventListener('pointerup', () => { setTimeout(() => { kbPressing = false; }, 120); }, true);
+  kb.addEventListener('click', e => {
+    const b = e.target.closest('.kb-key'); if (!b || !target) return;
+    const k = b.dataset.k;
+    if (k === 'SHIFT') { shift = !shift; render(); return; }
+    else if (k === 'SYM')   { sym = !sym; shift = false; render(); }
+    else if (k === 'BS')    { backspace(); }
+    else if (k === 'ENTER') { enter(); }
+    else {
+      insert(k.length === 1 && shift ? k.toUpperCase() : k);
+      if (shift) { shift = false; render(); }
+    }
+    try { target.focus({ preventScroll: true }); } catch (_) {}   // caret stays in the box
+  });
+  window._kbShow = (el) => { target = el; shift = false; sym = false; render(); kb.classList.add('show'); wheelEl.style.display = 'none'; pierreMicSync(); };
+  window._kbHide = () => { target = null; kb.classList.remove('show'); wheelEl.style.display = ''; pierreMicSync(); };
+  render();
+})();
+
+// ── Pierre mic ────────────────────────────────────────────────────────────────
+// Voice entry for the chat face: tap → 10s capture (tap again to stop early),
+// the audio posts to /transcribe (persisted under the 'pierre-note' parking key,
+// like the old reflection's 'finale'), and the transcript lands in Pierre's
+// input ready to edit + send. Console chrome: centered between the device chip
+// and the back-cube; visible only while the console keyboard is up on the chat
+// face (never alongside the wheel) — see pierreMicSync().
+(function initPierreMic(){
+  const btn = document.getElementById('pierre-mic');
+  if (!btn) return;
+  const count = document.getElementById('pierre-mic-count');
+  let rec = null, chunks = [], timer = null, left = 0;
+  function pierreInput(){
+    try { return FACE_OVERLAYS[PIERRE_FACE].frame.contentWindow.document.getElementById('input'); }
+    catch (_) { return null; }
+  }
+  function cleanup(){
+    if (timer) { clearInterval(timer); timer = null; }
+    btn.classList.remove('rec'); count.textContent = '';
+  }
+  function abandon(){
+    cleanup(); btn.classList.remove('busy');
+    if (rec && rec.state !== 'inactive') {
+      rec.onstop = () => { try { rec.stream.getTracks().forEach(t => t.stop()); } catch (_) {} };
+      try { rec.stop(); } catch (_) {}
+    }
+  }
+  async function start(){
+    if (timer || btn.classList.contains('busy')) return;
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch (_) { const inp = pierreInput(); if (inp) inp.focus(); return; }   // no mic → keyboard
+    chunks = []; rec = new MediaRecorder(stream);
+    rec.ondataavailable = ev => chunks.push(ev.data);
+    rec.start();
+    left = 10; btn.classList.add('rec'); count.textContent = left + 's';
+    timer = setInterval(() => {
+      left--; count.textContent = Math.max(left, 0) + 's';
+      if (left <= 0) stop();
+    }, 1000);
+  }
+  function stop(){
+    cleanup();
+    if (!rec || rec.state === 'inactive') return;
+    rec.onstop = async () => {
+      try { rec.stream.getTracks().forEach(t => t.stop()); } catch (_) {}
+      const inp = pierreInput();
+      if (!chunks.length) { if (inp) inp.focus(); return; }
+      let email = ''; try { email = localStorage.getItem('pg_user') || ''; } catch (_) {}
+      btn.classList.add('busy'); count.textContent = '…';
+      let txt = '';
+      if (email) {
+        try {
+          const blob = new Blob(chunks, { type: (chunks[0] && chunks[0].type) || 'audio/webm' });
+          const fd = new FormData();
+          fd.append('audio', blob);
+          fd.append('episodeId', 'pierre-note');
+          fd.append('timestampMs', '0');
+          fd.append('userEmail', email);
+          const res = await fetch(`${API}/transcribe`, { method: 'POST', body: fd, mode: 'cors' });
+          if (res.ok) { const d = await res.json(); txt = ((d && d.transcription) || '').trim(); }
+        } catch (_) {}
+      }
+      btn.classList.remove('busy'); count.textContent = '';
+      if (inp) {
+        if (txt) {
+          inp.value = (inp.value ? inp.value + ' ' : '') + txt;
+          try { inp.dispatchEvent(new inp.ownerDocument.defaultView.Event('input', { bubbles: true })); } catch (_) {}
+        }
+        inp.focus();   // caret in the box; the console keyboard rises for the edit
+      }
+    };
+    try { rec.stop(); } catch (_) {}
+  }
+  // Don't let a mic tap blur the chat input (same guard as the keyboard keys).
+  btn.addEventListener('pointerdown', e => { e.preventDefault(); kbPressing = true; });
+  btn.addEventListener('click', () => { timer ? stop() : start(); });
+  window._pierreMicBusy = () => !!(timer || btn.classList.contains('busy'));
+  window._setPierreMic = (on) => { if (!on) abandon(); btn.classList.toggle('show', !!on); };
+})();
 
 // Console floating cube → back to cube nav. Shown only while a face is open.
 (function initWheelCube(){
@@ -1025,12 +1256,12 @@ function capEpisodeId(ep) {
   return 'tvmaze:' + ref + ':s' + (ep.season || 0) + 'e' + (ep.number || 0);
 }
 // Comments key on (show_id, episode_id) — the universal title key + the human
-// episode code (S01E01 / 🎬), matching how the Episode face stores them. The
+// episode code (S01E01, or the stored movie key), matching how the Episode face stores them. The
 // caption cue track keys differently (capEpisodeId), so this is its own builder.
 function capShowId(ep) { return ep && ep.tvmazeId ? String(ep.tvmazeId) : null; }
 function capEpCode(ep) {
   if (!ep) return null;
-  if (ep.kind === 'movie') return '🎬';
+  if (ep.kind === 'movie') return '🎬';   // stored data key (matches saved comments) — never rendered
   return 'S' + String(ep.season || 1).padStart(2, '0') + 'E' + String(ep.number || 0).padStart(2, '0');
 }
 function capEmail() { try { return localStorage.getItem('pg_user') || ''; } catch { return ''; } }
@@ -1148,7 +1379,7 @@ function capPlayCoview(clip) {
   if (!capSession) return;
   capSession.coPlaying = true;
   _capCoWho.textContent = clip.author || 'friend';
-  _capCoTxt.textContent = clip.transcription || '🔊';
+  _capCoTxt.textContent = clip.transcription || '(audio)';
   _capCoEl.classList.add('show');
   const a = new Audio(clip.audioUrl);
   capSession.coAudio = a;
@@ -1283,7 +1514,7 @@ document.getElementById('textteam').addEventListener('click', () => {
 });
 
 // ─── bug reporter ───────────────────────────────────────────────────────────
-// The 🐞 grabs a screenshot of the current view, opens a note, and files it to
+// The bug button grabs a screenshot of the current view, opens a note, and files it to
 // POST /bug-reports (screenshot → R2, row → D1 → Airtable triage grid). Anyone
 // may report; the screenshot is best-effort and never blocks sending the note.
 (() => {
@@ -1313,7 +1544,7 @@ document.getElementById('textteam').addEventListener('click', () => {
   }
   let shotBlob = null, h2cPromise = null;
 
-  // Lazy-load html2canvas only the first time the 🐞 is opened (off the critical path).
+  // Lazy-load html2canvas only the first time the bug reporter is opened (off the critical path).
   const loadH2C = () => (h2cPromise ||=
     import('https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/+esm').then(m => m.default || m));
 
@@ -1382,7 +1613,7 @@ document.getElementById('textteam').addEventListener('click', () => {
       if (shotBlob) fd.append('screenshot', shotBlob, 'screenshot.png');
       const res = await fetch(`${API}/bug-reports`, { method: 'POST', body: fd });
       if (!res.ok) throw new Error('http ' + res.status);
-      sendBtn.textContent = 'Thanks! 🐞';
+      sendBtn.textContent = 'Thanks!';
       setTimeout(closeModal, 900);
     } catch (err) {
       console.warn('bug send failed', err);
