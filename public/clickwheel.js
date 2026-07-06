@@ -193,10 +193,12 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey } from './c
     placeHL(doc, items[(cur + dir + items.length) % items.length]); tick(8);
   }
 
-  // ── Device-remote mode: while a real TV is selected (remoteActive), the ring
-  //    is its D-pad and SELECT is OK (long-press = home). The axis toggle in the
-  //    wheel's lower-left corner flips what a ring notch sends: ↕ up/down (rows,
-  //    lists) or ↔ left/right (within a row). Persisted so it survives reloads. ──
+  // ── Device-remote mode: the wheel drives what you're LOOKING AT. With an open
+  //    face, the ring scrolls it and SELECT works the highlight — unchanged. In
+  //    CUBE VIEW with a real TV selected (remoteActive), the ring is the TV's
+  //    D-pad and SELECT is OK (long-press = home). The axis toggle in the screen's
+  //    lower-left corner flips what a ring notch sends: ↕ up/down (rows, lists)
+  //    or ↔ left/right (within a row). Persisted so it survives reloads. ──
   let axisH = false;
   try { axisH = localStorage.getItem('pg_wheel_axis') === 'h'; } catch(_){}
   const axisBtn = document.getElementById('wbtn-axis');
@@ -233,7 +235,7 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey } from './c
       stepAccum += d;
       while(stepAccum >=  STEP_NOTCH){ dialogStep(activeDoc(), dlg, +1); stepAccum -= STEP_NOTCH; }
       while(stepAccum <= -STEP_NOTCH){ dialogStep(activeDoc(), dlg, -1); stepAccum += STEP_NOTCH; }
-    } else if(remoteActive()){                           // a real TV is selected → ring is its D-pad
+    } else if(!getFocus().locked && remoteActive()){     // cube view + a real TV → ring is its D-pad
       stepAccum += d;                                    // CW = down/right, CCW = up/left (per axis toggle)
       while(stepAccum >=  STEP_NOTCH){ remoteKey(axisH ? 'right' : 'down'); tick(8); stepAccum -= STEP_NOTCH; }
       while(stepAccum <= -STEP_NOTCH){ remoteKey(axisH ? 'left'  : 'up');   tick(8); stepAccum += STEP_NOTCH; }
@@ -258,20 +260,20 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey } from './c
       primeAudio();                                      // unlock iOS audio inside the gesture
       if(!getFocus().locked && !remoteActive()) return;  // remote mode works even in cube nav
       held = false;
-      holdT = setTimeout(()=>{ held = true;              // long-press = cancel dialogue / TV home / exit select
+      holdT = setTimeout(()=>{ held = true;              // long-press = cancel dialogue / exit select / TV home
         const dlg = getFocus().locked ? activeDialog(activeDoc()) : null;
         if(dlg){ dlg.cancel(); hideHL(activeDoc()); }
-        else if(remoteActive()){ remoteKey('home'); tick(18); }   // TV home from anywhere
-        else if(selectMode){ exitSelect(false); }
+        else if(getFocus().locked){ if(selectMode) exitSelect(false); }   // open face keeps its wheel
+        else if(remoteActive()){ remoteKey('home'); tick(18); }           // cube view → TV home
       }, 450);
       e.preventDefault();
     });
     const stop = ()=>{ if(holdT){ clearTimeout(holdT); holdT = 0;
-      if(!held){                                         // tap = confirm dialogue / TV OK / toggle select
+      if(!held){                                         // tap = confirm dialogue / toggle select / TV OK
         const dlg = getFocus().locked ? activeDialog(activeDoc()) : null;
         if(dlg){ dlg.confirm(); tick(18); hideHL(activeDoc()); }
-        else if(remoteActive()){ remoteKey('select'); tick(18); } // TV OK
-        else selectMode ? exitSelect(true) : enterSelect();
+        else if(getFocus().locked){ selectMode ? exitSelect(true) : enterSelect(); }  // open face keeps its wheel
+        else if(remoteActive()){ remoteKey('select'); tick(18); }                     // cube view → TV OK
       } } };
     center.addEventListener('pointerup', stop);
     center.addEventListener('pointercancel', ()=>{ if(holdT){ clearTimeout(holdT); holdT = 0; } });
