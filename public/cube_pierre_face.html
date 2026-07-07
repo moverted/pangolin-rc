@@ -173,10 +173,12 @@
     .msg{animation:none;}
     .typing span{animation:none;opacity:.6;}
   }
+
 </style>
 </head>
 <body>
   <main class="face" role="application" aria-label="Pierre, your TV companion">
+
     <div class="glow" aria-hidden="true"></div>
     <header>
       <span class="dot" aria-hidden="true"></span>
@@ -334,15 +336,47 @@
     return `(Background — notes I jotted while watching; weave in only if relevant, don't recite them:\n${lines}\n)\n\n`;
   }
 
-  // Note → Pierre: the Watch face's "Note to Pierre" button hands off the current
-  // show/episode. Pierre opens the door — names it and asks — then takes whatever
-  // you type as a normal chat turn.
+  // Note → Pierre: every thought-entry moment in the app lands here — the Watch
+  // face's "Note to Pierre" button, a finished episode/show/film (finished:true),
+  // and the archive's "share a thought" (offerShare + ticketId). Pierre opens the
+  // door, the next typed line is captured as the thought (saved to the journal
+  // and, with a titleId, persisted as a reflection), then goes to the LLM as a
+  // real turn. Finished watches and share requests get a Share offer after.
+  let noteCtx=null;   // {show, ep, titleId, ticketId, finished, offerShare} while a note is pending
   function enterNoteFlow(p){
     if(IS_DEMO) return;
-    const where = p && p.show ? (p.show + (p.ep ? (' '+p.ep) : '')) : 'what you just watched';
-    addPierre('Noting ' + where + '. What did you make of it?');
+    addFlow=null; acctFlow=null; joinFlow=null; epNoteFlow=false; seasonNoteFlow=false;
+    p=p||{};
+    const where = p.show ? (p.show + (p.ep ? (' '+p.ep) : '')) : 'what you just watched';
+    noteCtx={ show:p.show||'', ep:p.ep||'', titleId:p.titleId||null, ticketId:p.ticketId||null,
+              finished:!!p.finished, offerShare:!!p.offerShare };
+    addPierre(p.finished
+      ? ('You finished ' + where + '. Tell me what you made of it.')
+      : ('Noting ' + where + '. What did you make of it?'));
     input.placeholder = '';   // blank — the "what to watch" hint conflicts with a note
     input.focus();
+  }
+  // The captured thought: persist, then let Pierre react as a normal turn.
+  async function noteTurn(text){
+    const ctx=noteCtx; noteCtx=null;
+    input.placeholder = "Ask Pierre what to watch...";
+    pushJournal(ctx.show, ctx.ep, text);
+    const email=pgSession();
+    if(email && ctx.titleId){
+      try{ fetch(`${API}/reflection`,{ method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ userEmail:email, showId:ctx.titleId, ticketId:ctx.ticketId||null, text }) }); }catch(_){}
+    }
+    await ask(text);
+    if(ctx.finished || ctx.offerShare){
+      pierreSay('Want it on your card?', [
+        {label:'Share it', onClick:()=>shareThought(ctx, text)},
+        {label:'Done', onClick:()=>{}}]);
+    }
+  }
+  function shareThought(ctx, text){
+    const msg='“'+text+'” — after '+(ctx.show||'the show')+(ctx.ep?(' '+ctx.ep):'');
+    if(navigator.share){ try{ navigator.share({ text:msg }); }catch(_){} }
+    addPierre('Shared. It lives on your card now.');
   }
 
   /* ---- Episode-finish flow ---------------------------------------------------
@@ -356,7 +390,7 @@
   }
   function enterEpisodeFinishFlow(L){
     if(IS_DEMO || !L || !L.tvmazeId) return;
-    addFlow=null; acctFlow=null; joinFlow=null;
+    addFlow=null; acctFlow=null; joinFlow=null; noteCtx=null;
     const code=epCodeOf(L);
     pierreSay('Did you finish '+(L.name||'that one')+' '+code+'?', [
       {label:'Partial Log',         onClick:()=>chooseFinish(L,'partial')},
@@ -392,7 +426,7 @@
   let seasonNoteFlow=false, seasonNote=null;
   function enterSeasonNoteFlow(p){
     if(IS_DEMO) return;
-    addFlow=null; acctFlow=null; joinFlow=null; epNoteFlow=false; epFinishPending=null;
+    addFlow=null; acctFlow=null; joinFlow=null; epNoteFlow=false; epFinishPending=null; noteCtx=null;
     seasonNote={ show:(p&&p.show)||'that one', ep:(p&&p.ep)||'' };
     seasonNoteFlow=true;
     const where = seasonNote.show + (seasonNote.ep?(' '+seasonNote.ep):'');
@@ -437,6 +471,9 @@
     if(!text || busy) return;
     addUser(text);
     input.value = '';
+    // A pending note (finished watch / note-to-Pierre / share-a-thought): persist
+    // the line, then Pierre reacts as a real turn (share offer follows if due).
+    if(noteCtx){ noteTurn(text); return; }
     // Episode-finish thoughts: capture the line as a journal note, then commit
     // the chosen log + navigation. Not an LLM turn.
     if(epNoteFlow){ const L=epFinishPending&&epFinishPending.L; saveJournalNote(L, text); addPierre('Noted. Logged it.'); commitFinish(); return; }
@@ -502,7 +539,7 @@
 
   function enterAddFlow(vlog){
     addHistory=Array.isArray(vlog)?vlog:[];
-    addFlow='kind'; addKind='show'; addFailCount=0; joinFlow=null; acctFlow=null;
+    addFlow='kind'; addKind='show'; addFailCount=0; joinFlow=null; acctFlow=null; noteCtx=null;
     history.length=0;                 // fresh slate for the LLM history too
     log.innerHTML='';
     // First thing: series or movie. The pick routes the name lookup (TVmaze vs TMDB).
@@ -768,7 +805,7 @@
   ];
 
   function enterJoinFlow(){
-    addFlow=null; acctFlow=null; joinFlow='auth-email'; joinStep=0; joinPicks=[[],[],[]]; joinEmail="";
+    addFlow=null; acctFlow=null; noteCtx=null; joinFlow='auth-email'; joinStep=0; joinPicks=[[],[],[]]; joinEmail="";
     history.length=0; log.innerHTML='';
     input.type='text'; input.placeholder="you@email.com";
     pierreSay(tod()+". New here or returning? Drop your email and I will know.");
@@ -894,13 +931,13 @@
   }
 
   function enterLoginFlow(then){
-    addFlow=null; joinFlow=null; acctThen=then||null; acctEmail=''; acctUser='';
+    addFlow=null; joinFlow=null; noteCtx=null; acctThen=then||null; acctEmail=''; acctUser='';
     acctFlow='login-email'; history.length=0; log.innerHTML='';
     input.placeholder='you@email.com';
     pierreSay(tod()+". Let's set you up. What email should I use?");
   }
   function enterDeviceFlow(){
-    addFlow=null; joinFlow=null;
+    addFlow=null; joinFlow=null; noteCtx=null;
     if(pgSession()){ log.innerHTML=''; pierreSay(tod()+". Let's connect a device."); deviceTypePrompt(); }
     else enterJoinFlow();   // must log in first (password-aware JOIN flow)
   }
@@ -1088,5 +1125,6 @@
     }, true);
   }
 </script>
+
 </body>
 </html>

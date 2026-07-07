@@ -72,6 +72,7 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey } from './c
               '.exp-card [data-act="watch"]',                        // ▶ WATCH / WATCH AGAIN (start here)
               '.exp-card [data-act="share"], .exp-card [data-act="stop"]',
               '.vw-head, .ep-play, .ep-tix, .ep-share',              // episodes
+              '.mrow',                                               // comfort: curated marathons
               '.tile',                                               // the other shows
               '.addbtn, .tab'];
     if(activeFace === FACE_INDEX.episodes)   // LOG face (cube_log_face)

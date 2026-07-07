@@ -77,7 +77,7 @@
   .seg{height:4px;flex:1;border-radius:3px;background:var(--line)}
   .seg.done{background:var(--green)}
   .seg.active{background:var(--amber)}
-  .here{font-size:13px;line-height:1}
+  .here{width:10px;height:10px;border-radius:50%;background:var(--amber,#f0a93b);display:inline-block;box-shadow:0 0 8px rgba(240,169,59,.6)}
 
   .bubble{flex:0 0 auto;margin:14px 0 4px;font-family:var(--display);font-weight:500;
     font-size:17px;line-height:1.25;min-height:46px;animation:rise .35s ease both}
@@ -168,27 +168,6 @@
     letter-spacing:.06em;color:#7d7060;text-align:center;flex:0 0 auto}
   .signout button{background:none;border:0;color:var(--amber-soft);cursor:pointer;font:inherit;text-decoration:underline}
   /* Floating cube — back to cube navigation (shared across trunk sides) */
-  .cubeback{ position:fixed; right:16px; bottom:16px; z-index:60;
-    width:46px; height:46px; border:0; background:rgba(10,12,16,.55);
-    border-radius:13px; backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
-    box-shadow:0 4px 14px rgba(0,0,0,.4); cursor:pointer; opacity:.5;
-    display:flex; align-items:center; justify-content:center;
-    perspective:120px; -webkit-tap-highlight-color:transparent;
-    transition:transform .12s ease, background .12s ease, opacity .15s ease; }
-  .cubeback:hover{ background:rgba(20,24,30,.7); opacity:1; }
-  .cubeback:active{ transform:scale(.9); }
-  .cb-cube{ position:relative; width:20px; height:20px; transform-style:preserve-3d;
-    transform:rotateX(-22deg) rotateY(-38deg); animation:cbspin 11s linear infinite; }
-  @keyframes cbspin{ from{ transform:rotateX(-22deg) rotateY(0deg); }
-                     to  { transform:rotateX(-22deg) rotateY(360deg); } }
-  .cb-face{ position:absolute; width:20px; height:20px; box-sizing:border-box;
-    border:1.5px solid var(--amber, #f0a93b); background:rgba(240,169,59,.12); }
-  .cb-front { transform:translateZ(10px);                 background:rgba(240,169,59,.16); }
-  .cb-back  { transform:rotateY(180deg) translateZ(10px); background:rgba(240,169,59,.08); }
-  .cb-right { transform:rotateY(90deg)  translateZ(10px); background:rgba(240,169,59,.06); }
-  .cb-left  { transform:rotateY(-90deg) translateZ(10px); background:rgba(240,169,59,.10); }
-  .cb-top   { transform:rotateX(90deg)  translateZ(10px); background:rgba(240,169,59,.24); }
-  .cb-bottom{ transform:rotateX(-90deg) translateZ(10px); background:rgba(240,169,59,.04); }
 </style>
 </head>
 <body>
@@ -387,7 +366,7 @@ document.getElementById("joinBtn").onclick = () => {
 function progress(active){
   return `<div class="steps">
     ${[0,1,2,3].map(n=>`<div class="seg ${n<active?'done':''} ${n===active?'active':''}"></div>`).join("")}
-    <span class="here">🍿</span></div>`;
+    <span class="here"></span></div>`;
 }
 
 function renderPierre(){
@@ -524,11 +503,6 @@ if (window.parent !== window) {
   if (face) { face.style.width = "100%"; face.style.height = "100%"; face.style.borderRadius = "0"; face.style.border = "0"; }
   // Back navigation is the floating cube button only (double-tap / pinch removed).
 }
-// Floating cube → back to cube navigation (delegated so DOM order doesn't matter).
-document.addEventListener('click', function(e){
-  if(e.target.closest && e.target.closest('#cubeBack') && window.parent!==window)
-    window.parent.postMessage({type:'pangolin-back'},'*');
-});
 // Keep momentum scrolling responsive: nudge .bscroll off its top/bottom edge as a drag
 // begins so the first up-swipe isn't eaten by iOS overscroll chaining.
 const _bsc=document.querySelector('.bscroll');
@@ -537,13 +511,5 @@ if(_bsc) document.addEventListener('touchstart',()=>{
   if(_bsc.scrollTop<=0) _bsc.scrollTop=1; else if(_bsc.scrollTop>=max) _bsc.scrollTop=max-1;
 },{passive:true});
 </script>
-  <!-- Floating cube: back to cube navigation -->
-  <button class="cubeback" id="cubeBack" aria-label="Back to cube">
-    <span class="cb-cube">
-      <span class="cb-face cb-front"></span><span class="cb-face cb-back"></span>
-      <span class="cb-face cb-right"></span><span class="cb-face cb-left"></span>
-      <span class="cb-face cb-top"></span><span class="cb-face cb-bottom"></span>
-    </span>
-  </button>
 </body>
 </html>

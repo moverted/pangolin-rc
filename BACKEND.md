@@ -13,6 +13,48 @@ Entry format:
 
 ---
 
+## 2026-07-07 — Comfort tab: curated marathons (SHIPPED TO PRODUCTION)
+- **Frontend only. NO Worker / D1 / binding / wrangler.toml changes.** Logged
+  here because it's a Pages production deploy.
+- New face `public/cube_watch_comfort_face.html` (Ted-supplied, unmodified):
+  self-contained square, localStorage-only, TVMaze show 517 live fetch with a
+  baked fallback. Tressany's PSYCH-O Marathon (12 eps), finish→next flow, 10s
+  post-watch reflection, positional rank of the 12.
+- `public/cube_watch_face.html`: COMFORT tab gains a 🍿 and now renders a
+  data-driven marathon LIST (`MARATHONS[]`, one real entry, PRE-BETA banner)
+  instead of "under construction"; tapping a marathon opens it as an in-face
+  overlay iframe (`#marov`) with a back-to-list button. RETURNING tab still
+  under construction. No cube face added (would be a 7th side / shell change).
+- `public/clickwheel.js`: one selector (`.mrow`) added to the WATCH SELECT
+  group so the wheel can highlight/open a marathon from the list.
+- **Built off `main`, NOT this branch.** Because `streamer-logo-grid` carried
+  ~200 lines of unrelated uncommitted WIP, the comfort work was re-applied in a
+  clean git worktree checked out at `origin/main` (71acd7e) and committed as
+  `b264491` on branch `comfort-tab`. Diff = exactly the 3 files above
+  (new file + 81/−3 in the watch face + 1 in clickwheel), zero other faces.
+- git: `comfort-tab` pushed; **`origin/main` fast-forwarded 71acd7e → b264491**
+  (local `main` matches). Production Pages now reproducible from `main`.
+- Earlier this session a `--branch comfort-tab` PREVIEW was also deployed
+  (alias https://comfort-tab.pangolin-rc.pages.dev) for review; superseded by
+  the production deploy below.
+- **Production deploy:** `wrangler pages deploy public --project-name
+  pangolin-rc --branch main`, message "Comfort tab: curated-marathon list in
+  WATCH + Tressany's PSYCH-O Marathon face (first comfort build, pre-beta)".
+  Live at https://remote.pangolinrc.com (hard-refresh if cached).
+- **FOLLOW-UP — scroll fix (same day, deployed to prod, Ted confirmed):** the
+  comfort face was built for a full-height phone viewport (`aspect-ratio:1/1`,
+  `max-height:100vh`, pinned hero), but the shell mounts faces in a short square
+  top-stage where the pinned now-watching hero + footer exceed the height and
+  squeeze the checklist to zero — it couldn't scroll. Fix = embedded-only wrapper
+  adaptation in `cube_watch_comfort_face.html` (`if(window.parent!==window)`):
+  the whole face scrolls as one column and the reflection overlay pins to the
+  viewport. Standalone layout untouched; no logic/state/copy change. Commit
+  `733e6a3` (branch `comfort-scroll-fix`, pushed); **`origin/main` FF b264491 →
+  733e6a3**. Prod deploy verified live (served file carries the adaptation).
+- NOTE: `main` still lacks BACKEND.md + the CLAUDE.md deploy rules — those live
+  only on the `streamer-logo-grid` line, so this log entry is on that branch,
+  not on `main`/`comfort-tab`.
+
 ## 2026-07-05 — Remote grows a nav set (D-pad / OK / home)
 - `src/handlers/remote.ts`: CMDS expanded from the four transport commands to
   add `up, down, left, right, select, home`. No route changes, no schema
