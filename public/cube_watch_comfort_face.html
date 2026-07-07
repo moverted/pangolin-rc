@@ -92,15 +92,18 @@
     position: absolute; inset: 0;
     background: linear-gradient(180deg, rgba(20,16,13,0.55) 0%, rgba(20,16,13,0.88) 78%, var(--face) 100%);
   }
-  /* little Pierre sits at the bottom-left of the hero; the rest of the hero content
-     is pushed right by his width so nothing crashes into him */
-  #hero { --pw: clamp(96px, 27%, 140px); }
-  #pierreMini {
-    position: absolute; left: 4px; bottom: 0; z-index: 2;
-    width: var(--pw); height: auto; pointer-events: none;
-    filter: drop-shadow(0 5px 12px rgba(0,0,0,0.5));
+  #hero > .inner { position: relative; }
+
+  /* little Pierre lives in the now-watching card: a left column he sits in, resting
+     on top of the FINISHED button, with the episode line + description beside him.
+     The rest of the hero (kicker, title, marathon bar) is untouched, full width. */
+  .nw-row { display: flex; align-items: flex-end; gap: 10px; margin-bottom: 8px; }
+  .np-pierre {
+    flex: 0 0 auto; width: 38%; max-width: 150px; height: auto; margin-bottom: -4px;
+    pointer-events: none; filter: drop-shadow(0 4px 10px rgba(0,0,0,0.5));
   }
-  #hero > .inner { position: relative; padding-left: calc(var(--pw) + 10px); }
+  .nw-text { flex: 1 1 auto; min-width: 0; }
+  .nw-text .epsyn { margin-bottom: 0; }
 
   .toprow { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
   .kicker {
@@ -310,7 +313,6 @@
   <div id="hero">
     <div id="heroArt"></div>
     <div id="heroScrim"></div>
-    <img id="pierreMini" src="pierre-host.png" alt="Pierre, your host" />
     <div class="inner">
       <div class="toprow">
         <div class="kicker">comfort &middot; curated rewatch</div>
@@ -765,11 +767,16 @@
       var next = cur + 1 < eps.length ? eps[cur + 1] : null;
       hb.innerHTML =
         '<div id="nowCard">' +
-          '<div class="nowlabel">&#127871; now watching</div>' +
-          '<div class="epcode">EP ' + (cur + 1) + ' / ' + eps.length + ' &middot; ' + code(e) +
-            (e.airdate ? ' &middot; aired ' + fmtAir(e.airdate) : '') + '</div>' +
-          '<div class="eptitle"></div>' +
-          '<div class="epsyn"></div>' +
+          '<div class="nw-row">' +
+            '<img class="np-pierre" src="pierre-host.png" alt="Pierre, your host" />' +
+            '<div class="nw-text">' +
+              '<div class="nowlabel">&#127871; now watching</div>' +
+              '<div class="epcode">EP ' + (cur + 1) + ' / ' + eps.length + ' &middot; ' + code(e) +
+                (e.airdate ? ' &middot; aired ' + fmtAir(e.airdate) : '') + '</div>' +
+              '<div class="eptitle"></div>' +
+              '<div class="epsyn"></div>' +
+            '</div>' +
+          '</div>' +
           '<button id="finishBtn">' +
             (next ? 'FINISHED! ROLL THE NEXT ONE &#9656;' : 'FINISHED! THAT&#39;S THE MARATHON &#127821;') +
           '</button>' +
