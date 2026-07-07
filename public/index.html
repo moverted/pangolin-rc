@@ -110,8 +110,11 @@
       display: flex; align-items: center; justify-content: center;
     }
     #wheel .wheel-center:active { transform: translate(-50%,-50%) scale(0.94); }
-    /* mic state: the centre becomes the reflection mic while a comfort comment waits */
-    #wheel .wheel-center.mic { font-size: 17px; letter-spacing: 0; color: #f0a93b; border-color: rgba(240,169,59,0.55); }
+    /* mic state: the centre becomes the reflection mic while a comfort comment
+       waits, then the live countdown once recording starts */
+    #wheel .wheel-center.mic { color: #f0a93b; border-color: rgba(240,169,59,0.55); }
+    #wheel .wheel-center.mic svg { width: 20px; height: 20px; }
+    #wheel .wheel-center.counting { font-size: 16px; letter-spacing: 0; color: #1a1206; background: #f0a93b; border-color: #8a5a10; }
     /* ── transport buttons at the wheel's cardinal points: BACK top, play/pause
        bottom, rw left, ff right. Printed on the ring like iPod labels, but live
        buttons. Shown ONLY while the remote points at a real device — #wheel.rc,

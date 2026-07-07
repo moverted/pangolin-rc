@@ -243,14 +243,27 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey } from './c
   });
 
   // ── Comfort-reflection mic: the comfort face calls window.__setComfortMic(on)
-  //    when its 10-second reflection opens/closes. ON → paint the centre as a mic
-  //    and drop the highlight onto #rfMic so the very first SELECT press records
-  //    (and only then does the clock start). OFF → restore SELECT, clear it. ──
+  //    when its reflection opens/closes, and window.__comfortMicCount(n) each
+  //    second while recording. ON → paint the centre as the wire mic and drop the
+  //    highlight onto #rfMic (first SELECT press starts the take); while recording
+  //    the centre becomes the live countdown; OFF → restore SELECT. ──
   const CENTER_LABEL = center ? center.textContent : 'SELECT';
+  const CENTER_MIC_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
+    + 'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    + '<path d="M12 1a3 3 0 0 0-3 3v12a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>'
+    + '<path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>'
+    + '<line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
+  function centerMic(){ if(center){ center.classList.remove('counting'); center.classList.add('mic'); center.innerHTML = CENTER_MIC_SVG; } }
+  function centerLabel(){ if(center){ center.classList.remove('mic','counting'); center.textContent = CENTER_LABEL; } }
   window.__setComfortMic = function(on){
-    if(center){ center.classList.toggle('mic', !!on); center.textContent = on ? '🎙' : CENTER_LABEL; }
+    if(on) centerMic(); else centerLabel();
     if(on){ const doc = activeDoc(); const mic = doc && doc.getElementById('rfMic'); if(mic) placeHL(doc, mic); }
-    else { hideHL(activeDoc()); }
+    else hideHL(activeDoc());
+  };
+  window.__comfortMicCount = function(n){
+    if(!center) return;
+    if(n == null){ centerMic(); }                                  // take ended → back to the mic
+    else { center.classList.remove('mic'); center.classList.add('counting'); center.textContent = String(n); }
   };
 
   const SCROLL_PER_REV = 720;          // px scrolled per full finger revolution

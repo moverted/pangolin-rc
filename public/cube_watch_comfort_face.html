@@ -216,9 +216,7 @@
   .rf-kicker { font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em; color: var(--amber); text-transform: uppercase; }
   .rf-title { font-family: var(--display); font-weight: 700; font-size: 20px; margin: 4px 0 2px; }
   .rf-code { font-family: var(--mono); font-size: 11px; color: var(--dim); }
-  .rf-clockrow { display: flex; align-items: baseline; gap: 8px; margin: 14px 0 6px; }
-  #rfClock { font-family: var(--mono); font-size: 22px; font-weight: 600; color: var(--green); }
-  #rfClock.done { color: var(--amber); }
+  .rf-clockrow { display: flex; align-items: center; gap: 10px; margin: 14px 0 6px; }
   .rf-hint { font-family: var(--mono); font-size: 10px; color: var(--dim); letter-spacing: 0.08em; }
   #rfText {
     width: 100%; min-height: 74px; resize: none;
@@ -299,6 +297,7 @@
   }
   .curator .caudio.rec { background: var(--red); color: #f3d9d9; animation: pulse 1.1s infinite; }
   .curator .caudio.ghost { background: none; color: var(--amber); border: 1px solid var(--amber-dim); }
+  .curator .caudio svg { vertical-align: middle; margin-right: 6px; }
 
   /* ---------- footer ---------- */
   #foot {
@@ -347,11 +346,17 @@
     <div class="rf-title" id="rfTitle"></div>
     <div class="rf-code" id="rfCode"></div>
     <div class="rf-clockrow">
-      <button id="rfMic" aria-label="Record your reflection">&#127908;</button>
-      <span id="rfClock">0:10</span>
-      <span class="rf-hint" id="rfHint">press the mic &mdash; say it while it&#39;s fresh</span>
+      <button id="rfMic" aria-label="Record your reflection">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 1a3 3 0 0 0-3 3v12a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+          <line x1="12" y1="19" x2="12" y2="23"></line>
+          <line x1="8" y1="23" x2="16" y2="23"></line>
+        </svg>
+      </button>
+      <span class="rf-hint" id="rfHint">press the mic &mdash; it&#39;ll type up what you say</span>
     </div>
-    <textarea id="rfText" placeholder="what did this one do to you?"></textarea>
+    <textarea id="rfText" placeholder="What did this one do to you? (your friends won't see this until after they watch so spoilers saved!?!)"></textarea>
     <div id="slotBlock">
       <div class="rf-sect">where does it land?</div>
       <div class="slothint">tap a slot to move it. it starts at the bottom.</div>
@@ -370,6 +375,13 @@
 
   var STORE_KEY = 'pangolin_comfort_psycho_v2';
   var SHOW_URL = 'https://api.tvmaze.com/shows/517?embed=episodes';
+
+  /* the wire mic (matches the console mic) — restored on the button between takes */
+  var MIC_SVG = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" '
+    + 'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    + '<path d="M12 1a3 3 0 0 0-3 3v12a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>'
+    + '<path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>'
+    + '<line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
 
   /* Tressany's list, in marathon order. Verified against TVMaze show 517. */
   var MARATHON = [
@@ -483,61 +495,87 @@
     return { stop: stop };
   }
 
-  /* tell the console wheel (if we're inside the cube) to paint its centre as a
-     mic while a reflection comment is waiting, and drop the highlight on it. */
+  /* tell the console wheel (if we're inside the cube) to paint its centre as the
+     reflection mic while a comment is waiting, and drop the highlight on it. */
   function micMode(on) {
     try { if (window.top !== window && window.top.__setComfortMic) window.top.__setComfortMic(on); }
     catch (e) {}
   }
+  /* mirror the recording countdown onto the wheel centre (null = back to the mic) */
+  function micCount(n) {
+    try { if (window.top !== window && window.top.__comfortMicCount) window.top.__comfortMicCount(n); }
+    catch (e) {}
+  }
 
-  /* play a stored voice note (reflection or the curator's finale) */
+  function dataUrlToBlob(dataUrl) {
+    var parts = dataUrl.split(','), mime = (parts[0].match(/:(.*?);/) || [])[1] || 'audio/webm';
+    var bin = atob(parts[1]), arr = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return new Blob([arr], { type: mime });
+  }
+
+  /* play a stored voice note (reflection or the curator's finale). Playing a big
+     data: URL is flaky on iOS, so rebuild a Blob and play an object URL instead. */
   var _nowPlaying = null;
   function playClip(dataUrl) {
     if (!dataUrl) return;
-    try { if (_nowPlaying) { _nowPlaying.pause(); } } catch (e) {}
-    _nowPlaying = new Audio(dataUrl);
+    try { if (_nowPlaying) { _nowPlaying.pause(); if (_nowPlaying._url) URL.revokeObjectURL(_nowPlaying._url); } } catch (e) {}
+    var src = dataUrl;
+    try { src = URL.createObjectURL(dataUrlToBlob(dataUrl)); } catch (e) {}
+    _nowPlaying = new Audio(src); _nowPlaying._url = (src !== dataUrl) ? src : null;
     _nowPlaying.play().catch(function () {});
   }
 
-  /* Re-rank by dragging a watched row's gripper. The rows stay in season order;
-     the drag moves the row's slot in state.ranking (the #n badges are the ranking
-     made visible), so you can reshuffle the standings any time, not just in the
-     10-second window. Classes toggle during the drag; the reorder + re-render
-     happen once on release, so live element refs never go stale mid-drag. */
-  function startGripDrag(e, epIdx, listEl) {
+  /* Same transcription path the chat mic uses: post the clip to the Worker with
+     the signed-in email; the text comes back to drop into the note box (editable).
+     Same origin as the shell, so localStorage 'pg_user' is shared. No email → no
+     transcription (the recording is still kept and playable). */
+  var TR_API = window.location.hostname === 'localhost'
+    ? 'http://localhost:8787' : 'https://pangolin-rc.edward-m-willett.workers.dev';
+  function transcribe(dataUrl, cb) {
+    var email = ''; try { email = localStorage.getItem('pg_user') || ''; } catch (e) {}
+    if (!email || !dataUrl) { cb(''); return; }
+    var fd = new FormData();
+    fd.append('audio', dataUrlToBlob(dataUrl));
+    fd.append('episodeId', 'comfort-note');
+    fd.append('timestampMs', '0');
+    fd.append('userEmail', email);
+    fetch(TR_API + '/transcribe', { method: 'POST', body: fd, mode: 'cors' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { cb(((d && d.transcription) || '').trim()); })
+      .catch(function () { cb(''); });
+  }
+
+  /* Re-rank by dragging a watched row's gripper. The ranking section renders its
+     rows in rank order, so the row physically slides among its neighbours as you
+     drag (live DOM move, no re-render mid-drag); on release we read the DOM order
+     back into state.ranking. Reshuffle the standings any time, not just in the
+     10-second window. */
+  function startGripDrag(e, listEl) {
     e.preventDefault(); e.stopPropagation();
     var grip = e.currentTarget, rowEl = grip.closest('.row');
     rowEl.classList.add('grabbing');
     try { grip.setPointerCapture(e.pointerId); } catch (_) {}
-    function watchedRows() { return Array.prototype.slice.call(listEl.querySelectorAll('.row.watched')); }
-    function hovered(y) {
-      var rows = watchedRows(), hit = null;
-      rows.forEach(function (rw) {
-        var r = rw.getBoundingClientRect();
-        if (y >= r.top && y <= r.bottom) hit = rw;
-      });
-      if (!hit && rows.length) hit = y < rows[0].getBoundingClientRect().top ? rows[0] : rows[rows.length - 1];
-      return hit;
-    }
+    function rankRows() { return Array.prototype.slice.call(listEl.querySelectorAll('.row.rankrow')); }
     function move(ev) {
-      var t = hovered(ev.clientY);
-      watchedRows().forEach(function (rw) { rw.classList.toggle('drophint', rw === t && rw !== rowEl); });
+      var others = rankRows().filter(function (r) { return r !== rowEl; }), before = null;
+      for (var k = 0; k < others.length; k++) {
+        var rc = others[k].getBoundingClientRect();
+        if (ev.clientY < rc.top + rc.height / 2) { before = others[k]; break; }
+      }
+      if (before) { if (before.previousSibling !== rowEl) rowEl.parentNode.insertBefore(rowEl, before); }
+      else if (others.length) {                                   // past the last row → drop at the end
+        var last = others[others.length - 1];
+        if (last.nextSibling !== rowEl) last.parentNode.insertBefore(rowEl, last.nextSibling);
+      }
     }
-    function up(ev) {
+    function up() {
       grip.removeEventListener('pointermove', move);
       grip.removeEventListener('pointerup', up);
       grip.removeEventListener('pointercancel', up);
-      var t = hovered(ev.clientY);
-      if (t && t !== rowEl) {
-        var targetIdx = +t.getAttribute('data-epidx');
-        var to = state.ranking.indexOf(targetIdx), from = state.ranking.indexOf(epIdx);
-        if (from >= 0 && to >= 0) {
-          state.ranking.splice(from, 1);
-          state.ranking.splice(to, 0, epIdx);
-          save();
-        }
-      }
-      render();   // rebuilds the list; renumbers the rank badges
+      rowEl.classList.remove('grabbing');
+      state.ranking = rankRows().map(function (r) { return +r.getAttribute('data-epidx'); });
+      save(); render();
     }
     grip.addEventListener('pointermove', move);
     grip.addEventListener('pointerup', up);
@@ -585,11 +623,9 @@
     document.getElementById('rfTitle').textContent = eps[i].title;
     document.getElementById('rfCode').innerHTML = 'that was ' + code(eps[i]) + ' &middot; ep ' + (i + 1) + ' of ' + eps.length;
     document.getElementById('rfText').value = '';
-    var clock = document.getElementById('rfClock');
-    clock.textContent = '0:10';
-    clock.className = '';
-    document.getElementById('rfMic').className = '';
-    document.getElementById('rfHint').textContent = 'press the mic to start';
+    var mic = document.getElementById('rfMic');
+    mic.className = ''; mic.innerHTML = MIC_SVG;
+    document.getElementById('rfHint').textContent = 'press the mic — it’ll type up what you say';
 
     /* only offer the slotter once there is something to rank against */
     document.getElementById('slotBlock').style.display = state.ranking.length > 0 ? 'block' : 'none';
@@ -606,23 +642,30 @@
     micMode(true);
   }
 
-  /* mic press: begin the 10s capture + countdown; press again to stop early. */
+  /* mic press: begin the 10s capture; the mic icon becomes the live countdown
+     (on the button and on the wheel centre). Press again to stop early. On stop
+     the clip is transcribed into the note box, ready to edit. */
   function reflectMic() {
     if (rf.idx < 0) return;
     var mic = document.getElementById('rfMic');
-    var clock = document.getElementById('rfClock');
     var hint = document.getElementById('rfHint');
     if (rf.ctrl) { rf.ctrl.stop(); return; }   // already recording → stop now
     mic.className = 'rec';
-    clock.className = '';
     hint.textContent = 'recording… say it while it’s fresh';
     rf.ctrl = startRecording(10, function (left) {
-      clock.textContent = '0:' + (left < 10 ? '0' : '') + left;
-      if (left <= 0) { clock.className = 'done'; hint.textContent = 'time. lock it in.'; }
+      mic.textContent = left;   // the mic becomes the count — on the button…
+      micCount(left);           // …and in the wheel centre
     }, function (dataUrl) {
-      rf.ctrl = null; mic.className = '';
-      if (dataUrl) { rf.audio = dataUrl; hint.textContent = 'got it 🍿  add a note or save'; }
-      else hint.textContent = 'no mic — type a note instead';
+      rf.ctrl = null; mic.className = ''; mic.innerHTML = MIC_SVG; micCount(null);
+      if (!dataUrl) { hint.textContent = 'no mic — type a note instead'; return; }
+      rf.audio = dataUrl;
+      hint.textContent = 'transcribing…';
+      transcribe(dataUrl, function (txt) {
+        var box = document.getElementById('rfText');
+        if (txt) box.value = box.value ? box.value + ' ' + txt : txt;
+        hint.textContent = txt ? 'edit it if you like, then save' : 'got it — type a note if you want, then save';
+        try { box.focus(); } catch (e) {}   // ready to edit (raises the console keyboard)
+      });
     });
   }
   /* the console wheel calls this when its centre (the mic) is pressed */
@@ -746,21 +789,15 @@
       hb.querySelector('#finishBtn').addEventListener('click', finish);
     }
 
-    /* checklist, grouped by season like the original list */
+    /* Two parts: YOUR RANKING (watched, in rank order, drag the gripper to
+       reshuffle — the rows physically move) then what's left, grouped by season. */
     var list = document.getElementById('list');
     list.innerHTML = '';
-    var lastSeason = 0;
-    eps.forEach(function (e, i) {
-      if (e.s !== lastSeason) {
-        lastSeason = e.s;
-        var h = document.createElement('div');
-        h.className = 'seasonhead';
-        h.textContent = 'season ' + e.s;
-        list.appendChild(h);
-      }
-      var w = state.watched[i];
+
+    function buildRow(i, ranked) {
+      var e = eps[i], w = state.watched[i];
       var row = document.createElement('div');
-      row.className = 'row ' + (w ? 'watched' : (i === cur ? 'current' : 'upcoming'));
+      row.className = 'row ' + (w ? 'watched' : (i === cur ? 'current' : 'upcoming')) + (ranked ? ' rankrow' : '');
       row.setAttribute('data-epidx', i);
       var right = '';
       if (w) {
@@ -768,7 +805,7 @@
         right = (r ? '<span class="rankbadge">#' + r + '</span>' : '') +
                 '<span class="chip' + (w.binged ? ' binged' : '') + '">' + fmtTime(w.ts) + '</span>' +
                 (w.audio ? '<button class="rplay" aria-label="Play your voice note">&#9654; note</button>' : '') +
-                '<div class="grip" aria-label="Drag to re-rank" title="drag to re-rank">&#10285;</div>';
+                (ranked ? '<div class="grip" aria-label="Drag to re-rank" title="drag to re-rank">&#10303;</div>' : '');
       } else if (i === cur) {
         right = '<span class="pc">&#127871;</span>';
       }
@@ -783,8 +820,29 @@
       if (w && w.note) row.querySelector('.rnote').textContent = '“' + w.note + '”';
       if (w && w.audio) row.querySelector('.rplay').addEventListener('click', function () { playClip(w.audio); });
       var grip = row.querySelector('.grip');
-      if (grip) grip.addEventListener('pointerdown', function (ev) { startGripDrag(ev, i, list); });
-      list.appendChild(row);
+      if (grip) grip.addEventListener('pointerdown', function (ev) { startGripDrag(ev, list); });
+      return row;
+    }
+
+    if (state.ranking.length) {
+      var rh = document.createElement('div');
+      rh.className = 'seasonhead';
+      rh.textContent = 'your ranking · drag to reshuffle';
+      list.appendChild(rh);
+      state.ranking.forEach(function (i) { list.appendChild(buildRow(i, true)); });
+    }
+
+    var lastSeason = 0;
+    eps.forEach(function (e, i) {
+      if (state.watched[i]) return;                     // watched live in the ranking section above
+      if (e.s !== lastSeason) {
+        lastSeason = e.s;
+        var h = document.createElement('div');
+        h.className = 'seasonhead';
+        h.textContent = 'season ' + e.s;
+        list.appendChild(h);
+      }
+      list.appendChild(buildRow(i, false));
     });
 
     renderCurator(list, cur < 0);
@@ -819,7 +877,7 @@
   function paintCuratorAudioBtn(btn) {
     if (_curCtrl) { btn.textContent = '⏹ stop recording'; btn.className = 'caudio rec'; }
     else if (state.finaleAudio) { btn.innerHTML = '&#9654; play the audio message'; btn.className = 'caudio'; }
-    else { btn.innerHTML = '&#127908; record the audio message'; btn.className = 'caudio ghost'; }
+    else { btn.innerHTML = MIC_SVG + ' record the audio message'; btn.className = 'caudio ghost'; }
     btn.onclick = function () {
       if (_curCtrl) { _curCtrl.stop(); return; }
       if (state.finaleAudio) { playClip(state.finaleAudio); return; }
