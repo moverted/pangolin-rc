@@ -350,6 +350,7 @@
   }
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
   input[type=file]{display:none;}
+
 </style>
 </head>
 <body>
@@ -362,6 +363,7 @@
 
     <div class="stage">
       <div class="face">
+
 
         <!-- hero : stays in view -->
         <div class="hero">
@@ -392,7 +394,7 @@
                  open-bug count, tapping it reveals the list (note · view · shot). -->
             <div class="adminbugs" id="adminBugs" style="display:none">
               <button class="bug-banner" id="bugBanner" type="button">
-                <span class="bug-ic">🐞</span>
+                <span class="bug-ic"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2l1.88 1.88"/><path d="M14.12 3.88L16 2"/><path d="M9 7.13v-1a3 3 0 1 1 6 0v1"/><path d="M18 11a4 4 0 0 0-4-4h-4a4 4 0 0 0-4 4v3c0 3.3 2.7 6 6 6s6-2.7 6-6z"/><path d="M12 20v-9"/><path d="M6.53 9C4.6 8.8 3 7.1 3 5"/><path d="M6 13H2"/><path d="M3 21c0-2.1 1.7-3.9 3.8-4"/><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"/><path d="M22 13h-4"/><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/></svg></span>
                 <span class="bug-txt">Open bug reports</span>
                 <span class="bug-count" id="bugCount">0</span>
                 <span class="bug-caret" id="bugCaret">▸</span>
@@ -600,7 +602,7 @@
     cacheSelectedDevice();
   }
   // Mirror the selected device's nickname into localStorage so the cube shell can
-  // label its play button ("📺 Living Room · Peacock") without re-fetching the
+  // label its play button ("Living Room · Peacock") without re-fetching the
   // profile. Uses the member's nickname (location); falls back to the device type
   // only when unnamed. The shell hears the write as a storage event and re-renders.
   function cacheSelectedDevice(){
@@ -694,12 +696,12 @@
       const when=document.createElement('span'); when.textContent=fmtWhen(b.created_at); meta.appendChild(when);
       if(b.view){ const v=document.createElement('span'); v.className='bview'; v.textContent=b.view; meta.appendChild(v); }
       if(b.user_email){ const u=document.createElement('span'); u.textContent=b.user_email; meta.appendChild(u); }
-      if(b.screenshot_url){ const a=document.createElement('a'); a.className='bshot'; a.href=b.screenshot_url; a.target='_blank'; a.rel='noopener'; a.textContent='📷 shot';
+      if(b.screenshot_url){ const a=document.createElement('a'); a.className='bshot'; a.href=b.screenshot_url; a.target='_blank'; a.rel='noopener'; a.textContent='shot';
         a.addEventListener('click',e=>e.stopPropagation()); meta.appendChild(a); }
       // Claude badge stays in sync with the live toggle below.
       const cl=document.createElement('span'); cl.className='bclaude';
       const setClaudeBadge=()=>{ cl.style.display=b.send_to_claude?'':'none';
-        cl.textContent='🤖 claude'+(b.claude_status&&b.claude_status!=='queued'?(' · '+b.claude_status):''); };
+        cl.textContent='claude'+(b.claude_status&&b.claude_status!=='queued'?(' · '+b.claude_status):''); };
       setClaudeBadge(); meta.appendChild(cl);
       const st=document.createElement('span'); st.className='bstatus'; st.textContent=b.status||'new'; meta.appendChild(st);
       item.appendChild(meta);
@@ -716,7 +718,7 @@
       // Live send-to-Claude switch — admin flips it without leaving the panel.
       const tog=document.createElement('label'); tog.className='btoggle';
       const cb=document.createElement('input'); cb.type='checkbox'; cb.checked=!!b.send_to_claude;
-      const tl=document.createElement('span'); tl.className='lbl'; tl.textContent='🤖 send to claude';
+      const tl=document.createElement('span'); tl.className='lbl'; tl.textContent='send to claude';
       tog.appendChild(cb); tog.appendChild(tl); ex.appendChild(tog);
       tog.addEventListener('click',e=>e.stopPropagation());  // don't toggle the card open/closed
       cb.addEventListener('change',async()=>{
@@ -757,7 +759,7 @@
   function syncTimezone(email, saved){
     let tz=''; try{ tz=Intl.DateTimeFormat().resolvedOptions().timeZone||''; }catch(_){}
     const shown = saved || tz;
-    const el=$('ptz'); if(el) el.textContent = shown ? ('🕓 '+shown) : '';
+    const el=$('ptz'); if(el) el.textContent = shown ? shown : '';
     if(tz && !saved && email){
       fetch(API+'/profile/signup',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({email, timezone:tz})}).catch(()=>{});
@@ -1063,5 +1065,6 @@
     }
   }
 </script>
+
 </body>
 </html>

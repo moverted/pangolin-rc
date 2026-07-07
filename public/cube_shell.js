@@ -538,12 +538,12 @@ for (const cfg of Object.values(FACE_OVERLAYS)) {
   const el = document.createElement('div');
   el.className = 'face-overlay';
   const frame = document.createElement('iframe');
-  frame.allow = 'web-share';   // let a face (Log finale card) invoke navigator.share
+  frame.allow = 'web-share; microphone';   // navigator.share (Log finale) + mic (comfort reflection)
   frame.src = cfg.src + (DEMO ? '?demo=1' : '');
   el.appendChild(frame);
   appEl.appendChild(el);
   cfg.el = el; cfg.frame = frame; cfg._op = 0; cfg._active = false; cfg._tx = '';
-  frame.addEventListener('load', () => { attachShellBack(frame); attachConsoleKb(frame); });
+  frame.addEventListener('load', () => { attachShellBack(frame); attachConsoleKb(frame); wireMarathonFrame(frame); });
 }
 
 // ── Console keyboard wiring (face side) ──────────────────────────────────────
@@ -578,6 +578,20 @@ function attachConsoleKb(frame) {
       if (window._kbHide) window._kbHide();
     }, 50);
   }, true);
+}
+
+// WATCH hosts a curated marathon (the comfort face) in its OWN nested iframe
+// (#marFrame, an in-face overlay). That frame loads after the WATCH face, so it
+// misses the per-face wiring above — give its text field the console keyboard too
+// (the reflection note) each time a marathon opens. Same-origin; re-attach is a
+// no-op via the __kbAttached guard inside attachConsoleKb.
+function wireMarathonFrame(watchFrame) {
+  let doc; try { doc = watchFrame.contentWindow && watchFrame.contentWindow.document; } catch (_) { return; }
+  const mf = doc && doc.getElementById('marFrame');
+  if (!mf || mf.__marWired) return; mf.__marWired = true;
+  mf.addEventListener('load', () => { attachConsoleKb(mf); });
+  if (mf.contentWindow && mf.contentWindow.document && mf.contentWindow.document.readyState === 'complete')
+    attachConsoleKb(mf);   // already loaded (marathon reopened without a fresh src)
 }
 
 // An open face is a same-origin iframe that captures every touch, so the shell's
@@ -1652,5 +1666,12 @@ export function remoteKey(cmd) { sendKey(cmd); }
 export function getActiveDoc() {
   const cfg = FACE_OVERLAYS[activeFace];
   if (!cfg || !cfg.frame || !cfg.frame.contentWindow) return null;
-  try { return cfg.frame.contentWindow.document; } catch (_) { return null; }
+  let doc; try { doc = cfg.frame.contentWindow.document; } catch (_) { return null; }
+  // WATCH runs a curated marathon in a nested iframe (in-face overlay). While that
+  // overlay is open the wheel should drive the marathon, not the show list behind it.
+  try {
+    const mf = doc.querySelector('.marov.show #marFrame');
+    if (mf && mf.contentWindow && mf.contentWindow.document) return mf.contentWindow.document;
+  } catch (_) {}
+  return doc;
 }

@@ -51,6 +51,11 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey } from './c
   function scrollContainer(doc){
     return doc.querySelector('.scroll, .body, .bscroll, .log') || doc.scrollingElement || doc.body;
   }
+  // The comfort marathon (a curated rewatch) rides inside WATCH as a nested frame;
+  // getActiveDoc descends into it, so the wheel sees the marathon's own document.
+  // #rfMic is unique to that face — use it as the fingerprint.
+  function isComfort(doc){ try { return !!(doc && doc.getElementById && doc.getElementById('rfMic')); } catch(_){ return false; } }
+  function comfortReflectOpen(doc){ try { const r = doc && doc.getElementById && doc.getElementById('reflect'); return !!(r && r.classList.contains('open')); } catch(_){ return false; } }
   function wheelScroll(dy){
     if(!getFocus().locked) return;                       // only acts on the OPEN face
     const doc = activeDoc(); if(!doc) return;
@@ -65,13 +70,19 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey } from './c
   // GROUP (visited in order); within a group, elements are visited top→bottom,
   // left→right. So WATCH walks the open show's buttons → its episodes → the other
   // shows → tabs; LOG walks Start → mic → Finish → the rank chips → Note to Pierre.
-  function faceGroups(){
+  function faceGroups(doc){
+    // Comfort marathon (nested in WATCH): on the checklist the highlight steps the
+    // FINISHED button → the voice-note players → the curator card's audio button →
+    // reset. (The reflection card, while open, is scrubbed by activeDialog instead.)
+    if(isComfort(doc))
+      return ['#finishBtn', '.rplay', '.curator .caudio', '#reset'];
     const activeFace = getFocus().face;
     if(activeFace === FACE_INDEX.log)        // WATCH face (cube_watch_face)
       return ['.exc-seas-chip',                                      // seasons (back from WATCH)
               '.exp-card [data-act="watch"]',                        // ▶ WATCH / WATCH AGAIN (start here)
               '.exp-card [data-act="share"], .exp-card [data-act="stop"]',
               '.vw-head, .ep-play, .ep-tix, .ep-share',              // episodes
+              '.mrow',                                               // comfort: curated marathons
               '.tile',                                               // the other shows
               '.addbtn, .tab'];
     if(activeFace === FACE_INDEX.episodes)   // LOG face (cube_log_face)
@@ -87,7 +98,7 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey } from './c
   function faceSelectables(doc){
     const seen = new Set(), out = [];
     const cY = el => { const r = el.getBoundingClientRect(); return r.top + r.height/2; };
-    for(const g of faceGroups()){
+    for(const g of faceGroups(doc)){
       const got = Array.prototype.slice.call(doc.querySelectorAll(g))
         .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0 && !el.disabled
                    && el.className !== 'wheel-hl' && !seen.has(el));
@@ -139,6 +150,7 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey } from './c
   // Where the first SELECT click lands per face: WATCH on ▶ WATCH (back→seasons,
   // forward→the rest), LOG on START/CONTINUE. Others start at the first item.
   function faceStartIndex(doc, els){
+    if(isComfort(doc)){ const el = doc.querySelector('#finishBtn'); const i = el ? els.indexOf(el) : -1; return i >= 0 ? i : 0; }
     const activeFace = getFocus().face;
     let sel = null;
     if(activeFace === FACE_INDEX.log)            sel = '.exp-card [data-act="watch"]';
@@ -172,6 +184,20 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey } from './c
   //    turns it back and forth). SELECT confirms; long-press cancels. ──
   function activeDialog(doc){
     if(!doc) return null;
+    // Comfort's post-watch reflection: while it's open the ring scrubs its controls
+    // (mic → note field → rank slots → save/skip) with no need to arm select-mode;
+    // SELECT confirms the highlighted one, long-press stops a running capture. The
+    // highlight starts on the mic (placed by __setComfortMic), so the first SELECT
+    // press IS the mic — and the 10s clock only runs once that mic is pressed.
+    if(comfortReflectOpen(doc))
+      return { type:'list',
+               items(){ return Array.prototype.slice.call(
+                          doc.querySelectorAll('#rfMic, #rfText, #slotter .srow, #rfSave, #rfSkip'))
+                          .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0); },
+               confirm(){ const b = doc._wheelHL; if(b && b._el){ b._el.click();
+                          if(b._el.tagName === 'TEXTAREA'){ try { b._el.focus({ preventScroll:true }); } catch(_){} } } },
+               cancel(){ try { const m = doc.getElementById('rfMic');
+                          if(m && m.classList.contains('rec') && doc.defaultView.__comfortMic) doc.defaultView.__comfortMic(); } catch(_){} } };
     if(doc.querySelector('#epSheet.show'))
       return { type:'list', items(){ return Array.prototype.slice.call(doc.querySelectorAll('#epSheetGrid .epchip'))
                  .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0); },
@@ -215,6 +241,17 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey } from './c
     try { localStorage.setItem('pg_wheel_axis', axisMode); } catch(_){}
     paintAxis(); tick(10);
   });
+
+  // ── Comfort-reflection mic: the comfort face calls window.__setComfortMic(on)
+  //    when its 10-second reflection opens/closes. ON → paint the centre as a mic
+  //    and drop the highlight onto #rfMic so the very first SELECT press records
+  //    (and only then does the clock start). OFF → restore SELECT, clear it. ──
+  const CENTER_LABEL = center ? center.textContent : 'SELECT';
+  window.__setComfortMic = function(on){
+    if(center){ center.classList.toggle('mic', !!on); center.textContent = on ? '🎙' : CENTER_LABEL; }
+    if(on){ const doc = activeDoc(); const mic = doc && doc.getElementById('rfMic'); if(mic) placeHL(doc, mic); }
+    else { hideHL(activeDoc()); }
+  };
 
   const SCROLL_PER_REV = 720;          // px scrolled per full finger revolution
   const STEP_NOTCH = 0.95;             // radians of rotation per highlight step (~54°) — bigger = less sensitive

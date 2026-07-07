@@ -103,7 +103,7 @@
     background-position:center top;background-color:#16100c}
   .exc-info{min-width:0;flex:1;display:flex;flex-direction:column;gap:5px}
   /* SEASONS picker: number chips to the right of the poster/title. The season you
-     are in shows the 🍿; every chip taps through to that season on the LOG face. */
+     are in gets the amber marker; every chip taps through to that season on the LOG face. */
   .exc-seasons{flex:0 0 auto;display:flex;flex-direction:column;align-items:flex-end;gap:6px;max-width:122px}
   .exc-seas-label{font-family:var(--mono);font-size:9px;letter-spacing:.18em;color:var(--muted)}
   .exc-seas-grid{display:flex;flex-wrap:wrap;gap:5px;justify-content:flex-end}
@@ -269,6 +269,34 @@
   .crow .pmeta .edit{color:var(--amber)}
   .crow:hover .planlabel{color:var(--plan)}
 
+  /* COMFORT tab: curated-marathon list (pre-beta). Data-driven rows; a second
+     marathon is another entry in MARATHONS, not a new layout. */
+  .mband{grid-column:1/-1;display:flex;align-items:center;gap:8px;margin:0 0 11px;
+    font-family:var(--mono);font-size:9px;letter-spacing:.14em;color:var(--amber);text-transform:uppercase}
+  .mband .dotm{width:6px;height:6px;border-radius:50%;background:var(--amber);box-shadow:0 0 6px rgba(233,162,60,.7)}
+  .mlist{grid-column:1/-1;display:flex;flex-direction:column;gap:10px}
+  .mrow{display:flex;align-items:center;gap:12px;padding:12px;cursor:pointer;background:var(--base-2);
+    border:1px solid var(--line);border-radius:14px;transition:border-color .15s ease,box-shadow .15s ease,transform .1s ease}
+  .mrow:hover{border-color:var(--amber);box-shadow:0 0 8px rgba(233,162,60,.3)}
+  .mrow:active{transform:scale(.99)}
+  .mrow .micon{flex:0 0 auto;width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;
+    font-size:22px;background:linear-gradient(150deg,#2a201a,#16100c);border:1px solid var(--line)}
+  .mrow .minfo{flex:1;min-width:0}
+  .mrow .mtitle{font-family:var(--display);font-weight:700;font-size:15px;line-height:1.1;color:var(--text);text-wrap:pretty}
+  .mrow .msub{font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:4px}
+  .mrow .mgo{flex:0 0 auto;color:var(--amber);font-family:var(--mono);font-size:16px}
+
+  /* A curated marathon opens full-face inside WATCH (in-face overlay). Its own
+     slim bar carries the back that returns to the list. */
+  .marov{position:absolute;inset:0;z-index:70;background:var(--base);display:none;flex-direction:column}
+  .marov.show{display:flex}
+  .marbar{flex:0 0 auto;display:flex;align-items:center;padding:8px 10px;border-bottom:1px solid var(--line);background:var(--base-2)}
+  .marback{display:inline-flex;align-items:center;gap:6px;background:transparent;border:1px solid var(--line);
+    border-radius:999px;padding:6px 12px;color:var(--amber);font-family:var(--mono);font-size:11px;
+    letter-spacing:.04em;cursor:pointer;-webkit-tap-highlight-color:transparent}
+  .marback:active{transform:scale(.96)}
+  .marov iframe{flex:1 1 auto;width:100%;min-height:0;border:0;background:var(--base)}
+
   .tabbar{flex-shrink:0;display:flex;border-top:1px solid var(--line);background:var(--base-2)}
   .tab{flex:1;background:transparent;border:none;border-right:1px solid var(--line);color:var(--muted);font-family:var(--mono);
     font-size:8.5px;letter-spacing:.04em;padding:9px 3px;cursor:pointer;transition:background .15s ease,color .15s ease;display:flex;align-items:center;justify-content:center;gap:4px}
@@ -305,27 +333,6 @@
   .sav-total .v{font-family:var(--display);font-weight:700;font-size:18px;color:var(--amber)}
   .sav-foot{font-family:var(--body);font-size:10px;color:var(--muted);margin-top:10px;line-height:1.35}
   /* Floating cube — back to cube navigation (shared across trunk sides) */
-  .cubeback{ position:fixed; right:16px; bottom:16px; z-index:60;
-    width:46px; height:46px; border:0; background:rgba(10,12,16,.55);
-    border-radius:13px; backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
-    box-shadow:0 4px 14px rgba(0,0,0,.4); cursor:pointer; opacity:.5;
-    display:flex; align-items:center; justify-content:center;
-    perspective:120px; -webkit-tap-highlight-color:transparent;
-    transition:transform .12s ease, background .12s ease, opacity .15s ease; }
-  .cubeback:hover{ background:rgba(20,24,30,.7); opacity:1; }
-  .cubeback:active{ transform:scale(.9); }
-  .cb-cube{ position:relative; width:20px; height:20px; transform-style:preserve-3d;
-    transform:rotateX(-22deg) rotateY(-38deg); animation:cbspin 11s linear infinite; }
-  @keyframes cbspin{ from{ transform:rotateX(-22deg) rotateY(0deg); }
-                     to  { transform:rotateX(-22deg) rotateY(360deg); } }
-  .cb-face{ position:absolute; width:20px; height:20px; box-sizing:border-box;
-    border:1.5px solid var(--amber, #f0a93b); background:rgba(240,169,59,.12); }
-  .cb-front { transform:translateZ(10px);                 background:rgba(240,169,59,.16); }
-  .cb-back  { transform:rotateY(180deg) translateZ(10px); background:rgba(240,169,59,.08); }
-  .cb-right { transform:rotateY(90deg)  translateZ(10px); background:rgba(240,169,59,.06); }
-  .cb-left  { transform:rotateY(-90deg) translateZ(10px); background:rgba(240,169,59,.10); }
-  .cb-top   { transform:rotateX(90deg)  translateZ(10px); background:rgba(240,169,59,.24); }
-  .cb-bottom{ transform:rotateX(-90deg) translateZ(10px); background:rgba(240,169,59,.04); }
 </style>
 </head>
 <body>
@@ -351,13 +358,20 @@
   <div class="tabbar">
     <button class="tab on" data-tab="current">CURRENT<span class="ct" id="n-current"></span></button>
     <button class="tab" data-tab="returning">RETURNING<span class="ct" id="n-returning"></span></button>
-    <button class="tab" data-tab="comfort">COMFORT<span class="ct" id="n-comfort"></span></button>
+    <button class="tab" data-tab="comfort">&#127871; COMFORT<span class="ct" id="n-comfort"></span></button>
     <button class="tab" data-tab="completed">COMPLETED<span class="ct" id="n-completed"></span></button>
   </div>
 
   <div class="fx" id="fx"></div>
   <div class="flash" id="flash"><div class="flabel">&#8594; EPISODES</div><div class="fsub"></div><div class="fnote"></div></div>
   <div class="savpop" id="savpop"><div class="sav-card" id="savCard"></div></div>
+
+  <!-- COMFORT: a curated marathon opens full-face inside WATCH (an in-face overlay
+       — faces never call each other). Its own back returns to the marathon list. -->
+  <div class="marov" id="marov">
+    <div class="marbar"><button class="marback" id="marBack">&#8249; marathons</button></div>
+    <iframe id="marFrame" title="Marathon" allow="microphone; web-share"></iframe>
+  </div>
 </div>
 
 <script>
@@ -604,6 +618,44 @@ function counts(){
   for(const k in c)document.getElementById("n-"+k).textContent=c[k];
 }
 
+/* ── COMFORT tab: curated marathons ────────────────────────────────────────
+   A data-driven list. Each entry opens its own self-contained marathon face
+   inside WATCH (an in-face overlay — faces never call each other). Add a second
+   marathon by adding a row here, not a new layout. Pre-beta, hand curated. */
+const MARATHONS=[
+  { id:"psycho", title:"Tressany's PSYCH-O Marathon!", sub:"12 episodes · 20 years of Psych",
+    icon:"\u{1F37F}", file:"cube_watch_comfort_face.html" }
+];
+
+function renderComfort(grid){
+  grid.classList.remove("list");
+  const n=document.getElementById("n-comfort"); if(n) n.textContent=MARATHONS.length;
+  const rows=MARATHONS.map(m=>
+    '<div class="mrow" data-mid="'+m.id+'">'+
+      '<div class="micon">'+m.icon+'</div>'+
+      '<div class="minfo"><div class="mtitle">'+esc(m.title)+'</div>'+
+        '<div class="msub">'+esc(m.sub)+'</div></div>'+
+      '<div class="mgo">&#8250;</div></div>').join("");
+  grid.innerHTML=
+    '<div class="mband"><span class="dotm"></span>PRE-BETA · curated marathons</div>'+
+    '<div class="mlist">'+rows+'</div>';
+  grid.querySelectorAll(".mrow").forEach(r=>r.addEventListener("click",()=>{
+    const m=MARATHONS.find(x=>x.id===r.dataset.mid); if(m) openMarathon(m);
+  }));
+}
+
+function openMarathon(m){
+  const ov=document.getElementById("marov"); if(!ov) return;
+  const fr=document.getElementById("marFrame");
+  if(fr.getAttribute("src")!==m.file) fr.setAttribute("src",m.file);
+  ov.classList.add("show");
+}
+function closeMarathon(){
+  const ov=document.getElementById("marov"); if(!ov) return;
+  ov.classList.remove("show");
+  const fr=document.getElementById("marFrame"); if(fr) fr.removeAttribute("src");   // stop it; reopen loads fresh
+}
+
 function render(){
   counts();
   publishLog();
@@ -612,12 +664,13 @@ function render(){
   const pierreEl=document.querySelector('.pierre');
   if(pierreEl) pierreEl.style.display = (activeTab==='completed' || selectedId) ? 'none' : '';
   const grid=document.getElementById("grid");
-  if(activeTab==="comfort" || activeTab==="returning"){
-    // Comfort + Returning are being reworked: under-construction notice for now.
+  if(activeTab==="returning"){
+    // Returning is being reworked: under-construction notice for now.
     grid.classList.remove("list");
     grid.innerHTML='<div class="state">&#128679; under construction</div>';
     return;
   }
+  if(activeTab==="comfort"){ renderComfort(grid); return; }   // curated marathons (pre-beta)
   grid.classList.remove("list");
   if(activeTab==="completed"){
     const list=LOG.filter(s=>bucketOf(s)==="completed");
@@ -678,7 +731,7 @@ async function ensureSyn(s){
   }catch(_){}
 }
 
-/* ─── 🎁 Share: push a title to chosen friends; it lands on their BROWSE rail ─── */
+/* ─── Share: push a title to chosen friends; it lands on their BROWSE rail ─── */
 // sms:/mailto: from inside a cube face must drive the top window (the embedded
 // face's own location swallows the scheme). navigator.share is preferred.
 function openExternal(url){ try{ (window.top||window).location.href=url; }catch(_){ window.location.href=url; } }
@@ -695,7 +748,7 @@ async function openShareDialog(s){
   const ov=document.createElement('div'); ov.className='sh-ov'; ov.id='shOv';
   ov.innerHTML=
     '<div class="sh-card">'+
-      '<div class="sh-head"><div class="t">🎁 Share “'+esc(s.name||'this')+'”</div>'+
+      '<div class="sh-head"><div class="t">Share “'+esc(s.name||'this')+'”</div>'+
         '<button class="sh-x" id="shX">✕</button></div>'+
       '<div class="sh-all" id="shAll"><span class="sh-ck">✓</span><span>ALL FRIENDS</span></div>'+
       '<div class="sh-list" id="shList"><div class="sh-empty">Loading friends…</div></div>'+
@@ -769,7 +822,7 @@ async function openShareDialog(s){
       const d=await r.json().catch(()=>({}));
       closeShareDialog();
       const n=d.shared||0;
-      shToast(n? ('🎁 Shared with '+n+' friend'+(n>1?'s':'')) : 'Already shared with them');
+      shToast(n? ('Shared with '+n+' friend'+(n>1?'s':'')) : 'Already shared with them');
     }catch(_){ sendBtn.disabled=false; sync(); shToast('Could not share — try again'); }
   };
 }
@@ -996,7 +1049,7 @@ async function fillSeasons(s){
   const cur=(s.lastWatched && s.lastWatched.season) || seasons[0];
   const chips=seasons.map(n=>{
     const isCur=n===cur;
-    return '<button class="exc-seas-chip'+(isCur?" cur":"")+'" data-season="'+n+'">'+(isCur?"🍿":n)+'</button>';
+    return '<button class="exc-seas-chip'+(isCur?" cur":"")+'" data-season="'+n+'">'+n+'</button>';
   }).join("");
   host.innerHTML='<div class="exc-seas-label">SEASONS</div><div class="exc-seas-grid">'+chips+'</div>';
   host.querySelectorAll(".exc-seas-chip").forEach(b=>b.addEventListener("click",ev=>{
@@ -1098,112 +1151,6 @@ function dustParticles(rect,fr){const fx=document.getElementById("fx");
     p.style.setProperty("--dx",(Math.random()*30-15)+"px");p.style.setProperty("--dy",(50+Math.random()*120)+"px");p.style.setProperty("--dur",(0.7+Math.random()*0.6)+"s");
     fx.appendChild(p);setTimeout(()=>p.remove(),1500);}}
 
-// ---- Finale share card ----------------------------------------------------
-// When a show is finished (after the popcorn burst), build a square PNG card
-// — Pierre in the lower-left, the profile picture circle in the upper-right —
-// and hand it to the native share sheet, falling back to a download.
-const PIERRE_IMG=new Image(); PIERRE_IMG.src="pierre.png";
-function avatarURL(){ try{ return localStorage.getItem("pg_avatar")||""; }catch(_){ return ""; } }
-function userInitial(){ try{ return (localStorage.getItem("pg_username")||"").trim().charAt(0).toUpperCase(); }catch(_){ return ""; } }
-function loadImg(src,cors){ return new Promise(res=>{ if(!src) return res(null);
-  const im=new Image();
-  if(cors){ im.crossOrigin="anonymous";
-    // Distinct cache key from the plain CSS-background load of the same poster —
-    // otherwise the browser serves the cached non-CORS copy and taints the canvas.
-    src += (src.includes('?')?'&':'?') + '_cors=1'; }
-  im.onload=()=>res(im); im.onerror=()=>res(null); im.src=src; }); }
-// rounded-rect path helper for the poster card
-function rrect(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y);
-  ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
-  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
-function wrapLines(ctx,text,maxW){ const words=text.split(" "),lines=[]; let line="";
-  for(const w of words){ const t=line?line+" "+w:w;
-    if(ctx.measureText(t).width>maxW && line){ lines.push(line); line=w; } else line=t; }
-  if(line) lines.push(line); return lines; }
-
-async function buildFinaleCard(title,posterUrl,platform){
-  const S=1080,c=document.createElement("canvas"); c.width=c.height=S;
-  const ctx=c.getContext("2d");
-  ctx.fillStyle="#ffffff"; ctx.fillRect(0,0,S,S);
-  const rg=ctx.createRadialGradient(S*0.5,S*0.14,40,S*0.5,S*0.14,S*0.8);
-  rg.addColorStop(0,"rgba(233,162,60,.10)"); rg.addColorStop(1,"rgba(233,162,60,0)");
-  ctx.fillStyle=rg; ctx.fillRect(0,0,S,S);
-
-  // profile picture circle, upper-right
-  const av=await loadImg(avatarURL());
-  const R=86,cx=S-70-R,cy=72+R;
-  ctx.save(); ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2); ctx.closePath();
-  ctx.fillStyle="#efe7df"; ctx.fill(); ctx.clip();
-  if(av) ctx.drawImage(av,cx-R,cy-R,R*2,R*2);
-  else { ctx.fillStyle="#E9A23C"; ctx.font='700 82px "Space Grotesk",sans-serif';
-    ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillText(userInitial()||"?",cx,cy+4); }
-  ctx.restore();
-  ctx.beginPath(); ctx.arc(cx,cy,R,0,Math.PI*2); ctx.lineWidth=5; ctx.strokeStyle="#E9A23C"; ctx.stroke();
-
-  // headline
-  ctx.textAlign="left"; ctx.textBaseline="top";
-  ctx.fillStyle="#1b1714"; ctx.font='700 68px "Space Grotesk",sans-serif';
-  const lines=wrapLines(ctx,"I just finished watching "+title+" with Pierre!",S-140);
-  let y=300; for(const ln of lines){ ctx.fillText(ln,70,y); y+=84; }
-
-  // platform pill — "ON {PLATFORM}"
-  if(platform){
-    const label="ON "+platform.toUpperCase();
-    ctx.font='500 26px "JetBrains Mono",monospace';
-    const tw=ctx.measureText(label).width, padX=22, ph2=50, pill_y=y+10;
-    rrect(ctx,70,pill_y,tw+padX*2,ph2,ph2/2);
-    ctx.fillStyle="rgba(233,162,60,.14)"; ctx.fill();
-    rrect(ctx,70,pill_y,tw+padX*2,ph2,ph2/2); ctx.lineWidth=2; ctx.strokeStyle="rgba(233,162,60,.55)"; ctx.stroke();
-    ctx.fillStyle="#b07d22"; ctx.textBaseline="middle"; ctx.fillText(label,70+padX,pill_y+ph2/2+2);
-    ctx.textBaseline="top"; y=pill_y+ph2+12;
-  }
-  ctx.fillStyle="#E9A23C"; ctx.font='600 52px "Space Grotesk",sans-serif';
-  ctx.fillText("Have you seen it?",70,y+18);
-
-  // show poster, lower-right (rounded card with a soft shadow)
-  const poster=await loadImg(posterUrl,true);
-  if(poster){
-    const pw=300,ph=pw*1.47,px=S-70-pw,py=S-64-ph,rad=22;
-    ctx.save();
-    ctx.shadowColor="rgba(0,0,0,.55)"; ctx.shadowBlur=34; ctx.shadowOffsetY=14;
-    rrect(ctx,px,py,pw,ph,rad); ctx.fillStyle="#000"; ctx.fill();
-    ctx.restore();
-    ctx.save(); rrect(ctx,px,py,pw,ph,rad); ctx.clip();
-    const s=Math.max(pw/poster.naturalWidth,ph/poster.naturalHeight);   // cover
-    const dw=poster.naturalWidth*s,dh=poster.naturalHeight*s;
-    ctx.drawImage(poster,px+(pw-dw)/2,py+(ph-dh)/2,dw,dh);
-    ctx.restore();
-    rrect(ctx,px,py,pw,ph,rad); ctx.lineWidth=3; ctx.strokeStyle="rgba(233,162,60,.55)"; ctx.stroke();
-  }
-
-  // Pierre, lower-left
-  if(PIERRE_IMG.complete && PIERRE_IMG.naturalWidth){
-    const pw=440,ph=pw*(PIERRE_IMG.naturalHeight/PIERRE_IMG.naturalWidth);
-    ctx.drawImage(PIERRE_IMG,30,S-ph-36,pw,ph);
-  }
-  return c;
-}
-
-async function shareFinale(title,poster,platform,comment){
-  let canvas; try{ if(document.fonts) await document.fonts.ready; }catch(_){}
-  try{ canvas=await buildFinaleCard(title,poster,platform); }catch(_){ return; }
-  const note=(comment||'').trim();
-  const text = note
-    ? '"'+note+'" — just finished '+title+' with Pierre. Have you seen it?'
-    : "I just finished watching "+title+" with Pierre! Have you seen it?";
-  canvas.toBlob(async(blob)=>{ if(!blob) return;
-    const file=new File([blob],"pangolin-finale.png",{type:"image/png"});
-    if(navigator.canShare && navigator.canShare({files:[file]})){
-      try{ await navigator.share({files:[file],text}); return; }
-      catch(err){ if(err && err.name==="AbortError") return; }   // cancelled — don't also download
-    }
-    const url=URL.createObjectURL(blob);                          // fallback: download the card
-    const a=document.createElement("a"); a.href=url; a.download="pangolin-finale.png";
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(()=>URL.revokeObjectURL(url),4000);
-  },"image/png");
-}
-
 function finishShow(id, land){
   const tileEl=document.querySelector('.tile[data-id="'+id+'"]'),s=LOG.find(x=>x.id===id); if(!s)return;
   const fr=face.getBoundingClientRect();
@@ -1216,27 +1163,16 @@ function finishShow(id, land){
   s.forceCompleted=true;s.watched=s.total; patchTitle(s,{op:'finish'});
   const tabEl=document.querySelector('.tab[data-tab="completed"]');tabEl.classList.add("pulse");setTimeout(()=>tabEl.classList.remove("pulse"),700);
   setTimeout(()=>{render();renderPierre();},780); setTimeout(()=>switchTab(land||"completed"),1300);
-  // After the popcorn: share the finale card. A FILM gets a skippable comment first
-  // (it rides along on the share); a series shares straight away as before.
-  if(s.kind==='movie')
-    setTimeout(()=>askFinaleComment(s.name, c=>{ shareFinale(s.name,s.poster,s.platform,c); if(c) saveReflection(s.titleId,null,c); }),900);
-  else
-    setTimeout(()=>shareFinale(s.name,s.poster,s.platform),900);
+  // After the popcorn: Pierre catches the reaction. He hosts the thought and
+  // the share offer on his own face — no in-face comment box.
+  setTimeout(()=>routeFinishedToPierre(s),900);
 }
 
-// Skippable one-line comment before a movie's finale share. Resolves with the
-// typed text on Share, or '' on Skip / dismiss — either way the card still shares.
-function askFinaleComment(title, done){
-  const ov=document.getElementById('fcOverlay'); if(!ov){ done(''); return; }
-  const t=document.getElementById('fcTitle'), box=document.getElementById('fcText');
-  t.textContent='Finished '+title;
-  box.value='';
-  ov.classList.add('show'); setTimeout(()=>{ try{ box.focus(); }catch(_){} },60);
-  let settled=false;
-  const finish=(val)=>{ if(settled) return; settled=true; ov.classList.remove('show'); done(val); };
-  document.getElementById('fcShare').onclick=()=>finish(box.value||'');
-  document.getElementById('fcSkip').onclick=()=>finish('');
-  ov.onclick=e=>{ if(e.target===ov) finish(''); };   // tap the backdrop to skip
+// Every finished watch (film or series finale) routes to Pierre for the thought.
+function routeFinishedToPierre(s){
+  if(window.parent===window) return;
+  const payload={ intent:'note', finished:true, kind:s.kind||'show', show:s.name, titleId:s.titleId||null };
+  window.parent.postMessage({type:'cube:rotateTo', face:'pierre', payload}, '*');
 }
 
 // ─── Per-episode archive: every completed episode's full record in one place ──
@@ -1292,7 +1228,7 @@ function renderEpisodeArchive(host, s, data, includeBp){
   // A film has no real episode rows — fold its whole record into one block.
   if(isMovie || !eps.length){
     if(isMovie || data.tickets.length || data.comments.length || data.refs.length || data.coview.length)
-      eps=[{ key:isMovie?'🎬':'', name:isMovie?'Film':'', sessions:[], bp:false, _all:true }];
+      eps=[{ key:isMovie?'🎬':'', name:isMovie?'Film':'', sessions:[], bp:false, _all:true }];   // '🎬' = stored data key, never rendered
   }
   if(!eps.length){ host.innerHTML='<div class="vw-empty">nothing logged yet</div>'; return; }
 
@@ -1317,7 +1253,7 @@ function renderEpisodeArchive(host, s, data, includeBp){
     const sessions=e.sessions||[];
     const fin=sessions.filter(x=>x.finished).pop();
     const when = e._all ? (s.lastDate?relDate(s.lastDate):'') : (fin?fin.date:'');
-    const head = e._all ? (isMovie?'🎬 Film':'Viewing') : ('<b>'+key(e)+'</b>'+(e.name?' '+esc(e.name):''));
+    const head = e._all ? (isMovie?'Film':'Viewing') : ('<b>'+key(e)+'</b>'+(e.name?' '+esc(e.name):''));
     const refl = (reflByEp[k]||[]).concat(i===0?orphanRefs:[]);
     const body = archiveBody(s, sessions, ticketsByEp[k]||[], commentsByEp[k]||[], coviewByEp[k]||[], refl, includeBp);
     return '<div class="vw">'+
@@ -1374,12 +1310,12 @@ function coviewLine(c, nested){
     '<span class="ep-txt">'+esc(c.transcription||'Audio')+'</span></div>';
 }
 
-// Share a thought → native share card AND persist it as a reflection; refresh archive.
+// Share a thought → Pierre hosts the entry (and the share offer) on his face;
+// the thought persists as a reflection on this viewing's ticket.
 function viewingShare(s, ticketId, includeBp){
-  askFinaleComment(s.name, txt=>{
-    shareFinale(s.name, s.poster, s.platform, txt);
-    if(txt){ saveReflection(s.titleId, ticketId, txt).then(()=>loadEpisodeArchive(s, includeBp)); }
-  });
+  if(window.parent===window) return;
+  const payload={ intent:'note', offerShare:true, show:s.name, titleId:s.titleId||null, ticketId:ticketId||null };
+  window.parent.postMessage({type:'cube:rotateTo', face:'pierre', payload}, '*');
 }
 async function saveReflection(showId, ticketId, text){
   const email=acct(); if(!email || !text) return;
@@ -1420,6 +1356,7 @@ function removePermanently(id){
 function switchTab(name){activeTab=name; selectedId=null;
   document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("on",x.dataset.tab===name));render();}
 document.querySelectorAll(".tab").forEach(t=>t.addEventListener("click",()=>switchTab(t.dataset.tab)));
+document.getElementById("marBack").addEventListener("click",closeMarathon);
 function firstCurrent(){return LOG.filter(s=>bucketOf(s)==="current"&&!s.failed&&!s.forceCompleted&&!s.stopped&&s.watched<s.released)[0]
   || LOG.filter(s=>bucketOf(s)==="current"&&!s.failed&&!s.forceCompleted&&!s.stopped)[0];}
 document.getElementById("finishBtn").addEventListener("click",()=>{const t=firstCurrent();if(t){if(activeTab!=="current")switchTab("current");setTimeout(()=>finishShow(t.id),60);}});
@@ -1484,53 +1421,9 @@ if(window.parent!==window){
     if(_sc.scrollTop<=0) _sc.scrollTop=1; else if(_sc.scrollTop>=max) _sc.scrollTop=max-1;
   },{passive:true});
 }
-// Floating cube → back to cube navigation (delegated so DOM order doesn't matter).
-document.addEventListener('click', function(e){
-  if(e.target.closest && e.target.closest('#cubeBack') && window.parent!==window)
-    window.parent.postMessage({type:'pangolin-back'},'*');
-});
 </script>
-  <!-- Floating cube: back to cube navigation -->
-  <button class="cubeback" id="cubeBack" aria-label="Back to cube">
-    <span class="cb-cube">
-      <span class="cb-face cb-front"></span><span class="cb-face cb-back"></span>
-      <span class="cb-face cb-right"></span><span class="cb-face cb-left"></span>
-      <span class="cb-face cb-top"></span><span class="cb-face cb-bottom"></span>
-    </span>
-  </button>
 
-  <!-- Movie finale: a skippable comment that rides along on the share card -->
-  <style>
-    #fcOverlay{ position:fixed; inset:0; z-index:60; display:none; align-items:center; justify-content:center;
-      background:rgba(8,5,2,.66); -webkit-backdrop-filter:blur(2px); backdrop-filter:blur(2px); padding:22px; }
-    #fcOverlay.show{ display:flex; }
-    #fcOverlay .fccard{ width:100%; max-width:320px; background:linear-gradient(165deg,#2a2017,#1a130c);
-      border:1px solid var(--line); border-radius:16px; padding:18px 16px 14px; box-shadow:0 18px 50px rgba(0,0,0,.5); }
-    #fcOverlay .fctitle{ font-family:var(--display,serif); font-weight:700; font-size:16px; color:var(--amber); margin-bottom:4px; }
-    #fcOverlay .fcsub{ font-family:var(--mono); font-size:10.5px; line-height:1.5; color:var(--muted); margin-bottom:11px; }
-    #fcOverlay .fctext{ width:100%; box-sizing:border-box; min-height:64px; resize:none; font-family:var(--body,sans-serif);
-      font-size:13.5px; color:var(--text); background:#120c07; border:1px solid var(--line); border-radius:10px; padding:9px 11px; }
-    #fcOverlay .fctext:focus{ outline:none; border-color:var(--amber); }
-    #fcOverlay .fcbtns{ display:flex; gap:9px; margin-top:12px; }
-    #fcOverlay .fcbtn{ flex:1; font-family:var(--mono); font-size:11px; font-weight:700; letter-spacing:.08em;
-      padding:10px; border-radius:10px; cursor:pointer; background:transparent; }
-    #fcOverlay .fcbtn.skip{ color:var(--muted); border:1px solid var(--line); }
-    #fcOverlay .fcbtn.share{ color:#1a1206; background:var(--amber); border:1px solid var(--amber); }
-    #fcOverlay .fcbtn:active{ transform:translateY(1px); }
-  </style>
-  <div class="fcoverlay" id="fcOverlay">
-    <div class="fccard">
-      <div class="fctitle" id="fcTitle">Finished the film</div>
-      <div class="fcsub">Say a word about it? It rides along on your share. Skip if you'd rather not.</div>
-      <textarea class="fctext" id="fcText" maxlength="180" placeholder="What did you make of it?"></textarea>
-      <div class="fcbtns">
-        <button class="fcbtn skip" id="fcSkip">Skip</button>
-        <button class="fcbtn share" id="fcShare">Share</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- full ticket image, opened from a viewing's 🎟 stub button -->
+  <!-- full ticket image, opened from a viewing's ticket-stub button -->
   <div class="imglb" id="imgLb"><img alt="ticket"></div>
 </body>
 </html>

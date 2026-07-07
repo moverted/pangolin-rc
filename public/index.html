@@ -110,6 +110,8 @@
       display: flex; align-items: center; justify-content: center;
     }
     #wheel .wheel-center:active { transform: translate(-50%,-50%) scale(0.94); }
+    /* mic state: the centre becomes the reflection mic while a comfort comment waits */
+    #wheel .wheel-center.mic { font-size: 17px; letter-spacing: 0; color: #f0a93b; border-color: rgba(240,169,59,0.55); }
     /* ── transport buttons at the wheel's cardinal points: BACK top, play/pause
        bottom, rw left, ff right. Printed on the ring like iPod labels, but live
        buttons. Shown ONLY while the remote points at a real device — #wheel.rc,

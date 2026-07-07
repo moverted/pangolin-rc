@@ -159,9 +159,8 @@
   .seasondots .sd{ width:11px; height:11px; border-radius:50%; background:var(--grey); position:relative; flex:0 0 auto; }
   .seasondots .sd.done{ background:var(--dgreen); }
   .seasondots .sd.avail{ background:var(--green); }
-  .seasondots .sd.cur{ background:transparent; width:16px; height:16px; }
-  .seasondots .sd.cur::after{ content:"🍿"; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); font-size:14px; line-height:1; }
-  .scorn{ font-size:13px; }   /* popcorn inside the ">6 seasons" count indicator */
+  .seasondots .sd.cur{ background:var(--amber); width:14px; height:14px;
+    box-shadow:0 0 10px rgba(240,169,59,.7); }
 
   /* minute bar: position inside the current episode (yellow track, elapsed darkens L→R) */
   .minzone{ margin-top:4px; }
@@ -169,10 +168,11 @@
     box-shadow:inset 0 1px 2px rgba(0,0,0,.42); cursor:pointer; touch-action:none; }
   .minfill{ position:absolute; left:0; top:0; bottom:0; width:0; border-radius:999px;
     background:linear-gradient(90deg,#caa15e,#7a5410); }
-  /* time-slider handle is the 🍿 — it marks where you are inside the episode */
+  /* time-slider handle — an amber puck marking where you are inside the episode */
   .minhandle{ position:absolute; top:50%; left:0; transform:translate(-50%,-50%);
-    font-size:19px; line-height:1; cursor:grab; filter:drop-shadow(0 2px 5px rgba(0,0,0,.6)); }
-  .minhandle::after{ content:"🍿"; }
+    width:17px; height:17px; border-radius:50%; background:var(--amber);
+    border:2px solid #2a1c08; box-shadow:0 2px 6px rgba(0,0,0,.6), 0 0 10px rgba(240,169,59,.45);
+    cursor:grab; }
   .minhandle:active{ cursor:grabbing; }
   /* relative so the total can be pinned dead-center, immune to the left readout
      widening when the >> running-timer animation appends frames */
@@ -283,28 +283,6 @@
   .syn{ font-size:13.5px; color:var(--dim); margin:0 0 18px; line-height:1.55; }
 
   /* Floating cube — back to cube navigation. Small isometric cube, bottom-right. */
-  .cubeback{ position:fixed; right:16px; bottom:16px; z-index:60;
-    width:46px; height:46px; border:0; background:rgba(10,12,16,.55);
-    border-radius:13px; backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
-    box-shadow:0 4px 14px rgba(0,0,0,.4); cursor:pointer; opacity:.5;
-    display:flex; align-items:center; justify-content:center;
-    perspective:120px; -webkit-tap-highlight-color:transparent;
-    transition:transform .12s ease, background .12s ease, opacity .15s ease; }
-  .cubeback:hover{ background:rgba(20,24,30,.7); opacity:1; }   /* full opacity on hover for affordance */
-  .cubeback:active{ transform:scale(.9); }
-  .cb-cube{ position:relative; width:20px; height:20px; transform-style:preserve-3d;
-    transform:rotateX(-26deg) rotateY(-38deg);
-    animation:cbspin 11s linear infinite; }                    /* slow continuous spin */
-  @keyframes cbspin{ from{ transform:rotateX(-22deg) rotateY(0deg); }
-                     to  { transform:rotateX(-22deg) rotateY(360deg); } }
-  .cb-face{ position:absolute; width:20px; height:20px; box-sizing:border-box;
-    border:1.5px solid var(--amber); background:rgba(240,169,59,.12); }
-  .cb-front { transform:translateZ(10px);                 background:rgba(240,169,59,.16); }
-  .cb-back  { transform:rotateY(180deg) translateZ(10px); background:rgba(240,169,59,.08); }
-  .cb-right { transform:rotateY(90deg)  translateZ(10px); background:rgba(240,169,59,.06); }
-  .cb-left  { transform:rotateY(-90deg) translateZ(10px); background:rgba(240,169,59,.10); }
-  .cb-top   { transform:rotateX(90deg)  translateZ(10px); background:rgba(240,169,59,.24); }
-  .cb-bottom{ transform:rotateX(-90deg) translateZ(10px); background:rgba(240,169,59,.04); }
 
   .block-label{ font-family:var(--mono); font-size:9.5px; letter-spacing:.16em;
     text-transform:uppercase; color:var(--faint); margin:0 0 10px; }
@@ -417,40 +395,6 @@
   .wtix{ display:inline-block; width:30px; height:30px; border-radius:6px; object-fit:cover;
     border:1px solid rgba(243,217,160,.5); margin-left:8px; vertical-align:middle; cursor:pointer; }
 
-  /* ── Pierre end-of-episode reflection ─────────────────────────────────── */
-  #refl{ position:fixed; inset:0; z-index:400; display:none; flex-direction:column;
-    background:rgba(10,7,4,.93); -webkit-backdrop-filter:blur(3px); backdrop-filter:blur(3px); }
-  #refl.show{ display:flex; }
-  #reflX{ position:absolute; top:10px; right:10px; width:30px; height:30px; border:none; border-radius:50%;
-    background:rgba(255,255,255,.08); color:var(--dim); font-size:14px; cursor:pointer; z-index:2;
-    -webkit-tap-highlight-color:transparent; }
-  #reflChat{ flex:1 1 auto; overflow-y:auto; padding:46px 16px 8px; display:flex; flex-direction:column; gap:8px; }
-  .rmsg{ max-width:82%; padding:8px 12px; border-radius:14px; font-family:var(--body); font-size:13.5px; line-height:1.4; }
-  .rmsg.me{ align-self:flex-end; background:rgba(240,169,59,.16); color:var(--text); border:1px solid rgba(240,169,59,.3); }
-  .rmsg.pp{ align-self:flex-start; background:rgba(255,255,255,.06); color:var(--dim); }
-  #reflDock{ flex:none; display:flex; align-items:flex-end; gap:10px; padding:6px 14px 4px; }
-  #reflPierre{ width:74px; height:74px; object-fit:contain; flex:none; filter:drop-shadow(0 4px 10px rgba(0,0,0,.5)); }
-  #reflBubble{ position:relative; flex:1; background:#f6efe2; color:#241a10; border-radius:14px;
-    padding:10px 13px; font-family:var(--body); font-weight:600; font-size:14px; line-height:1.35; }
-  #reflBubble::after{ content:''; position:absolute; left:-7px; bottom:14px;
-    border:7px solid transparent; border-right-color:#f6efe2; border-left:0; }
-  #reflBar{ flex:none; display:flex; align-items:center; justify-content:center; gap:10px; padding:8px 14px 4px; }
-  #reflMic{ width:58px; height:58px; border-radius:50%; border:1px solid rgba(240,169,59,.4);
-    background:radial-gradient(circle at 35% 30%, #2c241b, #19140f); color:var(--amber); font-size:22px;
-    cursor:pointer; position:relative; -webkit-tap-highlight-color:transparent; }
-  #reflMic.rec{ background:radial-gradient(circle at 35% 30%, #7E2A24, #4a1512); color:#fff; animation:reflpulse 1s infinite; }
-  @keyframes reflpulse{ 50%{ box-shadow:0 0 0 8px rgba(126,42,36,.25); } }
-  #reflCount{ position:absolute; bottom:-16px; left:0; right:0; font-family:var(--mono,monospace); font-size:10px; color:var(--amber); }
-  #reflEdit{ display:none; flex:1; gap:8px; align-items:flex-end; }
-  #reflText{ flex:1; min-height:44px; max-height:96px; resize:none; border-radius:12px; padding:10px 12px;
-    border:1px solid rgba(240,169,59,.35); background:rgba(255,255,255,.05); color:var(--text);
-    font-family:var(--body); font-size:14px; }
-  #reflSend{ width:44px; height:44px; border-radius:50%; border:none; background:var(--amber); color:var(--amber-deep);
-    font-size:17px; cursor:pointer; -webkit-tap-highlight-color:transparent; }
-  #reflActs{ flex:none; display:flex; gap:10px; justify-content:center; padding:6px 14px 16px; }
-  #reflActs button{ border:none; border-radius:999px; padding:9px 16px; font-family:var(--body); font-weight:700;
-    font-size:13px; cursor:pointer; background:rgba(255,255,255,.09); color:var(--text); -webkit-tap-highlight-color:transparent; }
-  #reflActs button.amber{ background:var(--amber); color:var(--amber-deep); }
 </style>
 </head>
 <body>
@@ -460,7 +404,7 @@
 
   <!-- co-view notification: a friend's comment surfacing at its mark slides in here -->
   <div id="coviewToast" class="coview-toast" style="display:none;">
-    <div class="ct-ico">💬</div>
+    <div class="ct-ico"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></div>
     <div class="ct-body"><div class="ct-who"></div><div class="ct-txt"></div></div>
     <div class="ct-x">✕</div>
   </div>
@@ -483,7 +427,7 @@
   </div>
 
   <!-- episode picker: the EP readout opens this. Lists the current season's episodes;
-       🍿 marks where you are, tap any to jump the focus there. -->
+       the amber chip marks where you are, tap any to jump the focus there. -->
   <div class="epsheet" id="epSheet">
     <div class="epsheet-card">
       <div class="epsheet-head"><span id="epSheetTitle">SEASON</span><button class="epsheet-x" id="epSheetX" type="button">✕</button></div>
@@ -579,46 +523,17 @@
   <div class="ticketsheet" id="ticketSheet">
     <div class="swback" id="tkBack"></div>
     <div class="tkcard">
-      <div class="tktitle">🎟 Log your ticket</div>
+      <div class="tktitle">Log your ticket</div>
       <div class="tksub">a photo of the stub, or a screengrab of a mobile ticket</div>
-      <button class="tkbtn" id="tkCam">📷 Camera</button>
-      <button class="tkbtn" id="tkLib">🖼 Screengrab</button>
+      <button class="tkbtn" id="tkCam"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-3px;margin-right:7px"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>Camera</button>
+      <button class="tkbtn" id="tkLib"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-3px;margin-right:7px"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>Screengrab</button>
       <div class="swcancel" id="tkCancel">cancel</div>
     </div>
   </div>
 
   <!-- Floating cube: back to cube navigation (replaces double-tap / pinch) -->
-  <button class="cubeback" id="cubeBack" aria-label="Back to cube">
-    <span class="cb-cube">
-      <span class="cb-face cb-front"></span>
-      <span class="cb-face cb-back"></span>
-      <span class="cb-face cb-right"></span>
-      <span class="cb-face cb-left"></span>
-      <span class="cb-face cb-top"></span>
-      <span class="cb-face cb-bottom"></span>
-    </span>
-  </button>
 </div>
 
-
-<!-- Pierre end-of-episode reflection: pops on FINISH. Mic-first (10s), transcript
-     is editable before it goes to Pierre; two exchanges max, then share or route. -->
-<div id="refl">
-  <button id="reflX" aria-label="Close">&#10005;</button>
-  <div id="reflChat"></div>
-  <div id="reflDock">
-    <img id="reflPierre" src="/pierre.png" alt="Pierre">
-    <div id="reflBubble"></div>
-  </div>
-  <div id="reflBar">
-    <button id="reflMic" aria-label="Record your reaction">&#127908;<span id="reflCount"></span></button>
-    <div id="reflEdit">
-      <textarea id="reflText" rows="2" placeholder="say it or type it&hellip;"></textarea>
-      <button id="reflSend" aria-label="Send">&#10148;</button>
-    </div>
-  </div>
-  <div id="reflActs"></div>
-</div>
 
 <script>
 const NOW=new Date(); const DAY=864e5;
@@ -726,8 +641,10 @@ function hasLaterSeason(){
 function finaleCheck(){
   const total=eps.length;
   if(total>0 && watched>=total && hasLaterSeason()) return;   // season finale → wrap, not show finale
-  if(!DEMO && window.parent!==window && total>0 && watched>=total && curShowId)
+  if(!DEMO && window.parent!==window && total>0 && watched>=total && curShowId){
+    _routedToPierre=true;   // the finale handoff owns the cube; skip the plain finished-note
     window.parent.postMessage({type:'episode:finishedFinale', tvmazeId:curShowId, name:curShowName, kind:isMovie?'movie':'show'}, '*');
+  }
 }
 function markWatchedThrough(i){
   if(i+1>watched) watched=i+1;
@@ -766,6 +683,7 @@ function loadNextSeason(){
 // season just wrapped (reliable trigger; the return-from-launch prompt is not).
 function forceSeasonNote(finishedSeason){
   if(window.parent===window || !curShowId) return;
+  _routedToPierre=true;   // the season-note handoff owns the cube; skip the plain finished-note
   const payload={ intent:'season-note', show:curShowName, ep:'Season '+finishedSeason };
   if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('pierre', payload);
   else window.parent.postMessage({type:'cube:rotateTo', face:'pierre', payload}, '*');
@@ -792,6 +710,7 @@ function emitProgress(i, done, bp, minute){
 
 // ---- viewing-session helpers ----
 const escHtml=(s)=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+// NOTE: the movie key '🎬' is a stored data key (comments/tickets are saved under it) — never rendered.
 function epCode(e){ return isMovie ? '🎬' : ('S'+String(e.season||1).padStart(2,'0')+'E'+String(e.number||0).padStart(2,'0')); }
 const mdFmt=(ts)=>{ const d=new Date(ts); return (d.getMonth()+1)+'/'+d.getDate(); };
 const dayKey=(ts)=>{ const d=new Date(ts); return d.getFullYear()+'-'+d.getMonth()+'-'+d.getDate(); };
@@ -981,7 +900,7 @@ function paintTranscripts(){
     speakerBtn.style.fontSize = '20px';
     speakerBtn.style.transition = 'all .2s ease';
     speakerBtn.style.flexShrink = '0';
-    speakerBtn.innerHTML = '🔊';
+    speakerBtn.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>';
 
     speakerBtn.onmouseover = () => {
       speakerBtn.style.background = 'rgba(240,169,59,.3)';
@@ -1031,9 +950,9 @@ function paintTranscripts(){
 }
 
 // One co-view row (an original comment, or a threaded reply when `nested`).
-// Original + revealed → 🔊 audio (default) and a "show text" toggle. Locked →
-// 🔒 + "reveals at M:SS". A reply may be text-only (the SMS path) or carry audio
-// (the OTT path) — an audio reply gets its own ↳🔊 play button.
+// Original + revealed → audio (default) and a "show text" toggle. Locked →
+// a lock icon + "reveals at M:SS". A reply may be text-only (the SMS path) or carry audio
+// (the OTT path) — an audio reply gets its own ↳ play button.
 function coviewRow(c, nested, replied){
   // Colour tier: a friend's comment is light orange, a friend's reply light green.
   const tier   = nested ? 'var(--reply)' : 'var(--friend)';
@@ -1049,20 +968,20 @@ function coviewRow(c, nested, replied){
     if(c.revealed && c.audioUrl){
       const sp=document.createElement('button');
       sp.style.cssText=`width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(${tierRgb},.2);border:2px solid ${tier};cursor:pointer;color:${tier};font-size:15px;flex-shrink:0;`;
-      sp.innerHTML='🔊';
+      sp.innerHTML='<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>';
       sp.onclick=(e)=>{ e.preventDefault(); playClip(c.audioUrl, sp); };
       line.appendChild(sp);
     }
   } else if(c.revealed && c.audioUrl){
     const sp=document.createElement('button');
     sp.style.cssText=`width:48px;height:48px;padding:0;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(${tierRgb},.2);border:2px solid ${tier};cursor:pointer;color:${tier};font-size:20px;flex-shrink:0;`;
-    sp.innerHTML='🔊';
+    sp.innerHTML='<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>';
     sp.onclick=(e)=>{ e.preventDefault(); playClip(c.audioUrl, sp); };
     line.appendChild(sp);
   } else if(!nested){
     const lock=document.createElement('div');
     lock.style.cssText='width:48px;height:48px;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(255,255,255,.04);border:2px solid rgba(255,255,255,.12);color:var(--dim);font-size:18px;flex-shrink:0;';
-    lock.innerHTML='🔒';
+    lock.innerHTML='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>';
     line.appendChild(lock);
   }
 
@@ -1096,7 +1015,7 @@ function coviewIndicator(container){
   const b=document.createElement('div');
   b.style.cssText='margin-bottom:14px;padding:8px 12px;border-radius:8px;background:rgba(108,192,112,.12);border:1px solid rgba(108,192,112,.35);color:#6cc070;font-size:12px;';
   const parts=names.map(n=>`${escHtml(n)} · ${byAuthor[n]} comment${byAuthor[n]>1?'s':''}`);
-  b.innerHTML=`🟢 watched &amp; commented — ${parts.join(' · ')}`;
+  b.innerHTML=`<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#6cc070;margin-right:7px;vertical-align:baseline;"></span>watched &amp; commented — ${parts.join(' · ')}`;
   container.appendChild(b);
 }
 
@@ -1280,7 +1199,7 @@ let _toastTimer = null;
 function showCoviewToast(c){
   const t=$('coviewToast'); if(!t || !c) return;
   t.querySelector('.ct-who').textContent = c.author || 'friend';
-  const preview = (c.text && c.text !== 'Audio recorded') ? c.text : '🔊 voice comment';
+  const preview = (c.text && c.text !== 'Audio recorded') ? c.text : 'voice comment';
   t.querySelector('.ct-txt').textContent = `${c.epCode} ${c.time} · ${preview}`;
   t.style.display='flex';
   requestAnimationFrame(()=> t.classList.add('show'));
@@ -1655,9 +1574,24 @@ function finishEpisode(){
   if(liveElapsed!=null && liveElapsed>=5 && liveElapsed>=rt*0.5 && (rt-liveElapsed)>=5){
     reportRuntimeMismatch(focus, liveElapsed, rt);
   }
-  const _reflIdx=focus;
+  const _noteIdx=focus;
+  _routedToPierre=false;
   finaleCheck(); advanceFocus(); paint();
-  reflOpen(_reflIdx);   // Pierre catches the reaction while the credits roll
+  // Pierre catches the reaction while the credits roll — unless the finale or
+  // season-wrap handoff already rotated the cube (they run their own Pierre flows).
+  if(!_routedToPierre) pierreFinishedNote(_noteIdx);
+}
+
+// Every finished watch routes to Pierre: he hosts the thought (and the share
+// offer) on his own face — no in-face entry overlay.
+let _routedToPierre=false;   // set by finaleCheck / forceSeasonNote within a finish
+function pierreFinishedNote(idx){
+  if(DEMO || window.parent===window) return;
+  const e=eps[idx]||{};
+  const payload={ intent:'note', finished:true, kind:isMovie?'movie':'show',
+                  show:curShowName, ep:isMovie?'':epCode(e), titleId:curShowId };
+  if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('pierre', payload);
+  else window.parent.postMessage({type:'cube:rotateTo', face:'pierre', payload}, '*');
 }
 
 function paint(){
@@ -1722,7 +1656,7 @@ function paint(){
   // Update the elapsed time display with animation frames if watching
   paintMinute();
   const fnBtn=$('finishEpBtn'); if(fnBtn) fnBtn.disabled = false;
-  updateTheaterUI();   // keep the FINISH/🎟 TICKET label in sync after any repaint
+  updateTheaterUI();   // keep the FINISH/TICKET label in sync after any repaint
 
   // Watchlist: the CURRENT episode only (the focused one). The LOG face is "right
   // now" — its row carries that episode's sessions, tickets and note. The full
@@ -1754,7 +1688,7 @@ function paint(){
     const row=document.createElement('div'); row.className='wrow';
     let badge;
     if(epDone[i]){ const fin=sess.filter(s=>s.finished).pop();
-      const stamp = epBp[i] ? '(BP)' : '('+(fin?fin.date:(watchDate[i]?mdFmt(+watchDate[i]):''))+' ✅)';
+      const stamp = epBp[i] ? '(BP)' : '('+(fin?fin.date:(watchDate[i]?mdFmt(+watchDate[i]):''))+' ✓)';
       badge=`<span class="wdate${epBp[i]?' bp':(binged[i]?' binged':'')}">${stamp}</span>`; }
     else { const last=sess[sess.length-1];
       badge=`<span class="wdate">(${last?last.date+', '+last.minutes+'m':'in progress'})</span>`; }
@@ -1800,7 +1734,7 @@ function renderSeasons(){
 }
 
 // Episode picker: the top-bar EP readout opens this. Lists the current season's
-// episodes (the loaded `eps`); 🍿 marks the focused one; tap any to jump focus there
+// episodes (the loaded `eps`); the amber chip marks the focused one; tap any to jump focus there
 // (same effect as tapping the episode bar — selects, records nothing).
 function openEpSheet(){
   if(isMovie || eps.length<2) return;
@@ -1810,7 +1744,7 @@ function openEpSheet(){
     const num=(e.number!=null)?e.number:(i+1);
     const b=document.createElement('button'); b.type='button';
     b.className='epchip'+(i===focus?' cur':'');
-    b.textContent=(i===focus?'🍿':'E')+num;
+    b.textContent='E'+num;
     b.addEventListener('click',()=>{ focus=i; awaitingLog=false; minPreview=null; paint(); closeEpSheet(); });
     grid.appendChild(b);
   });
@@ -2270,12 +2204,6 @@ else if(window.parent!==window){
 }
 else showEmpty();
 
-// Back to cube navigation: a small floating cube button, bottom-right. This
-// replaces the old double-tap and pinch gestures on this face.
-const cubeBackBtn = document.getElementById('cubeBack');
-if (cubeBackBtn) cubeBackBtn.addEventListener('click', () => {
-  if (window.parent !== window) window.parent.postMessage({type:'pangolin-back'}, '*');
-});
 
 // ===================== Streamer guesser / picker =====================
 // Brand-coloured wordmark "logos" — no image assets, fully self-contained. `aka`
@@ -2389,7 +2317,7 @@ function renderSvcCorner(){
 // ticket-upload prompt. Driven by chosenSvc, so it follows every pick/guess.
 function updateTheaterUI(){
   const fn=$('finishEpBtn'); if(!fn) return;
-  if(isTheater()){ fn.textContent='🎟 TICKET'; fn.classList.add('theater'); }
+  if(isTheater()){ fn.textContent='TICKET'; fn.classList.add('theater'); }
   else { fn.textContent='FINISH'; fn.classList.remove('theater'); }
 }
 
@@ -2446,10 +2374,10 @@ async function loadTickets(){
   }catch(_){}
   paint();
 }
-// "🎟 Jun 20 · 7:30 PM · AMC Lincoln Square" from whatever fields were legible.
+// "Jun 20 · 7:30 PM · AMC Lincoln Square" from whatever fields were legible.
 function ticketCaption(t){
   const bits=[t.date,t.time,t.theater].filter(Boolean);
-  return bits.length ? '🎟 '+bits.join(' · ') : '🎟 ticket';
+  return bits.length ? bits.join(' · ') : 'ticket';
 }
 
 // ----- the logo-tile grid -----
@@ -2549,176 +2477,6 @@ if (window.parent !== window) {
   }
 }
 
-// ─── Pierre end-of-episode reflection ────────────────────────────────────────
-// The credits-still-rolling moment: Pierre pops up, you talk into the mic (10s),
-// the transcript lands in an editable box, then goes to Pierre in reflection
-// mode (2 exchanges max server-side). The recording also posts to /transcribe,
-// so the raw audio + transcript persist as a comment either way. The clickwheel
-// mirrors: SELECT = mic, ring = chat scroll, long-press = close.
-const REFL_PROMPTS = [
-  'Tell me how that hit you.',
-  'What do you think?',
-  'Are you hooked?',
-  'Worth your Tuesday?',
-  'Did that land the way you hoped?',
-  'Talk to me. What just happened in there?'
-];
-let reflMsgs=[], reflRounds=0, reflShow='', reflEp='', reflMins=0, reflBusy=false,
-    reflRec=null, reflChunks=[], reflTimer=null, reflLeft=0, reflLastThought='';
-
-function reflAdd(role, text){
-  const c=$('reflChat'); if(!c) return;
-  const d=document.createElement('div'); d.className='rmsg '+(role==='user'?'me':'pp');
-  d.textContent=text; c.appendChild(d); c.scrollTop=1e6;
-}
-function reflBubble(t){ const b=$('reflBubble'); if(b) b.textContent=t; }
-function reflActs(kind){
-  const a=$('reflActs'); if(!a) return; a.innerHTML='';
-  const mk=(label,cls,fn)=>{ const b=document.createElement('button'); b.textContent=label;
-    if(cls) b.className=cls; b.onclick=fn; a.appendChild(b); return b; };
-  if(kind==='share'){ mk('Share it','amber',reflShare); mk('Not now','',()=>reflActs('done')); }
-  else if(kind==='more'){ mk('Keep talking with Pierre \u2192','amber',reflMore); mk('Done','',reflClose); }
-  else if(kind==='done'){ mk('Done','amber',reflClose); }
-}
-
-function reflOpen(idx){
-  const e=eps[idx]; if(!e || DEMO) return;
-  reflShow=curShowName||''; reflEp=isMovie?'':epCode(e); reflMins=Math.round(runtimeOf(idx)||0);
-  reflMsgs=[]; reflRounds=0; reflLastThought=''; reflBusy=false;
-  const chat=$('reflChat'); if(chat) chat.innerHTML='';
-  $('reflEdit').style.display='none'; $('reflMic').style.display=''; $('reflActs').innerHTML='';
-  $('reflText').value='';
-  reflBubble(REFL_PROMPTS[Math.floor(Math.random()*REFL_PROMPTS.length)]);
-  const r=$('refl'); r.classList.add('show'); delete r.dataset.count;
-}
-function reflClose(){
-  reflAbandonRec();
-  const r=$('refl'); if(r){ r.classList.remove('show'); delete r.dataset.count; }
-}
-
-async function reflStartRec(){
-  if(reflBusy || reflTimer) return;
-  try{
-    const stream=await navigator.mediaDevices.getUserMedia({ audio:true });
-    reflChunks=[]; reflRec=new MediaRecorder(stream);
-    reflRec.ondataavailable=ev=>reflChunks.push(ev.data);
-    reflRec.start();
-  }catch(err){
-    reflBubble('I could not reach the mic. Type it instead?');
-    reflShowEdit(''); return;
-  }
-  reflLeft=10;
-  const r=$('refl'); r.dataset.count=reflLeft+'s';
-  $('reflMic').classList.add('rec'); $('reflCount').textContent=reflLeft+'s';
-  reflTimer=setInterval(()=>{
-    reflLeft--;
-    const left=Math.max(reflLeft,0)+'s';
-    $('reflCount').textContent=left; r.dataset.count=left;
-    if(reflLeft<=0) reflStopRec();
-  },1000);
-}
-function reflRecCleanup(){
-  if(reflTimer){ clearInterval(reflTimer); reflTimer=null; }
-  const r=$('refl'); if(r) delete r.dataset.count;
-  const m=$('reflMic'); if(m) m.classList.remove('rec');
-  const c=$('reflCount'); if(c) c.textContent='';
-}
-function reflAbandonRec(){
-  reflRecCleanup();
-  if(reflRec && reflRec.state!=='inactive'){ reflRec.onstop=()=>{ try{ reflRec.stream.getTracks().forEach(t=>t.stop()); }catch(_){} }; try{ reflRec.stop(); }catch(_){} }
-}
-function reflStopRec(){
-  reflRecCleanup();
-  if(!reflRec || reflRec.state==='inactive') return;
-  reflRec.onstop=async ()=>{
-    try{ reflRec.stream.getTracks().forEach(t=>t.stop()); }catch(_){}
-    if(!reflChunks.length){ reflBubble('The mic got shy. Type it?'); reflShowEdit(''); return; }
-    reflBubble('\u2026');
-    let txt='';
-    const email=acctEmail();
-    if(email && curShowId){
-      try{
-        const blob=new Blob(reflChunks,{ type:(reflChunks[0]&&reflChunks[0].type)||'audio/webm' });
-        const fd=new FormData();
-        fd.append('audio', blob);
-        fd.append('episodeId', reflEp || 'finale');
-        fd.append('showId', curShowId);
-        fd.append('timestampMs', String(reflMins*60000));
-        fd.append('userEmail', email);
-        const res=await fetch(API_BASE+'/transcribe',{ method:'POST', body:fd, mode:'cors' });
-        if(res.ok){ const d=await res.json(); txt=((d&&d.transcription)||'').trim(); }
-      }catch(_){}
-    }
-    reflBubble(txt ? 'Read it back, fix anything, then send it over.' : 'I could not quite catch that. Type it?');
-    reflShowEdit(txt);
-  };
-  try{ reflRec.stop(); }catch(_){}
-}
-function reflShowEdit(txt){
-  $('reflMic').style.display='none';
-  const ed=$('reflEdit'); ed.style.display='flex';
-  const ta=$('reflText'); ta.value=txt||'';
-  ta.focus();   // keyboard pops for the edit
-}
-
-async function reflSend(){
-  const ta=$('reflText'); const txt=(ta.value||'').trim();
-  if(!txt || reflBusy) return;
-  reflBusy=true; reflLastThought=txt;
-  reflAdd('user',txt); reflMsgs.push({ role:'user', content:txt });
-  ta.value=''; $('reflEdit').style.display='none';
-  reflBubble('\u2026');
-  let reply='';
-  try{
-    const res=await fetch(API_BASE+'/pierre/chat',{
-      method:'POST', headers:{ 'Content-Type':'application/json' },
-      body:JSON.stringify({ messages:reflMsgs, email:acctEmail()||undefined,
-        mode:'reflection', context:{ show:reflShow, ep:reflEp } })
-    });
-    if(res.ok){ reply=(((await res.json())||{}).reply||'').trim(); }
-  }catch(_){}
-  reflBusy=false;
-  if(!reply){
-    reflBubble('Pierre lost the signal, but your thought is saved.');
-    reflActs('done'); return;
-  }
-  let share=false;
-  if(reply.indexOf('[PANEL: Share]')>=0){ share=true; reply=reply.replace('[PANEL: Share]','').trim(); }
-  reply=reply.replace(/\[ROUTE:[^\]]*\]/g,'').trim();
-  reflMsgs.push({ role:'assistant', content:reply });
-  reflRounds++;
-  reflAdd('assistant',reply); reflBubble(reply);
-  if(share) reflActs('share');
-  else if(reflRounds>=2) reflActs('more');
-  else { $('reflMic').style.display=''; $('reflEdit').style.display='flex'; }
-}
-
-async function reflShare(){
-  const email=acctEmail();
-  const t=reflLastThought || (reflMsgs.filter(m=>m.role==='user').pop()||{}).content || '';
-  if(email && curShowId && t){
-    try{
-      await fetch(API_BASE+'/reflection',{ method:'POST', headers:{ 'Content-Type':'application/json' },
-        body:JSON.stringify({ userEmail:email, showId:curShowId, text:t }) });
-    }catch(_){}
-  }
-  const msg='\u201C'+t+'\u201D \u2014 after '+(reflShow||'the show')+(reflEp?' '+reflEp:'');
-  if(navigator.share){ try{ navigator.share({ text:msg }); }catch(_){} }
-  reflBubble('Shared. It lives on your card now.');
-  reflActs('done');
-}
-function reflMore(){
-  reflClose();
-  if(window.parent===window) return;
-  const payload={ intent:'note', show:reflShow, ep:reflEp };
-  if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('pierre',payload);
-  else window.parent.postMessage({ type:'cube:rotateTo', face:'pierre', payload },'*');
-}
-
-$('reflMic').addEventListener('click', ()=>{ reflTimer ? reflStopRec() : reflStartRec(); });
-$('reflSend').addEventListener('click', reflSend);
-$('reflX').addEventListener('click', reflClose);
-$('reflText').addEventListener('keydown', e=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); reflSend(); } });
 </script>
 </body>
 </html>
