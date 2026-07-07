@@ -49,12 +49,15 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey } from './c
   // The scrollable region varies per face: WATCH/LOG .scroll, FEED .body,
   // BROWSE .bscroll, PIERRE .log (the chat pane).
   function scrollContainer(doc){
+    // While the comfort reflection is open the ring scrolls that overlay (its own
+    // scroll region), not the marathon page behind it.
+    if(comfortReflectOpen(doc)){ const r = doc.getElementById('reflect'); if(r) return r; }
     return doc.querySelector('.scroll, .body, .bscroll, .log') || doc.scrollingElement || doc.body;
   }
   // The comfort marathon (a curated rewatch) rides inside WATCH as a nested frame;
   // getActiveDoc descends into it, so the wheel sees the marathon's own document.
-  // #rfMic is unique to that face — use it as the fingerprint.
-  function isComfort(doc){ try { return !!(doc && doc.getElementById && doc.getElementById('rfMic')); } catch(_){ return false; } }
+  // #reflect (the post-watch overlay) is unique to that face — the fingerprint.
+  function isComfort(doc){ try { return !!(doc && doc.getElementById && doc.getElementById('reflect')); } catch(_){ return false; } }
   function comfortReflectOpen(doc){ try { const r = doc && doc.getElementById && doc.getElementById('reflect'); return !!(r && r.classList.contains('open')); } catch(_){ return false; } }
   function wheelScroll(dy){
     if(!getFocus().locked) return;                       // only acts on the OPEN face
@@ -184,20 +187,6 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey } from './c
   //    turns it back and forth). SELECT confirms; long-press cancels. ──
   function activeDialog(doc){
     if(!doc) return null;
-    // Comfort's post-watch reflection: while it's open the ring scrubs its controls
-    // (mic → note field → rank slots → save/skip) with no need to arm select-mode;
-    // SELECT confirms the highlighted one, long-press stops a running capture. The
-    // highlight starts on the mic (placed by __setComfortMic), so the first SELECT
-    // press IS the mic — and the 10s clock only runs once that mic is pressed.
-    if(comfortReflectOpen(doc))
-      return { type:'list',
-               items(){ return Array.prototype.slice.call(
-                          doc.querySelectorAll('#rfMic, #rfText, #slotter .srow, #rfSave, #rfSkip'))
-                          .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0); },
-               confirm(){ const b = doc._wheelHL; if(b && b._el){ b._el.click();
-                          if(b._el.tagName === 'TEXTAREA'){ try { b._el.focus({ preventScroll:true }); } catch(_){} } } },
-               cancel(){ try { const m = doc.getElementById('rfMic');
-                          if(m && m.classList.contains('rec') && doc.defaultView.__comfortMic) doc.defaultView.__comfortMic(); } catch(_){} } };
     if(doc.querySelector('#epSheet.show'))
       return { type:'list', items(){ return Array.prototype.slice.call(doc.querySelectorAll('#epSheetGrid .epchip'))
                  .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0); },
@@ -244,9 +233,9 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey } from './c
 
   // ── Comfort-reflection mic: the comfort face calls window.__setComfortMic(on)
   //    when its reflection opens/closes, and window.__comfortMicCount(n) each
-  //    second while recording. ON → paint the centre as the wire mic and drop the
-  //    highlight onto #rfMic (first SELECT press starts the take); while recording
-  //    the centre becomes the live countdown; OFF → restore SELECT. ──
+  //    second while recording. ON → paint the centre as the wire mic (a tap starts
+  //    the take, calling the face's __comfortMic); while recording the centre is the
+  //    live countdown; the ring scrolls the overlay. OFF → restore SELECT. ──
   const CENTER_LABEL = center ? center.textContent : 'SELECT';
   const CENTER_MIC_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
     + 'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
@@ -256,9 +245,8 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey } from './c
   function centerMic(){ if(center){ center.classList.remove('counting'); center.classList.add('mic'); center.innerHTML = CENTER_MIC_SVG; } }
   function centerLabel(){ if(center){ center.classList.remove('mic','counting'); center.textContent = CENTER_LABEL; } }
   window.__setComfortMic = function(on){
-    if(on) centerMic(); else centerLabel();
-    if(on){ const doc = activeDoc(); const mic = doc && doc.getElementById('rfMic'); if(mic) placeHL(doc, mic); }
-    else hideHL(activeDoc());
+    if(on){ centerMic(); selectMode = false; }    // reflection uses ring=scroll + centre=mic
+    else { centerLabel(); hideHL(activeDoc()); }
   };
   window.__comfortMicCount = function(n){
     if(!center) return;
@@ -325,7 +313,12 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey } from './c
       e.preventDefault();
     });
     const stop = ()=>{ if(holdT){ clearTimeout(holdT); holdT = 0;
-      if(!held){                                         // tap = confirm dialogue / toggle select / TV OK
+      if(!held){                                         // tap = mic / confirm dialogue / toggle select / TV OK
+        const cdoc = getFocus().locked ? activeDoc() : null;
+        if(cdoc && comfortReflectOpen(cdoc)){            // comfort reflection: centre IS the record mic
+          if(cdoc.defaultView && cdoc.defaultView.__comfortMic){ cdoc.defaultView.__comfortMic(); tick(18); }
+          return;
+        }
         const dlg = getFocus().locked ? activeDialog(activeDoc()) : null;
         if(dlg){ dlg.confirm(); tick(18); hideHL(activeDoc()); }
         else if(getFocus().locked){ selectMode ? exitSelect(true) : enterSelect(); }  // open face keeps its wheel
