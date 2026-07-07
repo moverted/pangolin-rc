@@ -1124,6 +1124,13 @@ window.addEventListener("message",(e)=>{
   if(e.data && e.data.type==="cube:focus"){ refreshLog(); return; }   // resync on rotate-in
   if(e.data && e.data.type==="cube:payload" && e.data.face==="log"){
     const p=e.data.payload||{};
+    // Front-door deep-link: land on the COMFORT tab and open the named marathon
+    // (so the marathon's own back button returns cleanly to this tab).
+    if(p.openMarathon){
+      if(activeTab!=="comfort") switchTab("comfort");
+      const m=MARATHONS.find(x=>x.id===p.openMarathon);
+      if(m) openMarathon(m);
+    }
     if(p.addShow && p.addShow.id) addToLog(p.addShow, p.pattern);
     if(p.progress && p.progress.tvmazeId) applyProgress(p.progress);   // Episode minute log
     // Episode finale tap (MVP): finish the matching show and land back on CURRENT.

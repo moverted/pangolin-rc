@@ -28,6 +28,27 @@ Entry format:
   edits (all intentionally uncommitted). Don't commit it without asking.
 - Next up: bug fixes + branch pruning.
 
+## 2026-07-07 — Front-door deep-link `?open=comfort-psycho` (PREVIEW ONLY, no prod)
+- **Frontend only. NO Worker / D1 / binding / wrangler.toml changes.** Logged
+  here because it's a Pages deploy (preview alias `streamer-logo-grid`, NOT prod).
+- `public/cube_shell.js`: a `frontDoor()` IIFE reads `?open` on boot. For
+  `comfort-psycho` it waits ~1s (the normal cube reveal), then
+  `cubeRotateTo('log', { openMarathon:'psycho' })` — the shell's focus+open path
+  (rotate/lock the WATCH face, then hand it the intent over the standard
+  `cube:payload` channel). It gates on the WATCH frame being `complete` (else
+  waits for its `load`) so the intent never posts into the void. Any other value
+  / no param → returns immediately, boot byte-for-byte unchanged.
+- `public/cube_watch_face.html`: its existing `cube:payload` (face `log`) handler
+  gains `if(p.openMarathon){ switchTab('comfort'); openMarathon(MARATHONS[id]) }`
+  — shell→face intent, not a face-to-face call. Marathon's own back button
+  returns cleanly to the COMFORT tab.
+- WATCH face = `FACE_INDEX.log` (index 1) per the label swap; marathon id `psycho`.
+- Add-to-Home-Screen: no web-app manifest / `start_url` exists, so iOS captures
+  the current URL incl. `?open=comfort-psycho` — the query is preserved, no code
+  needed. Verify on device.
+- Deploy message: "Front-door deep-link ?open=comfort-psycho (preview)".
+- Branch: `streamer-logo-grid`. **Do NOT merge to main / promote to prod** (per task).
+
 ## 2026-07-07 — Comfort tab: curated marathons (SHIPPED TO PRODUCTION)
 - **Frontend only. NO Worker / D1 / binding / wrangler.toml changes.** Logged
   here because it's a Pages production deploy.

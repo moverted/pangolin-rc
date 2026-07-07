@@ -1157,6 +1157,28 @@ document.getElementById('device-chip').addEventListener('click', () => cubeRotat
 // a storage event. Re-read so the chip reflects a device change immediately.
 window.addEventListener('storage', (e) => { if (e.key === 'pg_device') updateDeviceChip(); });
 
+// ── Front-door deep-link ──────────────────────────────────────────────────────
+// ?open=comfort-psycho walks a first-timer straight into Tressany's marathon: the
+// cube reveals as normal, then after a beat the shell rotates to WATCH and asks it
+// — over the standard cube:payload channel, no face-to-face call — to open the
+// COMFORT tab and Tressany's marathon. cubeRotateTo IS the shell's focus+open path
+// (rotate/lock the face, then hand it the intent). Any other value, or none, leaves
+// boot completely untouched (this returns before doing anything).
+(function frontDoor(){
+  const route = new URLSearchParams(location.search).get('open');
+  if (route !== 'comfort-psycho') return;               // no/other param → boot unchanged
+  const cfg = FACE_OVERLAYS[FACE_INDEX.log];             // WATCH face (label swap: WATCH = index 1)
+  const enter = () => cubeRotateTo('log', { openMarathon: 'psycho' });
+  // Rotate ~1s after the reveal — but never before the WATCH frame's own message
+  // listener is live, or the open-marathon intent would post into the void.
+  setTimeout(() => {
+    if (!cfg || !cfg.frame) { enter(); return; }
+    let doc; try { doc = cfg.frame.contentWindow && cfg.frame.contentWindow.document; } catch (_) {}
+    if (doc && doc.readyState === 'complete') enter();
+    else cfg.frame.addEventListener('load', enter, { once: true });
+  }, 1000);
+})();
+
 // Episode-end nudge: when a live watch starts (play), set a timer for the
 // episode runtime; at the end fire an OS notification calling the user back to
 // rank it. Browser ceiling: the timer only runs while the browser is alive —
