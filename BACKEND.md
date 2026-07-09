@@ -38,8 +38,32 @@ Entry format:
   `e7ee6e0`, which == current git HEAD, so this added the uncommitted polish on
   top with nothing to clobber. Toolbar + inline-audio fix now live on prod.
 
+## 2026-07-08 — Pierre context switcher ([SWITCH]/[ASK] tags)
+- **Worker change** (`src/handlers/pierre.ts`): appended a "SWITCHING WHERE THEY
+  ARE" block to the `PIERRE` persona so Pierre can emit `[SWITCH: add|account|device|chat]`
+  (move the user into a lane) or `[ASK: a | b | c]` (unsure → offer lanes as taps),
+  mirroring the existing `[ROUTE:]` tag convention. No new endpoint/persona.
+  Deployed: Version `5d18f9a9-df5c-46d5-8ac6-7b86ec0e1410`.
+- **Frontend** (`public/cube_pierre_face.html`): a context-switcher pill above the
+  composer (tap → switch lane or Clear chat), `parseSwitch`/`parseAsk` wired into
+  `addPierre`, `switchTo`/`clearChat`/`setCtxIndicator`. Flows no longer wipe
+  `history`/log on entry (only Clear chat does); each `enter*Flow` sets the pill.
+  Fixed a latent leak: `submit()` echoed typed passwords as plaintext bubbles —
+  now masked (`••••••`) during `.secret` steps.
+- NOTE: the Worker + prod frontend must move together — the persona now emits
+  `[SWITCH]` tags that only the new frontend parses (old frontend would show them
+  as raw text). Both deployed same session.
+
 ## ⚡ START HERE — current state (as of 2026-07-08, next session read this first)
-- **Prod (`remote.pangolinrc.com`) live build = deployment `ea674624`** — comment
+- **Prod (`remote.pangolinrc.com`) live build = deployment `dae4b439`** (Pierre
+  context switcher — see the 2026-07-08 entry just above; Worker Version
+  `5d18f9a9`). Prior: `7dd8abae` — Pierre
+  face: new voice mic in the composer (records ~10s, REC indicator + 10-segment
+  ring matching the LOG/reflection mics, POSTs to `/transcribe` with `pg_user`
+  email + episodeId `pierre-note`, drops the text into the box). Composer `<input>`
+  is now an auto-growing `<textarea>`; the join/login password steps that used
+  `input.type='password'` now toggle a `.secret` class (`-webkit-text-security:disc`)
+  via `inputSecret()`. Enter sends, Shift+Enter = newline. Prior: `ea674624` — comment
   pencil toggle floats to the right end of the text (`display:contents` wrap +
   `float:right`); the cancel/edit/delete bar drops full-width below on open.
   Prior: `2e86ae21` — the

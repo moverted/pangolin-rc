@@ -109,6 +109,37 @@
   .chip:hover{background:rgba(239,177,78,.14);}
   .chip:active{transform:translateY(1px);}
 
+  /* Context switcher: a pill above the composer showing the current lane; tap for
+     a popover to switch contexts or clear the chat. */
+  .ctxbar{ position:relative;z-index:4;display:flex;padding:0 12px 2px; }
+  .ctxpill{
+    display:inline-flex;align-items:center;gap:7px;cursor:pointer;
+    font-family:'Space Mono';font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--ink-dim);background:var(--burrow-2);
+    border:1px solid var(--line);border-radius:999px;padding:5px 11px;
+    transition:background .15s,border-color .15s;
+  }
+  .ctxpill:hover{border-color:rgba(239,177,78,.4);}
+  .ctxdot{width:7px;height:7px;border-radius:50%;background:var(--amber);box-shadow:0 0 10px var(--amber);flex:none;}
+  .ctxcaret{font-size:9px;color:var(--ink-dim);}
+  .ctxpop{
+    position:absolute;bottom:100%;left:12px;margin-bottom:6px;z-index:4;min-width:190px;
+    background:var(--burrow-2);border:1px solid var(--line);border-radius:12px;
+    padding:5px;box-shadow:0 14px 40px rgba(0,0,0,.55);
+    display:flex;flex-direction:column;gap:1px;
+  }
+  .ctxpop[hidden]{display:none;}
+  .ctxopt{
+    text-align:left;font-family:'Inter';font-size:13px;color:var(--ink);
+    background:transparent;border:none;border-radius:8px;padding:9px 11px;cursor:pointer;
+    transition:background .12s;
+  }
+  .ctxopt:hover{background:rgba(239,177,78,.14);}
+  .ctxopt.on{color:var(--amber);}
+  .ctxsep{height:1px;background:var(--line);margin:4px 2px;}
+  .ctxclear{color:var(--screen);}
+  .ctxclear:hover{background:rgba(95,214,224,.12);}
+
   .typing{display:flex;gap:4px;align-items:center;padding:4px 2px;}
   .typing span{width:6px;height:6px;border-radius:50%;background:var(--amber);opacity:.4;animation:blink 1.2s infinite;}
   .typing span:nth-child(2){animation-delay:.2s;}
@@ -130,21 +161,39 @@
   /* input */
   .composer{
     position:relative;z-index:3;
-    display:flex;gap:8px;align-items:center;
+    display:flex;gap:8px;align-items:flex-end;   /* buttons hug the bottom as the box grows */
     padding:10px 12px 12px;
     margin-left:22%;            /* covers part of Pierre's tail, not the whole bottom */
   }
-  .composer input{
+  /* Auto-growing message box: starts one line, grows as text wraps, caps then scrolls. */
+  .composer #input{
     flex:1;min-width:0;
     background:var(--burrow);
     border:1px solid var(--line);
     color:var(--ink);
-    font-family:'Inter';font-size:14px;
-    padding:11px 14px;border-radius:999px;
-    outline:none;
+    font-family:'Inter';font-size:14px;line-height:1.35;
+    padding:11px 14px;border-radius:20px;
+    outline:none;resize:none;overflow-y:auto;max-height:120px;
+    height:42px;   /* one-line default; JS auto-grow overrides */
   }
-  .composer input::placeholder{color:var(--ink-dim);}
-  .composer input:focus{border-color:rgba(239,177,78,.55);box-shadow:0 0 0 3px rgba(239,177,78,.12);}
+  .composer #input::placeholder{color:var(--ink-dim);}
+  .composer #input:focus{border-color:rgba(239,177,78,.55);box-shadow:0 0 0 3px rgba(239,177,78,.12);}
+  .composer #input.secret{ -webkit-text-security:disc; text-security:disc; }   /* password steps */
+  /* Mic button: matches the REC indicator — amber idle, red while recording,
+     blinking "REC" + a 10-segment countdown ring (one arc blinks out per second). */
+  .micbtn{
+    flex:none;width:42px;height:42px;border-radius:50%;position:relative;
+    border:2px solid var(--amber);background:rgba(239,177,78,.16);color:var(--amber);
+    cursor:pointer;display:grid;place-items:center;transition:transform .1s,filter .15s;
+  }
+  .micbtn:active{transform:scale(.94);}
+  .micbtn svg{width:18px;height:18px;}
+  .micbtn.recording{background:#e0322c;color:#fff;border-color:#fff;}
+  .micbtn .rec-word{font-size:11px;font-weight:800;letter-spacing:.06em;
+    animation:recBlink 1s steps(2,start) infinite;}
+  .micbtn .rec-ring{position:absolute;inset:-2px;width:calc(100% + 4px);height:calc(100% + 4px);pointer-events:none;}
+  .micbtn .rec-seg{transition:opacity .25s ease;}
+  @keyframes recBlink{50%{opacity:.2;}}
   .send{
     flex:none;width:42px;height:42px;border-radius:50%;
     border:none;cursor:pointer;
@@ -193,8 +242,25 @@
 
     <div id="ts-widget" class="ts-widget"></div>
 
+    <div class="ctxbar" id="ctxbar">
+      <button class="ctxpill" id="ctxpill" aria-haspopup="true" aria-expanded="false" aria-label="Switch context">
+        <span class="ctxdot"></span><span id="ctxlabel">Chat</span><span class="ctxcaret">&#9650;</span>
+      </button>
+      <div class="ctxpop" id="ctxpop" role="menu" hidden>
+        <button class="ctxopt" data-ctx="chat" role="menuitem">Chat / what to watch</button>
+        <button class="ctxopt" data-ctx="add" role="menuitem">Add a show</button>
+        <button class="ctxopt" data-ctx="account" role="menuitem">Account</button>
+        <button class="ctxopt" data-ctx="device" role="menuitem">Connect a device</button>
+        <div class="ctxsep"></div>
+        <button class="ctxopt ctxclear" id="ctxclear" role="menuitem">Clear chat</button>
+      </div>
+    </div>
+
     <div class="composer">
-      <input id="input" type="text" autocomplete="off" placeholder="Ask Pierre what to watch..." aria-label="Message Pierre" />
+      <textarea id="input" rows="1" autocomplete="off" placeholder="Ask Pierre what to watch..." aria-label="Message Pierre"></textarea>
+      <button class="micbtn" id="mic" aria-label="Record a note">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+      </button>
       <button class="send" id="send" aria-label="Send">
         <svg viewBox="0 0 24 24" fill="none"><path d="M4 12L20 12M20 12L13 5M20 12L13 19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
@@ -291,8 +357,25 @@
     showToast('→ '+route.face+' lives off the cube');
   }
 
+  // [SWITCH: ctx] → Pierre wants to move the user into a lane. [ASK: a | b | c] →
+  // he is unsure and offers the lanes as taps. Same strip pattern as parseRoute.
+  function parseSwitch(text){
+    const m = text.match(/\[SWITCH:\s*([a-z]+)\s*\]/i);
+    if(!m) return {clean:text, ctx:null};
+    return {clean:text.replace(m[0], '').trim(), ctx:m[1].toLowerCase()};
+  }
+  function parseAsk(text){
+    const m = text.match(/\[ASK:\s*([^\]]+)\]/i);
+    if(!m) return {clean:text, opts:null};
+    const opts = m[1].split('|').map(s=>s.trim().toLowerCase()).filter(Boolean);
+    return {clean:text.replace(m[0], '').trim(), opts};
+  }
+
   function addPierre(text){
-    const {clean, route} = parseRoute(text);
+    let clean, route, ctx, opts;
+    ({clean, route} = parseRoute(text));
+    ({clean, ctx}   = parseSwitch(clean));
+    ({clean, opts}  = parseAsk(clean));
     const wrap = document.createElement('div');
     wrap.className = 'msg pierre';
     wrap.innerHTML = '<div class="who">Pierre</div><div class="bubble"></div>';
@@ -307,8 +390,27 @@
       chips.appendChild(b);
       wrap.appendChild(chips);
     }
+    // Confused → chips: offer the plausible lanes as taps that switch context.
+    if(opts && opts.length){
+      const valid = opts.filter(o=>SWITCHABLE.indexOf(o)>=0);
+      if(valid.length){
+        const chips = document.createElement('div');
+        chips.className = 'chips';
+        valid.forEach(o=>{
+          const b = document.createElement('button');
+          b.className = 'chip';
+          b.textContent = labelFor(o);
+          b.onclick = ()=>{ chips.querySelectorAll('button').forEach(x=>x.disabled=true); switchTo(o, {viaUser:true}); };
+          chips.appendChild(b);
+        });
+        wrap.appendChild(chips);
+      }
+    }
     log.appendChild(wrap);
     log.scrollTop = log.scrollHeight;
+    // NL switch: only for the four real lanes; unknown values render as plain text.
+    if(ctx && SWITCHABLE.indexOf(ctx)>=0) switchTo(ctx, {viaUser:false});
+    return clean;
   }
 
   function showTyping(){
@@ -346,6 +448,7 @@
   function enterNoteFlow(p){
     if(IS_DEMO) return;
     addFlow=null; acctFlow=null; joinFlow=null; epNoteFlow=false; seasonNoteFlow=false;
+    setCtxIndicator('note');
     p=p||{};
     const where = p.show ? (p.show + (p.ep ? (' '+p.ep) : '')) : 'what you just watched';
     noteCtx={ show:p.show||'', ep:p.ep||'', titleId:p.titleId||null, ticketId:p.ticketId||null,
@@ -359,6 +462,7 @@
   // The captured thought: persist, then let Pierre react as a normal turn.
   async function noteTurn(text){
     const ctx=noteCtx; noteCtx=null;
+    setCtxIndicator('chat');   // note captured; Pierre reacts as a normal chat turn
     input.placeholder = "Ask Pierre what to watch...";
     pushJournal(ctx.show, ctx.ep, text);
     const email=pgSession();
@@ -391,6 +495,7 @@
   function enterEpisodeFinishFlow(L){
     if(IS_DEMO || !L || !L.tvmazeId) return;
     addFlow=null; acctFlow=null; joinFlow=null; noteCtx=null;
+    setCtxIndicator('note');
     const code=epCodeOf(L);
     pierreSay('Did you finish '+(L.name||'that one')+' '+code+'?', [
       {label:'Partial Log',         onClick:()=>chooseFinish(L,'partial')},
@@ -406,6 +511,7 @@
   }
   function commitFinish(){
     const pend=epFinishPending; epFinishPending=null; epNoteFlow=false;
+    setCtxIndicator('chat');
     input.placeholder="Ask Pierre what to watch...";
     if(!pend) return;
     if(window.parent!==window)
@@ -427,11 +533,12 @@
   function enterSeasonNoteFlow(p){
     if(IS_DEMO) return;
     addFlow=null; acctFlow=null; joinFlow=null; epNoteFlow=false; epFinishPending=null; noteCtx=null;
+    setCtxIndicator('note');
     seasonNote={ show:(p&&p.show)||'that one', ep:(p&&p.ep)||'' };
     seasonNoteFlow=true;
     const where = seasonNote.show + (seasonNote.ep?(' '+seasonNote.ep):'');
     pierreSay('You wrapped '+where+'. Any thoughts before the next season? Tell me, or skip.', [
-      {label:'Skip', onClick:()=>{ seasonNoteFlow=false; seasonNote=null; input.placeholder="Ask Pierre what to watch..."; }}]);
+      {label:'Skip', onClick:()=>{ seasonNoteFlow=false; seasonNote=null; setCtxIndicator('chat'); input.placeholder="Ask Pierre what to watch..."; }}]);
     input.placeholder=''; input.focus();
   }
 
@@ -451,8 +558,8 @@
       const reply = ((data && data.reply) || "").trim();
       clearTyping();
       if(reply){
-        addPierre(reply);
-        history.push({role:'assistant', content:reply});
+        const shown = addPierre(reply);   // strips any [SWITCH]/[ASK]/[ROUTE] tag
+        history.push({role:'assistant', content: shown || reply});
       }else{
         addPierre("The signal dropped. Say that again?");
       }
@@ -469,8 +576,14 @@
     if(IS_DEMO) return;
     const text = input.value.trim();
     if(!text || busy) return;
-    addUser(text);
-    input.value = '';
+    // Universal typed escape hatch out of any flow, back to free chat. Kept tiny and
+    // literal so it never shadows a real title / email / password.
+    if(/^(never ?mind|cancel|exit|nvm|just chat)$/i.test(text)){
+      input.value=''; autoGrow(); switchTo('chat', {viaUser:true}); return;
+    }
+    // Never echo a password into the transcript (the box is masked; the bubble was not).
+    addUser(input.classList.contains('secret') ? '••••••' : text);
+    input.value = ''; autoGrow();
     // A pending note (finished watch / note-to-Pierre / share-a-thought): persist
     // the line, then Pierre reacts as a real turn (share offer follows if due).
     if(noteCtx){ noteTurn(text); return; }
@@ -478,7 +591,7 @@
     // the chosen log + navigation. Not an LLM turn.
     if(epNoteFlow){ const L=epFinishPending&&epFinishPending.L; saveJournalNote(L, text); addPierre('Noted. Logged it.'); commitFinish(); return; }
     // Season-turn note: save the thought to the journal. Not an LLM turn.
-    if(seasonNoteFlow){ pushJournal(seasonNote.show, seasonNote.ep, text); seasonNoteFlow=false; seasonNote=null; input.placeholder="Ask Pierre what to watch..."; addPierre('Noted. Onto the next season.'); return; }
+    if(seasonNoteFlow){ pushJournal(seasonNote.show, seasonNote.ep, text); seasonNoteFlow=false; seasonNote=null; setCtxIndicator('chat'); input.placeholder="Ask Pierre what to watch..."; addPierre('Noted. Onto the next season.'); return; }
     // Account flow (login / signup / add device): typed lines feed the step.
     if(acctFlow){ input.focus(); acctStep(text); return; }
     // Join / Login: the email step branches; the picking step searches shows.
@@ -500,7 +613,155 @@
   // pop us out of the pinned chat). preventDefault on mousedown keeps focus.
   send.addEventListener('mousedown', e => e.preventDefault());
   send.addEventListener('click', submit);
-  input.addEventListener('keydown', e=>{ if(e.key==='Enter') submit(); });
+  // Enter sends; Shift+Enter makes a newline. Auto-grow the box as text wraps.
+  input.addEventListener('keydown', e=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); submit(); } });
+  input.addEventListener('input', autoGrow);
+  function autoGrow(){ input.style.height='auto'; input.style.height=Math.min(input.scrollHeight, 120)+'px'; }
+  function inputSecret(on){ input.classList.toggle('secret', !!on); }
+
+  // ── Context switcher: a visible pill of the current lane, tap to switch or clear.
+  //    NL switching + confused-chips arrive as [SWITCH]/[ASK] tags parsed in addPierre. ──
+  const CONTEXTS = [
+    {id:'chat',    label:'Chat'},
+    {id:'add',     label:'Add a show'},
+    {id:'account', label:'Account'},
+    {id:'device',  label:'Device'},
+    {id:'note',    label:'Note'},        // cube-triggered only; shown, not a menu target
+  ];
+  const SWITCHABLE = ['chat','add','account','device'];   // valid [SWITCH]/[ASK] targets
+  let currentCtx = 'chat';
+  function labelFor(id){ const c = CONTEXTS.find(x=>x.id===id); return c ? c.label : 'Chat'; }
+  function setCtxIndicator(id){ currentCtx = id; const el = document.getElementById('ctxlabel'); if(el) el.textContent = labelFor(id); }
+  const ctxPop = document.getElementById('ctxpop');
+  const ctxPill = document.getElementById('ctxpill');
+  function closeCtxPop(){ if(ctxPop){ ctxPop.hidden = true; } if(ctxPill){ ctxPill.setAttribute('aria-expanded','false'); } }
+  function toggleCtxPop(){ if(!ctxPop) return; const open = ctxPop.hidden; ctxPop.hidden = !open; if(ctxPill) ctxPill.setAttribute('aria-expanded', String(open)); }
+  if(ctxPill){
+    ctxPill.addEventListener('mousedown', e=>e.preventDefault());   // keep the composer focused
+    ctxPill.addEventListener('click', e=>{ e.stopPropagation(); if(!IS_DEMO) toggleCtxPop(); });
+  }
+  document.querySelectorAll('#ctxpop .ctxopt[data-ctx]').forEach(btn=>{
+    btn.addEventListener('mousedown', e=>e.preventDefault());
+    btn.addEventListener('click', ()=>{ switchTo(btn.getAttribute('data-ctx'), {viaUser:true}); });
+  });
+  (function(){ const c=document.getElementById('ctxclear'); if(c){ c.addEventListener('mousedown', e=>e.preventDefault()); c.addEventListener('click', clearChat); } })();
+  document.addEventListener('click', ()=>{ if(ctxPop && !ctxPop.hidden) closeCtxPop(); });
+
+  // Enter a lane from a tap or from an NL [SWITCH] tag. 'chat' clears every flow and
+  // returns to free chat, keeping history. Reuses the existing enter*Flow machines.
+  function switchTo(ctx, opts){
+    opts = opts || {};
+    if(IS_DEMO) return;
+    closeCtxPop();
+    if(ctx === 'chat'){
+      addFlow=null; acctFlow=null; joinFlow=null; noteCtx=null;
+      epNoteFlow=false; seasonNoteFlow=false; epFinishPending=null; seasonNote=null;
+      inputSecret(false); input.placeholder = "Ask Pierre what to watch...";
+      setCtxIndicator('chat');
+      if(opts.viaUser) addPierre("Back to it. What are you after?");
+      try{ input.focus(); }catch(_){}
+      return;
+    }
+    if(ctx === 'add')     return enterAddFlow([]);
+    if(ctx === 'account') return enterJoinFlow();
+    if(ctx === 'device')  return enterDeviceFlow();
+  }
+
+  // Clear chat: a genuine new conversation. The only hard wipe.
+  function clearChat(){
+    closeCtxPop();
+    if(IS_DEMO) return;
+    history.length = 0; log.innerHTML = '';
+    addFlow=null; acctFlow=null; joinFlow=null; noteCtx=null;
+    epNoteFlow=false; seasonNoteFlow=false; epFinishPending=null; seasonNote=null;
+    inputSecret(false); input.placeholder = "Ask Pierre what to watch...";
+    setCtxIndicator('chat');
+    addPierre("Fresh start. What are you in the mood for?");
+    try{ input.focus(); }catch(_){}
+  }
+
+  // ── Voice note: record ~10s, show the REC indicator on the mic, transcribe into
+  //    the box (same /transcribe path the LOG + comfort mics use). ──
+  const TR_API = location.hostname === 'localhost' ? 'http://localhost:8787'
+    : 'https://pangolin-rc.edward-m-willett.workers.dev';
+  let micCtrl = null;
+  const MIC_SVG = document.getElementById('mic').innerHTML;
+  function recRingHTML(total){
+    const C=289.03, step=C/total, seg=Math.max(6, step-11);
+    let s='';
+    for(let i=0;i<total;i++){
+      s += '<circle class="rec-seg" data-i="'+i+'" cx="50" cy="50" r="46" fill="none" stroke="currentColor" '
+        + 'stroke-width="6" stroke-linecap="round" stroke-dasharray="'+seg.toFixed(2)+' '+(C-seg).toFixed(2)+'" '
+        + 'stroke-dashoffset="'+(-step*i).toFixed(2)+'" transform="rotate(-90 50 50)"/>';
+    }
+    return '<svg class="rec-ring" viewBox="0 0 100 100" aria-hidden="true">'+s+'</svg>';
+  }
+  function micRecord(){
+    const mic = document.getElementById('mic');
+    if(micCtrl){ micCtrl.stop(); return; }               // tap again → stop early
+    mic.classList.add('recording');
+    mic.innerHTML = recRingHTML(10) + '<span class="rec-word">REC</span>';
+    micCtrl = startRecording(10, function(left){          // one segment blinks out per second
+      mic.querySelectorAll('.rec-seg').forEach(s=>{ s.style.opacity = (+s.getAttribute('data-i') < left) ? '1' : '0'; });
+    }, function(dataUrl){
+      micCtrl = null;
+      mic.classList.remove('recording'); mic.innerHTML = MIC_SVG;
+      if(!dataUrl) return;
+      transcribe(dataUrl, function(txt){
+        if(!txt) return;
+        input.value = input.value ? (input.value.replace(/\s+$/,'') + ' ' + txt) : txt;
+        autoGrow(); try{ input.focus(); }catch(_){}
+      });
+    });
+  }
+  document.getElementById('mic').addEventListener('pointerdown', e=>e.preventDefault());  // keep the keyboard/focus
+  document.getElementById('mic').addEventListener('click', ()=>{ if(!IS_DEMO) micRecord(); });
+
+  // Record up to maxSec seconds; onTick(secondsLeft) each second; onDone(dataUrl|null).
+  function startRecording(maxSec, onTick, onDone){
+    let rec=null, stream=null, chunks=[], timer=null, done=false;
+    function finish(dataUrl){ if(done) return; done=true; if(timer){clearInterval(timer);timer=null;} onDone(dataUrl); }
+    function tickDown(hasMic){
+      let left=maxSec; onTick(left);
+      timer=setInterval(function(){ left--; onTick(Math.max(left,0)); if(left<=0){ hasMic?stop():finish(null); } }, 1000);
+    }
+    function stop(){
+      if(timer){clearInterval(timer);timer=null;}
+      if(rec && rec.state!=='inactive'){ try{ rec.stop(); }catch(e){ finish(null); } } else finish(null);
+    }
+    const gum = navigator.mediaDevices && navigator.mediaDevices.getUserMedia
+      ? navigator.mediaDevices.getUserMedia({audio:true}) : Promise.reject();
+    gum.then(function(s){
+      stream=s; rec=new MediaRecorder(s);
+      rec.ondataavailable=function(e){ if(e.data && e.data.size) chunks.push(e.data); };
+      rec.onstop=function(){
+        try{ stream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){}
+        if(!chunks.length){ finish(null); return; }
+        const blob=new Blob(chunks, {type:(chunks[0]&&chunks[0].type)||'audio/webm'});
+        const frd=new FileReader(); frd.onload=function(){ finish(frd.result); }; frd.onerror=function(){ finish(null); };
+        frd.readAsDataURL(blob);
+      };
+      rec.start(); tickDown(true);
+    }).catch(function(){ tickDown(false); });   // no mic → still runs the clock, then finishes null
+    return { stop: stop };
+  }
+  function dataUrlToBlob(dataUrl){
+    const parts=dataUrl.split(','), mime=(parts[0].match(/:(.*?);/)||[])[1]||'audio/webm';
+    const bin=atob(parts[1]), arr=new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+    return new Blob([arr], {type:mime});
+  }
+  function transcribe(dataUrl, cb){
+    const email = pgSession();
+    if(!email || !dataUrl){ cb(''); return; }
+    const fd=new FormData();
+    fd.append('audio', dataUrlToBlob(dataUrl));
+    fd.append('episodeId', 'pierre-note'); fd.append('timestampMs', '0'); fd.append('userEmail', email);
+    fetch(TR_API + '/transcribe', { method:'POST', body:fd, mode:'cors' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(d){ cb(((d && d.transcription)||'').trim()); })
+      .catch(function(){ cb(''); });
+  }
 
   // Tell the parent cube when the chat input is focused, so it can pin this
   // square above the soft keyboard instead of letting the page pan it off-screen.
@@ -540,8 +801,7 @@
   function enterAddFlow(vlog){
     addHistory=Array.isArray(vlog)?vlog:[];
     addFlow='kind'; addKind='show'; addFailCount=0; joinFlow=null; acctFlow=null; noteCtx=null;
-    history.length=0;                 // fresh slate for the LLM history too
-    log.innerHTML='';
+    setCtxIndicator('add');           // keep the chat; switching no longer wipes history
     // First thing: series or movie. The pick routes the name lookup (TVmaze vs TMDB).
     pierreSay(tod()+". A series or a movie?", [
       {label:'Series', onClick:()=>chooseAddKind('show')},
@@ -806,8 +1066,8 @@
 
   function enterJoinFlow(){
     addFlow=null; acctFlow=null; noteCtx=null; joinFlow='auth-email'; joinStep=0; joinPicks=[[],[],[]]; joinEmail="";
-    history.length=0; log.innerHTML='';
-    input.type='text'; input.placeholder="you@email.com";
+    setCtxIndicator('account');
+    inputSecret(false); input.placeholder="you@email.com";
     pierreSay(tod()+". New here or returning? Drop your email and I will know.");
   }
   async function joinAuthEmail(text){
@@ -819,7 +1079,7 @@
     catch(e){}
     clearTyping();
     if(user){                          // returning member -> greet by name, ask password
-      joinFlow='login-pw'; input.type='password'; input.placeholder='your password';
+      joinFlow='login-pw'; inputSecret(true); input.placeholder='your password';
       pierreSay("Welcome back, "+(user.username||joinEmail)+". What's your password?");
       input.focus(); return;
     }
@@ -848,7 +1108,7 @@
       body:JSON.stringify({email:joinEmail, password:text})}); if(r.ok){ ok=(await r.json()).ok; } }
     catch(e){}
     clearTyping();
-    if(ok){ pgSet(joinEmail); joinFlow=null; input.type='text'; input.placeholder="Ask Pierre what to watch...";
+    if(ok){ pgSet(joinEmail); joinFlow=null; inputSecret(false); input.placeholder="Ask Pierre what to watch...";
       pierreSay("In you go. Taking you to your profile."); setTimeout(()=>nav('profile'),1200); return; }
     pierreSay("That's not the password. Try again?"); input.focus();
   }
@@ -866,7 +1126,7 @@
     promptJoinStep();
   }
   function joinAskPassword(){
-    joinFlow='set-pw'; input.type='password'; input.placeholder='create a password';
+    joinFlow='set-pw'; inputSecret(true); input.placeholder='create a password';
     pierreSay("Last thing. Set a password so you can get back in.");
     input.focus();
   }
@@ -875,7 +1135,7 @@
     showTyping();
     try{ await fetch(API+'/profile/signup',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({email:joinEmail, password:text})}); }catch(e){}
-    clearTyping(); input.type='text';
+    clearTyping(); inputSecret(false);
     joinFinalize();
   }
   async function joinSearch(text){
@@ -903,7 +1163,7 @@
       need?null:[{label:'Done', onClick:advanceJoin}], true);
   }
   async function joinFinalize(){
-    joinFlow=null; input.blur(); input.type='text'; input.placeholder="Ask Pierre what to watch...";
+    joinFlow=null; setCtxIndicator('chat'); input.blur(); inputSecret(false); input.placeholder="Ask Pierre what to watch...";
     const f=joinPicks[0].length, c=joinPicks[1].length, w=joinPicks[2].length;
     // Account was already created (and logged in) at the email step.
     // Populate the Log (and thereby Episodes) with the named shows.
@@ -932,13 +1192,13 @@
 
   function enterLoginFlow(then){
     addFlow=null; joinFlow=null; noteCtx=null; acctThen=then||null; acctEmail=''; acctUser='';
-    acctFlow='login-email'; history.length=0; log.innerHTML='';
+    acctFlow='login-email'; setCtxIndicator('account');
     input.placeholder='you@email.com';
     pierreSay(tod()+". Let's set you up. What email should I use?");
   }
   function enterDeviceFlow(){
     addFlow=null; joinFlow=null; noteCtx=null;
-    if(pgSession()){ log.innerHTML=''; pierreSay(tod()+". Let's connect a device."); deviceTypePrompt(); }
+    if(pgSession()){ setCtxIndicator('device'); pierreSay(tod()+". Let's connect a device."); deviceTypePrompt(); }
     else enterJoinFlow();   // must log in first (password-aware JOIN flow)
   }
   function deviceTypePrompt(){
@@ -1037,6 +1297,8 @@
     if (IS_DEMO) {
       addPierre("Evening. I am Pierre. I am off the clock for this demo, so the chat is closed. Have a look around the other faces.");
       input.disabled = true; send.disabled = true; input.placeholder = "chat closed for the demo";
+      try{ document.getElementById('mic').disabled = true; document.getElementById('mic').style.opacity = '.4'; }catch(_){}
+      try{ document.getElementById('ctxbar').style.display = 'none'; }catch(_){}
       return;
     }
     addPierre("Evening. I am Pierre. Tell me what you are in the mood for and I will keep your queue moving. Or just tell me what you watched last, I have opinions.");
