@@ -55,7 +55,8 @@ Entry format:
   as raw text). Both deployed same session.
 
 ## ⚡ START HERE — current state (as of 2026-07-09, next session read this first)
-- **Prod (`remote.pangolinrc.com`) live build = deployment `97a90a1e`** — Pierre
+- **Prod (`remote.pangolinrc.com`) live build = deployment `d9b23678`** (= git
+  `543dffd`) — Pierre
   mic + context picker moved OUT of the Pierre iframe and INTO the shell's off-cube
   band (Device · Mic · Chat-picker · Cube, evenly spaced, shown only while Pierre is
   open). The composer mic I'd added earlier was a DUPLICATE of the pre-existing shell
