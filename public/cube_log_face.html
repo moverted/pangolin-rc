@@ -195,17 +195,35 @@
   .sfbtn.continue{ --accent:var(--text); --flipfg:#1a1206;         border-color:var(--accent); color:var(--accent); }
   .sfbtn.finish{ --accent:var(--green); --flipfg:#06140b;          border-color:var(--accent); color:var(--accent); }
   /* Mic button: larger, round, standalone focal point */
-  .mic-center{ width:64px; height:64px; padding:0; display:flex; align-items:center;
+  .mic-center{ position:relative; width:64px; height:64px; padding:0; display:flex; align-items:center;
     justify-content:center; border-radius:50%; background:rgba(240,169,59,.2);
     border:2px solid var(--amber); cursor:pointer; color:var(--amber);
     transition:all .2s ease; flex-shrink:0; font-size:14px; font-weight:700; }
   .mic-center:hover{ background:rgba(240,169,59,.3); box-shadow:0 0 20px rgba(240,169,59,.3); }
   .mic-center:active{ transform:scale(.95); }
-  .mic-center.recording{ background:var(--amber); color:var(--amber-deep);
-    box-shadow:0 0 24px var(--amber); border-color:var(--amber-deep); }
+  /* LIVE recording: red so it reads as "recording NOW", not a pre-roll countdown. */
+  .mic-center.recording{ background:#e0322c; color:#fff;
+    box-shadow:0 0 24px rgba(224,50,44,.75); border-color:#fff; }
   /* Recording a REPLY: the countdown stays green to match the REPLY mic. */
   .mic-center.recording.replyrec{ background:#6cc070; color:#06140b;
     box-shadow:0 0 24px rgba(108,192,112,.8); border-color:#06140b; }
+  /* REC label: the word + seconds, both small, stacked — clearly "live". */
+  .mic-center.recording #micLabel{ display:flex; flex-direction:column; align-items:center;
+    gap:1px; line-height:1; }
+  .mic-center #micLabel .rec-word{ font-size:13px; font-weight:800; letter-spacing:.1em;
+    animation:recBlink 1s steps(2, start) infinite; }
+  @keyframes recBlink{ 50%{ opacity:.2; } }
+  /* Segmented countdown ring around the mic: one arc per second, blinking out.
+     Scoped under .mic-center so it out-specifies `.mic-center svg{width:28px}` —
+     otherwise the ring gets shrunk to 28px and pinned to the corner. */
+  .mic-center .rec-ring{ position:absolute; inset:-2px; width:calc(100% + 4px); height:calc(100% + 4px);
+    pointer-events:none; }
+  .mic-center.recording .rec-ring{ display:block; }
+  .rec-seg{ transition:opacity .25s ease; }
+  /* Circular playback progress that fills around the pause icon on a clip button. */
+  .clip-ring{ position:absolute; inset:-2px; width:calc(100% + 4px); height:calc(100% + 4px);
+    pointer-events:none; }
+  .clip-ring-arc{ transition:stroke-dashoffset .12s linear; }
   /* REPLY mode: a revealed friend comment is waiting for an answer. */
   .mic-center.replymode{ background:rgba(108,192,112,.2); color:#6cc070; border-color:#6cc070;
     box-shadow:0 0 18px rgba(108,192,112,.4); }
@@ -811,12 +829,26 @@ let audioBlobs = {};  // Store audio blobs by transcript ID for playback
 let _clip = null, _clipBtn = null, _clipUrl = '', _onEnded = null, _audioPrimed = false;
 // A 44-byte zero-length silent WAV — just enough to start+stop playback in the gesture.
 const _SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+// Pause glyph (stroke SVG, matches the speaker icon; sizes to the button via 1em) plus a
+// progress ring that fills around it as the clip plays. r=46 in a 100 viewBox → C≈289.03.
+const _PAUSE_SVG = '<svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="9" y1="5" x2="9" y2="19"/><line x1="15" y1="5" x2="15" y2="19"/></svg>';
+const _RING_SVG = '<svg class="clip-ring" viewBox="0 0 100 100" aria-hidden="true"><circle class="clip-ring-arc" cx="50" cy="50" r="46" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" transform="rotate(-90 50 50)" style="stroke-dasharray:289.03;stroke-dashoffset:289.03;"/></svg>';
 function _resetClipBtn(){ if(_clipBtn && _clipBtn.dataset.glyph){ _clipBtn.innerHTML=_clipBtn.dataset.glyph; } _clipBtn=null; }
+// Fill the playback ring on the active clip button as time advances.
+function _updateClipRing(){
+  if(!_clipBtn || !_clip) return;
+  const arc=_clipBtn.querySelector('.clip-ring-arc');
+  if(!arc) return;
+  const d=_clip.duration, C=289.03;
+  const frac=(d && isFinite(d) && d>0) ? Math.min(1, _clip.currentTime/d) : 0;
+  arc.style.strokeDashoffset = C*(1-frac);
+}
 function _ensureClip(){
   if(!_clip){
     _clip = new Audio();
     _clip.addEventListener('ended', ()=>{ _resetClipBtn(); const f=_onEnded; _onEnded=null; if(f) f(); });
     _clip.addEventListener('error', ()=>{ _resetClipBtn(); });
+    _clip.addEventListener('timeupdate', _updateClipRing);
   }
   return _clip;
 }
@@ -824,10 +856,16 @@ function _ensureClip(){
 // Plays a muted silent blip and stops it; after this, .play() works without a gesture.
 function primeAudio(){
   if(_audioPrimed) return;
+  // One-shot: mark primed up front. Calling play() inside this gesture is what
+  // blesses the element on iOS — that holds even if a real tap on the SAME gesture
+  // immediately swaps src and rejects the silent blip's promise. Leaving _audioPrimed
+  // false on that (expected) rejection made this re-prime on every pointerdown and
+  // collide with real playback, which rejected the real play() and popped a blank tab.
+  _audioPrimed = true;
   const a=_ensureClip();
   try{
     a.muted=true; a.src=_SILENT_WAV;
-    const done=()=>{ try{ a.pause(); a.currentTime=0; }catch(_){ } a.muted=false; _audioPrimed=true; };
+    const done=()=>{ try{ a.pause(); a.currentTime=0; }catch(_){ } a.muted=false; };
     const p=a.play();
     if(p && p.then) p.then(done).catch(()=>{ a.muted=false; });
     else done();
@@ -837,8 +875,7 @@ function primeAudio(){
 // so audio is unlocked even if the very first thing tapped wasn't the left button.
 ['pointerdown','touchstart','click'].forEach(ev=>
   window.addEventListener(ev, ()=>primeAudio(), { once:false, passive:true }));
-// opts.silent  → autoplay path: a blocked play() must NOT pop a blank tab (the
-//                window.open fallback is only sane for an explicit tap).
+// opts.silent  → autoplay path: a blocked play() stays quiet, no alert.
 // opts.onEnded → fired when the clip finishes (used to time the reply window).
 function playClip(url, btn, opts){
   opts = opts || {};
@@ -848,10 +885,20 @@ function playClip(url, btn, opts){
   if(_clipUrl===url && !a.paused){ a.pause(); _resetClipBtn(); return; }
   _resetClipBtn();
   _clipUrl = url; _clipBtn = btn || null; _onEnded = opts.onEnded || null;
-  if(_clipBtn){ if(!_clipBtn.dataset.glyph) _clipBtn.dataset.glyph=_clipBtn.innerHTML; _clipBtn.innerHTML='⏸'; }
+  if(_clipBtn){
+    if(!_clipBtn.dataset.glyph) _clipBtn.dataset.glyph=_clipBtn.innerHTML;
+    _clipBtn.style.position='relative';
+    _clipBtn.innerHTML = _PAUSE_SVG + _RING_SVG;   // pause icon + progress ring
+  }
   a.muted=false; a.src = url;
   const p = a.play();
-  if(p && p.then) p.catch(()=>{ _resetClipBtn(); if(!opts.silent) window.open(url,'_blank'); });
+  // A benign interrupt (e.g. an in-gesture prime racing this tap) can reject the
+  // first play(); retry once inline. NEVER pop a blank tab — window.open from an
+  // async .catch is outside the gesture, so the browser blocks it into about:blank.
+  if(p && p.then) p.catch(()=>{
+    const p2 = a.play();
+    if(p2 && p2.catch) p2.catch(()=>{ _resetClipBtn(); if(!opts.silent) alert('Could not play this clip.'); });
+  });
 }
 
 function paintTranscripts(){
@@ -916,19 +963,16 @@ function paintTranscripts(){
       playClip(t.audioUrl, speakerBtn);
     };
 
-    // Transcript text, with a one-time ✎ to fix Whisper's guess (own comments
-    // only). The pencil is shown until the single correction is spent.
+    // Transcript text, plus a control that opens a 3-icon toolbar (cancel /
+    // edit / delete) on your own comments. Edit is a one-time transcription
+    // fix (locked once spent); delete removes the comment for good.
     const textDiv = document.createElement('div');
     textDiv.style.flex = '1';
     textDiv.style.minWidth = '0';
     textDiv.style.fontSize = '1.4em';
     textDiv.style.color = 'var(--mine)';   // your own comments render white
-    const pencil = (t.id && !t.edited)
-      ? ` <a href="#" data-edit="${t.id}" title="Fix transcription (once)" style="background:var(--dred);color:var(--text);text-decoration:none;font-size:1em;vertical-align:-0.05em;padding:0 .26em;border-radius:.26em;line-height:1.4;">✎</a>`
-      : '';
-    textDiv.innerHTML = `<strong>${t.epCode} ${t.time}</strong> — <span class="tx">${escHtml(t.text)}</span>${pencil}`;
-    const ed = textDiv.querySelector('a[data-edit]');
-    if(ed) ed.onclick = (e)=>{ e.preventDefault(); editTranscript(t); };
+    textDiv.innerHTML = `<strong>${t.epCode} ${t.time}</strong> — <span class="tx">${escHtml(t.text)}</span>`;
+    if(t.id) textDiv.appendChild(txControls(t));
 
     line.appendChild(speakerBtn);
     line.appendChild(textDiv);
@@ -1045,6 +1089,39 @@ async function loadComments(){
   paintTranscripts();
 }
 
+// Branded edit dialog: a multi-line textarea (unlike native prompt(), which
+// truncates to one line) prefilled with the full text. Resolves the new text, or
+// null on cancel.
+function txEditDialog(current){
+  return new Promise((resolve)=>{
+    const ov=document.createElement('div');
+    ov.style.cssText='position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(0,0,0,.62);';
+    const card=document.createElement('div');
+    card.style.cssText='width:100%;max-width:420px;box-sizing:border-box;background:#191410;border:1px solid rgba(240,169,59,.28);border-radius:14px;padding:16px;box-shadow:0 20px 60px rgba(0,0,0,.6);';
+    card.innerHTML='<div style="font-weight:700;color:var(--text);margin-bottom:10px;font-size:1.02em;">Fix the transcription <span style="color:var(--dim);font-weight:400;">(you can do this once)</span></div>';
+    const ta=document.createElement('textarea');
+    ta.value=current;
+    ta.style.cssText='width:100%;min-height:130px;resize:vertical;box-sizing:border-box;padding:10px 12px;border-radius:10px;border:1px solid rgba(240,169,59,.3);background:#0f0c08;color:var(--text);font-family:var(--body);font-size:1em;line-height:1.4;';
+    const row=document.createElement('div');
+    row.style.cssText='display:flex;gap:10px;justify-content:flex-end;margin-top:12px;';
+    const cancel=document.createElement('button');
+    cancel.textContent='Cancel';
+    cancel.style.cssText='padding:10px 16px;border-radius:9px;border:1px solid rgba(255,255,255,.22);background:transparent;color:var(--text);cursor:pointer;font-family:var(--body);font-size:1em;';
+    const save=document.createElement('button');
+    save.textContent='Save';
+    save.style.cssText='padding:10px 20px;border-radius:9px;border:none;background:var(--amber);color:var(--amber-deep);font-weight:700;cursor:pointer;font-family:var(--body);font-size:1em;';
+    let done=false; const close=(v)=>{ if(done) return; done=true; try{ov.remove();}catch(_){ } resolve(v); };
+    cancel.onclick=()=>close(null);
+    save.onclick=()=>close(ta.value);
+    ov.addEventListener('click',(e)=>{ if(e.target===ov) close(null); });   // tap the scrim → cancel
+    row.appendChild(cancel); row.appendChild(save);
+    card.appendChild(ta); card.appendChild(row);
+    ov.appendChild(card);
+    document.body.appendChild(ov);
+    setTimeout(()=>{ try{ ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }catch(_){ } }, 30);
+  });
+}
+
 // One-time transcription fix. Prefill the dialog with Whisper's attempt; on save
 // PATCH it and lock the pencil (the server enforces the once-only rule too).
 async function editTranscript(t){
@@ -1052,7 +1129,7 @@ async function editTranscript(t){
   const email = (typeof acctEmail==='function' ? acctEmail() : '');
   if(!email) return;
   const current = t.hasText ? t.text : '';
-  const next = prompt('Fix the transcription (you can do this once):', current);
+  const next = await txEditDialog(current);
   if(next==null) return;
   const text = next.trim();
   if(!text || text===current){ return; }
@@ -1064,6 +1141,74 @@ async function editTranscript(t){
     else if(r.status===409){ t.edited=true; paintTranscripts(); alert('This comment was already corrected once.'); }
     else { alert('Could not save the correction.'); }
   }catch(_){ alert('Could not save the correction.'); }
+}
+
+// A small icon button (SVG, stroke-based) for the transcript control toolbar.
+function txIconBtn(kind, title, wide){
+  const paths = {
+    edit:   '<path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/>',
+    cancel: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+    delete: '<polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/>'
+  };
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.title = title;
+  b.setAttribute('aria-label', title);
+  // Action buttons stretch to share the row equally (wide, hard to mistap, one line);
+  // the toggle stays a compact 26px square.
+  const size = wide ? 'flex:1 1 0;min-width:0;height:32px;' : 'width:26px;height:26px;flex-shrink:0;';
+  b.style.cssText = size + 'padding:0;display:inline-flex;align-items:center;justify-content:center;vertical-align:-0.35em;border-radius:.3em;background:var(--dred);border:none;color:var(--text);cursor:pointer;';
+  b.innerHTML = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[kind]}</svg>`;
+  return b;
+}
+
+// The per-comment toolbar: a pencil toggle that opens three options —
+// cancel (collapse), edit (one-time transcription fix), delete (remove for good).
+function txControls(t){
+  // display:contents → the wrap adds no box, so the toggle flows inline at the end
+  // of the text (floated right) while the open bar drops onto its own row below.
+  const wrap = document.createElement('span');
+  wrap.style.cssText = 'display:contents;';
+
+  const toggle = txIconBtn('edit', 'Edit or delete');
+  toggle.style.float = 'right';        // sit at the right end of the comment text
+  toggle.style.marginLeft = '.4em';
+  const bar = document.createElement('span');
+  bar.style.cssText = 'gap:6px;width:100%;clear:both;margin-top:6px;';   // full-width row below the text
+  bar.style.display = 'none';
+
+  const cancel = txIconBtn('cancel', 'Cancel', true);
+  const edit   = txIconBtn('edit', t.edited ? 'Transcription already corrected' : 'Fix transcription (once)', true);
+  const del    = txIconBtn('delete', 'Delete comment', true);
+  if(t.edited){ edit.disabled = true; edit.style.opacity = '.4'; edit.style.cursor = 'default'; }
+
+  toggle.onclick = ()=>{ toggle.style.display='none'; bar.style.display='flex'; };
+  cancel.onclick = ()=>{ bar.style.display='none'; toggle.style.display='inline-flex'; };
+  edit.onclick   = ()=>{ if(!t.edited) editTranscript(t); };
+  del.onclick    = ()=>{ deleteTranscript(t); };
+
+  bar.appendChild(cancel); bar.appendChild(edit); bar.appendChild(del);
+  wrap.appendChild(toggle); wrap.appendChild(bar);
+  return wrap;
+}
+
+// Delete one of your own comments for good (server drops the row + R2 audio and
+// any replies threaded under it). Optimistically remove it from the panel.
+async function deleteTranscript(t){
+  if(!t || !t.id) return;
+  const email = (typeof acctEmail==='function' ? acctEmail() : '');
+  if(!email) return;
+  if(!confirm('Delete this comment? This cannot be undone.')) return;
+  try{
+    const r = await fetch(`${API_BASE}/transcribe/${encodeURIComponent(t.id)}`, {
+      method:'DELETE', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ email }) });
+    if(r.ok || r.status===404){
+      transcripts = transcripts.filter(x=> x.id !== t.id);
+      paintTranscripts();
+    } else if(r.status===403){ alert('That comment is not yours to delete.'); }
+    else { alert('Could not delete the comment.'); }
+  }catch(_){ alert('Could not delete the comment.'); }
 }
 
 // ─── Co-viewing: friends' comments, spoiler-gated by your own progress ────────
@@ -1292,6 +1437,14 @@ function openExternal(url){
   catch(_){ window.location.href=url; }
 }
 
+// Show a segment for each remaining second; fade out those already elapsed.
+function _syncRecSegs(){
+  const svg=$('micBtn')?.querySelector('.rec-ring'); if(!svg) return;
+  svg.querySelectorAll('.rec-seg').forEach(s=>{
+    s.style.opacity = (+s.getAttribute('data-i') < recordingCountdown) ? '1' : '0';
+  });
+}
+
 async function startRecording(){
   isRecording = true;
   recordingCountdown = 7;
@@ -1329,16 +1482,21 @@ async function startRecording(){
     micBtn.classList.add('recording');
     if(pendingReply) micBtn.classList.add('replyrec');   // green countdown for a reply
     if(micLabel){
-      micLabel.style.display = 'block';
-      micLabel.textContent = `${recordingCountdown}s`;
+      micLabel.style.display = 'flex';   // column layout for the stacked REC + seconds
+      micLabel.innerHTML = `<span class="rec-word">REC</span>`;   // ring is the countdown; no number
     }
+    // Segmented countdown ring: one arc per second, blinking out as time runs down.
+    micBtn.querySelector('.rec-ring')?.remove();
+    const C=289.03, step=C/recordingCountdown, seg=Math.max(6, step-11);   // arc + gap per segment
+    let segs='';
+    for(let i=0;i<recordingCountdown;i++){
+      segs += `<circle class="rec-seg" data-i="${i}" cx="50" cy="50" r="46" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-dasharray="${seg.toFixed(2)} ${(C-seg).toFixed(2)}" stroke-dashoffset="${(-step*i).toFixed(2)}" transform="rotate(-90 50 50)"/>`;
+    }
+    micBtn.insertAdjacentHTML('beforeend', `<svg class="rec-ring" viewBox="0 0 100 100" aria-hidden="true">${segs}</svg>`);
   }
   recordingInterval = setInterval(()=>{
     recordingCountdown--;
-    const label = $('micLabel');
-    if(label){
-      label.textContent = recordingCountdown > 0 ? `${recordingCountdown}s` : 'DONE';
-    }
+    _syncRecSegs();   // hide one more segment for each second elapsed
     if(recordingCountdown <= 0) stopRecording();
   }, 1000);
   console.log('Recording started');
@@ -1353,6 +1511,7 @@ function stopRecording(){
   const micLabel = $('micLabel');
   if(micBtn){
     micBtn.classList.remove('recording', 'replyrec');
+    micBtn.querySelector('.rec-ring')?.remove();
     if(micLabel){
       micLabel.style.display = 'none';
       micLabel.textContent = '';

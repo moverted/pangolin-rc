@@ -13,10 +13,54 @@ Entry format:
 
 ---
 
-## ⚡ START HERE — current state (as of 2026-07-07, next session read this first)
-- **Prod (`remote.pangolinrc.com`) live build = branch `comfort-on-weekend`
-  (`da160ab`) = the weekend `streamer-logo-grid` build (incl. its WIP) + comfort
-  tab.** Deployment `b3262a7b`.
+## 2026-07-08 — DELETE `/transcribe/:id` (delete own audio comment)
+- **Worker code change (`src/index.ts`), NOT yet deployed.** New
+  `app.delete('/transcribe/:id')`: body `{email}`, own-comments-only
+  (user_email must match). Drops the `watch_comment` row + its R2 audio, and
+  cascades to any replies threaded under it (`reply_to = id`) incl. their R2
+  audio. `DELETE` already in the CORS `allowMethods` list — no CORS change.
+- Frontend (`public/cube_log_face.html`, LOG face Comments panel): the old
+  single ✎ pencil is now a 3-icon toolbar — pencil toggle opens cancel / edit
+  (one-time transcription fix, disabled once spent) / delete. Delete confirms,
+  calls the new route, optimistically drops the row from `transcripts`.
+- **Frontend deployed to PREVIEW ONLY** (`streamer-logo-grid.pangolin-rc.pages.dev`,
+  deployment `c9a3f1fd`) — includes the toolbar + the inline-audio play fix
+  (primeAudio one-shot + playClip retry instead of `window.open` blank-tab
+  fallback). NOT prod.
+- **Worker DEPLOYED to prod** (Version `82cdc216-4dee-43de-a96e-30fa3f11bbad`).
+  Deploy message: "Add DELETE /transcribe/:id — delete own audio comment (row +
+  R2 audio + threaded replies), own-comments-only". `DELETE /transcribe/:id` is
+  now live; the preview frontend's delete button is fully functional.
+  (Uses the same `env.DB` + `watch_comment` table the existing comment
+  INSERT/PATCH/GET routes already use — the live comments DB, not the legacy one.)
+- **Frontend DEPLOYED to PROD** (`remote.pangolinrc.com`, Pages `--branch main`,
+  deployment `a7b25aba`). Pre-deploy check: live prod was `a5ddbb5b` / source
+  `e7ee6e0`, which == current git HEAD, so this added the uncommitted polish on
+  top with nothing to clobber. Toolbar + inline-audio fix now live on prod.
+
+## ⚡ START HERE — current state (as of 2026-07-08, next session read this first)
+- **Prod (`remote.pangolinrc.com`) live build = deployment `ea674624`** — comment
+  pencil toggle floats to the right end of the text (`display:contents` wrap +
+  `float:right`); the cancel/edit/delete bar drops full-width below on open.
+  Prior: `2e86ae21` — the
+  transcription edit now opens a branded multi-line `<textarea>` dialog
+  (`txEditDialog`) showing the full text, replacing native `prompt()` which
+  truncated to one line. Prior: `e6e4243f` — comment
+  cancel/edit/delete now share one full-width row (flex:1 each) instead of the
+  fixed-104px buttons that wrapped to two lines. Prior: `0215a106` — LOG
+  in-show mic now also shows a blinking "REC" (no seconds; ring is the countdown),
+  matching the wheel-centre reflection; comment cancel/edit/delete buttons are 4×
+  wider (104px, wrap-enabled) so they're hard to mistap. Prior: `fd3394a9`
+  (wheel-centre reflection blinking REC, no seconds), `1bd638f2` = git
+  `e7ee6e0` (`streamer-logo-grid` HEAD) + uncommitted polish. Deployed via Pages
+  `--branch main`. Polish now on prod: comment 3-icon toolbar + delete, inline-
+  audio play fix, SVG pause icon + circular playback progress ring, and the
+  recording countdown restyle (red "● REC" + seconds + segmented ring, one arc
+  per second). Two rec contexts: LOG-face in-show mic = 7 segments; wheel-centre
+  end-of-show reflection (comfort face → shell `__comfortMicCount`) = 10 segments.
+  Fixed a CSS-specificity bug where `.mic-center svg{width:28px}` shrank the ring
+  to the corner (now scoped `.mic-center .rec-ring`).
+  Prior prod deploys: `97e41ec7` → `4706b169` → `a7b25aba` → `a5ddbb5b` → `b3262a7b`.
 - **Pages prod is deployed straight from branches, NOT from git `main`.** Before
   ANY `wrangler pages deploy ... --branch main`, run `wrangler pages deployment
   list --project-name pangolin-rc` and check the live Source commit — do not

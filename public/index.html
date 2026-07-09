@@ -114,7 +114,16 @@
        waits, then the live countdown once recording starts */
     #wheel .wheel-center.mic { color: #f0a93b; border-color: rgba(240,169,59,0.55); }
     #wheel .wheel-center.mic svg { width: 20px; height: 20px; }
-    #wheel .wheel-center.counting { font-size: 16px; letter-spacing: 0; color: #1a1206; background: #f0a93b; border-color: #8a5a10; }
+    /* Recording the reflection: red, "● REC" + seconds, matching the in-show mic. */
+    #wheel .wheel-center.counting { letter-spacing: 0.08em;
+      color: #fff; background: #e0322c; border-color: #fff; }
+    #wheel .wheel-center.counting .rec-word { font-size: 13px; font-weight: 800; letter-spacing: 0.1em;
+      line-height: 1; animation: recBlink 1s steps(2, start) infinite; }
+    @keyframes recBlink { 50% { opacity: 0.2; } }
+    /* Segmented countdown ring around the centre: one arc per second, blinking out. */
+    #wheel .wheel-center .rec-ring { position: absolute; inset: -2px; width: calc(100% + 4px);
+      height: calc(100% + 4px); pointer-events: none; }
+    #wheel .wheel-center .rec-seg { transition: opacity .25s ease; }
     /* ── transport buttons at the wheel's cardinal points: BACK top, play/pause
        bottom, rw left, ff right. Printed on the ring like iPod labels, but live
        buttons. Shown ONLY while the remote points at a real device — #wheel.rc,

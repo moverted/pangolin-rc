@@ -244,14 +244,37 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey } from './c
     + '<line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
   function centerMic(){ if(center){ center.classList.remove('counting'); center.classList.add('mic'); center.innerHTML = CENTER_MIC_SVG; } }
   function centerLabel(){ if(center){ center.classList.remove('mic','counting'); center.textContent = CENTER_LABEL; } }
+  // A segmented countdown ring: `total` arcs evenly spaced (r=46 in a 100 viewBox,
+  // C≈289.03), each blinking out as its second elapses. Matches the in-show mic.
+  function recRingHTML(total){
+    const C=289.03, step=C/total, seg=Math.max(6, step-11);
+    let segs='';
+    for(let i=0;i<total;i++){
+      segs += '<circle class="rec-seg" data-i="'+i+'" cx="50" cy="50" r="46" fill="none" stroke="currentColor" '
+        + 'stroke-width="6" stroke-linecap="round" stroke-dasharray="'+seg.toFixed(2)+' '+(C-seg).toFixed(2)+'" '
+        + 'stroke-dashoffset="'+(-step*i).toFixed(2)+'" transform="rotate(-90 50 50)"/>';
+    }
+    return '<svg class="rec-ring" viewBox="0 0 100 100" aria-hidden="true">'+segs+'</svg>';
+  }
+  let _recTotal = 0;
   window.__setComfortMic = function(on){
     if(on){ centerMic(); selectMode = false; }    // reflection uses ring=scroll + centre=mic
-    else { centerLabel(); hideHL(activeDoc()); }
+    else { _recTotal = 0; centerLabel(); hideHL(activeDoc()); }
   };
   window.__comfortMicCount = function(n){
     if(!center) return;
-    if(n == null){ centerMic(); }                                  // take ended → back to the mic
-    else { center.classList.remove('mic'); center.classList.add('counting'); center.textContent = String(n); }
+    if(n == null){ _recTotal = 0; centerMic(); return; }            // take ended → back to the mic
+    center.classList.remove('mic'); center.classList.add('counting');
+    // First tick (or a longer take) builds the ring + blinking REC; the segmented
+    // ring is the countdown, so the centre just reads "REC" — no number.
+    if(!center.querySelector('.rec-ring') || n > _recTotal){
+      _recTotal = n;
+      center.innerHTML = recRingHTML(n) + '<span class="rec-word">REC</span>';
+    } else {
+      center.querySelectorAll('.rec-seg').forEach(s=>{
+        s.style.opacity = (+s.getAttribute('data-i') < n) ? '1' : '0';
+      });
+    }
   };
 
   const SCROLL_PER_REV = 720;          // px scrolled per full finger revolution

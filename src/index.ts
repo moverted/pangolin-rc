@@ -196,6 +196,39 @@ app.patch('/transcribe/:id', async (c) => {
   return c.json({ id, transcription: text, edited: true });
 });
 
+// Delete one of your own audio comments: drop the row + its R2 audio, and clean
+// up any replies threaded under it (and their audio) so nothing is orphaned.
+// Own-comments only — the caller must match user_email.
+app.delete('/transcribe/:id', async (c) => {
+  const id = c.req.param('id');
+  const body = await c.req.json().catch(() => ({} as any));
+  const email = (body.email || '').trim();
+  if (!email) return c.json({ error: 'email is required' }, 400);
+
+  const row: any = await c.env.DB
+    .prepare('SELECT user_email, audio_r2_key FROM watch_comment WHERE id = ?')
+    .bind(id)
+    .first();
+  if (!row) return c.json({ error: 'not found' }, 404);
+  if (row.user_email !== email) return c.json({ error: 'not your comment' }, 403);
+
+  // Gather replies threaded under this comment so we can purge their audio too.
+  const { results: replies } = await c.env.DB
+    .prepare('SELECT id, audio_r2_key FROM watch_comment WHERE reply_to = ?')
+    .bind(id)
+    .all();
+
+  const r2Keys = [row.audio_r2_key, ...(replies || []).map((r: any) => r.audio_r2_key)]
+    .filter(Boolean);
+  await Promise.all(r2Keys.map((k: string) => c.env.RAW_BUCKET.delete(k).catch(() => {})));
+
+  await c.env.DB.prepare('DELETE FROM watch_comment WHERE id = ? OR reply_to = ?')
+    .bind(id, id)
+    .run();
+
+  return c.json({ id, deleted: true });
+});
+
 // List a member's audio comments for one show, newest first, so the episode
 // face can render the persisted "Transcripts" panel on load.
 //
