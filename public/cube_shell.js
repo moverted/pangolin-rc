@@ -201,15 +201,14 @@ function snapToFace(fi) {
   }
 }
 
-// The Pierre mic accompanies TYPING, not the wheel: visible only while the
-// console keyboard is up on the chat face. Re-checked on every keyboard
-// show/hide and face snap.
+// The Pierre mic + context picker are two of the four items in the console-chrome
+// band (Device · Mic · Chat-picker · Cube); they show whenever the Pierre face is
+// open. Re-checked on every keyboard show/hide and face snap.
 function pierreMicSync() {
-  const kb = document.getElementById('console-kb');
+  const on = locked && activeFace === PIERRE_FACE;
   if (window._setPierreMic)
-    window._setPierreMic(locked && activeFace === PIERRE_FACE
-      && (!!(kb && kb.classList.contains('show'))
-          || !!(window._pierreMicBusy && window._pierreMicBusy())));   // a live capture holds its ground
+    window._setPierreMic(on || !!(window._pierreMicBusy && window._pierreMicBusy()));   // a live capture holds its ground
+  if (window._setPierreCtx) window._setPierreCtx(on);
 }
 
 function lock() {
@@ -239,6 +238,7 @@ function unlock() {
   if (window._setWheelCube) window._setWheelCube(false);
   if (window._kbHide) window._kbHide();   // leaving a face closes the console keyboard
   if (window._setPierreMic) window._setPierreMic(false);
+  if (window._setPierreCtx) window._setPierreCtx(false);
   canvas.style.opacity = '1';   // cube returns as the free-nav object
   hideFaceInfo();
   snapping = false; // release to free rotation
@@ -1079,9 +1079,25 @@ document.getElementById('device-chip').addEventListener('click', () => cubeRotat
     try { return FACE_OVERLAYS[PIERRE_FACE].frame.contentWindow.document.getElementById('input'); }
     catch (_) { return null; }
   }
+  // A 10-segment countdown ring that blinks out one arc per second (matches the
+  // LOG/comfort REC indicators). r=46 in a 100 viewBox → C≈289.03.
+  function ringHTML(total){
+    const C = 289.03, step = C / total, seg = Math.max(6, step - 11);
+    let s = '';
+    for (let i = 0; i < total; i++) {
+      s += '<circle class="rec-seg" data-i="' + i + '" cx="50" cy="50" r="46" fill="none" stroke="currentColor" '
+        + 'stroke-width="6" stroke-linecap="round" stroke-dasharray="' + seg.toFixed(2) + ' ' + (C - seg).toFixed(2) + '" '
+        + 'stroke-dashoffset="' + (-step * i).toFixed(2) + '" transform="rotate(-90 50 50)"/>';
+    }
+    return '<svg class="rec-ring" viewBox="0 0 100 100" aria-hidden="true">' + s + '</svg>';
+  }
+  function syncSegs(l){
+    btn.querySelectorAll('.rec-seg').forEach(s => { s.style.opacity = (+s.getAttribute('data-i') < l) ? '1' : '0'; });
+  }
   function cleanup(){
     if (timer) { clearInterval(timer); timer = null; }
     btn.classList.remove('rec'); count.textContent = '';
+    const r = btn.querySelector('.rec-ring'); if (r) r.remove();
   }
   function abandon(){
     cleanup(); btn.classList.remove('busy');
@@ -1098,9 +1114,10 @@ document.getElementById('device-chip').addEventListener('click', () => cubeRotat
     chunks = []; rec = new MediaRecorder(stream);
     rec.ondataavailable = ev => chunks.push(ev.data);
     rec.start();
-    left = 10; btn.classList.add('rec'); count.textContent = left + 's';
+    left = 10; btn.classList.add('rec'); count.textContent = 'REC';
+    btn.insertAdjacentHTML('beforeend', ringHTML(10)); syncSegs(left);
     timer = setInterval(() => {
-      left--; count.textContent = Math.max(left, 0) + 's';
+      left--; syncSegs(Math.max(left, 0));
       if (left <= 0) stop();
     }, 1000);
   }
@@ -1142,6 +1159,43 @@ document.getElementById('device-chip').addEventListener('click', () => cubeRotat
   btn.addEventListener('click', () => { timer ? stop() : start(); });
   window._pierreMicBusy = () => !!(timer || btn.classList.contains('busy'));
   window._setPierreMic = (on) => { if (!on) abandon(); btn.classList.toggle('show', !!on); };
+})();
+
+// Pierre context picker (band item 3): shows the current lane; tap to switch lanes
+// or clear the chat. Drives the Pierre iframe same-origin; the face reports its lane
+// back via window.parent._pierreCtx so the pill label stays truthful.
+(function initPierreCtx(){
+  const wrap  = document.getElementById('pierre-ctx-wrap');
+  const pill  = document.getElementById('pierre-ctx');
+  const pop   = document.getElementById('pierre-ctx-pop');
+  const label = document.getElementById('pierre-ctx-label');
+  if (!wrap || !pill || !pop) return;
+  const LABELS = { chat: 'Chat', add: 'Add a show', account: 'Account', device: 'Device', note: 'Note' };
+  function pierreWin(){ try { return FACE_OVERLAYS[PIERRE_FACE].frame.contentWindow; } catch (_) { return null; } }
+  function setLabel(id){ if (label) label.textContent = LABELS[id] || 'Chat'; }
+  function closePop(){ pop.hidden = true; pill.setAttribute('aria-expanded', 'false'); }
+  function openPop(){ pop.hidden = false; pill.setAttribute('aria-expanded', 'true'); }
+  pill.addEventListener('pointerdown', e => e.preventDefault());   // keep chat focus / keyboard
+  pill.addEventListener('click', e => { e.stopPropagation(); pop.hidden ? openPop() : closePop(); });
+  pop.querySelectorAll('.pc-opt').forEach(b => {
+    b.addEventListener('pointerdown', e => e.preventDefault());
+    b.addEventListener('click', () => {
+      const ctx = b.getAttribute('data-ctx');
+      const w = pierreWin();
+      if (w) {
+        if (ctx === '__clear') { if (w.__pierreClear) w.__pierreClear(); }
+        else if (w.__pierreSwitch) w.__pierreSwitch(ctx);
+      }
+      closePop();
+    });
+  });
+  document.addEventListener('click', () => { if (!pop.hidden) closePop(); });
+  window._pierreCtx = (id) => setLabel(id);                       // face → pill label
+  window._setPierreCtx = (on) => {
+    wrap.classList.toggle('show', !!on);
+    if (!on) { closePop(); return; }
+    const w = pierreWin(); try { if (w && w.__pierreGetCtx) setLabel(w.__pierreGetCtx()); } catch (_) {}
+  };
 })();
 
 // Console floating cube → back to cube nav. Shown only while a face is open.

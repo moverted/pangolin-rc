@@ -54,8 +54,16 @@ Entry format:
   `[SWITCH]` tags that only the new frontend parses (old frontend would show them
   as raw text). Both deployed same session.
 
-## ⚡ START HERE — current state (as of 2026-07-08, next session read this first)
-- **Prod (`remote.pangolinrc.com`) live build = deployment `dae4b439`** (Pierre
+## ⚡ START HERE — current state (as of 2026-07-09, next session read this first)
+- **Prod (`remote.pangolinrc.com`) live build = deployment `97a90a1e`** — Pierre
+  mic + context picker moved OUT of the Pierre iframe and INTO the shell's off-cube
+  band (Device · Mic · Chat-picker · Cube, evenly spaced, shown only while Pierre is
+  open). The composer mic I'd added earlier was a DUPLICATE of the pre-existing shell
+  `#pierre-mic`; removed it. Shell mic restyled to red/blinking-REC + 10-segment ring.
+  Picker (`#pierre-ctx` in index.html + `initPierreCtx` in cube_shell.js) drives the
+  face same-origin via `window.__pierreSwitch/__pierreClear/__pierreGetCtx`; the face
+  reports its lane back via `window.parent._pierreCtx`. Frontend-only; no Worker change.
+  Committed + pushed on `streamer-logo-grid`. Prior prod: `dae4b439` (Pierre
   context switcher — see the 2026-07-08 entry just above; Worker Version
   `5d18f9a9`). Prior: `7dd8abae` — Pierre
   face: new voice mic in the composer (records ~10s, REC indicator + 10-segment

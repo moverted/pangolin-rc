@@ -109,36 +109,8 @@
   .chip:hover{background:rgba(239,177,78,.14);}
   .chip:active{transform:translateY(1px);}
 
-  /* Context switcher: a pill above the composer showing the current lane; tap for
-     a popover to switch contexts or clear the chat. */
-  .ctxbar{ position:relative;z-index:4;display:flex;padding:0 12px 2px; }
-  .ctxpill{
-    display:inline-flex;align-items:center;gap:7px;cursor:pointer;
-    font-family:'Space Mono';font-size:11px;letter-spacing:.08em;text-transform:uppercase;
-    color:var(--ink-dim);background:var(--burrow-2);
-    border:1px solid var(--line);border-radius:999px;padding:5px 11px;
-    transition:background .15s,border-color .15s;
-  }
-  .ctxpill:hover{border-color:rgba(239,177,78,.4);}
-  .ctxdot{width:7px;height:7px;border-radius:50%;background:var(--amber);box-shadow:0 0 10px var(--amber);flex:none;}
-  .ctxcaret{font-size:9px;color:var(--ink-dim);}
-  .ctxpop{
-    position:absolute;bottom:100%;left:12px;margin-bottom:6px;z-index:4;min-width:190px;
-    background:var(--burrow-2);border:1px solid var(--line);border-radius:12px;
-    padding:5px;box-shadow:0 14px 40px rgba(0,0,0,.55);
-    display:flex;flex-direction:column;gap:1px;
-  }
-  .ctxpop[hidden]{display:none;}
-  .ctxopt{
-    text-align:left;font-family:'Inter';font-size:13px;color:var(--ink);
-    background:transparent;border:none;border-radius:8px;padding:9px 11px;cursor:pointer;
-    transition:background .12s;
-  }
-  .ctxopt:hover{background:rgba(239,177,78,.14);}
-  .ctxopt.on{color:var(--amber);}
-  .ctxsep{height:1px;background:var(--line);margin:4px 2px;}
-  .ctxclear{color:var(--screen);}
-  .ctxclear:hover{background:rgba(95,214,224,.12);}
+  /* Context switcher + mic now live in the shell's off-cube band (see index.html
+     / cube_shell.js). The face keeps only the switch/clear logic, driven same-origin. */
 
   .typing{display:flex;gap:4px;align-items:center;padding:4px 2px;}
   .typing span{width:6px;height:6px;border-radius:50%;background:var(--amber);opacity:.4;animation:blink 1.2s infinite;}
@@ -179,21 +151,6 @@
   .composer #input::placeholder{color:var(--ink-dim);}
   .composer #input:focus{border-color:rgba(239,177,78,.55);box-shadow:0 0 0 3px rgba(239,177,78,.12);}
   .composer #input.secret{ -webkit-text-security:disc; text-security:disc; }   /* password steps */
-  /* Mic button: matches the REC indicator — amber idle, red while recording,
-     blinking "REC" + a 10-segment countdown ring (one arc blinks out per second). */
-  .micbtn{
-    flex:none;width:42px;height:42px;border-radius:50%;position:relative;
-    border:2px solid var(--amber);background:rgba(239,177,78,.16);color:var(--amber);
-    cursor:pointer;display:grid;place-items:center;transition:transform .1s,filter .15s;
-  }
-  .micbtn:active{transform:scale(.94);}
-  .micbtn svg{width:18px;height:18px;}
-  .micbtn.recording{background:#e0322c;color:#fff;border-color:#fff;}
-  .micbtn .rec-word{font-size:11px;font-weight:800;letter-spacing:.06em;
-    animation:recBlink 1s steps(2,start) infinite;}
-  .micbtn .rec-ring{position:absolute;inset:-2px;width:calc(100% + 4px);height:calc(100% + 4px);pointer-events:none;}
-  .micbtn .rec-seg{transition:opacity .25s ease;}
-  @keyframes recBlink{50%{opacity:.2;}}
   .send{
     flex:none;width:42px;height:42px;border-radius:50%;
     border:none;cursor:pointer;
@@ -242,25 +199,8 @@
 
     <div id="ts-widget" class="ts-widget"></div>
 
-    <div class="ctxbar" id="ctxbar">
-      <button class="ctxpill" id="ctxpill" aria-haspopup="true" aria-expanded="false" aria-label="Switch context">
-        <span class="ctxdot"></span><span id="ctxlabel">Chat</span><span class="ctxcaret">&#9650;</span>
-      </button>
-      <div class="ctxpop" id="ctxpop" role="menu" hidden>
-        <button class="ctxopt" data-ctx="chat" role="menuitem">Chat / what to watch</button>
-        <button class="ctxopt" data-ctx="add" role="menuitem">Add a show</button>
-        <button class="ctxopt" data-ctx="account" role="menuitem">Account</button>
-        <button class="ctxopt" data-ctx="device" role="menuitem">Connect a device</button>
-        <div class="ctxsep"></div>
-        <button class="ctxopt ctxclear" id="ctxclear" role="menuitem">Clear chat</button>
-      </div>
-    </div>
-
     <div class="composer">
       <textarea id="input" rows="1" autocomplete="off" placeholder="Ask Pierre what to watch..." aria-label="Message Pierre"></textarea>
-      <button class="micbtn" id="mic" aria-label="Record a note">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
-      </button>
       <button class="send" id="send" aria-label="Send">
         <svg viewBox="0 0 24 24" fill="none"><path d="M4 12L20 12M20 12L13 5M20 12L13 19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
@@ -619,8 +559,10 @@
   function autoGrow(){ input.style.height='auto'; input.style.height=Math.min(input.scrollHeight, 120)+'px'; }
   function inputSecret(on){ input.classList.toggle('secret', !!on); }
 
-  // ── Context switcher: a visible pill of the current lane, tap to switch or clear.
-  //    NL switching + confused-chips arrive as [SWITCH]/[ASK] tags parsed in addPierre. ──
+  // ── Context lanes. The switcher UI + mic now live in the shell's off-cube band
+  //    (index.html + cube_shell.js). This face keeps the lane LOGIC and exposes it to
+  //    the shell same-origin; NL switching + confused-chips still arrive as
+  //    [SWITCH]/[ASK] tags parsed in addPierre. ──
   const CONTEXTS = [
     {id:'chat',    label:'Chat'},
     {id:'add',     label:'Add a show'},
@@ -631,28 +573,17 @@
   const SWITCHABLE = ['chat','add','account','device'];   // valid [SWITCH]/[ASK] targets
   let currentCtx = 'chat';
   function labelFor(id){ const c = CONTEXTS.find(x=>x.id===id); return c ? c.label : 'Chat'; }
-  function setCtxIndicator(id){ currentCtx = id; const el = document.getElementById('ctxlabel'); if(el) el.textContent = labelFor(id); }
-  const ctxPop = document.getElementById('ctxpop');
-  const ctxPill = document.getElementById('ctxpill');
-  function closeCtxPop(){ if(ctxPop){ ctxPop.hidden = true; } if(ctxPill){ ctxPill.setAttribute('aria-expanded','false'); } }
-  function toggleCtxPop(){ if(!ctxPop) return; const open = ctxPop.hidden; ctxPop.hidden = !open; if(ctxPill) ctxPill.setAttribute('aria-expanded', String(open)); }
-  if(ctxPill){
-    ctxPill.addEventListener('mousedown', e=>e.preventDefault());   // keep the composer focused
-    ctxPill.addEventListener('click', e=>{ e.stopPropagation(); if(!IS_DEMO) toggleCtxPop(); });
+  // Reflect the current lane onto the shell's band picker (it renders the label).
+  function setCtxIndicator(id){
+    currentCtx = id;
+    try{ if(window.parent!==window && window.parent._pierreCtx) window.parent._pierreCtx(id); }catch(_){}
   }
-  document.querySelectorAll('#ctxpop .ctxopt[data-ctx]').forEach(btn=>{
-    btn.addEventListener('mousedown', e=>e.preventDefault());
-    btn.addEventListener('click', ()=>{ switchTo(btn.getAttribute('data-ctx'), {viaUser:true}); });
-  });
-  (function(){ const c=document.getElementById('ctxclear'); if(c){ c.addEventListener('mousedown', e=>e.preventDefault()); c.addEventListener('click', clearChat); } })();
-  document.addEventListener('click', ()=>{ if(ctxPop && !ctxPop.hidden) closeCtxPop(); });
 
-  // Enter a lane from a tap or from an NL [SWITCH] tag. 'chat' clears every flow and
-  // returns to free chat, keeping history. Reuses the existing enter*Flow machines.
+  // Enter a lane from a tap (shell picker → __pierreSwitch) or an NL [SWITCH] tag.
+  // 'chat' clears every flow and returns to free chat, keeping history.
   function switchTo(ctx, opts){
     opts = opts || {};
     if(IS_DEMO) return;
-    closeCtxPop();
     if(ctx === 'chat'){
       addFlow=null; acctFlow=null; joinFlow=null; noteCtx=null;
       epNoteFlow=false; seasonNoteFlow=false; epFinishPending=null; seasonNote=null;
@@ -669,7 +600,6 @@
 
   // Clear chat: a genuine new conversation. The only hard wipe.
   function clearChat(){
-    closeCtxPop();
     if(IS_DEMO) return;
     history.length = 0; log.innerHTML = '';
     addFlow=null; acctFlow=null; joinFlow=null; noteCtx=null;
@@ -680,88 +610,11 @@
     try{ input.focus(); }catch(_){}
   }
 
-  // ── Voice note: record ~10s, show the REC indicator on the mic, transcribe into
-  //    the box (same /transcribe path the LOG + comfort mics use). ──
-  const TR_API = location.hostname === 'localhost' ? 'http://localhost:8787'
-    : 'https://pangolin-rc.edward-m-willett.workers.dev';
-  let micCtrl = null;
-  const MIC_SVG = document.getElementById('mic').innerHTML;
-  function recRingHTML(total){
-    const C=289.03, step=C/total, seg=Math.max(6, step-11);
-    let s='';
-    for(let i=0;i<total;i++){
-      s += '<circle class="rec-seg" data-i="'+i+'" cx="50" cy="50" r="46" fill="none" stroke="currentColor" '
-        + 'stroke-width="6" stroke-linecap="round" stroke-dasharray="'+seg.toFixed(2)+' '+(C-seg).toFixed(2)+'" '
-        + 'stroke-dashoffset="'+(-step*i).toFixed(2)+'" transform="rotate(-90 50 50)"/>';
-    }
-    return '<svg class="rec-ring" viewBox="0 0 100 100" aria-hidden="true">'+s+'</svg>';
-  }
-  function micRecord(){
-    const mic = document.getElementById('mic');
-    if(micCtrl){ micCtrl.stop(); return; }               // tap again → stop early
-    mic.classList.add('recording');
-    mic.innerHTML = recRingHTML(10) + '<span class="rec-word">REC</span>';
-    micCtrl = startRecording(10, function(left){          // one segment blinks out per second
-      mic.querySelectorAll('.rec-seg').forEach(s=>{ s.style.opacity = (+s.getAttribute('data-i') < left) ? '1' : '0'; });
-    }, function(dataUrl){
-      micCtrl = null;
-      mic.classList.remove('recording'); mic.innerHTML = MIC_SVG;
-      if(!dataUrl) return;
-      transcribe(dataUrl, function(txt){
-        if(!txt) return;
-        input.value = input.value ? (input.value.replace(/\s+$/,'') + ' ' + txt) : txt;
-        autoGrow(); try{ input.focus(); }catch(_){}
-      });
-    });
-  }
-  document.getElementById('mic').addEventListener('pointerdown', e=>e.preventDefault());  // keep the keyboard/focus
-  document.getElementById('mic').addEventListener('click', ()=>{ if(!IS_DEMO) micRecord(); });
-
-  // Record up to maxSec seconds; onTick(secondsLeft) each second; onDone(dataUrl|null).
-  function startRecording(maxSec, onTick, onDone){
-    let rec=null, stream=null, chunks=[], timer=null, done=false;
-    function finish(dataUrl){ if(done) return; done=true; if(timer){clearInterval(timer);timer=null;} onDone(dataUrl); }
-    function tickDown(hasMic){
-      let left=maxSec; onTick(left);
-      timer=setInterval(function(){ left--; onTick(Math.max(left,0)); if(left<=0){ hasMic?stop():finish(null); } }, 1000);
-    }
-    function stop(){
-      if(timer){clearInterval(timer);timer=null;}
-      if(rec && rec.state!=='inactive'){ try{ rec.stop(); }catch(e){ finish(null); } } else finish(null);
-    }
-    const gum = navigator.mediaDevices && navigator.mediaDevices.getUserMedia
-      ? navigator.mediaDevices.getUserMedia({audio:true}) : Promise.reject();
-    gum.then(function(s){
-      stream=s; rec=new MediaRecorder(s);
-      rec.ondataavailable=function(e){ if(e.data && e.data.size) chunks.push(e.data); };
-      rec.onstop=function(){
-        try{ stream.getTracks().forEach(function(t){ t.stop(); }); }catch(e){}
-        if(!chunks.length){ finish(null); return; }
-        const blob=new Blob(chunks, {type:(chunks[0]&&chunks[0].type)||'audio/webm'});
-        const frd=new FileReader(); frd.onload=function(){ finish(frd.result); }; frd.onerror=function(){ finish(null); };
-        frd.readAsDataURL(blob);
-      };
-      rec.start(); tickDown(true);
-    }).catch(function(){ tickDown(false); });   // no mic → still runs the clock, then finishes null
-    return { stop: stop };
-  }
-  function dataUrlToBlob(dataUrl){
-    const parts=dataUrl.split(','), mime=(parts[0].match(/:(.*?);/)||[])[1]||'audio/webm';
-    const bin=atob(parts[1]), arr=new Uint8Array(bin.length);
-    for(let i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
-    return new Blob([arr], {type:mime});
-  }
-  function transcribe(dataUrl, cb){
-    const email = pgSession();
-    if(!email || !dataUrl){ cb(''); return; }
-    const fd=new FormData();
-    fd.append('audio', dataUrlToBlob(dataUrl));
-    fd.append('episodeId', 'pierre-note'); fd.append('timestampMs', '0'); fd.append('userEmail', email);
-    fetch(TR_API + '/transcribe', { method:'POST', body:fd, mode:'cors' })
-      .then(function(r){ return r.ok ? r.json() : null; })
-      .then(function(d){ cb(((d && d.transcription)||'').trim()); })
-      .catch(function(){ cb(''); });
-  }
+  // The shell's off-cube band drives the lane switch (same-origin). The mic there
+  // records + transcribes into #input directly, so no in-face mic is needed.
+  window.__pierreSwitch = function(ctx){ switchTo(ctx, {viaUser:true}); };
+  window.__pierreClear  = function(){ clearChat(); };
+  window.__pierreGetCtx = function(){ return currentCtx; };
 
   // Tell the parent cube when the chat input is focused, so it can pin this
   // square above the soft keyboard instead of letting the page pan it off-screen.
@@ -1297,8 +1150,6 @@
     if (IS_DEMO) {
       addPierre("Evening. I am Pierre. I am off the clock for this demo, so the chat is closed. Have a look around the other faces.");
       input.disabled = true; send.disabled = true; input.placeholder = "chat closed for the demo";
-      try{ document.getElementById('mic').disabled = true; document.getElementById('mic').style.opacity = '.4'; }catch(_){}
-      try{ document.getElementById('ctxbar').style.display = 'none'; }catch(_){}
       return;
     }
     addPierre("Evening. I am Pierre. Tell me what you are in the mood for and I will keep your queue moving. Or just tell me what you watched last, I have opinions.");

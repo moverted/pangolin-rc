@@ -191,9 +191,10 @@
     #console-kb .kb-key.on    { background: #f0a93b; color: #1a1206; border-color: #8a5a10; }
     #console-kb .kb-key.enter { color: #f0a93b; }
 
-    /* ── Pierre mic: the designed mic, centered in the console-chrome row ── */
+    /* ── Pierre mic: item 2 of 4 in the console-chrome band (Device · Mic · Chat · Cube).
+       Red while recording, blinking "REC", with a 10-segment countdown ring. ── */
     #pierre-mic {
-      display: none; position: absolute; left: 50%; transform: translateX(-50%);
+      display: none; position: absolute; left: 37%; transform: translateX(-50%);
       bottom: 352px; z-index: 31;
       width: 46px; height: 46px; border-radius: 50%;
       border: 2px solid #f0a93b; background: rgba(240,169,59,0.2); color: #f0a93b;
@@ -203,12 +204,47 @@
     }
     #pierre-mic.show { display: flex; }
     #pierre-mic:active { transform: translateX(-50%) scale(0.94); }
-    #pierre-mic.rec { background: #f0a93b; color: #1a1206; border-color: #8a5a10;
-      box-shadow: 0 0 18px rgba(240,169,59,0.8); }
-    #pierre-mic.rec svg, #pierre-mic.busy svg { display: none; }
+    #pierre-mic.rec { background: #e0322c; color: #fff; border-color: #fff;
+      box-shadow: 0 0 18px rgba(224,50,44,0.7); }
+    #pierre-mic.busy { background: #e0322c; color: #fff; border-color: #fff; }
+    #pierre-mic.rec svg:not(.rec-ring), #pierre-mic.busy svg:not(.rec-ring) { display: none; }
     #pierre-mic #pierre-mic-count { display: none;
-      font-family: 'JetBrains Mono', monospace, sans-serif; font-size: 13px; font-weight: 700; }
+      font-family: 'JetBrains Mono', monospace, sans-serif; font-size: 11px; font-weight: 800; letter-spacing: 0.06em; }
     #pierre-mic.rec #pierre-mic-count, #pierre-mic.busy #pierre-mic-count { display: block; }
+    #pierre-mic.rec #pierre-mic-count { animation: pmRecBlink 1s steps(2, start) infinite; }
+    @keyframes pmRecBlink { 50% { opacity: 0.2; } }
+    #pierre-mic .rec-ring { position: absolute; inset: -2px; width: calc(100% + 4px); height: calc(100% + 4px); pointer-events: none; }
+    #pierre-mic .rec-seg { transition: opacity 0.25s ease; }
+
+    /* ── Pierre context picker: item 3 of 4 in the band ── */
+    #pierre-ctx-wrap { display: none; position: absolute; left: 63%; transform: translateX(-50%);
+      bottom: 352px; z-index: 31; }
+    #pierre-ctx-wrap.show { display: block; }
+    #pierre-ctx {
+      display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+      font-family: 'JetBrains Mono', monospace, sans-serif; font-size: 10px; font-weight: 700;
+      letter-spacing: 0.08em; text-transform: uppercase; color: rgba(240,169,59,0.92);
+      background: rgba(33,26,19,0.85); border: 1px solid #3a2f22; border-radius: 999px;
+      padding: 8px 12px; -webkit-tap-highlight-color: transparent; white-space: nowrap;
+      transition: border-color 0.15s;
+    }
+    #pierre-ctx:active { border-color: #e89f3d; }
+    #pierre-ctx .pc-dot { width: 6px; height: 6px; border-radius: 50%; background: #f0a93b; box-shadow: 0 0 8px #f0a93b; }
+    #pierre-ctx .pc-caret { font-size: 8px; color: #a7967f; }
+    #pierre-ctx-pop {
+      position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 8px;
+      min-width: 190px; background: rgba(28,22,16,0.97); border: 1px solid #3a2f22; border-radius: 12px;
+      padding: 5px; box-shadow: 0 14px 40px rgba(0,0,0,0.6); display: flex; flex-direction: column; gap: 1px;
+    }
+    #pierre-ctx-pop[hidden] { display: none; }
+    #pierre-ctx-pop .pc-opt {
+      text-align: left; font-family: 'Inter', sans-serif; font-size: 13px; color: #f3ebe0;
+      background: transparent; border: none; border-radius: 8px; padding: 10px 11px; cursor: pointer;
+      -webkit-tap-highlight-color: transparent; transition: background 0.12s;
+    }
+    #pierre-ctx-pop .pc-opt:active { background: rgba(240,169,59,0.16); }
+    #pierre-ctx-pop .pc-sep { height: 1px; background: #3a2f22; margin: 4px 2px; }
+    #pierre-ctx-pop .pc-clear { color: #5fd6e0; }
 
     /* device + streamer indicator: what the play button launches, and where.
        Device comes from the Profile picker (pg_device); streamer from the show
@@ -521,6 +557,23 @@
     </svg>
     <span id="pierre-mic-count"></span>
   </button>
+
+  <!-- Pierre context picker: current lane; tap to switch lanes or clear the chat.
+       Sits in the console-chrome band next to the mic; visible only on PIERRE.
+       Drives the Pierre iframe same-origin (cube_shell.js). -->
+  <div id="pierre-ctx-wrap">
+    <button id="pierre-ctx" aria-haspopup="true" aria-expanded="false" aria-label="Chat context">
+      <span class="pc-dot"></span><span id="pierre-ctx-label">Chat</span><span class="pc-caret">&#9650;</span>
+    </button>
+    <div id="pierre-ctx-pop" role="menu" hidden>
+      <button class="pc-opt" data-ctx="chat" role="menuitem">Chat / what to watch</button>
+      <button class="pc-opt" data-ctx="add" role="menuitem">Add a show</button>
+      <button class="pc-opt" data-ctx="account" role="menuitem">Account</button>
+      <button class="pc-opt" data-ctx="device" role="menuitem">Connect a device</button>
+      <div class="pc-sep"></div>
+      <button class="pc-opt pc-clear" data-ctx="__clear" role="menuitem">Clear chat</button>
+    </div>
+  </div>
 
   <div id="media-controls" style="display:none">
     <button class="media-btn" id="btn-rw" aria-label="Rewind">
