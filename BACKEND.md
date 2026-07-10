@@ -13,6 +13,22 @@ Entry format:
 
 ---
 
+## 2026-07-10 — Pierre share moved into the band context picker (frontend only)
+- **No Worker/D1 change.** `public/index.html` (picker markup + `.pc-share`
+  css), `public/cube_shell.js` (`sharePierreChat`), `public/cube_pierre_face.html`
+  (dropped the header button; exposes `window.__pierreTranscript()`).
+- "Share this chat" now lives in the off-cube context picker next to Clear chat
+  (`data-ctx="__share"`). The share runs from the TOP window (shell), not the
+  iframe, because `navigator.share` needs the picker tap's user-activation and a
+  cross-iframe call wouldn't carry the face's own activation. `mailto` fallback.
+- **DEPLOYED to PROD** (`remote.pangolinrc.com`, Pages `--branch main`,
+  deployment `c5366e90`, Source `4678b90`). Pre-deploy check: prior live Source
+  `4515958` = parent, clean delta (3 files).
+- NOTE: right after the alias repoint the CF edge served stale index.html +
+  cube_pierre_face.html on the bare custom-domain URL for a short window (despite
+  `max-age=0, must-revalidate`); a `?cb=` query hit fresh origin. Brief
+  post-deploy propagation lag, self-resolves — not a config problem.
+
 ## 2026-07-10 — Pierre resume fix + share-the-chat (frontend only)
 - **No Worker/D1 change.** Only `public/cube_pierre_face.html`.
 - Resume bug: Pierre's "put on <show>" jumped a full episode when paused
