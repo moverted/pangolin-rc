@@ -13,6 +13,25 @@ Entry format:
 
 ---
 
+## 2026-07-10 — Pierre resume fix + share-the-chat (frontend only)
+- **No Worker/D1 change.** Only `public/cube_pierre_face.html`.
+- Resume bug: Pierre's "put on <show>" jumped a full episode when paused
+  mid-episode — it built the resume pattern from `last_season`/`last_number`
+  (furthest touched) with no `on` flag, so `applyPattern` read it as "last
+  finished → next" and started the next episode at 0:00. Fix: `rememberLogRow`
+  now carries the server `current_episode_id` (first not-done) as `current`,
+  and `resolveShow` hands off `{kind:'resume', season, number, on:true}` so it
+  lands ON the in-progress episode (minute restored), matching the WATCH face.
+  Falls back to the legacy pattern when there's no current pointer.
+- New Share button in Pierre's header → `navigator.share` (native sheet) with
+  `mailto:` fallback via `window.top`; transcript built from rendered bubbles.
+  Iframe already had `allow="web-share"` (cube_shell.js) — no shell change.
+- **Frontend DEPLOYED to PROD** (`remote.pangolinrc.com`, Pages
+  `--branch main`, deployment `d31d000c`, Source `4515958`). Pre-deploy
+  `deployment list` check passed: prior live Source `543dffd` = this commit's
+  parent, so the deploy is that tree + one file. Commit lives on branch
+  `streamer-logo-grid` (git `main` remains stale — the usual prod drift).
+
 ## 2026-07-08 — DELETE `/transcribe/:id` (delete own audio comment)
 - **Worker code change (`src/index.ts`), NOT yet deployed.** New
   `app.delete('/transcribe/:id')`: body `{email}`, own-comments-only
