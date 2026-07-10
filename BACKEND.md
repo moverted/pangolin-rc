@@ -13,6 +13,14 @@ Entry format:
 
 ---
 
+## 2026-07-10 — Pierre transcript labels member turns with username (frontend only)
+- **No Worker/D1 change.** `public/cube_pierre_face.html` `buildTranscript()`
+  now labels the member's lines with `localStorage['pg_username']` (fallback
+  "You"); Pierre's stay "Pierre".
+- **DEPLOYED to PROD** (`remote.pangolinrc.com`, Pages `--branch main`,
+  deployment `62e4eb43`, Source `ba29d9c`). Prior live Source `4678b90` =
+  parent, clean delta (1 file).
+
 ## 2026-07-10 — Pierre share moved into the band context picker (frontend only)
 - **No Worker/D1 change.** `public/index.html` (picker markup + `.pc-share`
   css), `public/cube_shell.js` (`sharePierreChat`), `public/cube_pierre_face.html`
