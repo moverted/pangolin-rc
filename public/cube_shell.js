@@ -1173,6 +1173,20 @@ document.getElementById('device-chip').addEventListener('click', () => cubeRotat
   const LABELS = { chat: 'Chat', add: 'Add a show', account: 'Account', device: 'Device', note: 'Note' };
   function pierreWin(){ try { return FACE_OVERLAYS[PIERRE_FACE].frame.contentWindow; } catch (_) { return null; } }
   function setLabel(id){ if (label) label.textContent = LABELS[id] || 'Chat'; }
+  // Share the current chat: pull the plain transcript out of the Pierre face and
+  // hand it to the native share sheet (Messages, Mail, …) from THIS (top) window,
+  // where the picker tap's user-activation lives — navigator.share rejects without
+  // it, and calling into the iframe wouldn't carry the face's own activation.
+  // mailto fallback on desktop. Empty chat → nothing to share.
+  function sharePierreChat(w){
+    let body = '';
+    try { if (w && w.__pierreTranscript) body = w.__pierreTranscript() || ''; } catch (_) {}
+    if (!body.trim()) return;
+    const title = 'My chat with Pierre — pangolinRC';
+    const text  = body + '\n\n— shared from pangolinRC';
+    if (navigator.share) { navigator.share({ title, text }).catch(() => {}); return; }
+    window.location.href = 'mailto:?subject=' + encodeURIComponent(title) + '&body=' + encodeURIComponent(text);
+  }
   function closePop(){ pop.hidden = true; pill.setAttribute('aria-expanded', 'false'); }
   function openPop(){ pop.hidden = false; pill.setAttribute('aria-expanded', 'true'); }
   pill.addEventListener('pointerdown', e => e.preventDefault());   // keep chat focus / keyboard
@@ -1184,6 +1198,7 @@ document.getElementById('device-chip').addEventListener('click', () => cubeRotat
       const w = pierreWin();
       if (w) {
         if (ctx === '__clear') { if (w.__pierreClear) w.__pierreClear(); }
+        else if (ctx === '__share') { sharePierreChat(w); }
         else if (w.__pierreSwitch) w.__pierreSwitch(ctx);
       }
       closePop();

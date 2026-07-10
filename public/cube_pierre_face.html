@@ -65,16 +65,6 @@
   .dot{width:7px;height:7px;border-radius:50%;background:var(--amber);box-shadow:0 0 10px var(--amber);}
   .wordmark{font-family:'Space Mono',monospace;font-weight:400;font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-dim);}
   .eyebrow{font-family:'Space Mono';font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-dim);margin-left:auto;}
-  .share-chat{
-    margin-left:auto;display:flex;align-items:center;gap:5px;cursor:pointer;
-    font-family:'Space Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;
-    color:var(--amber);background:transparent;border:1px solid rgba(239,177,78,.4);
-    border-radius:999px;padding:5px 10px;transition:background .15s,transform .1s;
-  }
-  .share-chat[hidden]{display:none;}
-  .share-chat svg{width:13px;height:13px;}
-  .share-chat:hover{background:rgba(239,177,78,.14);}
-  .share-chat:active{transform:translateY(1px);}
 
   /* chat */
   .log{
@@ -199,10 +189,6 @@
     <header>
       <span class="dot" aria-hidden="true"></span>
       <span class="wordmark">Pierre</span>
-      <button class="share-chat" id="shareChat" aria-label="Share this conversation" title="Share this conversation" hidden>
-        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 12v7a1 1 0 001 1h14a1 1 0 001-1v-7M16 6l-4-4m0 0L8 6m4-4v13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        <span>Share</span>
-      </button>
     </header>
 
     <div class="log" id="log" aria-live="polite" aria-label="Conversation with Pierre"></div>
@@ -285,17 +271,14 @@
     wrap.querySelector('.bubble').textContent = text;
     log.appendChild(wrap);
     log.scrollTop = log.scrollHeight;
-    revealShare();
   }
 
   // ── Share the conversation ───────────────────────────────────────────────
-  // Pierre's chat lives only in this page's memory — no server copy. When a
-  // back-and-forth is worth keeping (a delight to pass on, or a confused turn
-  // worth reporting) this hands the transcript to the native share sheet
-  // (Messages, Mail, …) with a mailto fallback on desktop. Built from the
-  // rendered bubbles, so it's exactly what the member saw — no LLM context blob,
-  // no typing dots.
-  const shareBtn = document.getElementById('shareChat');
+  // Pierre's chat lives only in this page's memory — no server copy. The band's
+  // context picker (in the shell) offers "Share this chat"; it pulls this plain
+  // transcript and runs navigator.share from the TOP window, where the picker
+  // tap's user-activation lives. Built from the rendered bubbles, so it's exactly
+  // what the member saw — no LLM context blob, no typing dots. Empty → ''.
   function buildTranscript(){
     return [...log.querySelectorAll('.msg')].map(r=>{
       const b=r.querySelector('.bubble'); if(!b) return '';   // skips the typing indicator
@@ -304,19 +287,7 @@
       return t?(who+': '+t):'';
     }).filter(Boolean).join('\n\n');
   }
-  function revealShare(){ if(shareBtn && log.querySelector('.msg .bubble')) shareBtn.hidden=false; }
-  function shareTranscript(){
-    const body=buildTranscript();
-    if(!body){ showToast('Nothing to share yet'); return; }
-    const title='My chat with Pierre — pangolinRC';
-    const text=body+'\n\n— shared from pangolinRC';
-    if(navigator.share){ navigator.share({title, text}).catch(()=>{}); return; }
-    // Desktop fallback: drive the TOP window (the face's own location swallows the
-    // scheme — same iframe caveat as the WATCH/LOG faces).
-    const url='mailto:?subject='+encodeURIComponent(title)+'&body='+encodeURIComponent(text);
-    try{ (window.top||window).location.href=url; }catch(_){ window.location.href=url; }
-  }
-  if(shareBtn) shareBtn.addEventListener('click', shareTranscript);
+  window.__pierreTranscript = function(){ return buildTranscript(); };
 
   function parseRoute(text){
     // [ROUTE: Face | Chip label] with an optional third field carrying the exact
@@ -393,7 +364,6 @@
     }
     log.appendChild(wrap);
     log.scrollTop = log.scrollHeight;
-    revealShare();
     // NL switch: only for the four real lanes; unknown values render as plain text.
     if(ctx && SWITCHABLE.indexOf(ctx)>=0) switchTo(ctx, {viaUser:false});
     return clean;
@@ -648,7 +618,6 @@
   function clearChat(){
     if(IS_DEMO) return;
     history.length = 0; log.innerHTML = '';
-    if(shareBtn) shareBtn.hidden = true;
     addFlow=null; acctFlow=null; joinFlow=null; noteCtx=null;
     epNoteFlow=false; seasonNoteFlow=false; epFinishPending=null; seasonNote=null;
     inputSecret(false); input.placeholder = "Ask Pierre what to watch...";
