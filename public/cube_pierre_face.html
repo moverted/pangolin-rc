@@ -280,9 +280,11 @@
   // tap's user-activation lives. Built from the rendered bubbles, so it's exactly
   // what the member saw — no LLM context blob, no typing dots. Empty → ''.
   function buildTranscript(){
+    let me='You';   // label the member's turns with their username when we have one
+    try{ const u=(localStorage.getItem('pg_username')||'').trim(); if(u) me=u; }catch(_){}
     return [...log.querySelectorAll('.msg')].map(r=>{
       const b=r.querySelector('.bubble'); if(!b) return '';   // skips the typing indicator
-      const who=r.classList.contains('user')?'You':'Pierre';
+      const who=r.classList.contains('user')?me:'Pierre';
       const t=(b.innerText||b.textContent||'').trim();
       return t?(who+': '+t):'';
     }).filter(Boolean).join('\n\n');
