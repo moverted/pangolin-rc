@@ -13,6 +13,33 @@ Entry format:
 
 ---
 
+## 2026-07-17 — Keyboard toggle fix + email mode (frontend only)
+- **No Worker/D1/config change.** `public/cube_shell.js` (console keyboard),
+  `public/index.html` (caps + quick-bar CSS), `public/cube_pierre_face.html`
+  and `public/cube_browse_face.html` (opt into email mode).
+- Console keyboard: shift/caps/symbol toggles no longer reset — `_kbShow` was
+  wiping `shift`/`sym` on every `focusin`, and every keypress re-focuses the
+  field (re-firing `focusin` on browsers that blur the iframe field), so the
+  toggle never held. `_kbShow` now only resets on a *new* target; layout is
+  re-derived live in `render()`. Added one-shot shift, double-tap caps lock
+  (`⇪`), and email mode driven by `data-kb="email"` (@/. on the primary row,
+  no space, domain quick-bar @gmail/@icloud/@yahoo/@outlook, `@`-aware replace).
+  New `window._kbRefresh()` lets a face flip `data-kb` while focused (Pierre's
+  async join/login email steps call it via `refreshKb()`).
+- **DEPLOYED to PROD** (`remote.pangolinrc.com`, Pages `--branch main`,
+  deployment `5f9b9e68`). Deploy message: "keyboard: hold shift/caps/symbol
+  toggles + email mode (data-kb) with domain quick-bar; incl. inert-in-prod
+  api-base http: guard (f558ba3)". Prior live Source `ba29d9c`.
+- Delta vs prior live prod: the keyboard commit (`6e809c6`) PLUS `f558ba3`
+  (api-base `http:` guard, 9 faces) which had not shipped yet. `f558ba3` is a
+  **no-op in prod** — it only narrows the dev API base to `http://localhost`,
+  and prod host isn't localhost. The two commits sit on branch
+  `feat/keyboard-toggle-fix-email-mode` (cut from `fix/api-base-protocol-guard`);
+  git `main` remains stale (usual prod drift). Deployed via Direct Upload from
+  disk, so uncommitted iOS/Capacitor working-tree changes were NOT included.
+- Preview also live at `kb-email-mode.pangolin-rc.pages.dev` (branch deploy,
+  tested on-device before the prod promotion).
+
 ## 2026-07-10 — Pierre transcript labels member turns with username (frontend only)
 - **No Worker/D1 change.** `public/cube_pierre_face.html` `buildTranscript()`
   now labels the member's lines with `localStorage['pg_username']` (fallback
