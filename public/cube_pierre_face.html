@@ -577,6 +577,19 @@
   function autoGrow(){ input.style.height='auto'; input.style.height=Math.min(input.scrollHeight, 120)+'px'; }
   function inputSecret(on){ input.classList.toggle('secret', !!on); }
 
+  // Console-keyboard email mode. The shell keyboard reads data-kb="email" off the
+  // focused field and switches to its email layout (@ / . on the primary row +
+  // a domain quick-bar). This one textarea is reused for chat, email, and
+  // password, so we flip the attribute to match the active flow step, then nudge
+  // the shell to re-derive its layout (the field usually keeps focus across the
+  // step change, so focusin won't fire on its own). Self-correcting — call it at
+  // any boundary and it reads the current flow to decide.
+  function refreshKb(){
+    const email = (joinFlow === 'auth-email') || (acctFlow === 'login-email');
+    try { if (email) input.setAttribute('data-kb', 'email'); else input.removeAttribute('data-kb'); } catch(_){}
+    try { if (window.parent && window.parent !== window && window.parent._kbRefresh) window.parent._kbRefresh(); } catch(_){}
+  }
+
   // ── Context lanes. The switcher UI + mic now live in the shell's off-cube band
   //    (index.html + cube_shell.js). This face keeps the lane LOGIC and exposes it to
   //    the shell same-origin; NL switching + confused-chips still arrive as
@@ -605,7 +618,7 @@
     if(ctx === 'chat'){
       addFlow=null; acctFlow=null; joinFlow=null; noteCtx=null;
       epNoteFlow=false; seasonNoteFlow=false; epFinishPending=null; seasonNote=null;
-      inputSecret(false); input.placeholder = "Ask Pierre what to watch...";
+      inputSecret(false); input.placeholder = "Ask Pierre what to watch..."; refreshKb();
       setCtxIndicator('chat');
       if(opts.viaUser) addPierre("Back to it. What are you after?");
       try{ input.focus(); }catch(_){}
@@ -952,7 +965,7 @@
   function enterJoinFlow(){
     addFlow=null; acctFlow=null; noteCtx=null; joinFlow='auth-email'; joinStep=0; joinPicks=[[],[],[]]; joinEmail="";
     setCtxIndicator('account');
-    inputSecret(false); input.placeholder="you@email.com";
+    inputSecret(false); input.placeholder="you@email.com"; refreshKb();
     pierreSay(tod()+". New here or returning? Drop your email and I will know.");
   }
   async function joinAuthEmail(text){
@@ -964,7 +977,7 @@
     catch(e){}
     clearTyping();
     if(user){                          // returning member -> greet by name, ask password
-      joinFlow='login-pw'; inputSecret(true); input.placeholder='your password';
+      joinFlow='login-pw'; inputSecret(true); input.placeholder='your password'; refreshKb();
       pierreSay("Welcome back, "+(user.username||joinEmail)+". What's your password?");
       input.focus(); return;
     }
@@ -974,12 +987,12 @@
       body:JSON.stringify({email:joinEmail, username:joinEmail.split('@')[0]})}); if(r.ok) res=await r.json(); }
     catch(e){}
     if(res && res.status==='member'){
-      pgSet(joinEmail); joinFlow='picking'; joinStep=0;
+      pgSet(joinEmail); joinFlow='picking'; joinStep=0; refreshKb();
       pierreSay("New here, and you made the cut. Let's build your room.");
       promptJoinStep(); return;
     }
     if(res && res.status==='waitlist'){
-      joinFlow=null; input.blur(); input.placeholder="Ask Pierre what to watch...";
+      joinFlow=null; input.blur(); input.placeholder="Ask Pierre what to watch..."; refreshKb();
       pierreSay("We are full right now, the first ten are in. You are on the waitlist. Look around in demo mode, and text the team if you want a spot.");
       if(window.parent!==window) window.parent.postMessage({type:'pg-demo'}, '*');
       return;
@@ -1078,7 +1091,7 @@
   function enterLoginFlow(then){
     addFlow=null; joinFlow=null; noteCtx=null; acctThen=then||null; acctEmail=''; acctUser='';
     acctFlow='login-email'; setCtxIndicator('account');
-    input.placeholder='you@email.com';
+    input.placeholder='you@email.com'; refreshKb();
     pierreSay(tod()+". Let's set you up. What email should I use?");
   }
   function enterDeviceFlow(){
@@ -1125,7 +1138,7 @@
   async function acctStep(text){
     if(acctFlow==='login-email'){
       if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)){ input.focus(); pierreSay("That email looks off. Try again?"); return; }
-      acctEmail=text.toLowerCase(); acctFlow='login-username'; input.placeholder='your name';
+      acctEmail=text.toLowerCase(); acctFlow='login-username'; input.placeholder='your name'; refreshKb();
       pierreSay("Got it. What should I call you?"); input.focus(); return;
     }
     if(acctFlow==='login-username'){

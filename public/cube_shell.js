@@ -993,20 +993,50 @@ document.getElementById('device-chip').addEventListener('click', () => cubeRotat
     ['-','/',':',';','(',')','$','&','@'],
     ['*','\'','"','?','!','#','%','BS'],
     ['SYM',',','SPACE','.','ENTER']];
-  let target = null, shift = false, sym = false;
+  // Email layout: @ and . live on the primary row and there is no space key
+  // (a space can't appear in an address). SYM still reaches digits for user123.
+  const EMAIL = [
+    ['q','w','e','r','t','y','u','i','o','p'],
+    ['a','s','d','f','g','h','j','k','l'],
+    ['SHIFT','z','x','c','v','b','n','m','BS'],
+    ['SYM','@','.','ENTER']];
+  const EMAIL_DOMAINS = ['@gmail.com','@icloud.com','@yahoo.com','@outlook.com'];
+  // shift = one-shot (next char, then reverts); caps = locked upper until tapped
+  // off; sym = symbol layer (persists). None are reset on re-focus of the same
+  // field — only when the keyboard opens on a *different* target (see _kbShow),
+  // because every keypress re-focuses the field and would otherwise wipe them.
+  let target = null, shift = false, caps = false, sym = false, lastShiftTap = -Infinity;
+  // Email mode is driven by the focused field's data-kb attribute, read live so
+  // a face flipping the attribute (e.g. Pierre's join flow) + _kbRefresh updates
+  // the layout without a re-focus.
+  function emailMode(){
+    try { return !!(target && target.getAttribute && target.getAttribute('data-kb') === 'email'); }
+    catch (_) { return false; }
+  }
   function render(){
     kb.innerHTML = '';
-    (sym ? SYM : ABC).forEach(r => {
+    const email = emailMode();
+    if (email && !sym) {   // domain quick-bar above the top key row
+      const qr = document.createElement('div'); qr.className = 'kb-row kb-quick-row';
+      EMAIL_DOMAINS.forEach(d => {
+        const b = document.createElement('button'); b.type = 'button';
+        b.className = 'kb-key kb-quick'; b.dataset.dom = d; b.textContent = d;
+        qr.appendChild(b);
+      });
+      kb.appendChild(qr);
+    }
+    const upper = shift || caps;   // email mode never auto-caps — only manual shift/caps
+    (sym ? SYM : (email ? EMAIL : ABC)).forEach(r => {
       const row = document.createElement('div'); row.className = 'kb-row';
       r.forEach(k => {
         const b = document.createElement('button'); b.type = 'button'; b.className = 'kb-key';
         b.dataset.k = k;
         if (k === 'SPACE')      { b.classList.add('space'); b.textContent = 'space'; }
-        else if (k === 'SHIFT') { b.classList.add('wide'); if (shift) b.classList.add('on'); b.textContent = '⇧'; }
+        else if (k === 'SHIFT') { b.classList.add('wide'); if (caps) b.classList.add('on', 'caps'); else if (shift) b.classList.add('on'); b.textContent = caps ? '⇪' : '⇧'; }
         else if (k === 'BS')    { b.classList.add('wide'); b.textContent = '⌫'; }
         else if (k === 'ENTER') { b.classList.add('wide', 'enter'); b.textContent = '↵'; }
         else if (k === 'SYM')   { b.classList.add('wide'); b.textContent = sym ? 'abc' : '?123'; }
-        else b.textContent = shift ? k.toUpperCase() : k;
+        else b.textContent = upper ? k.toUpperCase() : k;
         row.appendChild(b);
       });
       kb.appendChild(row);
@@ -1020,6 +1050,27 @@ document.getElementById('device-chip').addEventListener('click', () => cubeRotat
     // email/number inputs reject the selection APIs → append instead
     try { el.setRangeText(txt, el.selectionStart ?? v.length, el.selectionEnd ?? v.length, 'end'); }
     catch (_) { el.value = v + txt; }
+    fire(el);
+  }
+  // Quick-bar tap: append a domain. If the field already holds an '@', replace
+  // everything from that '@' onward (retype the domain), else append to the end.
+  function appendDomain(dom){
+    const el = target; if (!el) return;
+    if (el.isContentEditable) {
+      const cur = el.textContent || '';
+      const at = cur.indexOf('@');
+      el.textContent = (at >= 0 ? cur.slice(0, at) : cur) + dom;
+      try {
+        const d = el.ownerDocument, r = d.createRange();
+        r.selectNodeContents(el); r.collapse(false);
+        const s = d.defaultView.getSelection(); s.removeAllRanges(); s.addRange(r);
+      } catch (_) {}
+      fire(el); return;
+    }
+    const v = el.value || '';
+    const at = v.indexOf('@');
+    el.value = (at >= 0 ? v.slice(0, at) : v) + dom;
+    try { el.setSelectionRange(el.value.length, el.value.length); } catch (_) {}
     fire(el);
   }
   function backspace(){
@@ -1046,19 +1097,42 @@ document.getElementById('device-chip').addEventListener('click', () => cubeRotat
   window.addEventListener('pointerup', () => { setTimeout(() => { kbPressing = false; }, 120); }, true);
   kb.addEventListener('click', e => {
     const b = e.target.closest('.kb-key'); if (!b || !target) return;
+    if (b.classList.contains('kb-quick')) {   // email domain quick-bar
+      appendDomain(b.dataset.dom);
+      try { target.focus({ preventScroll: true }); } catch (_) {}
+      return;
+    }
     const k = b.dataset.k;
-    if (k === 'SHIFT') { shift = !shift; render(); return; }
+    if (k === 'SHIFT') {
+      const now = performance.now();
+      // tap = one-shot shift; double-tap (within 300ms) = caps lock; a tap while
+      // caps is on clears it. shift/caps are mutually exclusive display states.
+      if (caps)                            { caps = false; shift = false; }
+      else if (now - lastShiftTap < 300)   { caps = true;  shift = false; }
+      else                                 { shift = !shift; }
+      lastShiftTap = now;
+      render(); return;
+    }
     else if (k === 'SYM')   { sym = !sym; shift = false; render(); }
     else if (k === 'BS')    { backspace(); }
-    else if (k === 'ENTER') { enter(); }
+    else if (k === 'ENTER') { enter(); render(); }   // a flow that flips data-kb reflects on re-render
     else if (k === 'SPACE') { insert(' '); }   // the key is labeled SPACE; it types ' '
     else {
-      insert(k.length === 1 && shift ? k.toUpperCase() : k);
-      if (shift) { shift = false; render(); }
+      insert(k.length === 1 && (shift || caps) ? k.toUpperCase() : k);
+      if (shift) { shift = false; render(); }   // one-shot shift reverts; caps holds
     }
     try { target.focus({ preventScroll: true }); } catch (_) {}   // caret stays in the box
   });
-  window._kbShow = (el) => { target = el; shift = false; sym = false; render(); kb.classList.add('show'); wheelEl.style.display = 'none'; pierreMicSync(); };
+  // Only reset the toggles when the keyboard opens on a *new* field. The same
+  // field re-focusing on every keypress must NOT wipe shift/caps/sym (that was
+  // the bug where they never held). Layout (email vs text) is read live in render.
+  window._kbShow = (el) => {
+    if (target !== el) { target = el; shift = false; caps = false; sym = false; lastShiftTap = -Infinity; }
+    render(); kb.classList.add('show'); wheelEl.style.display = 'none'; pierreMicSync();
+  };
+  // A face that flips its field's data-kb while it stays focused (Pierre's async
+  // join flow) calls this to re-derive the layout without disturbing the toggles.
+  window._kbRefresh = () => { if (target) render(); };
   window._kbHide = () => { target = null; kb.classList.remove('show'); wheelEl.style.display = ''; pierreMicSync(); };
   render();
 })();
