@@ -218,7 +218,7 @@
      ========================================================================= */
   // Pierre's persona, the seed context, and the Anthropic key all live in the
   // Worker now (POST /pierre/chat). The client sends only the conversation.
-  const API = location.hostname === 'localhost'
+  const API = (location.protocol === 'http:' && location.hostname === 'localhost')
     ? 'http://localhost:8787'
     : 'https://pangolin-rc.edward-m-willett.workers.dev';
 

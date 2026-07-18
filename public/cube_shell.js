@@ -827,7 +827,7 @@ if (screen.orientation && screen.orientation.addEventListener)
 layout();
 
 // ─── Fire TV remote ───────────────────────────────────────────────────────
-const API = window.location.hostname === 'localhost'
+const API = (window.location.protocol === 'http:' && window.location.hostname === 'localhost')
   ? 'http://localhost:8787'
   : 'https://pangolin-rc.edward-m-willett.workers.dev';
 

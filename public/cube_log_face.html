@@ -2404,7 +2404,7 @@ function svcMatch(name){
   return null;
 }
 // Worker API base (mirrors the shell): crowd-guess streamer lives server-side.
-const API_BASE = location.hostname==='localhost'
+const API_BASE = (location.protocol === 'http:' && location.hostname==='localhost')
   ? 'http://localhost:8787'
   : 'https://pangolin-rc.edward-m-willett.workers.dev';
 

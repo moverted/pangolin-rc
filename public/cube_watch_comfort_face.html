@@ -522,7 +522,7 @@
      the signed-in email; the text comes back to drop into the note box (editable).
      Same origin as the shell, so localStorage 'pg_user' is shared. No email → no
      transcription (the recording is still kept and playable). */
-  var TR_API = window.location.hostname === 'localhost'
+  var TR_API = (window.location.protocol === 'http:' && window.location.hostname === 'localhost')
     ? 'http://localhost:8787' : 'https://pangolin-rc.edward-m-willett.workers.dev';
   function transcribe(dataUrl, cb) {
     var email = ''; try { email = localStorage.getItem('pg_user') || ''; } catch (e) {}

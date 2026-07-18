@@ -490,7 +490,7 @@
   </div>
 
 <script>
-  const API = location.hostname === 'localhost' ? 'http://localhost:8787' : 'https://pangolin-rc.edward-m-willett.workers.dev';
+  const API = (location.protocol === 'http:' && location.hostname === 'localhost') ? 'http://localhost:8787' : 'https://pangolin-rc.edward-m-willett.workers.dev';
   const $ = id => document.getElementById(id);
 
   // DEMO = the showcase build (dummy data); MVP = the clean first-run product.

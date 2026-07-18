@@ -72,7 +72,7 @@
   <div id="out"></div>
 </main>
 <script>
-const API = location.hostname === 'localhost' ? 'http://localhost:8787'
+const API = (location.protocol === 'http:' && location.hostname === 'localhost') ? 'http://localhost:8787'
                                               : 'https://pangolin-rc.edward-m-willett.workers.dev';
 document.getElementById('api').textContent = API.replace(/^https?:\/\//,'');
 const $ = id => document.getElementById(id);

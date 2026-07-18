@@ -273,7 +273,7 @@ function openTitle(titleId, name){
 }
 
 // Worker API base (mirrors the other faces) — backs the TMDB movie search proxy.
-const API_BASE = location.hostname === 'localhost'
+const API_BASE = (location.protocol === 'http:' && location.hostname === 'localhost')
   ? 'http://localhost:8787'
   : 'https://pangolin-rc.edward-m-willett.workers.dev';
 

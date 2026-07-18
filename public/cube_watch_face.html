@@ -412,7 +412,7 @@ if(!DEMO){
 }
 // Member persistence: the Log is the single writer to the account. Signed-in
 // members load their tracked shows on open and we POST each show on change.
-const API = location.hostname==='localhost' ? 'http://localhost:8787' : 'https://pangolin-rc.edward-m-willett.workers.dev';
+const API = (location.protocol === 'http:' && location.hostname==='localhost') ? 'http://localhost:8787' : 'https://pangolin-rc.edward-m-willett.workers.dev';
 const acct = () => { try{ return localStorage.getItem('pg_user')||''; }catch(_){ return ''; } };
 const fmtDate=(iso)=>new Date(iso).toLocaleDateString("en-US",{month:"short",day:"numeric"});
 const daysTo=(iso)=>Math.round((new Date(iso)-NOW)/86400000);
