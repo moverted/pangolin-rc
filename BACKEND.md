@@ -13,6 +13,27 @@ Entry format:
 
 ---
 
+## 2026-07-19 — Co-view: 30s reveal + 5-comment/episode cap (Worker touched, NOT deployed)
+- **Worker code change (`src/index.ts`), NOT yet deployed.** Awaiting Ted's
+  explicit confirmation before the production `wrangler deploy` (this session
+  was told: branch deploy fine, no production deploy without confirmation).
+- `COVIEW_REVEAL_OFFSET_MS` 60_000 → **30_000** (a friend's comment reveals 30s
+  after its mark, not 60s). Mirrored on the frontend in `public/cube_shell.js`
+  (`COVIEW_REVEAL_OFFSET_MS = 30000`) and the `public/cube_log_face.html` reveal
+  fallback (`+30000`). Frontend prefers the server's `revealMs`, so reveal timing
+  only fully changes once the Worker ships.
+- **New per-episode comment cap.** `COVIEW_MAX_COMMENTS_PER_EPISODE = 5`. In
+  `POST /transcribe`, an original (no `replyTo`) upload now counts the member's
+  existing non-reply `watch_comment` rows for `(user_email, show_id, episode_id)`
+  and returns **409** on the 6th. Replies are exempt. `GET /transcribe/comments`
+  now also returns `reply_to` (as `replyTo`) so the LOG face can count originals.
+  Reads/writes the same `watch_comment` table (migrations 0015–0018) via the
+  existing `DB` binding — no new DB surface, legacy tables untouched.
+- No D1 schema/migration change (cap is a runtime COUNT; no new columns).
+- `npx tsc --noEmit` clean.
+- **Deploy needed when confirmed:** `wrangler deploy --message "coview: 30s reveal
+  offset + 5 non-reply comments/episode cap (409)"`. Frontend rides a Pages deploy.
+
 ## 2026-07-17 — Keyboard toggle fix + email mode (frontend only)
 - **No Worker/D1/config change.** `public/cube_shell.js` (console keyboard),
   `public/index.html` (caps + quick-bar CSS), `public/cube_pierre_face.html`
