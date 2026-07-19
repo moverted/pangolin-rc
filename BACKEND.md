@@ -13,10 +13,11 @@ Entry format:
 
 ---
 
-## 2026-07-19 — Co-view: 30s reveal + 5-comment/episode cap (Worker touched, NOT deployed)
-- **Worker code change (`src/index.ts`), NOT yet deployed.** Awaiting Ted's
-  explicit confirmation before the production `wrangler deploy` (this session
-  was told: branch deploy fine, no production deploy without confirmation).
+## 2026-07-19 — Co-view: 30s reveal + 5-comment/episode cap (Worker DEPLOYED)
+- **Worker code change (`src/index.ts`), DEPLOYED to PROD** with Ted's explicit
+  confirmation. `wrangler deploy --message "coview: 30s reveal offset + 5
+  non-reply comments/episode cap (409)"`. Version `d0f3f79b-8cfe-478d-8ac7-3362e8e4bdc1`
+  (`pangolin-rc.edward-m-willett.workers.dev`).
 - `COVIEW_REVEAL_OFFSET_MS` 60_000 → **30_000** (a friend's comment reveals 30s
   after its mark, not 60s). Mirrored on the frontend in `public/cube_shell.js`
   (`COVIEW_REVEAL_OFFSET_MS = 30000`) and the `public/cube_log_face.html` reveal
@@ -31,8 +32,10 @@ Entry format:
   existing `DB` binding — no new DB surface, legacy tables untouched.
 - No D1 schema/migration change (cap is a runtime COUNT; no new columns).
 - `npx tsc --noEmit` clean.
-- **Deploy needed when confirmed:** `wrangler deploy --message "coview: 30s reveal
-  offset + 5 non-reply comments/episode cap (409)"`. Frontend rides a Pages deploy.
+- Frontend on preview `coview-tweaks.pangolin-rc.pages.dev`; not yet promoted to
+  prod Pages (`remote.pangolinrc.com`) — awaiting Ted's confirmation. Once the
+  frontend ships, reveal timing fully reflects 30s (frontend prefers server
+  `revealMs`, which is now 30s post-deploy).
 
 ## 2026-07-17 — Keyboard toggle fix + email mode (frontend only)
 - **No Worker/D1/config change.** `public/cube_shell.js` (console keyboard),
