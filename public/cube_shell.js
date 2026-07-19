@@ -1407,7 +1407,10 @@ function resumeLaunch() {
   if (cfg && cfg.frame && cfg.frame.contentWindow)
     cfg.frame.contentWindow.postMessage({ type: 'cube:launch', launch: L }, '*');
   episodesEmpty = false;   // a launched show is loading — don't bounce to the Log
-  rotateToFace(FACE_INDEX.episodes);
+  // Guideline: reopening while the timer is still running lands on the LOG face
+  // (the live countdown). The Watch face has the launch staged (above) if the
+  // member rotates to it for the minute guess.
+  rotateToFace(FACE_INDEX.log);
 }
 window.addEventListener('pageshow', () => { resumeLaunch(); updateDeviceChip(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) { resumeLaunch(); updateDeviceChip(); } });
@@ -1534,12 +1537,12 @@ function capRender() {
 // a fast-forward marks skipped clips played-silently so a +2min jump doesn't dump
 // five overlapping voices at once. coPlaying serializes — two clips at the same
 // minute don't talk over each other; the later one retries on the next tick.
-// Friends' audio fires one minute AFTER the mark it was spoken at (matches the
-// server's COVIEW_REVEAL_OFFSET_MS): an 8:00 comment plays at 9:00. Prefer the
+// Friends' audio fires 30 seconds AFTER the mark it was spoken at (matches the
+// server's COVIEW_REVEAL_OFFSET_MS): an 8:00 comment plays at 8:30. Prefer the
 // server's revealMs; fall back for older payloads. A reply shares its parent's
 // mark, so it gets an extra beat (COVIEW_REPLY_BEAT_MS) to land just after the
 // original rather than on top of it.
-const COVIEW_REVEAL_OFFSET_MS = 60000;
+const COVIEW_REVEAL_OFFSET_MS = 30000;
 const COVIEW_REPLY_BEAT_MS = 5000;
 function capFireAt(clip) {
   const base = (clip.revealMs != null) ? clip.revealMs : (clip.timestampMs + COVIEW_REVEAL_OFFSET_MS);

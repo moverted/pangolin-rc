@@ -204,9 +204,6 @@
   /* LIVE recording: red so it reads as "recording NOW", not a pre-roll countdown. */
   .mic-center.recording{ background:#e0322c; color:#fff;
     box-shadow:0 0 24px rgba(224,50,44,.75); border-color:#fff; }
-  /* Recording a REPLY: the countdown stays green to match the REPLY mic. */
-  .mic-center.recording.replyrec{ background:#6cc070; color:#06140b;
-    box-shadow:0 0 24px rgba(108,192,112,.8); border-color:#06140b; }
   /* REC label: the word + seconds, both small, stacked — clearly "live". */
   .mic-center.recording #micLabel{ display:flex; flex-direction:column; align-items:center;
     gap:1px; line-height:1; }
@@ -228,6 +225,11 @@
   .mic-center.replymode{ background:rgba(108,192,112,.2); color:#6cc070; border-color:#6cc070;
     box-shadow:0 0 18px rgba(108,192,112,.4); }
   .mic-center.replymode:hover{ background:rgba(108,192,112,.32); box-shadow:0 0 22px rgba(108,192,112,.45); }
+  /* Segmented green countdown ring on the REPLY mic: one tick per second left. */
+  .mic-center .reply-ring{ position:absolute; inset:-2px; width:calc(100% + 4px); height:calc(100% + 4px);
+    pointer-events:none; display:none; }
+  .mic-center.replymode .reply-ring{ display:block; }
+  .reply-seg{ transition:opacity .25s ease; }
   .mic-center svg{ width:28px; height:28px; }
   .mic-center.recording svg, .mic-center.replymode svg{ display:none; }
   .mic-center #micLabel{ font-size:20px; font-weight:700; font-family:var(--mono); letter-spacing:.05em; }
@@ -518,6 +520,10 @@
              spoiler-gated — who + when always show; the words unlock only once you
              pass the mark. No per-show opt-in: once you're friends, you always see
              each other's comments and replies. -->
+        <!-- Per-episode comment cap (originals only; replies are unlimited). Set in
+             paintTranscripts from the member's own non-reply comments for the focused
+             episode; hidden until an episode is in focus. -->
+        <div id="commentCap" style="font-size:11px; font-family:var(--body); color:var(--dim); opacity:.7; margin-bottom:8px; display:none;"></div>
         <div id="transcripts" style="font-size:12px; font-family:var(--body); color:var(--dim); line-height:1.6;"></div>
       </div>
     </div>
@@ -901,6 +907,27 @@ function playClip(url, btn, opts){
   });
 }
 
+// A member may leave at most this many ORIGINAL (non-reply) comments per episode;
+// replies don't count. Server-enforced in POST /transcribe (409 on the 6th); the
+// counter below and the disarmed new-comment mic mirror it in the UI.
+const COMMENT_CAP = 5;
+// Own non-reply comments on the focused episode — the value the cap counts.
+function myEpisodeCommentCount(){
+  const curCode = eps[focus] ? epCode(eps[focus]) : '';
+  if(!curCode) return 0;
+  return transcripts.filter(t=>t.epCode===curCode && !t.replyTo).length;
+}
+// Brief notice when the new-comment mic is tapped at the cap: flash the counter
+// line amber with the limit message, then restore it via paintTranscripts.
+let _capNoticeTimer=null;
+function notifyCommentCap(){
+  const cap=$('commentCap'); if(!cap) return;
+  cap.textContent=`That's all ${COMMENT_CAP} comments for this episode — replies still work.`;
+  cap.style.display=''; cap.style.opacity='1'; cap.style.color='var(--amber)';
+  if(_capNoticeTimer) clearTimeout(_capNoticeTimer);
+  _capNoticeTimer=setTimeout(()=>{ cap.style.opacity=''; cap.style.color=''; paintTranscripts(); }, 2600);
+}
+
 function paintTranscripts(){
   const label=$('transcriptLabel');
   const container=$('transcripts');
@@ -915,6 +942,17 @@ function paintTranscripts(){
   const curCode = eps[focus] ? epCode(eps[focus]) : '';
   const mine = curCode ? transcripts.filter(t=>t.epCode===curCode) : transcripts;
   label.textContent=`Comments · ${mine.length + coviewComments.length}`;
+  // "X of 5 possible comments per episode" — own originals only; hidden off-episode.
+  const cap=$('commentCap');
+  if(cap){
+    if(curCode){
+      const used=Math.min(mine.filter(t=>!t.replyTo).length, COMMENT_CAP);
+      cap.textContent=`${used} of ${COMMENT_CAP} possible comments per episode`;
+      cap.style.display='';
+    } else {
+      cap.style.display='none';
+    }
+  }
   container.innerHTML='';
   console.log('Rendering', mine.length, 'transcripts');
   // Replies (from co-view) thread under their parent — which may be a friend's
@@ -983,7 +1021,7 @@ function paintTranscripts(){
 
   // Friends' comments (co-viewing). Spoiler-gated: who + when always render; the
   // audio (and, behind a tap, the text) appears only once you've passed the mark
-  // + one minute — the server withholds text/audio until then, so this can't be
+  // + 30 seconds — the server withholds text/audio until then, so this can't be
   // peeked in DOM. Replies thread under the comment they answer.
   coviewIndicator(container);
 
@@ -1078,6 +1116,7 @@ async function loadComments(){
       return {
         id: c.id,
         edited: !!c.edited,
+        replyTo: c.replyTo || null,   // reply → excluded from the per-episode comment cap
         hasText: !!(c.transcription && c.transcription.trim()),
         epCode: c.episodeId || '',
         time: `${Math.floor(m/60)}:${String(m%60).padStart(2,'0')}`,
@@ -1254,9 +1293,9 @@ async function loadCoview(){
     const r = await fetch(u); if(!r.ok){ paintTranscripts(); return; }
     const d = await r.json();
     coviewComments = (d.comments||[]).map(c=>{
-      // The comment surfaces one minute after its mark — gate, lock and the
+      // The comment surfaces 30 seconds after its mark — gate, lock and the
       // "reveals at" clock all run off revealMs, not the raw timestamp.
-      const reveal = (c.revealMs!=null) ? c.revealMs : ((c.timestampMs||0)+60000);
+      const reveal = (c.revealMs!=null) ? c.revealMs : ((c.timestampMs||0)+30000);
       const rm = Math.round(reveal/60000);
       if(!c.revealed) coviewNextLock = Math.min(coviewNextLock, reveal);
       return { id:c.id, author:c.author||'friend', authorEmail:c.authorEmail||'',
@@ -1293,7 +1332,7 @@ function coviewCheckReveal(){
 }
 
 // ─── Co-view replies: the green REPLY mic + the sms: hand-off ─────────────────
-// Once a friend's comment has surfaced (passed mark + 1 min), the centre mic
+// Once a friend's comment has surfaced (passed mark + 30s), the centre mic
 // flips to REPLY mode — green ring, "REPLY" sublabel — targeting the most recent
 // unanswered comment. Tapping records the reply in-app and opens a native SMS
 // draft to the friend (no text server: it's an sms: deep link). Replied ids are
@@ -1304,17 +1343,57 @@ function coviewMarkReplied(id){ const k=coviewRepliedKey(); if(!k||!id) return;
   const s=coviewRepliedSet(); s.add(id); try{ localStorage.setItem(k, JSON.stringify([...s])); }catch(_){} }
 
 // The reply window. A friend's comment is only answerable while it's *current*:
-// from when it surfaces at your mark (it autoplays) through the clip, and for one
-// minute after it ends. Outside that window the mic is a plain record button again.
-// activeReply holds the one comment inside its window; surfaceCoview (called from
-// loadCoview for any unheard revealed comment) arms it, shows the banner, and on a
-// live crossing also autoplays.
-let activeReply = null;      // { c, closesAt }  closesAt = ms epoch
-let _replyTimer = null;
-function scheduleReplyClose(){
-  if(_replyTimer){ clearTimeout(_replyTimer); _replyTimer=null; }
-  if(!activeReply) return;
-  _replyTimer = setTimeout(()=>{ activeReply=null; updateMicMode(); }, Math.max(0, activeReply.closesAt - Date.now()));
+// a flat 15 second countdown, shown as 15 green ticks around the REPLY mic, one
+// blinking out per second. The countdown only advances while the app is live —
+// the tick interval skips while document.hidden, so sleep just pauses the clock
+// and the remaining seconds resume on wake (no collapse) — and it also pauses
+// while a recording is in flight. Live crossing and catch-up get the same 15s.
+// Outside the window the mic is a plain record button again.
+const REPLY_WINDOW_S = 15;   // seconds = ticks on the REPLY mic; only runs while visible
+let activeReply = null;      // { c } — the one comment currently answerable
+let replySecsLeft = 0;       // seconds remaining; only ticks while the app is visible
+let _replyInterval = null;
+
+function armReplyWindow(c, secs){
+  activeReply = { c };
+  replySecsLeft = secs;
+  if(!_replyInterval){
+    _replyInterval = setInterval(()=>{
+      if(!activeReply){ clearInterval(_replyInterval); _replyInterval=null; return; }
+      if(document.hidden || isRecording) return;   // sleep + recording don't count
+      replySecsLeft--;
+      if(replySecsLeft<=0){ closeReplyWindow(); return; }
+      _syncReplySegs();
+    }, 1000);
+  }
+  updateMicMode(); _buildReplyRing();
+}
+function closeReplyWindow(){
+  activeReply = null; replySecsLeft = 0;
+  if(_replyInterval){ clearInterval(_replyInterval); _replyInterval=null; }
+  updateMicMode();
+}
+// The segmented green countdown ring around the REPLY mic: one arc per second of
+// window when armed, blinking out as time runs down (same geometry as the REC
+// ring: r=46 in a 100 viewBox → C≈289.03).
+let _replyRingTotal = 0;
+function _buildReplyRing(){
+  const btn=$('micBtn'); if(!btn) return;
+  btn.querySelector('.reply-ring')?.remove();
+  _replyRingTotal = replySecsLeft;
+  if(!activeReply || _replyRingTotal<=0) return;
+  const C=289.03, step=C/_replyRingTotal, seg=Math.max(4, step-6);   // arc + 6px gap per segment
+  let segs='';
+  for(let i=0;i<_replyRingTotal;i++){
+    segs += `<circle class="reply-seg" data-i="${i}" cx="50" cy="50" r="46" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-dasharray="${seg.toFixed(2)} ${(C-seg).toFixed(2)}" stroke-dashoffset="${(-step*i).toFixed(2)}" transform="rotate(-90 50 50)"/>`;
+  }
+  btn.insertAdjacentHTML('beforeend', `<svg class="reply-ring" viewBox="0 0 100 100" aria-hidden="true">${segs}</svg>`);
+}
+function _syncReplySegs(){
+  const svg=$('micBtn')?.querySelector('.reply-ring'); if(!svg) return;
+  svg.querySelectorAll('.reply-seg').forEach(s=>{
+    s.style.opacity = (+s.getAttribute('data-i') < replySecsLeft) ? '1' : '0';
+  });
 }
 // "Heard" = comments you've already been notified about, persisted per account+show so
 // the banner shows once and doesn't re-nag on every reload.
@@ -1323,18 +1402,18 @@ function coviewHeardSet(){ try{ return new Set(JSON.parse(localStorage.getItem(c
 function coviewMarkHeard(id){ const k=coviewHeardKey(); if(!k||!id) return; const s=coviewHeardSet(); s.add(id); try{ localStorage.setItem(k, JSON.stringify([...s])); }catch(_){} }
 
 // Surface a friend's comment: arm the reply window, show the banner, and (on a live
-// crossing) try to autoplay. The window stays open through the clip + 1 min after.
+// crossing) try to autoplay. Both a live crossing and a catch-up (it surfaced while
+// you were away) get the full 15s window; on autoplay it's restarted when the clip
+// finishes so the whole countdown is usable after hearing it.
 function surfaceCoview(c, autoplay){
   if(!c || !c.audioUrl) return;
-  activeReply = { c, closesAt: Date.now() + 67000 };
+  armReplyWindow(c, REPLY_WINDOW_S);
   showCoviewToast(c);
   if(autoplay){
     playClip(c.audioUrl, null, { silent:true, onEnded:()=>{
-      if(activeReply && activeReply.c.id===c.id){ activeReply.closesAt = Date.now()+60000; scheduleReplyClose(); }
+      if(activeReply && activeReply.c.id===c.id) armReplyWindow(c, REPLY_WINDOW_S);
     }});
   }
-  scheduleReplyClose();
-  updateMicMode();
 }
 
 // A friend's comment just reached its mark → slide a notification in from the top.
@@ -1350,12 +1429,11 @@ function showCoviewToast(c){
   requestAnimationFrame(()=> t.classList.add('show'));
   t.onclick=(e)=>{
     if(e.target.classList.contains('ct-x')){ hideCoviewToast(); return; }
-    // Explicit tap → audio is guaranteed; re-arm the reply window so the mic goes green.
-    activeReply = { c, closesAt: Date.now() + 67000 };
+    // Explicit tap → audio is guaranteed; re-arm the full window so the mic goes green.
+    armReplyWindow(c, REPLY_WINDOW_S);
     playClip(c.audioUrl, null, { onEnded:()=>{
-      if(activeReply && activeReply.c.id===c.id){ activeReply.closesAt = Date.now()+60000; scheduleReplyClose(); }
+      if(activeReply && activeReply.c.id===c.id) armReplyWindow(c, REPLY_WINDOW_S);
     }});
-    scheduleReplyClose(); updateMicMode();
     hideCoviewToast();
   };
   if(_toastTimer) clearTimeout(_toastTimer);
@@ -1370,7 +1448,7 @@ function hideCoviewToast(){
 // The comment the REPLY mic points at: whatever's inside its (still-open) window
 // and that you haven't already answered.
 function coviewReplyTarget(){
-  if(!activeReply || Date.now() >= activeReply.closesAt) return null;
+  if(!activeReply || replySecsLeft<=0) return null;
   if(coviewRepliedSet().has(activeReply.c.id)) return null;
   return activeReply.c;
 }
@@ -1383,7 +1461,8 @@ function updateMicMode(){
   if(isRecording){ btn.classList.remove('replymode'); return; }
   const t=coviewReplyTarget();
   if(t){ btn.classList.add('replymode'); if(label){ label.style.display='block'; label.textContent='REPLY'; } btn.setAttribute('aria-label','Reply to '+t.author); }
-  else { btn.classList.remove('replymode'); if(label){ label.style.display='none'; label.textContent=''; } btn.setAttribute('aria-label','Record audio comment'); }
+  else { btn.classList.remove('replymode'); btn.querySelector('.reply-ring')?.remove();
+    if(label){ label.style.display='none'; label.textContent=''; } btn.setAttribute('aria-label','Record audio comment'); }
 }
 
 // OTT = the show is on another screen (TV/device), so the phone is free to
@@ -1423,7 +1502,7 @@ async function replyFlow(target){
   // Reload co-view so the reply threads in under the friend's comment (the audio
   // path already does this; the text path used to skip it, so the reply appeared
   // to vanish).
-  loadCoview(); updateMicMode();
+  loadCoview(); closeReplyWindow();
   // Native text hand-off — no SMS server, just the OS Messages compose sheet.
   const intro=`re: ${target.epCode} ${target.time} — `;
   if(target.phone){ openExternal('sms:'+target.phone+'?&body='+encodeURIComponent(intro+text)); }
@@ -1479,8 +1558,7 @@ async function startRecording(){
   const micLabel = $('micLabel');
   if(micBtn){
     micBtn.classList.remove('replymode');   // recording overrides any pending REPLY prompt
-    micBtn.classList.add('recording');
-    if(pendingReply) micBtn.classList.add('replyrec');   // green countdown for a reply
+    micBtn.classList.add('recording');      // a reply records red (REC) same as a comment
     if(micLabel){
       micLabel.style.display = 'flex';   // column layout for the stacked REC + seconds
       micLabel.innerHTML = `<span class="rec-word">REC</span>`;   // ring is the countdown; no number
@@ -1510,7 +1588,7 @@ function stopRecording(){
   const micBtn = $('micBtn');
   const micLabel = $('micLabel');
   if(micBtn){
-    micBtn.classList.remove('recording', 'replyrec');
+    micBtn.classList.remove('recording');
     micBtn.querySelector('.rec-ring')?.remove();
     if(micLabel){
       micLabel.style.display = 'none';
@@ -1590,6 +1668,9 @@ function stopRecording(){
       if(!res.ok){
         const errText = await res.text();
         console.error('Transcribe error:', res.status, errText);
+        // Cap reached (server-enforced 409 on an original comment): brief notice,
+        // no error row. The mic normally blocks this, so a 409 here is a race.
+        if(res.status===409 && !rTgt){ notifyCommentCap(); return; }
         transcripts.unshift({
           epCode: code,
           time: timeStr,
@@ -1606,7 +1687,7 @@ function stopRecording(){
         // An audio reply: don't list it among your own comments — mark the target
         // replied and reload co-view so it threads under the friend's comment.
         coviewMarkReplied(rTgt.id);
-        updateMicMode();
+        closeReplyWindow();
         loadCoview();
       } else {
         // A normal comment: store the playback URL + transcript, persisted now.
@@ -1973,7 +2054,13 @@ $('startEpBtn').onclick=()=>{
 $('finishEpBtn').onclick=()=>{ flashBtn($('finishEpBtn')); if(isTheater()) openTicket(); else finishEpisode(); };
 $('micBtn').onclick=()=>{
   // In REPLY mode the mic answers the pending friend comment instead of recording.
-  if(!isRecording){ const t=coviewReplyTarget(); if(t){ replyTap(t); return; } }
+  if(!isRecording){
+    const t=coviewReplyTarget();
+    if(t){ replyTap(t); return; }   // replies are exempt from the per-episode cap
+    // Starting a NEW original comment: blocked once this episode is at the cap.
+    // Brief notice, no recording. (A recording already in flight still stops below.)
+    if(myEpisodeCommentCount() >= COMMENT_CAP){ notifyCommentCap(); return; }
+  }
   // Recording button doesn't use flashBtn; instead shows recording state with countdown
   recordAudioComment();
 };

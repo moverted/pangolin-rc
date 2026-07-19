@@ -28,12 +28,17 @@ app.use('*', cors({
   allowHeaders: ['Content-Type', 'Authorization'],
 }));
 
-// Co-view reveal delay: a friend's comment surfaces to the second viewer one
-// minute AFTER the mark it was spoken at (an 8:00 comment plays at 9:00). This
+// Co-view reveal delay: a friend's comment surfaces to the second viewer 30
+// seconds AFTER the mark it was spoken at (an 8:00 comment plays at 8:30). This
 // gives the second viewer a beat past the moment before the reaction lands, and
 // it's the same offset the live player uses to fire the audio. Server-enforced so
 // no text/audio/phone for a comment crosses the wire before mark + this.
-const COVIEW_REVEAL_OFFSET_MS = 60_000;
+const COVIEW_REVEAL_OFFSET_MS = 30_000;
+
+// A member may leave at most this many ORIGINAL (non-reply) comments per episode.
+// Replies don't count against the cap. Enforced server-side in POST /transcribe;
+// the LOG face mirrors it in the "X of 5" counter and disarms the new-comment mic.
+const COVIEW_MAX_COMMENTS_PER_EPISODE = 5;
 
 // Transcribe endpoint - direct handler to avoid routing issues
 app.options('/transcribe', (c) => {
@@ -101,6 +106,24 @@ app.post('/transcribe', async (c) => {
       episodeId = parent.episode_id;
       showId = parent.show_id || showId;
       timestampMs = parent.timestamp_ms;   // anchor at the parent's mark, not the device clock
+    } else {
+      // Original comment (not a reply): cap at COVIEW_MAX_COMMENTS_PER_EPISODE per
+      // member per (show, episode). Count this member's existing originals for the
+      // episode and reject the one that would exceed the cap. Same watch_comment
+      // table the insert below writes to. Replies are exempt (handled above).
+      const existing = await c.env.DB
+        .prepare(
+          `SELECT COUNT(*) AS n FROM watch_comment
+            WHERE user_email = ? AND episode_id = ? AND show_id IS ? AND reply_to IS NULL`
+        )
+        .bind(email, episodeId, showId || null)
+        .first<{ n: number }>();
+      if ((existing?.n ?? 0) >= COVIEW_MAX_COMMENTS_PER_EPISODE) {
+        return c.json(
+          { error: `You've left the most comments possible on this episode (${COVIEW_MAX_COMMENTS_PER_EPISODE}). Replies still work.` },
+          409
+        );
+      }
     }
 
     const commentId = crypto.randomUUID();
@@ -247,7 +270,7 @@ app.get('/transcribe/comments', async (c) => {
 
   const { results } = await c.env.DB
     .prepare(
-      `SELECT id, episode_id, timestamp_ms, transcription, transcript_edited, created_at
+      `SELECT id, episode_id, timestamp_ms, transcription, transcript_edited, reply_to, created_at
          FROM watch_comment
         WHERE show_id = ? AND user_email = ?
         ORDER BY created_at DESC`
@@ -262,6 +285,7 @@ app.get('/transcribe/comments', async (c) => {
     timestampMs: r.timestamp_ms,
     transcription: r.transcription || '',
     edited: !!r.transcript_edited,   // true → the one correction is spent, lock the pencil
+    replyTo: r.reply_to || null,     // non-null → a reply; excluded from the per-episode cap count
     createdAt: r.created_at,
     audioUrl: `${origin}/transcribe/audio/${r.id}`,
   }));
