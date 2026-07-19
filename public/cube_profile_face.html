@@ -427,7 +427,7 @@
 
               <!-- Add to a slot: find a member by name or email -->
               <div class="fl-add" id="addRow">
-                <input id="friendSearch" type="text" inputmode="search" placeholder="find by name or email" autocomplete="off">
+                <input id="friendSearch" type="text" data-kb="email" inputmode="search" placeholder="find by name or email" autocomplete="off">
                 <button id="followBtn">Follow</button>
               </div>
               <div class="fl-msg" id="followMsg"></div>
@@ -449,6 +449,12 @@
               <div class="fl-invites">
                 <button class="fl-invite" id="inviteTextBtn">＋ Invite by text</button>
                 <button class="fl-invite" id="inviteEmailBtn">＋ Invite by email</button>
+              </div>
+              <!-- Inline email entry for "Invite by email" — an in-face field (not a
+                   native prompt) so the app's own email keyboard rises (data-kb). -->
+              <div class="fl-add" id="inviteEmailRow" style="display:none;">
+                <input id="inviteEmailInput" type="email" data-kb="email" inputmode="email" placeholder="friend’s email to invite" autocomplete="off">
+                <button id="inviteEmailSend">Invite</button>
               </div>
               <div class="fl-hint">Friends' comments surface when you co-view a show — turn it on per show on the episode screen.</div>
             </div>
@@ -952,21 +958,37 @@
     if(navigator.share){ navigator.share({text:msg}).catch(()=>{}); return; }
     openExternal('sms:?&body='+encodeURIComponent(msg));
   }
-  // Email invite: ask for the address, and if it's already a member, follow them
+  // Email invite: reveal the inline email field (its data-kb="email" raises the
+  // app's own email keyboard — a native prompt() would summon the OS keyboard).
+  function openInviteEmail(){
+    if(!session()){ flMsg('Sign in first', true); return; }
+    const row=$('inviteEmailRow'), inp=$('inviteEmailInput');
+    if(!row||!inp) return;
+    row.style.display='flex';
+    inp.focus();
+  }
+  function closeInviteEmail(){
+    const row=$('inviteEmailRow'), inp=$('inviteEmailInput');
+    if(inp) inp.value='';
+    if(row) row.style.display='none';
+  }
+  // Submit the inline invite: if the address is already a member, follow them
   // in-app instead of sending a join link; otherwise open a mailto: draft to them.
-  async function inviteByEmail(){
+  async function submitInviteEmail(){
     const email=session(); if(!email){ flMsg('Sign in first', true); return; }
-    const addr=(prompt('Friend’s email to invite:')||'').trim().toLowerCase();
+    const inp=$('inviteEmailInput');
+    const addr=(((inp&&inp.value)||'').trim()).toLowerCase();
     if(!addr) return;
     if(addr===email){ flMsg('That’s you.', true); return; }
     if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(addr)){ flMsg('That doesn’t look like an email.', true); return; }
     try{
       const r=await fetch(API+'/profile/'+encodeURIComponent(email)+'/member?addr='+encodeURIComponent(addr));
       const d=await r.json().catch(()=>({}));
-      if(d.member){ flMsg((d.username||addr)+' is already on pangolinRC — following them.'); followMember(addr); return; }
+      if(d.member){ flMsg((d.username||addr)+' is already on pangolinRC — following them.'); closeInviteEmail(); followMember(addr); return; }
     }catch(_){ /* lookup failed → fall through to the draft */ }
     openExternal('mailto:'+encodeURIComponent(addr)+'?subject='+encodeURIComponent('Watch alongside me on pangolinRC')
       +'&body='+encodeURIComponent(inviteSig()+'\n\nJoin here: '+location.origin+'/'));
+    closeInviteEmail();
   }
 
   // Click delegation: unfollow (×), follow / follow-back, and open-slot taps.
@@ -988,7 +1010,10 @@
       inp.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); btn&&btn.onclick(); } }); }
     const it=$('inviteTextBtn'), ie=$('inviteEmailBtn');
     if(it) it.onclick=inviteByText;
-    if(ie) ie.onclick=inviteByEmail;
+    if(ie) ie.onclick=openInviteEmail;
+    const iSend=$('inviteEmailSend'), iInp=$('inviteEmailInput');
+    if(iSend) iSend.onclick=submitInviteEmail;
+    if(iInp) iInp.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); submitInviteEmail(); } });
     loadFollows();
   })();
   window.addEventListener('storage', e=>{ if(e.key==='pg_user'||e.key==='pg_refresh') refresh(); });
