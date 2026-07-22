@@ -38,6 +38,41 @@ const card = (m: any) => ({
   runtime: typeof m.runtime === 'number' ? m.runtime : null, // only present on /movie/:id
 });
 
+const CAST_MAX = 8; // top-billed only — the LOG face shows a line, not TMDB's firehose
+
+// The base card plus credits + production, for the detail view. Requires the
+// source object to carry append_to_response=credits. Compact by design: billed
+// cast, above-the-line crew (director + writers), and the studios.
+const detailCard = (m: any) => {
+  const cr = m.credits || {};
+  const castRaw: any[] = Array.isArray(cr.cast) ? cr.cast : [];
+  const crewRaw: any[] = Array.isArray(cr.crew) ? cr.crew : [];
+  const cast = castRaw
+    .slice()
+    .sort((a, b) => (a?.order ?? 999) - (b?.order ?? 999)) // TMDB billing order
+    .filter((p) => p && p.name)
+    .slice(0, CAST_MAX)
+    .map((p) => ({ name: p.name, character: typeof p.character === 'string' ? p.character : '' }));
+  const crewNames = (jobs: string[]) => {
+    const out: string[] = [];
+    for (const p of crewRaw) {
+      if (p && p.name && jobs.includes(p.job) && !out.includes(p.name)) out.push(p.name);
+    }
+    return out;
+  };
+  const production = (Array.isArray(m.production_companies) ? m.production_companies : [])
+    .map((p: any) => p && p.name)
+    .filter(Boolean)
+    .slice(0, 4);
+  return {
+    ...card(m),
+    cast,
+    directors: crewNames(['Director']),
+    writers: crewNames(['Screenplay', 'Writer', 'Story']),
+    production,
+  };
+};
+
 // GET /tmdb/search?q=...  → { results: [movie card] }
 tmdbRoutes.get('/search', async (c) => {
   if (!c.env.TMDB_API_KEY) return c.json({ error: 'movies not configured', results: [] }, 503);
@@ -119,19 +154,19 @@ export async function fetchTmdbTvRuntime(
   return null;
 }
 
-// GET /tmdb/movie/:id  → { movie: card-with-runtime }
+// GET /tmdb/movie/:id  → { movie: detail card (runtime + cast/crew/production) }
 tmdbRoutes.get('/movie/:id', async (c) => {
   if (!c.env.TMDB_API_KEY) return c.json({ error: 'movies not configured' }, 503);
   const id = clean(c.req.param('id'));
   if (!/^\d+$/.test(id)) return c.json({ error: 'numeric id required' }, 400);
   let res: Response;
   try {
-    res = await tmdbFetch(c.env, `/movie/${id}`);
+    res = await tmdbFetch(c.env, `/movie/${id}`, { append_to_response: 'credits' });
   } catch {
     return c.json({ error: 'upstream unreachable' }, 502);
   }
   if (res.status === 404) return c.json({ error: 'not found' }, 404);
   if (!res.ok) return c.json({ error: 'upstream error' }, 502);
-  const movie = card(await res.json());
+  const movie = detailCard(await res.json());
   return c.json({ movie });
 });

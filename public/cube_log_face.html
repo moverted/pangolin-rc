@@ -97,6 +97,13 @@
   /* when the streamer can be launched, it becomes a tappable pill button */
   .ymeta .svc-lit.live{ cursor:pointer; padding:2px 9px; border:1px solid var(--amber); border-radius:999px; text-shadow:none; }
   .ymeta .svc-lit.live:active{ background:rgba(240,169,59,.18); }
+  /* Movie credits under the meta line: compact key/value rows in the body font. */
+  .credits{ font-family:var(--body); font-size:11px; color:var(--dim); line-height:1.5;
+    max-width:340px; margin:-4px 0 14px; text-shadow:0 1px 10px rgba(0,0,0,.7); }
+  .credits .cr-row{ margin-top:3px; }
+  .credits .cr-k{ font-family:var(--mono); font-size:9px; letter-spacing:.09em; text-transform:uppercase;
+    color:var(--faint); margin-right:7px; }
+  .credits .cr-v{ color:var(--dim); }
 
   .scorepill{ display:inline-flex; align-items:center; gap:7px; cursor:pointer;
     background:rgba(0,0,0,.36); border:1px solid rgba(255,255,255,.14); border-radius:999px;
@@ -467,6 +474,9 @@
       <div class="herofoot">
         <h1 class="name" id="name">Loading…</h1>
         <div class="ymeta" id="ymeta"></div>
+        <!-- Movie credits (cast / director / writers / studio). Films only for now;
+             lazy-filled from the extended /tmdb/movie/:id. Hidden for series. -->
+        <div class="credits" id="credits" style="display:none;"></div>
 
         <!-- minute bar: where you are inside the current episode (yellow, elapsed darkens L→R) -->
         <div class="minzone">
@@ -621,6 +631,7 @@ function boot(show,list,isDefault){
   // play button can't deep-link it and is greyed out).
   $('ymeta').innerHTML=[yr, svc?'<span class="svc-lit">'+svc+'</span>':'', g].filter(Boolean).join('<span class="sep">|</span>');
   applySvcState();   // re-apply the launch-button state to the new streamer span
+  renderCredits();   // films only: fill the credits block from TMDB (async, no-op for shows)
 
   avgRuntime = show.averageRuntime || show.runtime || 45;
   watched=Math.min(2,eps.filter(released).length);
@@ -637,6 +648,34 @@ function boot(show,list,isDefault){
     window.parent.postMessage({type:'episode:track', tvmazeId:curShowId, name:curShowName, kind:isMovie?'movie':'show', poster:img||null}, '*');
   // Load this show's saved audio comments into the Transcripts panel.
   if(!DEMO){ loadComments(); loadFriends(); loadTickets(); }  // loadFriends → loadCoview
+}
+
+// Films only: fill the credits block (cast / director / writers / studio) from the
+// extended /tmdb/movie/:id. Series carry no reliable crew/production (TVmaze), so
+// they stay hidden. Lazy + race-guarded: a newer open supersedes an in-flight fetch.
+let _creditsFor=null;
+async function renderCredits(){
+  const box=$('credits'); if(!box) return;
+  box.innerHTML=''; box.style.display='none';
+  const m=/^tmdb:(\d+)$/.exec(curShowId||'');
+  if(isMovie!==true || !m){ _creditsFor=null; return; }
+  const id=m[1]; _creditsFor=id;
+  try{
+    const r=await fetch(`${API_BASE}/tmdb/movie/${encodeURIComponent(id)}`);
+    if(!r.ok) return;
+    const mv=(await r.json()).movie||{};
+    if(_creditsFor!==id) return;   // superseded by a newer open
+    const cast=(mv.cast||[]).map(p=>p&&p.name).filter(Boolean);
+    const rows=[
+      ['Cast', cast.join(', ')],
+      ['Director', (mv.directors||[]).join(', ')],
+      ['Writers', (mv.writers||[]).join(', ')],
+      ['Studio', (mv.production||[]).join(', ')],
+    ].filter(([,v])=>v);
+    if(!rows.length) return;
+    box.innerHTML=rows.map(([k,v])=>`<div class="cr-row"><span class="cr-k">${k}</span><span class="cr-v">${escHtml(v)}</span></div>`).join('');
+    box.style.display='';
+  }catch(_){ /* leave hidden */ }
 }
 
 // Timestamps of real in-app watches only (preApp false). Pre-app data is skipped.
