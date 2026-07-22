@@ -13,10 +13,13 @@ Entry format:
 
 ---
 
-## 2026-07-21 — Movie credits on the LOG face (Worker touched, NOT deployed)
-- **Worker code change (`src/handlers/tmdb.ts`), NOT yet deployed.** Awaiting
-  Ted's explicit confirmation before the production `wrangler deploy` (standing
-  rule: branch deploy fine, no prod deploy without confirmation).
+## 2026-07-21 — Movie credits on the LOG face (Worker DEPLOYED)
+- **Worker code change (`src/handlers/tmdb.ts`), DEPLOYED to PROD** with Ted's
+  confirmation. `wrangler deploy --message "tmdb: movie detail returns
+  cast/crew/production (LOG face credits)"`. Version
+  `ac9b651a-9610-4ed4-9bf9-db9abeac13df`. Verified live: `/tmdb/movie/603`
+  returns 8 cast + directors + writers + production. Frontend promoted to prod
+  Pages (`remote.pangolinrc.com`, deployment `71b2084b`).
 - `GET /tmdb/movie/:id` now fetches with `append_to_response=credits` and returns
   an extended detail card: `cast` (top ~8, billing order, `{name,character}`),
   `directors`, `writers` (Screenplay/Writer/Story), and `production` (≤4 studios),
@@ -27,11 +30,7 @@ Entry format:
 - **Movies only** for now (TMDB). Series credits (TVmaze) are thin and were left
   out by design.
 - Frontend (`public/cube_log_face.html`) renders a `#credits` block under the
-  meta line, lazy-fetched from this endpoint. Until the Worker ships, the old
-  prod Worker returns the base card (no credits) so the block just stays hidden —
-  no broken UI on a frontend-only preview.
-- **Deploy needed when confirmed:** `wrangler deploy --message "tmdb: movie
-  detail returns cast/crew/production (LOG face credits)"`.
+  meta line, lazy-fetched from this endpoint; films only, hidden for series.
 
 ## 2026-07-19 — Co-view: 30s reveal + 5-comment/episode cap (Worker DEPLOYED)
 - **Worker code change (`src/index.ts`), DEPLOYED to PROD** with Ted's explicit
