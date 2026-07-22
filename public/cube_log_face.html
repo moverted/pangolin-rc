@@ -97,9 +97,9 @@
   /* when the streamer can be launched, it becomes a tappable pill button */
   .ymeta .svc-lit.live{ cursor:pointer; padding:2px 9px; border:1px solid var(--amber); border-radius:999px; text-shadow:none; }
   .ymeta .svc-lit.live:active{ background:rgba(240,169,59,.18); }
-  /* Movie credits under the meta line: compact key/value rows in the body font. */
+  /* Movie credits, immediately below the synopsis: compact key/value rows. */
   .credits{ font-family:var(--body); font-size:11px; color:var(--dim); line-height:1.5;
-    max-width:340px; margin:-4px 0 14px; text-shadow:0 1px 10px rgba(0,0,0,.7); }
+    max-width:340px; margin:-8px 0 16px; }
   .credits .cr-row{ margin-top:3px; }
   .credits .cr-k{ font-family:var(--mono); font-size:9px; letter-spacing:.09em; text-transform:uppercase;
     color:var(--faint); margin-right:7px; }
@@ -474,9 +474,6 @@
       <div class="herofoot">
         <h1 class="name" id="name">Loading…</h1>
         <div class="ymeta" id="ymeta"></div>
-        <!-- Movie credits (cast / director / writers / studio). Films only for now;
-             lazy-filled from the extended /tmdb/movie/:id. Hidden for series. -->
-        <div class="credits" id="credits" style="display:none;"></div>
 
         <!-- minute bar: where you are inside the current episode (yellow, elapsed darkens L→R) -->
         <div class="minzone">
@@ -511,6 +508,9 @@
     <div class="sheet">
       <div class="epline"><span id="epNo">S — EP — / —</span><span class="sep">|</span><span class="ttl" id="epTtl"></span><span class="aired" id="epAired"></span><span class="epstatus" id="epStatus"></span></div>
       <p class="syn" id="syn"></p>
+      <!-- Movie credits (cast / director / writers / studio), immediately below the
+           synopsis. Films only; lazy-filled from /tmdb/movie/:id, hidden for series. -->
+      <div class="credits" id="credits" style="display:none;"></div>
 
       <button class="notebtn" id="noteBtn">&#9998; Note to Pierre</button>
 
