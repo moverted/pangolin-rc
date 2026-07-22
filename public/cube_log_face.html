@@ -650,28 +650,45 @@ function boot(show,list,isDefault){
   if(!DEMO){ loadComments(); loadFriends(); loadTickets(); }  // loadFriends → loadCoview
 }
 
-// Films only: fill the credits block (cast / director / writers / studio) from the
-// extended /tmdb/movie/:id. Series carry no reliable crew/production (TVmaze), so
-// they stay hidden. Lazy + race-guarded: a newer open supersedes an in-flight fetch.
+// Credits below the synopsis. Movies (tmdb:) get the full set — cast / director /
+// writers / studio — from the extended /tmdb/movie/:id. Series (tvmaze:) get CAST
+// only: TVmaze has solid cast but thin crew and no studios. Lazy + race-guarded,
+// keyed on curShowId so a newer open supersedes an in-flight fetch.
+const CAST_MAX=8;
 let _creditsFor=null;
 async function renderCredits(){
   const box=$('credits'); if(!box) return;
   box.innerHTML=''; box.style.display='none';
-  const m=/^tmdb:(\d+)$/.exec(curShowId||'');
-  if(isMovie!==true || !m){ _creditsFor=null; return; }
-  const id=m[1]; _creditsFor=id;
+  const key=curShowId||''; _creditsFor=key;
+  const mm=/^tmdb:(\d+)$/.exec(key), tm=/^tvmaze:(\d+)$/.exec(key);
   try{
-    const r=await fetch(`${API_BASE}/tmdb/movie/${encodeURIComponent(id)}`);
-    if(!r.ok) return;
-    const mv=(await r.json()).movie||{};
-    if(_creditsFor!==id) return;   // superseded by a newer open
-    const cast=(mv.cast||[]).map(p=>p&&p.name).filter(Boolean);
-    const rows=[
-      ['Cast', cast.join(', ')],
-      ['Director', (mv.directors||[]).join(', ')],
-      ['Writers', (mv.writers||[]).join(', ')],
-      ['Studio', (mv.production||[]).join(', ')],
-    ].filter(([,v])=>v);
+    let rows=null;
+    if(isMovie===true && mm){
+      const r=await fetch(`${API_BASE}/tmdb/movie/${encodeURIComponent(mm[1])}`);
+      if(!r.ok) return;
+      const mv=(await r.json()).movie||{};
+      if(_creditsFor!==key) return;   // superseded by a newer open
+      const cast=(mv.cast||[]).map(p=>p&&p.name).filter(Boolean);
+      rows=[
+        ['Cast', cast.join(', ')],
+        ['Director', (mv.directors||[]).join(', ')],
+        ['Writers', (mv.writers||[]).join(', ')],
+        ['Studio', (mv.production||[]).join(', ')],
+      ];
+    } else if(isMovie!==true && tm){
+      // TVmaze cast is public (no key) — fetched direct, like the episodes call.
+      const r=await fetch(`https://api.tvmaze.com/shows/${encodeURIComponent(tm[1])}/cast`);
+      if(!r.ok) return;
+      const arr=await r.json();
+      if(_creditsFor!==key) return;   // superseded by a newer open
+      const names=[], seen=new Set();
+      for(const c of (Array.isArray(arr)?arr:[])){
+        const n=c&&c.person&&c.person.name;
+        if(n && !seen.has(n)){ seen.add(n); names.push(n); }   // an actor can hold multiple roles
+      }
+      rows=[['Cast', names.slice(0,CAST_MAX).join(', ')]];
+    } else { _creditsFor=null; return; }
+    rows=rows.filter(([,v])=>v);
     if(!rows.length) return;
     box.innerHTML=rows.map(([k,v])=>`<div class="cr-row"><span class="cr-k">${k}</span><span class="cr-v">${escHtml(v)}</span></div>`).join('');
     box.style.display='';
