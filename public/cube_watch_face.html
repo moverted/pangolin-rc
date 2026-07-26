@@ -104,7 +104,8 @@
   .exc-info{min-width:0;flex:1;display:flex;flex-direction:column;gap:5px}
   /* SEASONS picker: number chips to the right of the poster/title. The season you
      are in gets the amber marker; every chip taps through to that season on the LOG face. */
-  .exc-seasons{flex:0 0 auto;display:flex;flex-direction:column;align-items:flex-end;gap:6px;max-width:122px}
+  .exc-seas-col{flex:0 0 auto;display:flex;flex-direction:column;align-items:flex-end;gap:9px;max-width:122px}
+  .exc-seasons{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
   .exc-seas-label{font-family:var(--mono);font-size:9px;letter-spacing:.18em;color:var(--muted)}
   .exc-seas-grid{display:flex;flex-wrap:wrap;gap:5px;justify-content:flex-end}
   .exc-seas-chip{min-width:27px;height:27px;padding:0 6px;border-radius:8px;border:1px solid var(--line);
@@ -250,7 +251,7 @@
     border:2px solid var(--amber);border-radius:6px;padding:2px 7px;opacity:.8;background:rgba(26,18,6,.25);
     text-shadow:0 1px 2px rgba(0,0,0,.6);box-shadow:inset 0 0 0 1px rgba(240,168,40,.22);pointer-events:none}
   .tile .wowstamp.set{color:var(--green);border-color:var(--green);box-shadow:inset 0 0 0 1px rgba(95,174,110,.22)}
-  .wowstamp.big{display:inline-block;transform:rotate(-6deg);margin:7px 0 5px;font-family:var(--mono);font-weight:700;
+  .wowstamp.big{display:inline-block;transform:rotate(-6deg);margin:2px 0 0;font-family:var(--mono);font-weight:700;
     font-size:14px;letter-spacing:.14em;color:var(--amber);border:2px solid var(--amber);border-radius:7px;padding:3px 11px;
     opacity:.95;background:rgba(26,18,6,.3);cursor:pointer}
   .wowstamp.big.set{color:var(--green);border-color:var(--green)}
@@ -671,12 +672,15 @@ function expandedCard(s, mode){
         '</div>';
   }
   const btns = btn('watch','watch','&#9654;&#65039;','WATCH','')+btn('share','share','&#127873;','SHARE','')+btn('stop','stop','&#128721;','STOP','WATCHING');
-  // Seasons column (filled async after render via fillSeasons; films have none).
-  const seasonsCol = isMovie ? '' : '<div class="exc-seasons" id="seas-'+s.id+'"></div>';
+  // Seasons column (chips filled async after render via fillSeasons; films have none).
+  // The watch-pattern stamp lives at the bottom of this column, under the season
+  // selector, as a sibling of the chips host so fillSeasons' innerHTML swap leaves it be.
+  const seasonsCol = isMovie ? '' :
+    '<div class="exc-seas-col"><div class="exc-seasons" id="seas-'+s.id+'"></div>'+wowStampHTML(s,true)+'</div>';
   return '<div class="exp-card" data-id="'+s.id+'">'+
       '<div class="exc-top"><div class="exc-poster" '+poster+'></div>'+
         '<div class="exc-info"><div class="exc-title">'+titleHTML(s.name)+'</div>'+
-          '<div class="exc-meta">'+metaTxt+'</div>'+wowStampHTML(s,true)+'<div class="exc-syn">'+syn+'</div></div>'+
+          '<div class="exc-meta">'+metaTxt+'</div><div class="exc-syn">'+syn+'</div></div>'+
         seasonsCol+'</div>'+
       '<div class="exc-btns">'+btns+'</div>'+
       '<div class="ep-arch" id="arch-'+s.id+'"><div class="vw-empty">loading episodes…</div></div>'+
