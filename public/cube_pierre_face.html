@@ -468,9 +468,11 @@
   }
   function offerNotify(show, titleId, next, tg){
     const S=next.season, E=next.number;
+    // After either choice, pop back out to the spinning cube (the shell's unlock).
+    const backToCube=(ms)=>setTimeout(()=>{ try{ window.parent.postMessage({type:'pangolin-back'}, '*'); }catch(_){} }, ms);
     pierreSay((show||'That show')+" S"+S+"E"+E+" drops "+(tg||'soon')+". Want me to flag it when it's out?", [
-      {label:'Notify me', onClick:()=>{ const em=pgSession(); if(em && window.WoW) WoW.store.notify(em, titleId, next.id||('S'+S+'E'+E)); addPierre("Done. I'll flag S"+S+"E"+E+" when it drops."); }},
-      {label:"I'll check back", onClick:()=>{}}
+      {label:'Notify me', onClick:()=>{ const em=pgSession(); if(em && window.WoW) WoW.store.notify(em, titleId, next.id||('S'+S+'E'+E)); addPierre("Done. I'll flag S"+S+"E"+E+" when it drops."); backToCube(1100); }},
+      {label:"I'll check back", onClick:()=>{ backToCube(300); }}
     ]);
   }
   // The captured thought: persist, then let Pierre react as a normal turn.

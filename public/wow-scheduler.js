@@ -64,6 +64,24 @@
     return { mode: 'CASUAL', src: 'derived' };
   }
 
+  // Classify from precomputed watch deltas (hours from air) + the raw watch timestamps.
+  // Lets a caller feed cross-season watches (matched by season+number) without the
+  // prototype's epNum collision. Same law: burst -> MORE!, else median delta.
+  function classifyDeltas(deltaHours, timestamps, opts) {
+    opts = opts || {};
+    if (opts.killed) return { mode: 'DECLINED', src: 'off' };
+    if (opts.manual) return { mode: opts.manual, src: 'set' };
+    if (!deltaHours || deltaHours.length < 2) return { mode: 'UNSAMPLED', src: 'derived' };
+    const sorted = (timestamps || []).slice().sort((a, b) => a - b);
+    let burst = 0;
+    for (let i = 2; i < sorted.length; i++) if (sorted[i] - sorted[i - 2] < 24 * H) burst++;
+    if (burst > 0) return { mode: 'MORE!', src: 'derived' };
+    const med = deltaHours.slice().sort((a, b) => a - b)[Math.floor(deltaHours.length / 2)];
+    if (med < CFG.LIVE_H) return { mode: 'LIVE', src: 'derived' };
+    if (med < CFG.FRESH_H) return { mode: 'FRESH', src: 'derived' };
+    return { mode: 'CASUAL', src: 'derived' };
+  }
+
   // ── nudge law (five rules, one place; ported from the prototype) ───────────────
   function nudge(ph, mode, watchLog, eps, now, seasonNum) {
     now = now || Date.now();
@@ -188,7 +206,7 @@
 
   window.WoW = {
     CFG, MODES, KILL_MSG,
-    phase, classify, nudge, tag, nextUp, sortKey, inSeason, episodes, epsCached, prefetch,
+    phase, classify, classifyDeltas, nudge, tag, nextUp, sortKey, inSeason, episodes, epsCached, prefetch,
     store: { load, setMode, setDefault, reenable, notify, stateNow },
     nextInCycle, fmtDay,
   };
