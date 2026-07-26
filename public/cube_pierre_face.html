@@ -108,6 +108,7 @@
   }
   .chip:hover{background:rgba(239,177,78,.14);}
   .chip:active{transform:translateY(1px);}
+  .chip.on{background:rgba(224,50,44,.18);color:#ff9d5c;border-color:rgba(224,50,44,.6);}   /* spoiler toggle: armed */
 
   /* Context switcher + mic now live in the shell's off-cube band (see index.html
      / cube_shell.js). The face keeps only the switch/clear logic, driven same-origin. */
@@ -410,13 +411,35 @@
     p=p||{};
     const where = p.show ? (p.show + (p.ep ? (' '+p.ep) : '')) : 'what you just watched';
     noteCtx={ show:p.show||'', ep:p.ep||'', titleId:p.titleId||null, ticketId:p.ticketId||null,
-              finished:!!p.finished, offerShare:!!p.offerShare };
-    pierreSay(p.finished
+              finished:!!p.finished, offerShare:!!p.offerShare, poster:'', platform:'' };
+    noteSpoiler=false;
+    // Prefetch poster + streamer for the share card so it's ready by share time.
+    if(p.titleId) metaFetch(p.titleId).then(m=>{ if(noteCtx){ noteCtx.poster=m.poster; noteCtx.platform=m.platform; } });
+    askReflection(p.finished
       ? ('You finished ' + where + '. Tell me what you made of it.')
-      : ('Noting ' + where + '. What did you make of it?'),
-      [{label:'Skip', onClick:()=>skipNote()}]);
+      : ('Noting ' + where + '. What did you make of it?'));
     input.placeholder = '';   // blank — the "what to watch" hint conflicts with a note
     input.focus();
+  }
+  // The reflection prompt: a Skip chip + a Spoiler TOGGLE (stays on/off, unlike the
+  // one-shot chips). Spoiler hides the quote on the shared card. Custom-rendered
+  // because pierreSay's chips disable themselves on tap.
+  let noteSpoiler=false;
+  function askReflection(text){
+    const wrap=document.createElement('div'); wrap.className='msg pierre';
+    wrap.innerHTML='<div class="who">Pierre</div><div class="bubble"></div>';
+    wrap.querySelector('.bubble').textContent=text;
+    const chips=document.createElement('div'); chips.className='chips';
+    const skip=document.createElement('button'); skip.className='chip'; skip.textContent='Skip';
+    skip.addEventListener('mousedown', e=>e.preventDefault());   // don't blur the input
+    skip.onclick=()=>{ skip.disabled=true; skipNote(); };
+    const spoil=document.createElement('button'); spoil.className='chip'; spoil.textContent='Spoiler';
+    spoil.setAttribute('aria-pressed','false');
+    spoil.addEventListener('mousedown', e=>e.preventDefault());
+    spoil.onclick=()=>{ noteSpoiler=!noteSpoiler; spoil.classList.toggle('on', noteSpoiler);
+      spoil.textContent = noteSpoiler ? '⚠ Spoiler' : 'Spoiler'; spoil.setAttribute('aria-pressed', String(noteSpoiler)); };
+    chips.appendChild(skip); chips.appendChild(spoil);
+    wrap.appendChild(chips); log.appendChild(wrap); log.scrollTop=log.scrollHeight;
   }
   // Skip the reflection: the episode is already logged, so just drop the note and
   // return to plain chat (no journal entry, no comment).
@@ -434,15 +457,105 @@
     }
     await ask(text);
     if(ctx.finished || ctx.offerShare){
-      pierreSay('Want it on your card?', [
-        {label:'Share it', onClick:()=>shareThought(ctx, text)},
+      let uname=''; try{ uname=(localStorage.getItem('pg_username')||'').trim(); }catch(_){}
+      // Pre-build the card NOW (async: loads poster) so the Share tap can fire
+      // navigator.share synchronously in-gesture — iOS drops a share after an await.
+      const blob=await buildReflectionCard({ username:uname||'Someone', epCode:ctx.ep,
+        show:ctx.show, platform:ctx.platform, poster:ctx.poster, comment:text, spoiler:noteSpoiler }).catch(()=>null);
+      if(blob) addCardPreview(blob);
+      pierreSay(noteSpoiler ? 'Card ready (quote hidden — spoiler). Share it?' : 'Card ready. Share it?', [
+        {label:'Share card', onClick:()=>doShareCard(blob, ctx, text)},
         {label:'Done', onClick:()=>{}}]);
     }
   }
-  function shareThought(ctx, text){
-    const msg='“'+text+'” — after '+(ctx.show||'the show')+(ctx.ep?(' '+ctx.ep):'');
-    if(navigator.share){ try{ navigator.share({ text:msg }); }catch(_){} }
-    addPierre('Shared. It lives on your card now.');
+
+  // ── Share card ──────────────────────────────────────────────────────────────
+  // A square social card (Instagram Stories, etc.) for a finished-episode reflection:
+  // an action line + Pierre + the show poster, and the quote — HIDDEN when the member
+  // marked it a Spoiler, shown under a SPOILER-FREE badge otherwise.
+  function metaFetch(titleId){
+    return (async()=>{
+      try{
+        const id=String(titleId||'');
+        if(id.startsWith('tmdb:')){
+          const r=await fetch(API+'/tmdb/movie/'+encodeURIComponent(id.slice(5)));
+          if(r.ok){ const d=await r.json(); return { poster:(d.movie&&d.movie.poster)||'', platform:'' }; }
+        } else {
+          const r=await fetch('https://api.tvmaze.com/shows/'+encodeURIComponent(id.replace(/^tvmaze:/,'')));
+          if(r.ok){ const d=await r.json(); return { poster:(d.image&&(d.image.original||d.image.medium))||'',
+            platform:(d.network&&d.network.name)||(d.webChannel&&d.webChannel.name)||'' }; }
+        }
+      }catch(_){}
+      return { poster:'', platform:'' };
+    })();
+  }
+  function loadImg(src, cross){
+    return new Promise((res)=>{ if(!src){ res(null); return; }
+      const im=new Image(); if(cross) im.crossOrigin='anonymous';
+      im.onload=()=>res(im); im.onerror=()=>res(null); im.src=src; });
+  }
+  function _rr(g,x,y,w,h,r){ g.beginPath(); g.moveTo(x+r,y);
+    g.arcTo(x+w,y,x+w,y+h,r); g.arcTo(x+w,y+h,x,y+h,r); g.arcTo(x,y+h,x,y,r); g.arcTo(x,y,x+w,y,r); g.closePath(); }
+  function _wrap(g,text,maxW){ const words=String(text||'').split(/\s+/); const lines=[]; let ln='';
+    for(const w of words){ const t=ln?ln+' '+w:w; if(g.measureText(t).width>maxW && ln){ lines.push(ln); ln=w; } else ln=t; }
+    if(ln) lines.push(ln); return lines; }
+  async function buildReflectionCard(o){
+    const S=1080, cv=document.createElement('canvas'); cv.width=S; cv.height=S; const g=cv.getContext('2d');
+    const bg=g.createLinearGradient(0,0,S,S); bg.addColorStop(0,'#17110b'); bg.addColorStop(1,'#0b0907');
+    g.fillStyle=bg; g.fillRect(0,0,S,S);
+    g.fillStyle='rgba(240,169,59,0.10)'; _rr(g,40,40,S-80,S-80,36); g.fill();
+    // poster (top-right); tainted/cross-origin failure just omits it
+    let poster=await loadImg(o.poster,true);
+    const pW=300,pH=444,pX=S-72-pW,pY=150;
+    if(poster){ try{ g.save(); _rr(g,pX,pY,pW,pH,18); g.clip();
+      const tr=pW/pH; let sw=poster.width,sh=poster.height,sx=0,sy=0;
+      if(poster.width/poster.height>tr){ sw=poster.height*tr; sx=(poster.width-sw)/2; } else { sh=poster.width/tr; sy=(poster.height-sh)/2; }
+      g.drawImage(poster,sx,sy,sw,sh,pX,pY,pW,pH); g.restore(); }catch(_){ poster=null; } }
+    if(!poster){ g.fillStyle='rgba(255,255,255,0.05)'; _rr(g,pX,pY,pW,pH,18); g.fill(); }
+    // Pierre host + wordmark
+    const pierre=await loadImg('/pierre.png',false);
+    if(pierre){ const s=140; g.save(); _rr(g,110,150,s,s,24); g.clip(); g.drawImage(pierre,110,150,s,s); g.restore(); }
+    g.fillStyle='#f0a93b'; g.font='700 30px Inter, system-ui, sans-serif'; g.fillText('pangolinRC', 110, 130);
+    // action copy
+    g.fillStyle='rgba(248,242,232,0.85)'; g.font='700 40px Inter, system-ui, sans-serif';
+    g.fillText((o.username||'Someone')+' just watched', 110, 380);
+    g.fillStyle='#fff'; g.font='800 52px Inter, system-ui, sans-serif';
+    const l2=_wrap(g,(o.epCode?o.epCode+' of ':'')+(o.show||'a show'), pX-140).slice(0,2);
+    l2.forEach((ln,i)=> g.fillText(ln, 110, 450+i*58));
+    let by=450+l2.length*58+8;
+    if(o.platform){ g.fillStyle='rgba(248,242,232,0.65)'; g.font='500 32px Inter, system-ui, sans-serif';
+      g.fillText('on '+o.platform, 110, by); }
+    // comment area (spoiler-aware)
+    const cx=110, cy=690, cw=S-220, ch=300;
+    if(o.spoiler || !o.comment){
+      g.fillStyle='rgba(224,50,44,0.15)'; _rr(g,cx,cy,cw,ch,24); g.fill();
+      g.fillStyle='#ff9d5c'; g.font='800 32px Inter, system-ui, sans-serif'; g.fillText('⚠ SPOILER', cx+40, cy+80);
+      g.fillStyle='rgba(248,242,232,0.6)'; g.font='500 32px Inter, system-ui, sans-serif';
+      g.fillText('Hidden — watch it first.', cx+40, cy+145);
+    } else {
+      g.fillStyle='rgba(91,191,123,0.15)'; _rr(g,cx,cy,cw,ch,24); g.fill();
+      g.fillStyle='#5bbf7b'; g.font='800 26px Inter, system-ui, sans-serif'; g.fillText('SPOILER-FREE', cx+40, cy+58);
+      g.fillStyle='#f8f2e8'; g.font='600 38px Inter, system-ui, sans-serif';
+      _wrap(g,'“'+o.comment+'”', cw-80).slice(0,4).forEach((ln,i)=> g.fillText(ln, cx+40, cy+120+i*50));
+    }
+    return await new Promise(res=> cv.toBlob(b=>res(b),'image/png',0.92));
+  }
+  function addCardPreview(blob){
+    try{ const url=URL.createObjectURL(blob);
+      const wrap=document.createElement('div'); wrap.className='msg pierre';
+      wrap.innerHTML='<div class="who">Pierre</div>';
+      const img=document.createElement('img'); img.src=url; img.alt='Share card';
+      img.style.cssText='width:min(240px,70%);border-radius:14px;display:block;margin-top:4px;';
+      wrap.appendChild(img); log.appendChild(wrap); log.scrollTop=log.scrollHeight;
+    }catch(_){}
+  }
+  async function doShareCard(blob, ctx, text){
+    const caption=(ctx.show||'')+(ctx.ep?(' '+ctx.ep):'')+' — on pangolinRC';
+    try{
+      if(blob && navigator.canShare){ const file=new File([blob],'pangolinrc-card.png',{type:'image/png'});
+        if(navigator.canShare({files:[file]})){ await navigator.share({files:[file], text:caption}); addPierre('Shared.'); return; } }
+      if(navigator.share){ await navigator.share({ text:(noteSpoiler?'':('“'+text+'” — '))+caption }); addPierre('Shared.'); return; }
+    }catch(_){ /* cancelled or unsupported */ }
   }
 
   /* ---- Episode-finish flow ---------------------------------------------------
