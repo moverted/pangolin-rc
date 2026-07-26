@@ -8,6 +8,14 @@ database_name = "pangolin-rc"
 database_id = "4bd25737-94c1-4da3-b54a-b28d467ef505"
 migrations_dir = "migrations"
 
+# WoW in-season scheduler — its OWN database. Additive-only; the legacy pangolin-rc
+# DB above is never touched by scheduler work.
+[[d1_databases]]
+binding = "SCHED_DB"
+database_name = "pangolinrc-scheduler"
+database_id = "3759f1e2-6779-4a31-8cb6-b8e18492cedc"
+migrations_dir = "migrations-scheduler"
+
 [[r2_buckets]]
 binding = "RAW_BUCKET"
 bucket_name = "pangolin-rc-payloads"

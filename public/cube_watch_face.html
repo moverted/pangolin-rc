@@ -238,6 +238,12 @@
   .tile .newflag{position:absolute;top:8px;left:8px;z-index:2;background:var(--amber);color:#1a1206;
     font-family:var(--mono);font-size:8.5px;font-weight:700;letter-spacing:.12em;padding:3px 7px;border-radius:5px;
     box-shadow:0 1px 4px rgba(0,0,0,.5)}
+  /* WoW TAG: next-episode relative airdate, top-right, at-a-glance on the small tile */
+  .tile .wowtag{position:absolute;top:8px;right:8px;z-index:2;background:rgba(26,18,6,.82);color:var(--amber);
+    border:1px solid rgba(240,168,40,.55);font-family:var(--mono);font-size:8.5px;font-weight:700;letter-spacing:.06em;
+    padding:3px 7px;border-radius:5px;box-shadow:0 1px 4px rgba(0,0,0,.5);white-space:nowrap}
+  .exc-tag{display:inline-block;font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.06em;color:var(--amber);
+    border:1px solid rgba(240,168,40,.55);background:rgba(26,18,6,.5);padding:2px 8px;border-radius:999px;margin-left:8px}
 
   .bars{display:flex;flex-direction:column;gap:3px}
   .bar{position:relative;height:5px;border-radius:3px;display:flex;background:var(--unrel)}
@@ -374,6 +380,7 @@
   </div>
 </div>
 
+<script src="/wow-scheduler.js"></script>
 <script>
 const SEED=[
   {id:"severance", q:"Severance",      watched:14,      lastDate:"2026-06-12"},
@@ -533,6 +540,13 @@ function metaFor(s){
 function posterDiv(s){return s.poster?'<div class="poster" style="background-image:url('+s.poster+')"></div>'
   :'<div class="poster" style="background:linear-gradient(150deg,#2a201a,#16100c)"></div>';}
 
+// WoW TAG: the next episode's airdate relative to today ("Sunday", "Next Week"...).
+// Derived client-side from the episode airstamps already loaded per show. Series only.
+function wowTag(s){
+  if(!window.WoW || !s || s.kind==='movie' || !Array.isArray(s.episodes)) return '';
+  const n = WoW.nextUp(s.episodes);
+  return n ? WoW.tag(n.airstamp) : '';
+}
 function tileFor(s,asStopped){
   const b=bucketOf(s);
   const cls="tile"+(b==="completed"?" completed":"")+(s.failed?" failed":"")+(asStopped?" stopped":"");
@@ -543,8 +557,10 @@ function tileFor(s,asStopped){
   if(asStopped) footer='<button class="tryagain" data-act="resume" data-id="'+s.id+'">&#8635; try again</button>';
   else if(s.returnDate&&b!=="completed") footer=returnLine(s);
   else footer='<div class="meta">'+metaFor(s)+"</div>";
+  const tg = wowTag(s);
   return '<div class="'+cls+'" data-id="'+s.id+'">'+posterDiv(s)+'<div class="scrim"></div>'+
     (s.isNew?'<div class="newflag">NEW</div>':'')+
+    (tg?'<div class="wowtag">'+tg+'</div>':'')+
     '<div class="body"><div class="title">'+titleHTML(s.name)+"</div>"+bars+footer+"</div></div>";
 }
 
@@ -557,7 +573,8 @@ function expandedCard(s, mode){
   let metaTxt;
   if(mode==='completed'){ metaTxt = isMovie ? '&#10003; watched &middot; film' : ('&#10003; done &middot; '+(s.total||0)+' episodes'); }
   else if(isMovie){ metaTxt = '&#127909; film &middot; '+(s.lastMinute>0?'in progress':'not started'); }
-  else { const left=s.released-s.watched; metaTxt=(pos?pos+' &middot; ':'')+(left>0?left+' left':'caught up'); }
+  else { const left=s.released-s.watched; metaTxt=(pos?pos+' &middot; ':'')+(left>0?left+' left':'caught up');
+    const tg=wowTag(s); if(tg) metaTxt+='<span class="exc-tag">'+tg+'</span>'; }
   const poster = s.poster ? 'style="background-image:url('+s.poster+')"'
                           : 'style="background:linear-gradient(150deg,#2a201a,#16100c)"';
   const btn=(cls,act,ic,l1,l2)=>'<button class="exc-btn '+cls+'" data-act="'+act+'" data-id="'+s.id+'">'+
@@ -681,6 +698,10 @@ function render(){
       const an=a.isNew?0:1, bn=b.isNew?0:1;
       if(an!==bn) return an-bn;                                 // NEW shows first
       if(an===0) return (a.addedSeq||0)-(b.addedSeq||0);        // NEW: order requested
+      // Timely: in-season shows sort by soonest upcoming drop; those with nothing
+      // upcoming (sortKey Infinity) fall through to recently-active order.
+      const ak=(window.WoW?WoW.sortKey(a.episodes||[]):Infinity), bk=(window.WoW?WoW.sortKey(b.episodes||[]):Infinity);
+      if(ak!==bk) return ak-bk;
       return new Date(b.lastDate)-new Date(a.lastDate);         // rest: recently active
     });
     grid.innerHTML=list.length?gridWithSelection(list,"current"):'<div class="state">nothing here yet</div>';

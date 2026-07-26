@@ -82,6 +82,7 @@ export interface ProcessingJob {
 
 export interface Env {
   DB:             D1Database;
+  SCHED_DB:       D1Database; // WoW in-season scheduler state (separate DB; additive, never touches legacy pangolin-rc)
   RAW_BUCKET:     R2Bucket;
   RESOURCE_DO:    DurableObjectNamespace;
   ACCESS_KV:      KVNamespace;

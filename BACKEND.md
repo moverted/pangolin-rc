@@ -13,6 +13,21 @@ Entry format:
 
 ---
 
+## 2026-07-26 — WoW in-season scheduler: Core (new D1 + Worker routes, NOT deployed)
+- **New D1 database `pangolinrc-scheduler`** (id `3759f1e2-6779-4a31-8cb6-b8e18492cedc`,
+  WNAM) created via `wrangler d1 create`. Its OWN database — the legacy `pangolin-rc`
+  (`4bd25737`) is NOT touched, migrated, or rebound. Schema `migrations-scheduler/0001_init.sql`
+  applied remote: `sched_mode_choice`, `sched_user`, `sched_badge`, `sched_sent`.
+- **wrangler.toml**: added `SCHED_DB` binding (+ `Env.SCHED_DB` in types.ts).
+- **Worker (`src/handlers/scheduler.ts`), NOT deployed.** Routes `/scheduler/state|mode|default|reenable`
+  on `SCHED_DB` only. Two-strike consent logic is server-authoritative here. `npx tsc
+  --noEmit` clean. On branch `feat/wow-inseason-scheduler`; no prod Worker deploy without Ted's OK.
+- **Frontend (branch only):** `public/wow-scheduler.js` (shared service: phase engine,
+  classifier, five-rule nudge, TAG formatter, timely sort key, TVMaze airstamp fetch,
+  state client) + WATCH-face TAG on both tiles and timely sort. Deployed to the branch
+  preview only. Chip / LOG countdown / Pierre nudge / Profile default are the next increment.
+- Storage choice B (per Ted): scheduler state in the new D1, additive.
+
 ## 2026-07-26 — Exempt reflections from the comment cap (D1 migration + Worker DEPLOYED)
 - **D1 SCHEMA CHANGE + Worker, DEPLOYED to PROD.** Migration `0024_watch_comment_reflection.sql`
   applied to `pangolin-rc` (Ted ran `wrangler d1 migrations apply pangolin-rc --remote`):
