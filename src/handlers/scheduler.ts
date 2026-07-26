@@ -101,6 +101,23 @@ schedulerRoutes.post('/default', async (c) => {
   return c.json({ defaultMode: u.default_mode });
 });
 
+// POST /scheduler/notify  { email, showId, episodeId }  — "flag it when it's out".
+// Stores the intent (surfaced in-app now via the RAMP nudge / Sentry; real APNs push
+// in v1.1 reads the same rows). Counts as a positive interaction (two-strike exception).
+schedulerRoutes.post('/notify', async (c) => {
+  const b = await c.req.json().catch(() => ({} as any));
+  const email = (b.email || '').trim().toLowerCase();
+  const showId = (b.showId || '').trim();
+  const episodeId = ((b.episodeId || '') + '').trim() || 'next';
+  if (!email || !showId) return c.json({ error: 'email and showId required' }, 400);
+  await c.env.SCHED_DB.prepare(
+    `INSERT INTO sched_sent (user_email, show_id, kind, key, sent_at) VALUES (?, ?, 'notify', ?, ?)
+     ON CONFLICT(user_email, show_id, kind, key) DO UPDATE SET sent_at=excluded.sent_at`
+  ).bind(email, showId, episodeId, Date.now()).run();
+  const u = await loadUser(c.env, email); u.positive_interaction = 1; await saveUser(c.env, u);
+  return c.json({ ok: true });
+});
+
 // POST /scheduler/reenable  { email }  — turn the classifier back on (from profile).
 // Clears the global kill and the decline counter; watch logging never stopped, so
 // accurate modes return immediately from the classifier.

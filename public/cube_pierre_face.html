@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <title>Pierre</title>
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
+<script src="/wow-scheduler.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
@@ -453,6 +454,25 @@
   // Skip the reflection: the episode is already logged, so just drop the note and
   // return to plain chat (no journal entry, no comment).
   function skipNote(){ clearReflectComment(); noteCtx=null; setCtxIndicator('chat'); input.placeholder="Ask Pierre what to watch..."; }
+
+  // WoW notify skill: offer to flag the next drop. Fired from the LOG greyed START
+  // (intent:notify) and after a Live+7 reflection. In-app now (RAMP nudge / Sentry);
+  // APNs push in v1.1 reads the same stored intent. "Notify me" is a positive interaction.
+  async function enterNotifyFlow(p){
+    if(IS_DEMO || !p || !p.titleId) return;
+    setCtxIndicator('chat');
+    let next=null, tg='';
+    try{ if(window.WoW){ const eps=await WoW.episodes(p.titleId); next=WoW.nextUp(eps); tg=next?WoW.tag(next.airstamp):''; } }catch(_){}
+    if(!next){ addPierre("Nothing new scheduled for "+(p.show||'that one')+" yet. I'll keep watch."); return; }
+    offerNotify(p.show, p.titleId, next, tg);
+  }
+  function offerNotify(show, titleId, next, tg){
+    const S=next.season, E=next.number;
+    pierreSay((show||'That show')+" S"+S+"E"+E+" drops "+(tg||'soon')+". Want me to flag it when it's out?", [
+      {label:'Notify me', onClick:()=>{ const em=pgSession(); if(em && window.WoW) WoW.store.notify(em, titleId, next.id||('S'+S+'E'+E)); addPierre("Done. I'll flag S"+S+"E"+E+" when it drops."); }},
+      {label:"I'll check back", onClick:()=>{}}
+    ]);
+  }
   // The captured thought: persist, then let Pierre react as a normal turn.
   async function noteTurn(text){
     const ctx=noteCtx; noteCtx=null; clearReflectComment();   // any voice comment was already posted by the mic
@@ -475,6 +495,19 @@
       pierreSay(noteSpoiler ? 'Card ready (quote hidden — spoiler). Share it?' : 'Card ready. Share it?', [
         {label:'Share card', onClick:()=>doShareCard(blob, ctx, text)},
         {label:'Done', onClick:()=>{}}]);
+    }
+    // Live+7: finished within a week of air and a next episode is coming → offer to flag
+    // the drop (industry-standard Live+7 window), after the comment as usual.
+    if(ctx.finished && ctx.titleId && window.WoW){
+      try{
+        const eps=await WoW.episodes(ctx.titleId);
+        const mm=/S0*(\d+)E0*(\d+)/i.exec(ctx.ep||'');
+        const fin=mm?eps.find(e=>e.season===+mm[1]&&e.number===+mm[2]):null;
+        const airMs=fin&&fin.airstamp?new Date(fin.airstamp).getTime():0;
+        const next=WoW.nextUp(eps);
+        if(next && airMs && Date.now()>=airMs && (Date.now()-airMs)<=7*24*3600*1000)
+          offerNotify(ctx.show, ctx.titleId, next, WoW.tag(next.airstamp));
+      }catch(_){}
     }
   }
 
@@ -1313,6 +1346,7 @@
       else if(p.intent==='login') enterJoinFlow();
       else if(p.intent==='device') enterDeviceFlow();
       else if(p.intent==='note') enterNoteFlow(p);
+      else if(p.intent==='notify') enterNotifyFlow(p);
       else if(p.intent==='episode-finish') enterEpisodeFinishFlow(p.launch);
       else if(p.intent==='season-note') enterSeasonNoteFlow(p);
     }

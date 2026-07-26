@@ -92,6 +92,12 @@
   .name.offsvc{ color:#857c72; opacity:.78; text-shadow:0 2px 16px rgba(0,0,0,.7); }
   .ymeta{ font-family:var(--mono); font-size:11px; color:var(--dim);
     letter-spacing:.05em; margin-bottom:12px; text-shadow:0 1px 10px rgba(0,0,0,.7); }
+  /* Big TAG: prominent "next drop" badge on the Episodes face. */
+  .wowtag-big{ display:inline-flex; align-items:baseline; gap:8px; margin:0 0 14px;
+    font-family:var(--mono); font-weight:700; letter-spacing:.06em; color:var(--amber);
+    border:1px solid rgba(240,169,59,.55); background:rgba(26,18,6,.5); border-radius:999px;
+    padding:5px 13px; font-size:15px; text-shadow:0 1px 8px rgba(0,0,0,.6); }
+  .wowtag-big .ep{ font-size:10px; color:var(--dim); font-weight:500; letter-spacing:.1em; }
   .ymeta .sep{ color:rgba(255,255,255,.35); margin:0 7px; }
   .ymeta .svc-lit{ color:var(--amber); font-weight:700; text-shadow:0 0 10px rgba(240,169,59,.5); }
   /* when the streamer can be launched, it becomes a tappable pill button */
@@ -198,6 +204,10 @@
     border:1px solid rgba(255,255,255,.16); color:var(--dim); }
   .sfbtn:active{ transform:translateY(1px); }
   .sfbtn.start{ --accent:var(--amber); --flipfg:var(--amber-deep); border-color:var(--accent); color:var(--accent); }
+  /* greyed START: the next episode has not dropped yet. Dimmed but still tappable
+     (a tap swings to Pierre to offer a notification). */
+  .sfbtn.start.greyed{ --accent:var(--faint); color:var(--faint); border-color:rgba(162,150,132,.4);
+    background:rgba(0,0,0,.28); font-size:9.5px; }
   .sfbtn.logpart{ --accent:var(--text);  --flipfg:#1a1206;         border-color:var(--accent); color:var(--accent); }
   .sfbtn.continue{ --accent:var(--text); --flipfg:#1a1206;         border-color:var(--accent); color:var(--accent); }
   .sfbtn.finish{ --accent:var(--green); --flipfg:#06140b;          border-color:var(--accent); color:var(--accent); }
@@ -474,6 +484,8 @@
       <div class="herofoot">
         <h1 class="name" id="name">Loading…</h1>
         <div class="ymeta" id="ymeta"></div>
+        <!-- Big TAG: when the next episode drops (WoW scheduler). Hidden when nothing's upcoming. -->
+        <div class="wowtag-big" id="wowTagBig" style="display:none;"></div>
 
         <!-- minute bar: where you are inside the current episode (yellow, elapsed darkens L→R) -->
         <div class="minzone">
@@ -569,6 +581,7 @@
 </div>
 
 
+<script src="/wow-scheduler.js"></script>
 <script>
 const NOW=new Date(); const DAY=864e5;
 let allEps=[], eps=[], watched=0, watchTs=[], watchDate={}, binged={}, notes={}, focus=0, cooled=false;
@@ -607,6 +620,19 @@ const $=id=>document.getElementById(id);
 const strip=s=>{const d=document.createElement('div');d.innerHTML=s||'';return (d.textContent||'').trim();};
 const fmt=d=>d?new Date(typeof d==='string'?d+'T12:00:00':d).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'';
 const released=e=>e.airdate && new Date(e.airdate+'T23:59:59')<=NOW;
+// WoW scheduler on the LOG face: relative-airdate TAG (catalog airdate + noon offset to
+// avoid a tz day-slip), the next not-yet-aired episode, and the "swing to Pierre" when a
+// member taps START on an episode that has not dropped yet (offer a notify instead).
+function wowTagFor(e){ return (window.WoW && e && e.airdate) ? WoW.tag(e.airdate+'T12:00:00') : ''; }
+function wowNextUnaired(){ return eps.find(e=>e && e.airdate && !released(e)) || null; }
+function swingToNotify(){
+  const e=eps[focus]||wowNextUnaired()||{};
+  const payload={ intent:'notify', show:curShowName, titleId:curShowId, ep:epCode(e), epNum:e.number, season:e.season };
+  if(window.parent!==window){
+    if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('pierre', payload);
+    else window.parent.postMessage({type:'cube:rotateTo', face:'pierre', payload}, '*');
+  }
+}
 const sNum=e=>e.season||1;
 
 function boot(show,list,isDefault){
@@ -1907,6 +1933,15 @@ function paint(){
   // ----- season + episode readout (top bar) -----
   renderSeasons();
 
+  // ----- big TAG: when the next episode drops (WoW scheduler) -----
+  const wtb=$('wowTagBig');
+  if(wtb){
+    const nx = !isMovie ? wowNextUnaired() : null;
+    const tg = nx ? wowTagFor(nx) : '';
+    if(nx && tg){ wtb.style.display='inline-flex'; wtb.innerHTML = tg.toUpperCase()+'<span class="ep">S'+nx.season+'E'+nx.number+'</span>'; }
+    else wtb.style.display='none';
+  }
+
   // ----- minute bar (position inside the focused episode) -----
   paintMinute();
 
@@ -1938,8 +1973,16 @@ function paint(){
   const stBtn=$('startEpBtn');
   if(stBtn){
     stBtn.disabled = false;
-    stBtn.classList.remove('logpart', 'continue');
-    if(awaitingLog) {
+    stBtn.classList.remove('logpart', 'continue', 'greyed');
+    const unaired = !isMovie && eps[focus] && eps[focus].airdate && !released(eps[focus]);
+    if(unaired) {
+      // Next episode has not dropped yet — greyed START. Tapping it swings to Pierre
+      // to offer a notification, rather than starting an episode that does not exist yet.
+      const tg=wowTagFor(eps[focus]);
+      stBtn.textContent = tg ? ('DROPS '+tg.toUpperCase()) : 'NOT OUT YET';
+      stBtn.classList.add('greyed');
+      stBtn.dataset.action = 'notify';
+    } else if(awaitingLog) {
       // A scrubbed preview is staged → the button itself commits it (no tap-elsewhere).
       const pv = Math.round(minPreview!=null ? minPreview : (epMin[focus]||0));
       stBtn.textContent = `LOG ${pv} min`;
@@ -2114,6 +2157,7 @@ $('startEpBtn').onclick=()=>{
   const btn=$('startEpBtn'); flashBtn(btn);
   primeAudio();   // ANY left-button tap (START/CONTINUE/LOG…) blesses audio for later autoplay
   const a=btn.dataset.action;
+  if(a==='notify'){ swingToNotify(); return; }   // greyed START on an unaired episode → Pierre notify
   if(a==='log') logIt();
   else startEpisode();   // 'start' and 'continue' both (re-)arm the live timer
 };

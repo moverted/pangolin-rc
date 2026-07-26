@@ -179,6 +179,8 @@
     try { await fetch(`${API}/scheduler/default`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, mode }) }); } catch (_) {} return _state; }
   async function reenable(email) { await load(email); _state.user.globalKill = false; _state.user.declinedCount = 0; lsSet(_state);
     try { await fetch(`${API}/scheduler/reenable`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) }); } catch (_) {} return _state; }
+  async function notify(email, showId, episodeId) { await load(email); _state.user.positiveInteraction = true; lsSet(_state);
+    try { await fetch(`${API}/scheduler/notify`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, showId, episodeId }) }); } catch (_) {} return _state; }
   function stateNow() { return _state; }
 
   // Cycle order for the chip: auto -> LIVE -> FRESH -> CASUAL -> MORE! -> DECLINED -> auto
@@ -187,7 +189,7 @@
   window.WoW = {
     CFG, MODES, KILL_MSG,
     phase, classify, nudge, tag, nextUp, sortKey, inSeason, episodes, epsCached, prefetch,
-    store: { load, setMode, setDefault, reenable, stateNow },
+    store: { load, setMode, setDefault, reenable, notify, stateNow },
     nextInCycle, fmtDay,
   };
 })();
