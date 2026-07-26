@@ -37,6 +37,18 @@ Entry format:
   Preview auto-login gated to `*.pangolin-rc.pages.dev` subdomains. Still no prod
   Worker deploy; `/scheduler/*` persistence runs off the localStorage fallback on
   the preview. Deployed to `wow-scheduler.pangolin-rc.pages.dev`.
+- **UAT increment 2 (branch preview):** WATCH stamp moved under the season
+  selector on the expanded card. LOG **RAMP countdown** — the big TAG becomes a
+  live second-ticking `DROPS IN …` clock once the next drop is <=72h out (CFG
+  `RAMP_H`); precise airstamp fetched from TVMaze via `WoW.episodes`, airdate-at-
+  noon coarse fallback, 1s ticker self-clears at drop. No spec threshold change.
+- **Legacy DB (`pangolin-rc`) data writes this session — via the app's own
+  endpoints, at Ted's explicit request, no schema/config touch:** (1) corrected
+  Ted's real SNW S4E1 watch session to a 9:00–9:59 PM PT premiere-night finishTs
+  (`POST /profile/{email}/episodes/tvmaze:48090:s4e1`); prior session value saved
+  in the transcript for reversibility. (2) Added three shows to his account at
+  pattern `live` (caught-up): Ted Lasso `tvmaze:44458`, Lanterns `tvmaze:44776`,
+  Yellowjackets `tvmaze:36672` (`POST /catalog/initiate`). No migration/rebind.
 
 ## 2026-07-26 — Exempt reflections from the comment cap (D1 migration + Worker DEPLOYED)
 - **D1 SCHEMA CHANGE + Worker, DEPLOYED to PROD.** Migration `0024_watch_comment_reflection.sql`
