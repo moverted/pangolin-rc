@@ -506,7 +506,8 @@
     g.fillStyle='rgba(240,169,59,0.10)'; _rr(g,40,40,S-80,S-80,36); g.fill();
     // poster (top-right); tainted/cross-origin failure just omits it
     let poster=await loadImg(o.poster,true);
-    const pW=300,pH=444,pX=S-72-pW,pY=150;
+    // right edge on the same 110px margin as the wordmark + comment box; a touch bigger
+    const pW=340, pH=Math.round(pW*444/300), pX=S-110-pW, pY=150;
     if(poster){ try{ g.save(); _rr(g,pX,pY,pW,pH,18); g.clip();
       const tr=pW/pH; let sw=poster.width,sh=poster.height,sx=0,sy=0;
       if(poster.width/poster.height>tr){ sw=poster.height*tr; sx=(poster.width-sw)/2; } else { sh=poster.width/tr; sy=(poster.height-sh)/2; }
@@ -514,7 +515,8 @@
     if(!poster){ g.fillStyle='rgba(255,255,255,0.05)'; _rr(g,pX,pY,pW,pH,18); g.fill(); }
     // Pierre host + wordmark
     const pierre=await loadImg('/pierre.png',false);
-    if(pierre){ const s=140; g.save(); _rr(g,110,150,s,s,24); g.clip(); g.drawImage(pierre,110,150,s,s); g.restore(); }
+    if(pierre){ const pw=250, ph=Math.round(pw*pierre.height/pierre.width), x=110, y=155;   // keep aspect — no squish
+      g.save(); _rr(g,x,y,pw,ph,20); g.clip(); g.drawImage(pierre,x,y,pw,ph); g.restore(); }
     g.fillStyle='#f0a93b'; g.font='700 30px Inter, system-ui, sans-serif'; g.fillText('pangolinRC', 110, 130);
     // action copy
     g.fillStyle='rgba(248,242,232,0.85)'; g.font='700 40px Inter, system-ui, sans-serif';
