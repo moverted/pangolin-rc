@@ -13,6 +13,21 @@ Entry format:
 
 ---
 
+## 2026-07-26 — Exempt reflections from the comment cap (D1 migration + Worker DEPLOYED)
+- **D1 SCHEMA CHANGE + Worker, DEPLOYED to PROD.** Migration `0024_watch_comment_reflection.sql`
+  applied to `pangolin-rc` (Ted ran `wrangler d1 migrations apply pangolin-rc --remote`):
+  `ALTER TABLE watch_comment ADD COLUMN is_reflection INTEGER NOT NULL DEFAULT 0`.
+  Additive, non-destructive (existing rows default 0).
+- Worker (`src/index.ts`) DEPLOYED: `wrangler deploy` version
+  `51ebf472-af08-425c-8c49-d00564a1cc45`. Finished-episode reflections (voice notes
+  posted with `reflection=1`) skip the per-episode cap AND are excluded from its
+  count (`is_reflection = 0` filter). Regular comments still capped at 5; replies
+  still exempt. Frontend (`cube_shell.js` mic) tags reflection uploads.
+- NOTE: this touched the `pangolin-rc` D1 (the CLAUDE.md "off-limits legacy" DB).
+  It is in fact the live app DB — `watch_comment` lives there, migrations 0015–0024.
+  Ted ran the migration himself. The CLAUDE.md legacy-DB note is stale/misleading and
+  should be reconciled (it's the app's real database).
+
 ## 2026-07-25 — Fix: comment cap wrongly blocked Pierre-notes (Worker DEPLOYED)
 - **Worker code change (`src/index.ts`), DEPLOYED to PROD** at Ted's request.
   `wrangler deploy --message "transcribe: exempt Pierre-notes (no showId) from the
