@@ -49,6 +49,18 @@ Entry format:
   in the transcript for reversibility. (2) Added three shows to his account at
   pattern `live` (caught-up): Ted Lasso `tvmaze:44458`, Lanterns `tvmaze:44776`,
   Yellowjackets `tvmaze:36672` (`POST /catalog/initiate`). No migration/rebind.
+- **UAT increment 3 (branch preview):** LOG countdown redesigned per Ted to a
+  2-week (INSEASON_D) day-granularity progression: `SX NEXT {DOW}` -> `SX STARTS
+  {DOW}` -> `SX STARTS TOMORROW` -> `SX STARTS TODAY` (season prefix; warm glow on
+  today/tomorrow). RAMP second-ticker removed. **Timezone hardening** (last year's
+  Today/Tomorrow slip): new `WoW.daysUntil` / `WoW.weekday` compute on LOCAL
+  calendar dates parsed from the airdate Y-M-D components, never `new Date(isoString)`
+  (UTC midnight). `wowNextUnaired` now scans all seasons (premiere of a not-yet-
+  started season shows). **Proactive Pierre nudge:** on Pierre open, a tracked show
+  in RAMP triggers the mode-aware `WoW.nudge` line + `[Notify me]`/`[Got it]` chip;
+  RAMP-gated per the law, mode from manual override or `classifyDeltas`, scoped to
+  the drop's season to dodge the epNum collision. `?wownudge=1` (read off parent
+  URL, same-origin) forces a synthetic RAMP for UAT. All frontend; no Worker deploy.
 
 ## 2026-07-26 — Exempt reflections from the comment cap (D1 migration + Worker DEPLOYED)
 - **D1 SCHEMA CHANGE + Worker, DEPLOYED to PROD.** Migration `0024_watch_comment_reflection.sql`
