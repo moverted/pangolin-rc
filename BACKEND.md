@@ -27,6 +27,16 @@ Entry format:
   state client) + WATCH-face TAG on both tiles and timely sort. Deployed to the branch
   preview only. Chip / LOG countdown / Pierre nudge / Profile default are the next increment.
 - Storage choice B (per Ted): scheduler state in the new D1, additive.
+- **UAT increment (branch preview, frontend only):** WATCH-face watch-pattern
+  "stamp" (derived cross-season via `classifyDeltas`, matched by season+number;
+  tappable to cycle; a dashed `SET PATTERN` stamp appears on the expanded card
+  when a show is claimable — 2+ watched — but not yet classified, so a pattern
+  can always be declared). LOG face: big TAG badge + greyed `DROPS {TAG}` START
+  that swings to Pierre. Pierre `enterNotifyFlow`/`offerNotify` (`[Notify me]` /
+  `[I'll check back]`, both pop back to the spinning cube via `pangolin-back`).
+  Preview auto-login gated to `*.pangolin-rc.pages.dev` subdomains. Still no prod
+  Worker deploy; `/scheduler/*` persistence runs off the localStorage fallback on
+  the preview. Deployed to `wow-scheduler.pangolin-rc.pages.dev`.
 
 ## 2026-07-26 — Exempt reflections from the comment cap (D1 migration + Worker DEPLOYED)
 - **D1 SCHEMA CHANGE + Worker, DEPLOYED to PROD.** Migration `0024_watch_comment_reflection.sql`
