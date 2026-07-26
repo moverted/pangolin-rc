@@ -1895,7 +1895,7 @@ function pierreFinishedNote(idx){
   if(DEMO || window.parent===window) return;
   const e=eps[idx]||{};
   const payload={ intent:'note', finished:true, kind:isMovie?'movie':'show',
-                  show:curShowName, ep:isMovie?'':epCode(e), titleId:curShowId };
+                  show:curShowName, ep:isMovie?'':epCode(e), titleId:curShowId, runtime:runtimeOf(idx) };
   if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('pierre', payload);
   else window.parent.postMessage({type:'cube:rotateTo', face:'pierre', payload}, '*');
 }

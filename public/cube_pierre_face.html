@@ -413,6 +413,7 @@
     noteCtx={ show:p.show||'', ep:p.ep||'', titleId:p.titleId||null, ticketId:p.ticketId||null,
               finished:!!p.finished, offerShare:!!p.offerShare, poster:'', platform:'' };
     noteSpoiler=false;
+    setReflectComment(p);
     // Prefetch poster + streamer for the share card so it's ready by share time.
     if(p.titleId) metaFetch(p.titleId).then(m=>{ if(noteCtx){ noteCtx.poster=m.poster; noteCtx.platform=m.platform; } });
     askReflection(p.finished
@@ -441,12 +442,20 @@
     chips.appendChild(skip); chips.appendChild(spoil);
     wrap.appendChild(chips); log.appendChild(wrap); log.scrollTop=log.scrollHeight;
   }
+  // 5c: while a finished-episode reflection is open, route the Pierre voice mic to a
+  // REAL co-view comment on this episode (audio + transcription) rather than a
+  // throwaway 'pierre-note'. Anchored at the episode end (runtime) so it reveals to
+  // friends only once they finish. Read by the shell mic (cube_shell.js initPierreMic).
+  function setReflectComment(p){ try{ if(window.top) window.top.__pgReflectComment =
+    (p && p.finished && p.titleId && p.ep) ? { showId:p.titleId, episodeId:p.ep, timestampMs:(p.runtime||0)*60000 } : null;
+  }catch(_){} }
+  function clearReflectComment(){ try{ if(window.top) window.top.__pgReflectComment=null; }catch(_){} }
   // Skip the reflection: the episode is already logged, so just drop the note and
   // return to plain chat (no journal entry, no comment).
-  function skipNote(){ noteCtx=null; setCtxIndicator('chat'); input.placeholder="Ask Pierre what to watch..."; }
+  function skipNote(){ clearReflectComment(); noteCtx=null; setCtxIndicator('chat'); input.placeholder="Ask Pierre what to watch..."; }
   // The captured thought: persist, then let Pierre react as a normal turn.
   async function noteTurn(text){
-    const ctx=noteCtx; noteCtx=null;
+    const ctx=noteCtx; noteCtx=null; clearReflectComment();   // any voice comment was already posted by the mic
     setCtxIndicator('chat');   // note captured; Pierre reacts as a normal chat turn
     input.placeholder = "Ask Pierre what to watch...";
     pushJournal(ctx.show, ctx.ep, text);
@@ -735,7 +744,7 @@
     opts = opts || {};
     if(IS_DEMO) return;
     if(ctx === 'chat'){
-      addFlow=null; acctFlow=null; joinFlow=null; noteCtx=null;
+      addFlow=null; acctFlow=null; joinFlow=null; noteCtx=null; clearReflectComment();
       epNoteFlow=false; seasonNoteFlow=false; epFinishPending=null; seasonNote=null;
       inputSecret(false); input.placeholder = "Ask Pierre what to watch..."; refreshKb();
       setCtxIndicator('chat');

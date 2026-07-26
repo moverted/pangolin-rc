@@ -308,6 +308,11 @@ function bounceFromEmptyWatch(fi) {
 }
 function rotateToFace(fi) {
   if (typeof fi !== 'number' || fi < 0 || fi > 5) return;
+  // Close any stale console keyboard first — it hides the wheel (display:none), and
+  // rotating in (e.g. reopening mid-timer onto the LOG face) would otherwise land
+  // with the wheel hidden and unresponsive until you touch the face. The target
+  // face re-opens the keyboard on input focus if it needs it.
+  if (window._kbHide) window._kbHide();
   locked = true;
   camTargetZ = 4.6;
   snapToFace(fi);                 // sets activeFace and starts the snap
@@ -1210,8 +1215,18 @@ document.getElementById('device-chip').addEventListener('click', () => cubeRotat
           const blob = new Blob(chunks, { type: (chunks[0] && chunks[0].type) || 'audio/webm' });
           const fd = new FormData();
           fd.append('audio', blob);
-          fd.append('episodeId', 'pierre-note');
-          fd.append('timestampMs', '0');
+          // In a finished-episode reflection (Pierre sets __pgReflectComment), post as a
+          // REAL co-view comment on that episode — audio + transcription, anchored at the
+          // episode end. Otherwise a throwaway 'pierre-note' used only to get the text.
+          const rc = window.__pgReflectComment;
+          if (rc && rc.showId && rc.episodeId) {
+            fd.append('episodeId', rc.episodeId);
+            fd.append('showId', rc.showId);
+            fd.append('timestampMs', String(rc.timestampMs || 0));
+          } else {
+            fd.append('episodeId', 'pierre-note');
+            fd.append('timestampMs', '0');
+          }
           fd.append('userEmail', email);
           const res = await fetch(`${API}/transcribe`, { method: 'POST', body: fd, mode: 'cors' });
           if (res.ok) { const d = await res.json(); txt = ((d && d.transcription) || '').trim(); }
