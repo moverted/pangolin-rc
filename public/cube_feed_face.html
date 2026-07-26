@@ -116,7 +116,9 @@ async function showMeta(id){
       _meta[id] = { img:(d.movie && d.movie.poster) || '', where:'' };
       return _meta[id];
     }
-    const r = await fetch('https://api.tvmaze.com/shows/' + encodeURIComponent(id));
+    // show_id is the prefixed title_id ('tvmaze:81110'); TVmaze wants the bare id.
+    const rid = String(id).replace(/^tvmaze:/, '');
+    const r = await fetch('https://api.tvmaze.com/shows/' + encodeURIComponent(rid));
     if(!r.ok){ _meta[id] = null; return null; }
     const d = await r.json();
     _meta[id] = { img:(d.image && (d.image.medium || d.image.original)) || '',

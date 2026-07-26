@@ -1407,10 +1407,11 @@ function resumeLaunch() {
   if (cfg && cfg.frame && cfg.frame.contentWindow)
     cfg.frame.contentWindow.postMessage({ type: 'cube:launch', launch: L }, '*');
   episodesEmpty = false;   // a launched show is loading — don't bounce to the Log
-  // Guideline: reopening while the timer is still running lands on the LOG face
-  // (the live countdown). The Watch face has the launch staged (above) if the
-  // member rotates to it for the minute guess.
-  rotateToFace(FACE_INDEX.log);
+  // Reopening while the timer is still running lands on the LOG face (the live
+  // countdown) — where the launch was just staged (above). NOTE the swapped
+  // index names: the LOG face (cube_log_face) is FACE_INDEX.episodes, NOT
+  // FACE_INDEX.log (which is the WATCH face). Rotating to .log here was the bug.
+  rotateToFace(FACE_INDEX.episodes);
 }
 window.addEventListener('pageshow', () => { resumeLaunch(); updateDeviceChip(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) { resumeLaunch(); updateDeviceChip(); } });

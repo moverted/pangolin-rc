@@ -695,10 +695,20 @@ async function renderCredits(){
   }catch(_){ /* leave hidden */ }
 }
 
-// Timestamps of real in-app watches only (preApp false). Pre-app data is skipped.
+// Real in-app episode completions, as finish timestamps — one per episode, taken
+// from epSessions (the latest finished, non-BP session). These PERSIST across
+// reloads (the server round-trips the sessions array), so a binge spanning app
+// reopens still reaches 3. The old path keyed on watchDate + epPreApp===false,
+// both session-local — restored history is marked preApp with no watchDate, so it
+// never counted, and three watches across reopens never triggered the binge.
 function inAppTimes(){
   const t=[];
-  for(const k in epDone){ if(epDone[k] && epPreApp[k]===false && watchDate[k]) t.push(+watchDate[k]); }
+  for(const k in epSessions){
+    const arr=epSessions[k]||[];
+    let ts=0;
+    for(const s of arr){ if(s && s.finished && !s.bp && typeof s.finishTs==='number' && s.finishTs>ts) ts=s.finishTs; }
+    if(ts) t.push(ts);
+  }
   return t.sort((a,b)=>a-b);
 }
 // Binge: three in-app watches within 24h. The flame only ever fires on real
