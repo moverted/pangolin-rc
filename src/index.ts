@@ -56,6 +56,9 @@ app.post('/transcribe', async (c) => {
     // Optional: this audio is a REPLY to a friend's comment (the OTT reply path —
     // the second viewer's phone is free to record while the show is on the TV).
     const replyTo = ((formData.get('replyTo') as string) || '').trim();
+    // A finished-episode reflection is a co-view comment that is EXEMPT from the
+    // per-episode cap — it neither gets rejected by it nor counts toward it.
+    const isReflection = ((formData.get('reflection') as string) || '') === '1';
 
     if (!audio || !episodeId) {
       return c.json({ error: 'missing audio or episodeId' }, 400);
@@ -106,18 +109,19 @@ app.post('/transcribe', async (c) => {
       episodeId = parent.episode_id;
       showId = parent.show_id || showId;
       timestampMs = parent.timestamp_ms;   // anchor at the parent's mark, not the device clock
-    } else if (showId) {
-      // Original co-view comment (not a reply): cap at COVIEW_MAX_COMMENTS_PER_EPISODE
-      // per member per (show, episode). Count this member's existing originals for the
-      // episode and reject the one that would exceed the cap. Same watch_comment table
-      // the insert below writes to. Replies are exempt (handled above). Uploads with NO
-      // showId — Pierre-notes (episodeId 'pierre-note') use /transcribe purely to get a
-      // transcription — are NOT co-view comments and must skip the cap, or they'd all
-      // pile into one show_id-NULL bucket and jam after five.
+    } else if (showId && !isReflection) {
+      // Original co-view comment (not a reply, not a reflection): cap at
+      // COVIEW_MAX_COMMENTS_PER_EPISODE per member per (show, episode). Count this
+      // member's existing originals for the episode and reject the one that would
+      // exceed the cap. Same watch_comment table the insert below writes to. Replies
+      // and reflections are exempt; reflections also don't COUNT (is_reflection = 0
+      // filter). Uploads with NO showId — Pierre-notes (episodeId 'pierre-note') use
+      // /transcribe purely to get a transcription — are NOT co-view comments and skip
+      // the cap, or they'd all pile into one show_id-NULL bucket and jam after five.
       const existing = await c.env.DB
         .prepare(
           `SELECT COUNT(*) AS n FROM watch_comment
-            WHERE user_email = ? AND episode_id = ? AND show_id IS ? AND reply_to IS NULL`
+            WHERE user_email = ? AND episode_id = ? AND show_id IS ? AND reply_to IS NULL AND is_reflection = 0`
         )
         .bind(email, episodeId, showId || null)
         .first<{ n: number }>();
@@ -153,10 +157,10 @@ app.post('/transcribe', async (c) => {
 
     const now = Date.now();
     await c.env.DB.prepare(
-      `INSERT INTO watch_comment (id, user_email, episode_id, show_id, timestamp_ms, transcription, audio_r2_key, reply_to, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO watch_comment (id, user_email, episode_id, show_id, timestamp_ms, transcription, audio_r2_key, reply_to, is_reflection, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-      .bind(commentId, email, episodeId, showId || null, timestampMs, transcription || null, r2Key, replyParent, now)
+      .bind(commentId, email, episodeId, showId || null, timestampMs, transcription || null, r2Key, replyParent, isReflection ? 1 : 0, now)
       .run();
 
     console.log(replyParent ? 'Audio reply saved:' : 'Audio comment saved:', commentId);

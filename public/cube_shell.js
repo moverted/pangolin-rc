@@ -1223,6 +1223,7 @@ document.getElementById('device-chip').addEventListener('click', () => cubeRotat
             fd.append('episodeId', rc.episodeId);
             fd.append('showId', rc.showId);
             fd.append('timestampMs', String(rc.timestampMs || 0));
+            fd.append('reflection', '1');   // exempt from the per-episode comment cap
           } else {
             fd.append('episodeId', 'pierre-note');
             fd.append('timestampMs', '0');
