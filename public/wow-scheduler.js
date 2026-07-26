@@ -123,7 +123,8 @@
   function fmtDay(iso) { return new Date(iso).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }); }
 
   // ── TVMaze airstamps (client-side, CORS-open, no key), cached per session ──────
-  const _epCache = new Map();   // tvmazeId -> Promise<episodes[]>
+  const _epCache = new Map();      // tvmazeId -> Promise<episodes[]>
+  const _epResolved = new Map();   // tvmazeId -> episodes[] (sync, for render-time reads)
   function tvmazeId(showId) { const m = /(?:^|:)?(?:tvmaze:)?(\d+)$/.exec(String(showId || '')); return (String(showId).indexOf('tmdb:') === 0) ? null : (m ? m[1] : null); }
   function episodes(showId) {
     const id = tvmazeId(showId);
@@ -132,10 +133,16 @@
     const p = fetch(`https://api.tvmaze.com/shows/${id}?embed=episodes`)
       .then(r => r.ok ? r.json() : null)
       .then(d => (d && d._embedded && d._embedded.episodes) ? d._embedded.episodes.filter(e => e.airstamp) : [])
-      .catch(() => []);
+      .catch(() => [])
+      .then(eps => { _epResolved.set(id, eps); return eps; });
     _epCache.set(id, p);
     return p;
   }
+  // Synchronous read of already-fetched episodes (render-time). [] until prefetched.
+  function epsCached(showId) { const id = tvmazeId(showId); return (id && _epResolved.get(id)) || []; }
+  // Fetch episodes for a batch (account shows carry no episode list). Resolves once
+  // all are cached, so the caller can re-render with airstamps available.
+  function prefetch(showIds) { return Promise.all((showIds || []).map(episodes)); }
 
   // ── state client (scheduler DB via /scheduler/*, localStorage mirror) ──────────
   // The DB is authoritative once the Worker ships; localStorage keeps the branch
@@ -179,7 +186,7 @@
 
   window.WoW = {
     CFG, MODES, KILL_MSG,
-    phase, classify, nudge, tag, nextUp, sortKey, inSeason, episodes,
+    phase, classify, nudge, tag, nextUp, sortKey, inSeason, episodes, epsCached, prefetch,
     store: { load, setMode, setDefault, reenable, stateNow },
     nextInCycle, fmtDay,
   };
