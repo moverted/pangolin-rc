@@ -204,9 +204,30 @@
   // Cycle order for the chip: auto -> LIVE -> FRESH -> CASUAL -> MORE! -> DECLINED -> auto
   function nextInCycle(current) { const order = [null, ...MODES, 'DECLINED']; return order[(order.indexOf(current || null) + 1) % order.length]; }
 
+  // ── tz-safe calendar-day math ─────────────────────────────────────────────────
+  // Whole calendar days from local-today to a drop date, computed from the airdate's
+  // Y-M-D components as a LOCAL midnight. This deliberately does NOT parse the full
+  // ISO string: `new Date('2026-07-30')` is UTC midnight, which reads back as a
+  // different calendar day west of Greenwich and is exactly what flipped Today/
+  // Tomorrow across zones. Both endpoints here are local midnights, so the diff is a
+  // clean integer day count no matter the viewer's zone or the drop's time of day.
+  function daysUntil(airdate, now) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(airdate || '')); if (!m) return null;
+    const drop = new Date(+m[1], +m[2] - 1, +m[3]).getTime();       // local midnight of the air date
+    const n = now ? new Date(now) : new Date();
+    const today = new Date(n.getFullYear(), n.getMonth(), n.getDate()).getTime();
+    return Math.round((drop - today) / DAY);
+  }
+  // Weekday name ("Monday") for an airdate, read at that date's LOCAL midnight.
+  function weekday(airdate) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(airdate || '')); if (!m) return '';
+    return new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString('en-US', { weekday: 'long' });
+  }
+
   window.WoW = {
     CFG, MODES, KILL_MSG,
     phase, classify, classifyDeltas, nudge, tag, nextUp, sortKey, inSeason, episodes, epsCached, prefetch,
+    daysUntil, weekday,
     store: { load, setMode, setDefault, reenable, notify, stateNow },
     nextInCycle, fmtDay,
   };

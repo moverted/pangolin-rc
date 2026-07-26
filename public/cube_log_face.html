@@ -98,13 +98,10 @@
     border:1px solid rgba(240,169,59,.55); background:rgba(26,18,6,.5); border-radius:999px;
     padding:5px 13px; font-size:15px; text-shadow:0 1px 8px rgba(0,0,0,.6); }
   .wowtag-big .ep{ font-size:10px; color:var(--dim); font-weight:500; letter-spacing:.1em; }
-  /* RAMP: the drop is close — the badge warms up and a live clock ticks. */
-  .wowtag-big.ramp{ color:#ffcf7a; border-color:rgba(240,169,59,.85);
-    background:rgba(52,32,8,.72); animation:wowRampGlow 2.4s ease-in-out infinite; }
-  .wowtag-big.ramp .cd-lbl{ font-size:9px; color:var(--dim); letter-spacing:.16em; align-self:center; }
-  .wowtag-big.ramp .cd{ font-size:16px; letter-spacing:.04em; font-variant-numeric:tabular-nums;
-    text-shadow:0 0 10px rgba(240,169,59,.45); }
-  @keyframes wowRampGlow{ 0%,100%{ box-shadow:0 0 0 rgba(240,169,59,0); }
+  /* Almost here (today/tomorrow): the badge warms up and gives a soft glow-pulse. */
+  .wowtag-big.soon{ color:#ffcf7a; border-color:rgba(240,169,59,.85);
+    background:rgba(52,32,8,.72); animation:wowSoonGlow 2.4s ease-in-out infinite; }
+  @keyframes wowSoonGlow{ 0%,100%{ box-shadow:0 0 0 rgba(240,169,59,0); }
     50%{ box-shadow:0 0 14px rgba(240,169,59,.35); } }
   .ymeta .sep{ color:rgba(255,255,255,.35); margin:0 7px; }
   .ymeta .svc-lit{ color:var(--amber); font-weight:700; text-shadow:0 0 10px rgba(240,169,59,.5); }
@@ -632,7 +629,10 @@ const released=e=>e.airdate && new Date(e.airdate+'T23:59:59')<=NOW;
 // avoid a tz day-slip), the next not-yet-aired episode, and the "swing to Pierre" when a
 // member taps START on an episode that has not dropped yet (offer a notify instead).
 function wowTagFor(e){ return (window.WoW && e && e.airdate) ? WoW.tag(e.airdate+'T12:00:00') : ''; }
-function wowNextUnaired(){ return eps.find(e=>e && e.airdate && !released(e)) || null; }
+// The next drop across the whole show (air order), not just the loaded season -- a
+// premiere of a not-yet-started season lives outside `eps`. allEps is season/number
+// ordered, so the first unaired episode is the true next drop.
+function wowNextUnaired(){ return (allEps&&allEps.length?allEps:eps).find(e=>e && e.airdate && !released(e)) || null; }
 function swingToNotify(){
   const e=eps[focus]||wowNextUnaired()||{};
   const payload={ intent:'notify', show:curShowName, titleId:curShowId, ep:epCode(e), epNum:e.number, season:e.season };
@@ -643,43 +643,34 @@ function swingToNotify(){
 }
 const sNum=e=>e.season||1;
 
-// RAMP countdown (WoW scheduler): once the next drop is inside the RAMP window
-// (<= 72h out) the big TAG turns into a live ticking countdown. The catalog only
-// carries airdate (date, no time), so we pull the precise airstamp from TVMaze via
-// the shared service and count down to that; airdate-at-noon is the coarse fallback.
-let _wowAir=null;        // {"season-number": airstamp} for the current show
-let _rampTimer=null;     // 1s interval handle while a countdown is on screen
-function wowLoadAir(){
-  _wowAir=null;
-  if(!window.WoW || isMovie || !curShowId) return;
-  WoW.episodes(curShowId).then(list=>{
-    const m={}; (list||[]).forEach(e=>{ if(e.airstamp) m[e.season+'-'+e.number]=e.airstamp; });
-    _wowAir=m; if(document.getElementById('wowTagBig')) paint();   // re-render with real times
-  }).catch(()=>{});
+// In-season drop label (WoW scheduler): from two weeks out the big badge names when
+// the next episode drops and tightens as it nears --
+//   "S4 NEXT WEDNESDAY" -> "S4 STARTS WEDNESDAY" -> "S4 STARTS TOMORROW" -> "S4 STARTS TODAY".
+// All day math runs on the LOCAL calendar date parsed from the airdate's Y-M-D
+// components (WoW.daysUntil / WoW.weekday), never new Date(isoString) which is UTC
+// midnight -- that UTC slip is what broke Today/Tomorrow across zones last year.
+// INSEASON_D (14 days) is the window; nothing shows before it.
+function wowDaysUntil(airdate){
+  if(window.WoW && WoW.daysUntil) return WoW.daysUntil(airdate);
+  const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(airdate||'')); if(!m) return null;   // local fallback
+  const drop=new Date(+m[1],+m[2]-1,+m[3]).getTime(), n=new Date();
+  return Math.round((drop-new Date(n.getFullYear(),n.getMonth(),n.getDate()).getTime())/864e5);
 }
-function wowRampH(){ return (window.WoW && WoW.CFG && WoW.CFG.RAMP_H) || 72; }
-function wowMsUntil(e){
-  if(!e) return null;
-  let iso = _wowAir && _wowAir[e.season+'-'+e.number];
-  if(!iso && e.airdate) iso = e.airdate+'T12:00:00';   // coarse fallback: local noon
-  if(!iso) return null;
-  return new Date(iso).getTime() - Date.now();
+function wowWeekday(airdate){
+  if(window.WoW && WoW.weekday) return WoW.weekday(airdate);
+  const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(String(airdate||'')); if(!m) return '';
+  return new Date(+m[1],+m[2]-1,+m[3]).toLocaleDateString('en-US',{weekday:'long'});
 }
-function fmtCountdown(ms){
-  if(ms<0) ms=0;
-  const s=Math.floor(ms/1000), pad=n=>String(n).padStart(2,'0');
-  const d=Math.floor(s/86400), h=Math.floor(s%86400/3600), m=Math.floor(s%3600/60), ss=s%60;
-  return (d>0? d+'d ':'') + pad(h)+':'+pad(m)+':'+pad(ss);
+function wowDropLabel(nx){
+  if(!nx) return null;
+  const d=wowDaysUntil(nx.airdate); if(d==null || d<0 || d>14) return null;   // outside the 2-week window
+  const S='S'+(nx.season||1);
+  if(d===0) return { txt:S+' STARTS TODAY', soon:true };
+  if(d===1) return { txt:S+' STARTS TOMORROW', soon:true };
+  const dow=wowWeekday(nx.airdate).toUpperCase();
+  if(d<=6) return { txt:S+' STARTS '+dow, soon:false };   // this week
+  return { txt:S+' NEXT '+dow, soon:false };               // 7-14 days out
 }
-function startRampTick(){
-  if(_rampTimer) return;
-  _rampTimer=setInterval(()=>{
-    const nx=wowNextUnaired(), ms=nx?wowMsUntil(nx):null, el=document.getElementById('wowCd');
-    if(!el || ms==null || ms<=0){ stopRampTick(); paint(); return; }   // dropped → repaint out of RAMP
-    el.textContent=fmtCountdown(ms);
-  },1000);
-}
-function stopRampTick(){ if(_rampTimer){ clearInterval(_rampTimer); _rampTimer=null; } }
 
 function boot(show,list,isDefault){
   hideEmpty();                       // a show is loading — clear the empty state
@@ -714,7 +705,6 @@ function boot(show,list,isDefault){
   for(let i=0;i<watched;i++){ const t=Date.now()-(watched-i)*45*6e4; watchTs.push(t); watchDate[i]=new Date(t); epDone[i]=true; epMin[i]=runtimeOf(i); epPreApp[i]=true; }
   focus=Math.min(watched, eps.length-1);
   paint();
-  wowLoadAir();    // fetch precise airstamps → repaints into a live countdown if in RAMP
   // If the Episode is showing a real show, make sure the Log is tracking it too
   // (so its progress can be saved). MVP only — DEMO's Log is a curated showcase.
   if(!DEMO && curShowId && window.parent!==window)
@@ -1984,20 +1974,9 @@ function paint(){
   const wtb=$('wowTagBig');
   if(wtb){
     const nx = !isMovie ? wowNextUnaired() : null;
-    const ms = nx ? wowMsUntil(nx) : null;
-    const ramp = ms!=null && ms>0 && ms <= wowRampH()*3600e3;   // inside the RAMP window
-    if(nx && ramp){
-      // RAMP: the drop is close (<=72h). Swap the day TAG for a live ticking countdown.
-      wtb.style.display='inline-flex'; wtb.classList.add('ramp');
-      wtb.innerHTML='<span class="cd-lbl">DROPS IN</span><span class="cd" id="wowCd">'+fmtCountdown(ms)+
-        '</span><span class="ep">S'+nx.season+'E'+nx.number+'</span>';
-      startRampTick();
-    } else {
-      stopRampTick(); wtb.classList.remove('ramp');
-      const tg = nx ? wowTagFor(nx) : '';
-      if(nx && tg){ wtb.style.display='inline-flex'; wtb.innerHTML = tg.toUpperCase()+'<span class="ep">S'+nx.season+'E'+nx.number+'</span>'; }
-      else wtb.style.display='none';
-    }
+    const lab = nx ? wowDropLabel(nx) : null;
+    if(lab){ wtb.style.display='inline-flex'; wtb.classList.toggle('soon', !!lab.soon); wtb.textContent=lab.txt; }
+    else { wtb.classList.remove('soon'); wtb.style.display='none'; }
   }
 
   // ----- minute bar (position inside the focused episode) -----
