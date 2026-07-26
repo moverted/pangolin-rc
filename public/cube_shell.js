@@ -7,6 +7,18 @@
 // See the cube map in CLAUDE.md.
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js';
 
+// UAT convenience: on a branch PREVIEW host only (a *.pangolin-rc.pages.dev SUBDOMAIN,
+// e.g. wow-scheduler.pangolin-rc.pages.dev), auto-sign-in the owner so preview builds
+// come up logged in. Never fires on the bare prod canonical (pangolin-rc.pages.dev) or
+// remote.pangolinrc.com. Preview-only affordance; do not carry to main as-is.
+try {
+  const h = location.hostname;
+  if (h !== 'pangolin-rc.pages.dev' && /\.pangolin-rc\.pages\.dev$/.test(h) && !localStorage.getItem('pg_user')) {
+    localStorage.setItem('pg_user', 'edward.m.willett@gmail.com');
+    localStorage.setItem('pg_refresh', String(Date.now()));
+  }
+} catch (_) {}
+
 await document.fonts.ready;
 
 // ─── face definitions ──────────────────────────────────────────────────────
