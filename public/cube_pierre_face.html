@@ -411,12 +411,16 @@
     const where = p.show ? (p.show + (p.ep ? (' '+p.ep) : '')) : 'what you just watched';
     noteCtx={ show:p.show||'', ep:p.ep||'', titleId:p.titleId||null, ticketId:p.ticketId||null,
               finished:!!p.finished, offerShare:!!p.offerShare };
-    addPierre(p.finished
+    pierreSay(p.finished
       ? ('You finished ' + where + '. Tell me what you made of it.')
-      : ('Noting ' + where + '. What did you make of it?'));
+      : ('Noting ' + where + '. What did you make of it?'),
+      [{label:'Skip', onClick:()=>skipNote()}]);
     input.placeholder = '';   // blank — the "what to watch" hint conflicts with a note
     input.focus();
   }
+  // Skip the reflection: the episode is already logged, so just drop the note and
+  // return to plain chat (no journal entry, no comment).
+  function skipNote(){ noteCtx=null; setCtxIndicator('chat'); input.placeholder="Ask Pierre what to watch..."; }
   // The captured thought: persist, then let Pierre react as a normal turn.
   async function noteTurn(text){
     const ctx=noteCtx; noteCtx=null;

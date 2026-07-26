@@ -13,6 +13,19 @@ Entry format:
 
 ---
 
+## 2026-07-25 — Fix: comment cap wrongly blocked Pierre-notes (Worker, NOT deployed)
+- **Worker code change (`src/index.ts`), NOT yet deployed.** Awaiting confirmation
+  (bug-fix branch `fix/prelaunch-bugs`; no prod deploy without Ted's OK).
+- Regression from 2026-07-19's per-episode comment cap. The Pierre voice-note mic
+  posts to `POST /transcribe` with `episodeId='pierre-note'` and NO `showId` purely
+  to get a transcription. The cap counted those in one `show_id IS NULL` bucket, so
+  after 5 notes the 6th (and every later one) got a 409 → transcription silently
+  failed. Fix: gate the cap on `showId` present (`else if (showId)`), so non-co-view
+  uploads (Pierre-notes) skip it. Real comments always send `showId`, so the cap is
+  unchanged for them.
+- No D1/schema change. `npx tsc --noEmit` clean.
+- **Deploy when confirmed:** `wrangler deploy --message "transcribe: exempt Pierre-notes (no showId) from the per-episode comment cap"`.
+
 ## 2026-07-21 — Movie credits on the LOG face (Worker DEPLOYED)
 - **Worker code change (`src/handlers/tmdb.ts`), DEPLOYED to PROD** with Ted's
   confirmation. `wrangler deploy --message "tmdb: movie detail returns

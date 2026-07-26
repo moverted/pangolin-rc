@@ -106,11 +106,14 @@ app.post('/transcribe', async (c) => {
       episodeId = parent.episode_id;
       showId = parent.show_id || showId;
       timestampMs = parent.timestamp_ms;   // anchor at the parent's mark, not the device clock
-    } else {
-      // Original comment (not a reply): cap at COVIEW_MAX_COMMENTS_PER_EPISODE per
-      // member per (show, episode). Count this member's existing originals for the
-      // episode and reject the one that would exceed the cap. Same watch_comment
-      // table the insert below writes to. Replies are exempt (handled above).
+    } else if (showId) {
+      // Original co-view comment (not a reply): cap at COVIEW_MAX_COMMENTS_PER_EPISODE
+      // per member per (show, episode). Count this member's existing originals for the
+      // episode and reject the one that would exceed the cap. Same watch_comment table
+      // the insert below writes to. Replies are exempt (handled above). Uploads with NO
+      // showId — Pierre-notes (episodeId 'pierre-note') use /transcribe purely to get a
+      // transcription — are NOT co-view comments and must skip the cap, or they'd all
+      // pile into one show_id-NULL bucket and jam after five.
       const existing = await c.env.DB
         .prepare(
           `SELECT COUNT(*) AS n FROM watch_comment
