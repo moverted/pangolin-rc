@@ -13,9 +13,11 @@ Entry format:
 
 ---
 
-## 2026-07-25 — Fix: comment cap wrongly blocked Pierre-notes (Worker, NOT deployed)
-- **Worker code change (`src/index.ts`), NOT yet deployed.** Awaiting confirmation
-  (bug-fix branch `fix/prelaunch-bugs`; no prod deploy without Ted's OK).
+## 2026-07-25 — Fix: comment cap wrongly blocked Pierre-notes (Worker DEPLOYED)
+- **Worker code change (`src/index.ts`), DEPLOYED to PROD** at Ted's request.
+  `wrangler deploy --message "transcribe: exempt Pierre-notes (no showId) from the
+  per-episode comment cap"`. Version `54b007bd-5f32-4e04-997c-f4ce7c517379`.
+  Frontend fixes on preview `prelaunch-fixes.pangolin-rc.pages.dev` (not yet prod).
 - Regression from 2026-07-19's per-episode comment cap. The Pierre voice-note mic
   posts to `POST /transcribe` with `episodeId='pierre-note'` and NO `showId` purely
   to get a transcription. The cap counted those in one `show_id IS NULL` bucket, so
