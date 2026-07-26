@@ -104,6 +104,7 @@ date · which branches/features folded in · what a tester should exercise.
 | Build | Version | Date | Included | Test focus |
 |------:|---------|------|----------|------------|
 | _next_ | — | — | — | — |
+| 3 | 1.0 | 2026-07-26 | prelaunch bug fixes + share card + reflection→comments (tag `tf-3`, web `90e430d`) | reopen→LOG, binge marker, wheel on reopen, feed posters, Skip chip, reflection→comment, share card + spoiler |
 
 ---
 
