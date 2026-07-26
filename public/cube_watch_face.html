@@ -465,6 +465,11 @@ function bucketOf(s){
   const ended=s.status==="Ended"||s.status==="Canceled";
   if(ended && s.watched>=s.total && s.total>0) return "completed";
   if(s.watched < s.released) return "current";
+  // Caught up but a new episode drops soon (in-season, e.g. a weekly mid-season show
+  // waiting on next week's drop) → still CURRENT, not "returning". Without this a
+  // running show you're caught up on falls into the under-construction returning tab
+  // and vanishes from the list. Uses the scheduler's live airstamps.
+  if(window.WoW && WoW.inSeason(s.episodes||[])) return "current";
   if(s.returnDate) return daysTo(s.returnDate)<=7 ? "current" : "returning";
   return ended ? "completed" : "returning";
 }
