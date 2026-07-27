@@ -6,6 +6,32 @@ same-session rule).
 
 ---
 
+## 2026-07-27 — TestFlight build 6 (1.0.1) — native share (IG Stories fix) + season/series cards [PREPPED, archive+upload pending Ted]
+
+- **Build 6, marketing 1.0.1.** Bumped `CURRENT_PROJECT_VERSION` 5→6 (both Debug +
+  Release). **Supersedes build 5** (never uploaded) — build 6 carries everything build 5
+  had PLUS the season/series reflection cards and the native-share fix.
+- **NEW native plugins:** `@capacitor/share@8.0.1` + `@capacitor/filesystem@8.1.2`
+  (`npm install`). `cap sync ios` wrote them into `ios/App/CapApp-SPM/Package.swift`
+  (local `node_modules` SPM paths) — Found 2 plugins for ios. **node_modules must be
+  present at archive time** for SPM to resolve.
+- **Fixes IG Stories share** (`doShareCard` in `cube_pierre_face.html`): web-share can't
+  attach a file inside WKWebView, so it degraded to text and IG rejected it ("Can't send
+  link"). Now, on the native platform, the card PNG is written to CACHE via Filesystem and
+  shared through the native OS sheet (`Share.share({files:[uri]})`) — the IMAGE reaches IG.
+  Web/PWA still uses `navigator.share`. Capacitor bridge is read from the TOP window
+  (`window.top.Capacitor`) since the share runs inside the Pierre face iframe.
+- **Also bundles** (all live on web since this session): share-card redesign + season/
+  series/episode reflection cards + finish-flow wiring (season wrap / series end).
+- **Archive + upload = Ted's step** (Xcode Organizer or `xcodebuild -scheme App
+  -configuration Release archive`, automatic signing, team `289R5P7B76`), then Distribute
+  → App Store Connect → Upload → Beta App Review. **Watch the build** — this is the first
+  build to add native plugins via SPM; if it fails to resolve, it's a `node_modules`/SPM
+  issue, not signing. On-device check per BUILD-SHEET §6: finish an episode → SHARE →
+  Instagram → **Stories** should now take the image.
+- **Known bug NOT fixed here:** episode finishes for S02E07/E08 didn't log (list stops at
+  S02E06); flagged for a separate look.
+
 ## 2026-07-27 — TestFlight build 5 (1.0.1) — share/reflection card redesign [PREPPED, archive+upload pending Ted]
 
 - **Build 5, marketing 1.0.1.** Bumped `CURRENT_PROJECT_VERSION` 4→5 in

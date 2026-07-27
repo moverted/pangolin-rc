@@ -843,8 +843,25 @@
       wrap.appendChild(img); log.appendChild(wrap); log.scrollTop=log.scrollHeight;
     }catch(_){}
   }
+  function _blobB64(blob){ return new Promise((res,rej)=>{ const fr=new FileReader();
+    fr.onload=()=>res(String(fr.result).split(',')[1]||''); fr.onerror=rej; fr.readAsDataURL(blob); }); }
   async function doShareCard(blob, ctx, text){
     const caption=(ctx.show||'')+(ctx.ep?(' '+ctx.ep):'')+' — on pangolinRC';
+    // Native (the Capacitor iOS app): web-share can't attach a file inside WKWebView, so it
+    // degrades to text and Instagram rejects it ("Can't send link"). Write the PNG to a temp
+    // file and share it through the native OS sheet — that hands the IMAGE to IG (Stories/feed).
+    // Capacitor's bridge lives on the TOP window, not this face iframe.
+    const Cap = (window.Capacitor) || (window.top && window.top.Capacitor);
+    if(blob && Cap && Cap.isNativePlatform && Cap.isNativePlatform() && Cap.Plugins && Cap.Plugins.Share && Cap.Plugins.Filesystem){
+      try{
+        const name='pangolinrc-card-'+Date.now()+'.png';
+        await Cap.Plugins.Filesystem.writeFile({ path:name, data:await _blobB64(blob), directory:'CACHE' });
+        const uri=(await Cap.Plugins.Filesystem.getUri({ path:name, directory:'CACHE' })).uri;
+        await Cap.Plugins.Share.share({ title:'pangolinRC', text:caption, files:[uri] });
+        addPierre('Shared.'); return;
+      }catch(e){ /* fall through to web share */ }
+    }
+    // Web / PWA: native web-share with the file works here.
     try{
       if(blob && navigator.canShare){ const file=new File([blob],'pangolinrc-card.png',{type:'image/png'});
         if(navigator.canShare({files:[file]})){ await navigator.share({files:[file], text:caption}); addPierre('Shared.'); return; } }
