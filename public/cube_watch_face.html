@@ -523,6 +523,9 @@ function wowEffMode(showId){
 }
 function wowStampFor(s){
   if(!window.WoW) return null;
+  // Movies have no weekly watch cadence -- the profile default shouldn't stamp them.
+  // (Repeated-viewing is its own pattern, a job for a separate scheduler.)
+  if(s && (s.kind==='movie' || /^tmdb:/.test(String(wowShowId(s))))) return null;
   const showId=wowShowId(s), st=WoW.store.stateNow()||{};
   if(st.user&&st.user.globalKill) return null;
   const declined=(st.modes&&st.modes[showId])==='DECLINED';   // toggled off for this show
