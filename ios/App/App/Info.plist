@@ -26,6 +26,8 @@
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>PangolinRC uses the microphone when you tap to record a short voice comment. Clips are stored so friends can hear them after they finish the episode.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>PangolinRC saves your share card (image or video) to Photos when you choose Save from the share sheet.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>PangolinRC controls your TV directly over your home Wi-Fi (play, pause, and navigation), so it needs to reach devices on your local network.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
