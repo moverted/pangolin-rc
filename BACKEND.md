@@ -87,6 +87,14 @@ Entry format:
   classifier ON/OFF badge exposing the re-enable switch after a two-strike kill
   (`WoW.store.reenable`; kill copy verbatim). No new API/route added (re-enable rides
   the existing `/scheduler/reenable`; off remains the decline path). All frontend.
+- **UAT increment 5 (branch preview), per Ted — the two surfaces now behave
+  differently on purpose:** WATCH stamp = plain ON/OFF toggle for that show only
+  (clear <-> DECLINED), no type cycling; type comes from the classifier or the
+  Profile default; off renders greyed+struck and stays tappable; a declined show with
+  no derivable pattern shows a generic recoverable OFF; MORE! displays as BINGE; the
+  old SET PATTERN type-cycling affordance removed. Profile default = single cycling
+  chip NONE->LIVE->FRESH->CASUAL->BINGE (the general aspiration, feeds unclassified
+  shows via `wowEffMode` fallback). All frontend; no Worker/D1 change.
 
 ## 2026-07-26 — Exempt reflections from the comment cap (D1 migration + Worker DEPLOYED)
 - **D1 SCHEMA CHANGE + Worker, DEPLOYED to PROD.** Migration `0024_watch_comment_reflection.sql`
