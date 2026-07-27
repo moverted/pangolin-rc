@@ -61,6 +61,14 @@ Entry format:
   RAMP-gated per the law, mode from manual override or `classifyDeltas`, scoped to
   the drop's season to dodge the epNum collision. `?wownudge=1` (read off parent
   URL, same-origin) forces a synthetic RAMP for UAT. All frontend; no Worker deploy.
+- **UAT increment 4 (branch preview):** shared reflection cards (`buildReflectionCard`
+  in Pierre) now ink the member's watchPattern; public label maps `MORE! -> BINGE`,
+  LIVE/FRESH/CASUAL carry through, silent for UNSAMPLED/DECLINED/kill. **Profile
+  Watch-patterns section** (`cube_profile_face.html`, now loads `/wow-scheduler.js`):
+  default-pattern chip (AUTO/LIVE/FRESH/CASUAL/MORE! -> `WoW.store.setDefault`) and a
+  classifier ON/OFF badge exposing the re-enable switch after a two-strike kill
+  (`WoW.store.reenable`; kill copy verbatim). No new API/route added (re-enable rides
+  the existing `/scheduler/reenable`; off remains the decline path). All frontend.
 
 ## 2026-07-26 — Exempt reflections from the comment cap (D1 migration + Worker DEPLOYED)
 - **D1 SCHEMA CHANGE + Worker, DEPLOYED to PROD.** Migration `0024_watch_comment_reflection.sql`
