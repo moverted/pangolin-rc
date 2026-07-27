@@ -6,6 +6,27 @@ same-session rule).
 
 ---
 
+## 2026-07-26 — TestFlight build 4 (1.0.1) — WoW in-season scheduler [ARCHIVED, upload pending Ted]
+
+- **Build 4, marketing 1.0.1.** Bumped `CURRENT_PROJECT_VERSION` 3→4 and
+  `MARKETING_VERSION` 1.0→1.0.1 in `App.xcodeproj/project.pbxproj` (both Debug +
+  Release). `cap sync ios` ran clean (no bundle diff — `www/` already synced).
+- **Archived from CLI** (`xcodebuild -scheme App -configuration Release archive`,
+  automatic signing, team `289R5P7B76`): **ARCHIVE SUCCEEDED**, validated-for-store,
+  `CFBundleShortVersionString 1.0.1 / CFBundleVersion 4 / com.PangolinRC.remote`.
+  Copied into `~/Library/Developer/Xcode/Archives/2026-07-26/` so it shows in Xcode
+  Organizer.
+- **Upload NOT done here** — TestFlight distribution needs App Store Connect
+  authentication + is an outward-facing publish, so it's Ted's step: Xcode Organizer
+  → the "PangolinRC 1.0.1 (4)" archive → Distribute App → App Store Connect → Upload,
+  then Beta App Review / cohort assignment in App Store Connect. Tag `tf-4` marks the
+  source (web commit `3bbf49b`).
+- **Bundles the WoW in-season scheduler v1.0.1** (already live on the web/PWA at
+  `remote.pangolinrc.com`, merged to `main` `f7a50d0`): shared `wow-scheduler.js`
+  service, Worker `/scheduler/*` on the `pangolinrc-scheduler` D1, WATCH on/off
+  pattern stamp, LOG 2-week drop label, proactive Pierre RAMP nudge, share-card
+  watch-state stamp (MORE!→BINGE), Profile default + re-enable. Movies excluded.
+
 ## 2026-07-26 — TestFlight build 3 (1.0) — prelaunch fixes + share card + reflection comments
 
 - **Build 3, marketing 1.0.** Archived + uploaded to Apple (Organizer: "Uploaded

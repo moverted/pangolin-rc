@@ -24,9 +24,10 @@ Entry format:
   now matches it, no re-deploy needed. `SCHED_DB` (pangolinrc-scheduler) live.
 - **Verified live:** prod `wow-scheduler.js` 200, custom domain 200, `/scheduler/state`
   200. Legacy `pangolin-rc` DB never migrated/rebound; scheduler state in its own D1.
-- **iOS NOT shipped:** this is the web/PWA production only. The Capacitor app needs a
-  fresh `npx cap sync ios` + Xcode/TestFlight build to carry the scheduler on device
-  (prod TestFlight build 4 is unchanged). `www/` is synced; `ios/App/App/public/` is not.
+- **iOS:** this deploy is web/PWA production only. The Capacitor app was subsequently
+  synced + archived as **build 4 (1.0.1)** to carry the scheduler on device (last
+  shipped was build 3, not 4 — the handoff's "build 4" was forward-looking). Archive
+  staged in Xcode Organizer; TestFlight upload is Ted's step. See WRAPPER.md.
 - Rollback if needed: `wrangler rollback` (Worker) / redeploy a prior Pages deployment.
 
 ## 2026-07-26 — WoW scheduler Worker routes DEPLOYED to production (Ted's explicit OK)
