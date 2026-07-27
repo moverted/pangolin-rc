@@ -588,10 +588,22 @@
     if(ctx.finished || ctx.offerShare){
       let uname=''; try{ uname=(localStorage.getItem('pg_username')||'').trim(); }catch(_){}
       const watchMode=await wowCardMode(email, ctx.titleId);   // stamp the card with their pattern
+      // Live-fetch this episode's own co-view comments for the card's teaser rows —
+      // timestamps only (the card hides the "what"). episode_id is the ep code (S02E07).
+      let teasers=[], commentCount=0;
+      if(email && ctx.titleId && ctx.ep){
+        try{
+          const cr=await fetch(`${API}/transcribe/comments?showId=${encodeURIComponent(ctx.titleId)}&email=${encodeURIComponent(email)}`);
+          if(cr.ok){ const cs=((await cr.json()).comments||[]).filter(c=>c.episodeId===ctx.ep && !c.replyTo);
+            commentCount=cs.length;
+            teasers=cs.map(c=>c.timestampMs).filter(v=>typeof v==='number').sort((a,b)=>a-b); }
+        }catch(_){}
+      }
       // Pre-build the card NOW (async: loads poster) so the Share tap can fire
       // navigator.share synchronously in-gesture — iOS drops a share after an await.
-      const blob=await buildReflectionCard({ username:uname||'Someone', epCode:ctx.ep,
-        show:ctx.show, platform:ctx.platform, poster:ctx.poster, comment:text, spoiler:noteSpoiler, watchMode }).catch(()=>null);
+      const blob=await buildReflectionCard({ username:uname, email, epCode:ctx.ep,
+        show:ctx.show, platform:ctx.platform, poster:ctx.poster, comment:text, spoiler:noteSpoiler,
+        watchMode, teasers, commentCount }).catch(()=>null);
       if(blob) addCardPreview(blob);
       pierreSay(noteSpoiler ? 'Card ready (quote hidden — spoiler). Share it?' : 'Card ready. Share it?', [
         {label:'Share card', onClick:()=>doShareCard(blob, ctx, text)},
@@ -642,61 +654,146 @@
   function _wrap(g,text,maxW){ const words=String(text||'').split(/\s+/); const lines=[]; let ln='';
     for(const w of words){ const t=ln?ln+' '+w:w; if(g.measureText(t).width>maxW && ln){ lines.push(ln); ln=w; } else ln=t; }
     if(ln) lines.push(ln); return lines; }
+  // Float-wrap: text hugs the poster's left edge (narrowW) while a line sits beside it,
+  // then flows to fullW once the line drops below the poster. Returns {text,y} per line.
+  function _wrapFlow(g,text,x,yStart,lineH,narrowW,fullW,posterBottom){
+    const words=String(text||'').split(/\s+/); const out=[]; let ln='', y=yStart;
+    const wAt=(yy)=> yy>posterBottom ? fullW : narrowW;
+    for(const w of words){ const t=ln?ln+' '+w:w;
+      if(g.measureText(t).width>wAt(y) && ln){ out.push({text:ln,y}); y+=lineH; ln=w; } else ln=t; }
+    if(ln) out.push({text:ln,y}); return out; }
+  // A playback-cursor timestamp, compact: "12m" under an hour, "1h9m" past it.
+  function cardMins(ms){ let t=Math.max(0,Math.round((ms||0)/60000)); const h=Math.floor(t/60), m=t%60;
+    return h ? (h+'h'+(m?m+'m':'')) : (m+'m'); }
+  // Cut Pierre out of his white studio plate. Flood-fill white inward from the image
+  // edges to find ONLY the background (so enclosed whites like his eye are preserved):
+  // background → transparent, its light fringe → darkened (no white halo). Then trim to
+  // his silhouette. Same-origin image → getImageData is untainted.
+  function _cutout(img){
+    const c=document.createElement('canvas'); c.width=img.width; c.height=img.height; const x=c.getContext('2d');
+    x.drawImage(img,0,0); const W=c.width,H=c.height, d=x.getImageData(0,0,W,H), p=d.data;
+    const bg=new Uint8Array(W*H), stack=[];
+    const white=(idx)=>{ const i=idx*4; return p[i]>224&&p[i+1]>224&&p[i+2]>224; };
+    function seed(xx,yy){ if(xx<0||yy<0||xx>=W||yy>=H) return; const idx=yy*W+xx;
+      if(!bg[idx]&&white(idx)){ bg[idx]=1; stack.push(idx); } }
+    for(let xx=0;xx<W;xx++){ seed(xx,0); seed(xx,H-1); }
+    for(let yy=0;yy<H;yy++){ seed(0,yy); seed(W-1,yy); }
+    while(stack.length){ const idx=stack.pop(), xx=idx%W, yy=(idx/W)|0;
+      seed(xx-1,yy); seed(xx+1,yy); seed(xx,yy-1); seed(xx,yy+1); }
+    let x0=W,y0=H,x1=0,y1=0;
+    for(let yy=0;yy<H;yy++) for(let xx=0;xx<W;xx++){ const idx=yy*W+xx, i=idx*4;
+      if(bg[idx]){ p[i+3]=0; continue; }                                  // background → transparent
+      if(p[i]>168&&p[i+1]>168&&p[i+2]>168){                               // light pixel…
+        const edge=(xx>0&&bg[idx-1])||(xx<W-1&&bg[idx+1])||(yy>0&&bg[idx-W])||(yy<H-1&&bg[idx+W]);
+        if(edge){ p[i]*=0.45; p[i+1]*=0.45; p[i+2]*=0.45; }               // …touching background → darken fringe
+      }
+      if(xx<x0)x0=xx; if(xx>x1)x1=xx; if(yy<y0)y0=yy; if(yy>y1)y1=yy; }
+    x.putImageData(d,0,0);
+    const tw=Math.max(1,x1-x0+1), th=Math.max(1,y1-y0+1);
+    const t=document.createElement('canvas'); t.width=tw; t.height=th;
+    t.getContext('2d').drawImage(c,x0,y0,tw,th,0,0,tw,th); return t;
+  }
   async function buildReflectionCard(o){
-    const S=1080, cv=document.createElement('canvas'); cv.width=S; cv.height=S; const g=cv.getContext('2d');
+    const S=1080, M=110, cv=document.createElement('canvas'); cv.width=S; cv.height=S; const g=cv.getContext('2d');
     const bg=g.createLinearGradient(0,0,S,S); bg.addColorStop(0,'#17110b'); bg.addColorStop(1,'#0b0907');
     g.fillStyle=bg; g.fillRect(0,0,S,S);
     g.fillStyle='rgba(240,169,59,0.10)'; _rr(g,40,40,S-80,S-80,36); g.fill();
-    // poster (top-right); tainted/cross-origin failure just omits it
+    g.textBaseline='alphabetic';
+    // poster (top-right), top-aligned to the uniform M margin (pX+pW = S-M).
     let poster=await loadImg(o.poster,true);
-    // right edge on the same 110px margin as the wordmark + comment box; a touch bigger
-    const pW=340, pH=Math.round(pW*444/300), pX=S-110-pW, pY=150;
+    const pW=300, pH=Math.round(pW*444/300), pX=S-M-pW, pY=M;
     if(poster){ try{ g.save(); _rr(g,pX,pY,pW,pH,18); g.clip();
       const tr=pW/pH; let sw=poster.width,sh=poster.height,sx=0,sy=0;
       if(poster.width/poster.height>tr){ sw=poster.height*tr; sx=(poster.width-sw)/2; } else { sh=poster.width/tr; sy=(poster.height-sh)/2; }
       g.drawImage(poster,sx,sy,sw,sh,pX,pY,pW,pH); g.restore(); }catch(_){ poster=null; } }
     if(!poster){ g.fillStyle='rgba(255,255,255,0.05)'; _rr(g,pX,pY,pW,pH,18); g.fill(); }
-    // Pierre host + wordmark
-    const pierre=await loadImg('/pierre.png',false);
-    if(pierre){ const pw=250, ph=Math.round(pw*pierre.height/pierre.width), x=110, y=155;   // keep aspect — no squish
-      g.save(); _rr(g,x,y,pw,ph,20); g.clip(); g.drawImage(pierre,x,y,pw,ph); g.restore(); }
-    g.fillStyle='#f0a93b'; g.font='700 30px Inter, system-ui, sans-serif'; g.fillText('pangolinRC', 110, 130);
-    // action copy
+    // action copy — top-aligned (no wordmark). Name falls back username → email → "Someone".
+    const who=(o.username||o.email||'Someone');
     g.fillStyle='rgba(248,242,232,0.85)'; g.font='700 40px Inter, system-ui, sans-serif';
-    g.fillText((o.username||'Someone')+' just watched', 110, 380);
+    g.fillText(who+' just watched', M, 158);
     g.fillStyle='#fff'; g.font='800 52px Inter, system-ui, sans-serif';
-    const l2=_wrap(g,(o.epCode?o.epCode+' of ':'')+(o.show||'a show'), pX-140).slice(0,2);
-    l2.forEach((ln,i)=> g.fillText(ln, 110, 450+i*58));
-    let by=450+l2.length*58+8;
+    const l2=_wrapFlow(g,(o.epCode?o.epCode+' of ':'')+(o.show||'a show'), M,226,58, pX-M-18, S-2*M, pY+pH).slice(0,3);
+    l2.forEach(o2=> g.fillText(o2.text, M, o2.y));
+    const titleBottom=(l2.length?l2[l2.length-1].y:226);
+    let by=titleBottom+56;   // full line-gap so the platform never crashes the title
     if(o.platform){ g.fillStyle='rgba(248,242,232,0.65)'; g.font='500 32px Inter, system-ui, sans-serif';
-      g.fillText('on '+o.platform, 110, by); }
-    // watch-state stamp: the member's pattern, ink-stamped (MORE! reads as BINGE).
+      g.fillText('on '+o.platform, M, by); }
+    const pB=pY+pH, colW=pX-M-18;
+    // ── Teaser comments: hook + a single hidden-times list. The list shows as many
+    // times as fit and elides the rest with "…", so its count always reconciles with
+    // the header (never looks like we miscounted).
+    const teasers=Array.isArray(o.teasers)?o.teasers:[];
+    const cCount=o.commentCount||teasers.length;
+    const ty=(o.platform?by:titleBottom)+62;
+    if(cCount>0){
+      g.fillStyle='#f0a93b'; g.font='800 34px Inter, system-ui, sans-serif';
+      g.fillText(cCount+' comment'+(cCount===1?'':'s')+' on this episode', M, ty);
+      g.fillStyle='rgba(248,242,232,0.6)'; g.font='500 28px Inter, system-ui, sans-serif';
+      const subLines=['watch with pangolinRC to hear','them in real time'];
+      subLines.forEach((ln,i)=> g.fillText(ln, M, ty+40+i*34));
+      const times=teasers.map(cardMins);
+      if(times.length){
+        // Below the poster so the times list can run full-width (all fit, or "…" for the rest).
+        const listY=Math.max(ty+40+(subLines.length-1)*34+52, pB+40), listW=S-2*M;
+        g.fillStyle='rgba(248,242,232,0.55)'; g.font='600 28px Inter, system-ui, sans-serif';
+        const lead='Comments hidden at ', shown=[];
+        for(const t of times){ const more=shown.length+1<cCount;
+          const trial=lead+[...shown,t].join(', ')+(more?', …':'');
+          if(g.measureText(trial).width<=listW) shown.push(t); else break; }
+        const text=lead+(shown.length?shown.join(', '):'')+(shown.length<cCount?(shown.length?', …':'…'):'');
+        g.fillText(text, M, listY);
+      }
+    } else {
+      // No comments on this episode yet — a generic co-watch CTA fills the space.
+      g.fillStyle='#f0a93b'; g.font='800 40px Inter, system-ui, sans-serif';
+      _wrapFlow(g,'watch along with '+who+' on pangolinRC', M, ty+8,50, colW, S-2*M, pB).slice(0,3).forEach(o2=> g.fillText(o2.text, M, o2.y));
+    }
+    // watch-state stamp: a red rubber stamp cocked in the gap between the poster's
+    // lower edge and the green box, centered under the poster (MORE! reads as BINGE).
     if(o.watchMode){
       const label=wowCardLabel(o.watchMode);
       g.save();
-      g.font='800 36px Inter, system-ui, sans-serif';
-      const tw=g.measureText(label).width, padX=24, bh=64, bw=tw+padX*2;
-      g.translate(110, by + (o.platform ? 40 : 26));   // just under the title/platform block
-      g.rotate(-0.055);                                  // slight tilt, like a rubber stamp
-      g.lineWidth=3.5; g.strokeStyle='#f0a93b';
+      g.font='800 42px Inter, system-ui, sans-serif';
+      const tw=g.measureText(label).width, padX=28, bh=72, bw=tw+padX*2;
+      g.translate(pX+pW/2, (pB + (S-M-250))/2);   // midpoint of poster-bottom → green-box-top
+      g.rotate(-0.13);                            // cocked a little more than before
+      g.translate(-bw/2,-bh/2);
+      g.lineWidth=4; g.strokeStyle='#e0322c';
       _rr(g,0,0,bw,bh,12); g.stroke();
-      g.fillStyle='#f0a93b'; g.textBaseline='middle';
+      g.fillStyle='#e0322c'; g.textBaseline='middle';
       g.fillText(label, padX, bh/2+2);
-      g.restore();
+      g.restore(); g.textBaseline='alphabetic';
     }
-    // comment area (spoiler-aware)
-    const cx=110, cy=690, cw=S-220, ch=300;
-    if(o.spoiler || !o.comment){
-      g.fillStyle='rgba(224,50,44,0.15)'; _rr(g,cx,cy,cw,ch,24); g.fill();
-      g.fillStyle='#ff9d5c'; g.font='800 32px Inter, system-ui, sans-serif'; g.fillText('⚠ SPOILER', cx+40, cy+80);
-      g.fillStyle='rgba(248,242,232,0.6)'; g.font='500 32px Inter, system-ui, sans-serif';
-      g.fillText('Hidden — watch it first.', cx+40, cy+145);
+    // comment area (spoiler-aware) — bottom-anchored to the uniform margin (cy+ch = S-M).
+    const cx=M, cw=S-2*M, ch=250, cy=S-M-ch;
+    // Pierre — cut out, seated on the box's bottom edge, bottom-LEFT. Loaded first so the
+    // quote text can inset past his silhouette with a clear buffer.
+    const pierre=await loadImg('/pierre.png',false);
+    let px2=cx+16, pw2=0, ph2=0, pc=null;
+    if(pierre){ pc=_cutout(pierre); ph2=136; pw2=Math.round(ph2*pc.width/pc.height); }   // 20% smaller than before
+    const tx=(pc?px2+pw2+30:cx+40), tw2=cx+cw-40-tx;   // 30px buffer keeps text off Pierre
+    const spoiler=o.spoiler||!o.comment;
+    g.fillStyle= spoiler ? 'rgba(224,50,44,0.15)' : 'rgba(91,191,123,0.15)'; _rr(g,cx,cy,cw,ch,24); g.fill();
+    // Label sits over Pierre's head (not in the quote column), so the quote gets the
+    // full right column — up to 4 lines instead of 3.
+    const labelText= spoiler ? '⚠ SPOILER' : 'SPOILER-FREE';
+    g.font='800 26px Inter, system-ui, sans-serif'; g.fillStyle= spoiler ? '#ff9d5c' : '#5bbf7b';
+    const lw=g.measureText(labelText).width; let lx= pc ? (px2+pw2/2-lw/2) : (cx+40); if(lx<cx+30) lx=cx+30;
+    g.fillText(labelText, lx, cy+66);
+    if(spoiler){
+      g.fillStyle='rgba(248,242,232,0.6)'; g.font='500 30px Inter, system-ui, sans-serif';
+      _wrap(g,'Hidden — watch it first, then see the comment in pangolinRC', tw2)
+        .slice(0,4).forEach((ln,i)=> g.fillText(ln, tx, cy+92+i*40));
     } else {
-      g.fillStyle='rgba(91,191,123,0.15)'; _rr(g,cx,cy,cw,ch,24); g.fill();
-      g.fillStyle='#5bbf7b'; g.font='800 26px Inter, system-ui, sans-serif'; g.fillText('SPOILER-FREE', cx+40, cy+58);
-      g.fillStyle='#f8f2e8'; g.font='600 38px Inter, system-ui, sans-serif';
-      _wrap(g,'“'+o.comment+'”', cw-80).slice(0,4).forEach((ln,i)=> g.fillText(ln, cx+40, cy+120+i*50));
+      g.fillStyle='#f8f2e8'; g.font='600 34px Inter, system-ui, sans-serif';
+      // Overrun past 4 lines → truncate the last line with an ellipsis, keeping the quote closed.
+      let lines=_wrap(g,'“'+o.comment+'”', tw2);
+      if(lines.length>4){ lines=lines.slice(0,4); let last=lines[3].replace(/”$/,'');
+        while(last && g.measureText(last+'…”').width>tw2){ last=last.replace(/\s*\S+$/,''); }
+        lines[3]=last.replace(/\s+$/,'')+'…”'; }
+      lines.forEach((ln,i)=> g.fillText(ln, tx, cy+64+i*46));
     }
+    if(pc){ g.drawImage(pc, px2, cy+ch-ph2, pw2, ph2); }
     return await new Promise(res=> cv.toBlob(b=>res(b),'image/png',0.92));
   }
   function addCardPreview(blob){
