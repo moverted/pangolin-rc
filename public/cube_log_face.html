@@ -216,6 +216,12 @@
   .sfbtn.logpart{ --accent:var(--text);  --flipfg:#1a1206;         border-color:var(--accent); color:var(--accent); }
   .sfbtn.continue{ --accent:var(--text); --flipfg:#1a1206;         border-color:var(--accent); color:var(--accent); }
   .sfbtn.finish{ --accent:var(--green); --flipfg:#06140b;          border-color:var(--accent); color:var(--accent); }
+  /* Called out when the episode-end timer ran out while you were away in the streamer:
+     the finish is waiting for your confirming tap. A green glow-pulse pulls the eye
+     without changing the button's action. */
+  .sfbtn.finish.callout{ animation:finishCallout 1.4s ease-in-out infinite; }
+  @keyframes finishCallout{ 0%,100%{ box-shadow:0 0 0 rgba(91,191,123,0);  transform:none; }
+                            50%   { box-shadow:0 0 16px rgba(91,191,123,.75); transform:translateY(-1px); } }
   /* Mic button: larger, round, standalone focal point */
   .mic-center{ position:relative; width:64px; height:64px; padding:0; display:flex; align-items:center;
     justify-content:center; border-radius:50%; background:rgba(240,169,59,.2);
@@ -2198,7 +2204,20 @@ $('startEpBtn').onclick=()=>{
   if(a==='log') logIt();
   else startEpisode();   // 'start' and 'continue' both (re-)arm the live timer
 };
-$('finishEpBtn').onclick=()=>{ flashBtn($('finishEpBtn')); if(isTheater()) openTicket(); else finishEpisode(); };
+$('finishEpBtn').onclick=()=>{ clearFinishCallout(); flashBtn($('finishEpBtn')); if(isTheater()) openTicket(); else finishEpisode(); };
+
+// Call the FINISH button out (green glow-pulse) when the member returns from a watch
+// whose episode-end timer already ran out: the finish is staged and just needs their
+// confirming tap. Scroll it into view; lift the pulse after a while so it doesn't
+// throb forever if they wander off.
+let _finishCalloutT=null;
+function calloutFinish(){
+  const fn=$('finishEpBtn'); if(!fn) return;
+  fn.classList.add('callout');
+  try{ fn.scrollIntoView({block:'center', behavior:'smooth'}); }catch(_){}
+  clearTimeout(_finishCalloutT); _finishCalloutT=setTimeout(clearFinishCallout, 30000);
+}
+function clearFinishCallout(){ const fn=$('finishEpBtn'); if(fn) fn.classList.remove('callout'); clearTimeout(_finishCalloutT); }
 $('micBtn').onclick=()=>{
   // In REPLY mode the mic answers the pending friend comment instead of recording.
   if(!isRecording){
@@ -2386,7 +2405,7 @@ async function loadTitle(titleId, pattern, opts){
   eps0.forEach(e=>{ if(e.done||e.minute||e.bp||(e.sessions&&e.sessions.length))
     saved[e.season+'-'+e.number] = { done:!!e.done, min:e.minute||0, bp:!!e.bp, sessions:e.sessions||[] }; });
   boot(show, list, false);
-  const suppressWalk = opts.autoFinish || opts.partial;
+  const suppressWalk = opts.autoFinish || opts.partial || opts.promptFinish;
   pendingRestore = { minute:0, startedAt: suppressWalk ? null : (opts.startedAt||null), episodes:saved };
   applyPattern(pattern||{kind:'beginning'});
 }
@@ -2549,11 +2568,28 @@ $('ymeta').addEventListener('click',(ev)=>{
 //                  guess (capped below runtime) so the member sets the real minute.
 async function launchShow(L){
   if(!L || !L.tvmazeId) return;   // L.tvmazeId is the title_id ('tvmaze:…' / 'tmdb:…')
-  // Resume to the exact episode launched. autoFinish / partial suppress the
-  // away-time walk; otherwise the elapsed time since L.startedAt is placed.
+  // Episode-end timer ran out while the member was away in the streamer? The shell
+  // flags promptFinish; we also derive it from the elapsed runtime so a cold reload
+  // that self-boots from pg_launch behaves the same. When set, we DON'T let the
+  // away-time walk auto-place an unvalidated completion (which would advance focus
+  // off the launched episode); instead we hold focus here and call FINISH out for a
+  // deliberate, account-writing tap.
+  const elapsed = (Date.now()-(L.startedAt||Date.now()))/60000;
+  const promptFinish = !!L.promptFinish || (!L.autoFinish && !L.partial && L.runtime && elapsed >= L.runtime);
+  // Resume to the exact episode launched. autoFinish / partial / promptFinish suppress
+  // the away-time walk; otherwise the elapsed time since L.startedAt is placed.
   const pat = (L.season && L.number) ? {kind:'at', season:L.season, number:L.number} : {kind:'beginning'};
-  await loadTitle(L.tvmazeId, pat, {startedAt:L.startedAt, autoFinish:L.autoFinish, partial:L.partial});
+  await loadTitle(L.tvmazeId, pat, {startedAt:L.startedAt, autoFinish:L.autoFinish, partial:L.partial, promptFinish});
   if(L.autoFinish){ finishEpisode(); return; }   // full-finish the launched episode + advance focus
+  if(promptFinish){
+    // Land on the launched episode with the bar reading full (you watched it) and the
+    // FINISH button called out. The tap runs finishEpisode() → logs the completion to
+    // the account BEFORE Pierre catches the reaction/share, so a crash there can't lose
+    // the finish (the failure mode on Hacks S2E7).
+    epMin[focus]=runtimeOf(focus); minPreview=null; awaitingLog=false; paint();
+    calloutFinish();
+    return;
+  }
   if(L.partial){
     // Stage the elapsed-time guess on the scrubber, capped below runtime so it
     // reads as a partial. The left button shows "LOG <n> min" (awaitingLog) to commit it.

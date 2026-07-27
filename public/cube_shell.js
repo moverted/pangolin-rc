@@ -1355,7 +1355,6 @@ window.addEventListener('storage', (e) => { if (e.key === 'pg_device') updateDev
 // rank it. Browser ceiling: the timer only runs while the browser is alive —
 // closing it kills the timer. We derive runtime from TVMaze each time, store nothing.
 let _epEndTimer = null;
-let _armNextOnReturn = false;   // set when "Watch Next" wants the next episode's timer re-armed
 function scheduleEpisodeEnd(ep) {
   if (!ep || !ep.runtime || !('Notification' in window)) return;
   const startedAt = ep.startedAt || Date.now();   // stamp the watch start for the partial guess
@@ -1366,22 +1365,28 @@ function scheduleEpisodeEnd(ep) {
       body: ep.name + ' · EP ' + ep.number,
       tag: 'pangolin-episode-end'
     });
-    n.onclick = () => {                                  // call the member back to Pierre's "did you finish?" prompt
+    n.onclick = () => {                                  // land on the Log with FINISH called out (timer just elapsed)
       window.focus();
-      routeEpisodeFinish({ tvmazeId: ep.tvmazeId, name: ep.name, season: ep.season,
-                           number: ep.number, runtime: ep.runtime, startedAt });
+      openLaunchOnLog({ tvmazeId: ep.tvmazeId, name: ep.name, season: ep.season,
+                        number: ep.number, runtime: ep.runtime, startedAt }, true);
     };
   }, ep.runtime * 60 * 1000);
 }
-// Send the member to Pierre's "Did you finish …?" prompt for a launched episode.
-// Used by both the on-return check and the (best-effort) end-of-episode notification.
-function routeEpisodeFinish(L) {
+// Land on the LOG face at a launched episode. When promptFinish is set (the episode-
+// end timer has elapsed) the face stages the finish and calls the FINISH button out
+// for a one-tap, account-writing commit BEFORE any Pierre/share step — see launchShow
+// in cube_log_face. Shared by the on-return check (resumeLaunch) and the (best-effort)
+// end-of-episode notification, so both routes finish the same reliable way.
+function openLaunchOnLog(L, promptFinish) {
   if (!L || !L.tvmazeId) return;
-  rotateToFace(FACE_INDEX.pierre);
-  const cfg = FACE_OVERLAYS[FACE_INDEX.pierre];
+  const cfg = FACE_OVERLAYS[FACE_INDEX.episodes];
   if (cfg && cfg.frame && cfg.frame.contentWindow)
-    cfg.frame.contentWindow.postMessage({ type: 'cube:payload', face: 'pierre',
-      payload: { intent: 'episode-finish', launch: L } }, '*');
+    cfg.frame.contentWindow.postMessage({ type: 'cube:launch',
+      launch: { ...L, promptFinish: !!promptFinish } }, '*');
+  episodesEmpty = false;   // a launched show is loading — don't bounce to the Log
+  // NOTE the swapped index names: the LOG face (cube_log_face) is FACE_INDEX.episodes,
+  // NOT FACE_INDEX.log (which is the WATCH face).
+  rotateToFace(FACE_INDEX.episodes);
 }
 // Launch the current show on its streamer + start the episode-end timer. Driven
 // by the play button and by tapping the lit streamer name on the Episode face.
@@ -1427,19 +1432,17 @@ function resumeLaunch() {
   try { L = JSON.parse(localStorage.getItem('pg_launch') || 'null'); } catch {}
   if (!L || !L.tvmazeId) return;
   if (Date.now() - (L.startedAt || 0) > 6 * 3600 * 1000) return;   // stale (>6h) — ignore
-  // If the episode would already have ended, call the member back to Pierre's
-  // "Did you finish …?" prompt. Otherwise fall through to the Watch-face scrubber.
+  // ALWAYS land on the LOG face at the launched episode. If the episode-end timer
+  // has already elapsed, flag promptFinish so the face stages the episode as done
+  // and calls the FINISH button out — the member commits it with one deliberate tap,
+  // which writes the completion to the account BEFORE any Pierre/share step. The old
+  // path jumped straight to Pierre's "Did you finish …?" prompt here, leaving the
+  // finish unwritten until Pierre's commit chain ran; if a share sheet or crash
+  // intervened first (as it did on Hacks S2E7), the finish was silently lost while
+  // the co-view comment — written on its own path — survived.
   const elapsedMin = (Date.now() - (L.startedAt || 0)) / 60000;
-  if (L.runtime && elapsedMin >= L.runtime) { routeEpisodeFinish(L); return; }
-  const cfg = FACE_OVERLAYS[FACE_INDEX.episodes];
-  if (cfg && cfg.frame && cfg.frame.contentWindow)
-    cfg.frame.contentWindow.postMessage({ type: 'cube:launch', launch: L }, '*');
-  episodesEmpty = false;   // a launched show is loading — don't bounce to the Log
-  // Reopening while the timer is still running lands on the LOG face (the live
-  // countdown) — where the launch was just staged (above). NOTE the swapped
-  // index names: the LOG face (cube_log_face) is FACE_INDEX.episodes, NOT
-  // FACE_INDEX.log (which is the WATCH face). Rotating to .log here was the bug.
-  rotateToFace(FACE_INDEX.episodes);
+  const ranOut = !!(L.runtime && elapsedMin >= L.runtime);
+  openLaunchOnLog(L, ranOut);
 }
 window.addEventListener('pageshow', () => { resumeLaunch(); updateDeviceChip(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) { resumeLaunch(); updateDeviceChip(); } });
@@ -1665,12 +1668,6 @@ window.addEventListener('message', (e) => {
     episodesEmpty = !e.data.show;
     updatePlayState();
     if (episodesEmpty) bounceFromEmptyWatch(FACE_INDEX.episodes);
-    // "Watch Next": the Watch face just advanced to the next episode — re-arm the
-    // episode-end timer for it (the member is off watching it on their device).
-    if (_armNextOnReturn && currentEpisode) {
-      _armNextOnReturn = false;
-      scheduleEpisodeEnd({ ...currentEpisode, startedAt: Date.now() });
-    }
   }
   // Episode loaded a show → make sure the Log is tracking it too (Log dedupes).
   if (e.data?.type === 'episode:track' && e.data.tvmazeId)
@@ -1692,27 +1689,6 @@ window.addEventListener('message', (e) => {
     if (logCfg && logCfg.frame && logCfg.frame.contentWindow)
       logCfg.frame.contentWindow.postMessage({ type: 'cube:payload', face: 'log',
         payload: { finishShow: { tvmazeId: e.data.tvmazeId } } }, '*');
-  }
-  // Pierre's "Did you finish …?" choice: log the episode + navigate. The Watch
-  // face owns the logging (via cube:launch); the shell rotates to the right face.
-  if (e.data?.type === 'episodeFinish:commit') {
-    const L = e.data.launch || {};
-    const epCfg = FACE_OVERLAYS[FACE_INDEX.episodes];
-    const post = (launch) => { if (epCfg && epCfg.frame && epCfg.frame.contentWindow)
-      epCfg.frame.contentWindow.postMessage({ type: 'cube:launch', launch }, '*'); };
-    episodesEmpty = false;   // a show is loading on the Watch face — don't bounce to the Log
-    try { localStorage.removeItem('pg_launch'); } catch {}   // consumed — don't re-prompt on next return
-    if (e.data.choice === 'partial') {
-      post({ ...L, partial: true });             // load at the episode + stage the scrubber guess
-      rotateToFace(FACE_INDEX.episodes);
-    } else if (e.data.choice === 'browse') {
-      post({ ...L, autoFinish: true });          // full-finish the episode
-      rotateToFace(FACE_INDEX.join);             // BROWSE lives on the join face
-    } else if (e.data.choice === 'next') {
-      _armNextOnReturn = true;                   // re-arm the timer when the Watch face reports the next episode
-      post({ ...L, autoFinish: true });          // full-finish + advance to the next episode
-      rotateToFace(FACE_INDEX.log);
-    }
   }
   // Pierre's join intake populates the Log with the named shows.
   if (e.data?.type === 'pierre:addToLog' && Array.isArray(e.data.shows))
