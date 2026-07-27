@@ -13,6 +13,24 @@ Entry format:
 
 ---
 
+## 2026-07-26 — WoW scheduler Worker routes DEPLOYED to production (Ted's explicit OK)
+- **`wrangler deploy`** pushed `/scheduler/state|mode|default|notify|reenable` + the
+  `SCHED_DB` binding to the prod Worker `pangolin-rc.edward-m-willett.workers.dev`.
+  Version `a5c211cb-23fb-4406-8293-85b7757b52fa`. Preflight before push: diff vs main
+  purely additive (188 ins, 0 del), branch a superset of main (0 missing commits,
+  includes the reflection cap-exempt work), `tsc --noEmit` clean, dry-run resolved all
+  bindings, SCHED_DB migration confirmed (4 tables). Existing routes/bindings unchanged;
+  legacy `pangolin-rc` DB only read for users/episodes validation, never written by
+  these routes. Reversible via `wrangler rollback`.
+- **Smoke-tested live end to end** (state/default/mode/notify/reenable all persist +
+  read back). Note: workers.dev served mixed old/new versions for ~30s during global
+  colo propagation (intermittent "Not found"), then settled to 12/12 consistent.
+- **Data note:** restored Ted's declared `tvmaze:48090` (SNW) = `FRESH` server-side.
+  It had lived only in localStorage while the Worker was down; now that `store.load`
+  treats the server as authoritative and overwrites the local cache, the declaration
+  had to exist in `sched_mode_choice` or it would have been lost on next load.
+- Still branch-only on the frontend: no merge to `main`, no prod Pages/app deploy.
+
 ## 2026-07-26 — WoW in-season scheduler: Core (new D1 + Worker routes, NOT deployed)
 - **New D1 database `pangolinrc-scheduler`** (id `3759f1e2-6779-4a31-8cb6-b8e18492cedc`,
   WNAM) created via `wrangler d1 create`. Its OWN database — the legacy `pangolin-rc`
