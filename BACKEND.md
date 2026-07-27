@@ -95,6 +95,13 @@ Entry format:
   old SET PATTERN type-cycling affordance removed. Profile default = single cycling
   chip NONE->LIVE->FRESH->CASUAL->BINGE (the general aspiration, feeds unclassified
   shows via `wowEffMode` fallback). All frontend; no Worker/D1 change.
+- **UAT increment 6:** watch-pattern stamp suppressed on movies (`wowStampFor` returns
+  null for `kind==movie` / `tmdb:` ids) so the FRESH default stops stamping films.
+  Cards + LOG drop-label were already movie-safe. Frontend only.
+- **FUTURE (Ted, deferred by design):** repeated-movie viewing is a distinct watch
+  pattern (rewatch cadence / comfort loops) and does NOT belong in the WoW in-season
+  (weekly episodic) scheduler. If pursued, build it as a SEPARATE scheduler; do not
+  retrofit `MODES`/`classify`/`nudge` in `wow-scheduler.js` to cover films.
 
 ## 2026-07-26 — Exempt reflections from the comment cap (D1 migration + Worker DEPLOYED)
 - **D1 SCHEMA CHANGE + Worker, DEPLOYED to PROD.** Migration `0024_watch_comment_reflection.sql`
