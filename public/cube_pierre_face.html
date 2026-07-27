@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <title>Pierre</title>
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
+<script src="/wow-scheduler.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
@@ -453,6 +454,125 @@
   // Skip the reflection: the episode is already logged, so just drop the note and
   // return to plain chat (no journal entry, no comment).
   function skipNote(){ clearReflectComment(); noteCtx=null; setCtxIndicator('chat'); input.placeholder="Ask Pierre what to watch..."; }
+
+  // WoW notify skill: offer to flag the next drop. Fired from the LOG greyed START
+  // (intent:notify) and after a Live+7 reflection. In-app now (RAMP nudge / Sentry);
+  // APNs push in v1.1 reads the same stored intent. "Notify me" is a positive interaction.
+  async function enterNotifyFlow(p){
+    if(IS_DEMO || !p || !p.titleId) return;
+    setCtxIndicator('chat');
+    let next=null, tg='';
+    try{ if(window.WoW){ const eps=await WoW.episodes(p.titleId); next=WoW.nextUp(eps); tg=next?WoW.tag(next.airstamp):''; } }catch(_){}
+    if(!next){ addPierre("Nothing new scheduled for "+(p.show||'that one')+" yet. I'll keep watch."); return; }
+    offerNotify(p.show, p.titleId, next, tg);
+  }
+  function offerNotify(show, titleId, next, tg){
+    const S=next.season, E=next.number;
+    // After either choice, pop back out to the spinning cube (the shell's unlock).
+    const backToCube=(ms)=>setTimeout(()=>{ try{ window.parent.postMessage({type:'pangolin-back'}, '*'); }catch(_){} }, ms);
+    pierreSay((show||'That show')+" S"+S+"E"+E+" drops "+(tg||'soon')+". Want me to flag it when it's out?", [
+      {label:'Notify me', onClick:()=>{ const em=pgSession(); if(em && window.WoW) WoW.store.notify(em, titleId, next.id||('S'+S+'E'+E)); addPierre("Done. I'll flag S"+S+"E"+E+" when it drops."); backToCube(1100); }},
+      {label:"I'll check back", onClick:()=>{ backToCube(300); }}
+    ]);
+  }
+  // ── proactive scheduler nudge (per-phase/mode, RAMP-gated) ─────────────────────
+  // When Pierre opens, if a tracked show is in its RAMP window (next drop <=72h) he
+  // speaks up once with the mode-aware nudge from the shared law (WoW.nudge): a
+  // caught-up heads-up, or a spoiler-deadline for a LIVE/FRESH watcher who is behind.
+  // Silent for UNSAMPLED/DECLINED/MORE! and outside RAMP, exactly as the law says.
+  // Skipped when arriving via an explicit intent (add/note/notify) so a flow is never
+  // interrupted, and when the classifier is globally off (two-strike kill).
+  let _intentSeen=false, _nudged=false;
+  function wowPreview(){
+    try{ if(/[?&]wownudge=1/.test(location.search)) return true; }catch(_){}
+    try{ if(window.parent!==window && /[?&]wownudge=1/.test(window.parent.location.search)) return true; }catch(_){}
+    return false;
+  }
+  // Watch signals for one show: which season episodes are watched (for "behind"),
+  // and the clean watch-vs-airstamp deltas (for deriving the mode when none is set).
+  async function wowShowSignals(em, titleId, seasonNum, eps){
+    const airBy={}; eps.forEach(e=>{ airBy[e.season+'-'+e.number]=e.airstamp; });
+    let detail=null;
+    try{ const r=await fetch(`${API}/profile/${encodeURIComponent(em)}/titles/${encodeURIComponent(titleId)}`); if(r.ok) detail=await r.json(); }catch(_){}
+    const list=(detail&&detail.episodes)||[]; const watchLog=[], deltas=[], ts=[];
+    list.forEach(e=>{
+      if(e.done && !e.bp && e.season===seasonNum) watchLog.push({epNum:e.number});
+      const as=airBy[e.season+'-'+e.number];
+      (e.sessions||[]).forEach(s=>{ if(s && s.finished && !s.bp && typeof s.finishTs==='number' && as){
+        deltas.push((s.finishTs-new Date(as).getTime())/3600000); ts.push(s.finishTs); } });
+    });
+    return { watchLog, deltas, ts };
+  }
+  async function wowProactiveNudge(){
+    if(IS_DEMO || _nudged || !window.WoW) return;
+    const em=pgSession(); if(!em) return;
+    let state=null; try{ state=await WoW.store.load(em); }catch(_){}
+    if(state && state.user && state.user.globalKill) return;   // classifier killed → silent
+    const preview=wowPreview(), now=Date.now();
+    let titles=[]; try{ titles=await memberLog(); }catch(_){}
+    if(!titles.length) return;
+    // Candidate shows: in RAMP/PRE-SHOW (or anywhere in-season when previewing), soonest first.
+    const cands=[];
+    for(const t of titles){
+      if(!t || t.kind==='movie' || !/^tvmaze:\d+$/.test(t.title_id||'')) continue;
+      let eps=[]; try{ eps=await WoW.episodes(t.title_id); }catch(_){}
+      if(!eps.length) continue;
+      const next=WoW.nextUp(eps, now); if(!next) continue;
+      const ph=WoW.phase(eps, now);
+      // The nudge law speaks only in RAMP; preview forces a RAMP phase for any in-season
+      // show so the wiring can be exercised before a real drop enters the 72h window.
+      if(ph.name!=='RAMP' && !(preview && WoW.inSeason(eps, now))) continue;
+      cands.push({ t, eps, ph, next, tt:new Date(next.airstamp).getTime()-now });
+    }
+    cands.sort((a,b)=>a.tt-b.tt);
+    const c=cands[0]; if(!c) return;
+    const manual = state && state.modes && state.modes[c.t.title_id];
+    const seasonNum=c.next.season, seasonEps=c.eps.filter(e=>e.season===seasonNum);
+    const sig=await wowShowSignals(em, c.t.title_id, seasonNum, c.eps);
+    const mode = manual ? { mode:manual, src:'set' } : WoW.classifyDeltas(sig.deltas, sig.ts);
+    const ph = (c.ph.name==='RAMP') ? c.ph : { name:'RAMP', next:c.next, prev:null };   // preview → synthetic RAMP
+    const n = WoW.nudge(ph, mode, sig.watchLog, seasonEps, now, seasonNum);
+    if(!n || n.silent) return;
+    _nudged=true;
+    offerNudge(c.t.name, c.t.title_id, c.next, n.text);
+  }
+  // The nudge line + a chip to flag the drop. Unlike the LOG notify flow, the member
+  // is already sitting in Pierre, so we stay put (no pop back to the cube).
+  function offerNudge(show, titleId, next, text){
+    const S=next.season, E=next.number;
+    pierreSay(text, [
+      {label:'Notify me', onClick:()=>{ const em=pgSession(); if(em && window.WoW) WoW.store.notify(em, titleId, next.id||('S'+S+'E'+E)); addPierre("Done. I'll flag S"+S+"E"+E+" when it drops."); }},
+      {label:'Got it', onClick:()=>{}}
+    ]);
+  }
+
+  // ── watch state for the shared card ────────────────────────────────────────────
+  // The share cards carry the member's watchPattern for the show: manual override
+  // wins, else it's derived from their watch-vs-airstamp deltas (same law as the
+  // WATCH stamp). Nothing shows for UNSAMPLED/DECLINED or when the classifier is off.
+  async function wowCardMode(em, titleId){
+    if(!window.WoW || !em || !titleId) return null;
+    let state=null; try{ state=await WoW.store.load(em); }catch(_){}
+    if(state && state.user && state.user.globalKill) return null;
+    const manual = state && state.modes && state.modes[titleId];
+    if(manual) return (manual==='DECLINED') ? null : manual;
+    try{
+      const eps=await WoW.episodes(titleId);
+      const airBy={}; eps.forEach(e=>{ airBy[e.season+'-'+e.number]=e.airstamp; });
+      const r=await fetch(`${API}/profile/${encodeURIComponent(em)}/titles/${encodeURIComponent(titleId)}`);
+      if(!r.ok) return null;
+      const list=(await r.json()).episodes||[]; const deltas=[], ts=[];
+      list.forEach(e=>{ const as=airBy[e.season+'-'+e.number];
+        (e.sessions||[]).forEach(s=>{ if(s && s.finished && !s.bp && typeof s.finishTs==='number' && as){
+          deltas.push((s.finishTs-new Date(as).getTime())/3600000); ts.push(s.finishTs); } }); });
+      const m=WoW.classifyDeltas(deltas, ts);
+      return (m && m.mode && m.mode!=='UNSAMPLED' && m.mode!=='DECLINED') ? m.mode : null;
+    }catch(_){ return null; }
+  }
+  // Public-facing label: internal mode names carry through except MORE!, which reads
+  // as BINGE to the wider audience (MORE! is our word; BINGE is theirs).
+  function wowCardLabel(mode){ return mode==='MORE!' ? 'BINGE' : mode; }
+
   // The captured thought: persist, then let Pierre react as a normal turn.
   async function noteTurn(text){
     const ctx=noteCtx; noteCtx=null; clearReflectComment();   // any voice comment was already posted by the mic
@@ -467,14 +587,28 @@
     await ask(text);
     if(ctx.finished || ctx.offerShare){
       let uname=''; try{ uname=(localStorage.getItem('pg_username')||'').trim(); }catch(_){}
+      const watchMode=await wowCardMode(email, ctx.titleId);   // stamp the card with their pattern
       // Pre-build the card NOW (async: loads poster) so the Share tap can fire
       // navigator.share synchronously in-gesture — iOS drops a share after an await.
       const blob=await buildReflectionCard({ username:uname||'Someone', epCode:ctx.ep,
-        show:ctx.show, platform:ctx.platform, poster:ctx.poster, comment:text, spoiler:noteSpoiler }).catch(()=>null);
+        show:ctx.show, platform:ctx.platform, poster:ctx.poster, comment:text, spoiler:noteSpoiler, watchMode }).catch(()=>null);
       if(blob) addCardPreview(blob);
       pierreSay(noteSpoiler ? 'Card ready (quote hidden — spoiler). Share it?' : 'Card ready. Share it?', [
         {label:'Share card', onClick:()=>doShareCard(blob, ctx, text)},
         {label:'Done', onClick:()=>{}}]);
+    }
+    // Live+7: finished within a week of air and a next episode is coming → offer to flag
+    // the drop (industry-standard Live+7 window), after the comment as usual.
+    if(ctx.finished && ctx.titleId && window.WoW){
+      try{
+        const eps=await WoW.episodes(ctx.titleId);
+        const mm=/S0*(\d+)E0*(\d+)/i.exec(ctx.ep||'');
+        const fin=mm?eps.find(e=>e.season===+mm[1]&&e.number===+mm[2]):null;
+        const airMs=fin&&fin.airstamp?new Date(fin.airstamp).getTime():0;
+        const next=WoW.nextUp(eps);
+        if(next && airMs && Date.now()>=airMs && (Date.now()-airMs)<=7*24*3600*1000)
+          offerNotify(ctx.show, ctx.titleId, next, WoW.tag(next.airstamp));
+      }catch(_){}
     }
   }
 
@@ -536,6 +670,20 @@
     let by=450+l2.length*58+8;
     if(o.platform){ g.fillStyle='rgba(248,242,232,0.65)'; g.font='500 32px Inter, system-ui, sans-serif';
       g.fillText('on '+o.platform, 110, by); }
+    // watch-state stamp: the member's pattern, ink-stamped (MORE! reads as BINGE).
+    if(o.watchMode){
+      const label=wowCardLabel(o.watchMode);
+      g.save();
+      g.font='800 36px Inter, system-ui, sans-serif';
+      const tw=g.measureText(label).width, padX=24, bh=64, bw=tw+padX*2;
+      g.translate(110, by + (o.platform ? 40 : 26));   // just under the title/platform block
+      g.rotate(-0.055);                                  // slight tilt, like a rubber stamp
+      g.lineWidth=3.5; g.strokeStyle='#f0a93b';
+      _rr(g,0,0,bw,bh,12); g.stroke();
+      g.fillStyle='#f0a93b'; g.textBaseline='middle';
+      g.fillText(label, padX, bh/2+2);
+      g.restore();
+    }
     // comment area (spoiler-aware)
     const cx=110, cy=690, cw=S-220, ch=300;
     if(o.spoiler || !o.comment){
@@ -1308,11 +1456,13 @@
     if(e.data && e.data.type==='cube:payload' && e.data.face==='pierre'){
       if(IS_DEMO) return;   // demo: Pierre's flows are off
       const p=e.data.payload||{};
+      if(p.intent) _intentSeen=true;   // arrived via an explicit flow → don't also proactively nudge
       if(p.intent==='add') enterAddFlow(p.history||[]);
       else if(p.intent==='join') enterJoinFlow();
       else if(p.intent==='login') enterJoinFlow();
       else if(p.intent==='device') enterDeviceFlow();
       else if(p.intent==='note') enterNoteFlow(p);
+      else if(p.intent==='notify') enterNotifyFlow(p);
       else if(p.intent==='episode-finish') enterEpisodeFinishFlow(p.launch);
       else if(p.intent==='season-note') enterSeasonNoteFlow(p);
     }
@@ -1330,6 +1480,9 @@
     // inside the selecting gesture so iOS raises the keyboard (a load-time focus
     // here would pre-focus it and suppress that).
     if (window.parent === window) input.focus();
+    // After the room settles, if nothing steered Pierre into a flow, check whether a
+    // tracked show is in RAMP and, if so, deliver the scheduler nudge (once).
+    setTimeout(()=>{ if(!_intentSeen && !addFlow && !joinFlow && !acctFlow && !noteCtx){ try{ wowProactiveNudge(); }catch(_){} } }, 1300);
   });
 
   // ── embedded in cube face ──

@@ -214,6 +214,27 @@
   .dhint{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.12em;color:var(--muted-2);text-transform:uppercase;}
   .dhead-rule{height:1px;background:var(--line);margin:9px 0 0;}
 
+  /* ---- Watch patterns (WoW scheduler profile controls) ---- */
+  .wowsched{margin-top:22px;}
+  .ws-row{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:13px;}
+  .ws-lbl{font-size:13px;color:var(--text);flex:none;}
+  .ws-chips{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;}
+  .ws-chip{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:500;letter-spacing:.08em;
+    border:1px solid var(--card-line);background:var(--card);color:var(--muted);border-radius:999px;
+    padding:5px 11px;cursor:pointer;transition:all .14s ease;}
+  .ws-chip:active{transform:scale(.94);}
+  .ws-chip.on{border-color:var(--amber);background:rgba(239,168,60,.16);color:var(--amber);font-weight:700;}
+  .ws-chip.cycle{min-width:96px;justify-content:center;padding:6px 14px;}
+  .ws-cyc{opacity:.6;font-size:12px;margin-left:2px;}
+  .ws-class{display:flex;align-items:center;gap:9px;}
+  .ws-state{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;}
+  .ws-state.on{color:#5bbf7b;} .ws-state.off{color:var(--muted-2);}
+  .ws-btn{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;letter-spacing:.06em;
+    border:1px solid var(--amber);background:rgba(239,168,60,.14);color:var(--amber);
+    border-radius:999px;padding:5px 12px;cursor:pointer;}
+  .ws-btn:active{transform:scale(.95);}
+  .ws-hint{color:var(--muted-2);font-size:11px;line-height:1.5;margin-top:10px;}
+
   /* ---- Following (follow members by email; mutual = friend) ---- */
   .following{margin-top:22px;}
   .fl-add{display:flex;gap:8px;margin-top:11px;}
@@ -459,6 +480,22 @@
               <div class="fl-hint">Friends' comments surface when you co-view a show — turn it on per show on the episode screen.</div>
             </div>
 
+            <!-- Watch patterns: the WoW in-season scheduler's profile controls — a
+                 default pattern for new shows, and the re-enable switch after a kill. -->
+            <div class="wowsched" id="wowSched" style="display:none;">
+              <div class="dhead"><h2>Watch patterns</h2><span class="dhint">how Pierre reads your habits</span></div>
+              <div class="dhead-rule"></div>
+              <div class="ws-row">
+                <div class="ws-lbl">Default for new shows</div>
+                <div class="ws-chips" id="wsDefault"></div>
+              </div>
+              <div class="ws-row">
+                <div class="ws-lbl">Pierre's habit guessing</div>
+                <div class="ws-class" id="wsClass"></div>
+              </div>
+              <div class="ws-hint" id="wsHint"></div>
+            </div>
+
             <div class="stats">
               <div class="stat"><div class="num" id="stShows">0</div><div class="lbl">SHOWS</div></div>
               <div class="stat"><div class="num" id="stEps">0</div><div class="lbl">EPISODES</div></div>
@@ -495,6 +532,7 @@
     <input type="file" id="picker" accept="image/*">
   </div>
 
+<script src="/wow-scheduler.js"></script>
 <script>
   const API = (location.protocol === 'http:' && location.hostname === 'localhost') ? 'http://localhost:8787' : 'https://pangolin-rc.edward-m-willett.workers.dev';
   const $ = id => document.getElementById(id);
@@ -642,6 +680,41 @@
       $('stThird').textContent=mins.toLocaleString(); $('stThirdLbl').textContent='MINUTES';
     }catch(_){}
   }
+  // WoW scheduler profile controls: a default pattern for new shows, and the
+  // re-enable switch after a two-strike kill. Storage-backed (WoW.store), so it
+  // mirrors the same state the WATCH/LOG/Pierre surfaces read.
+  // The default cycles through every type plus NONE: it is the member's general
+  // aspiration, so unlike the per-show stamp (a plain on/off toggle) it steps through
+  // the full set. MORE! shows as BINGE to match the rest of the member-facing UI.
+  const WS_CYCLE=[null,'LIVE','FRESH','CASUAL','MORE!'];
+  const wsLabel=m=> m ? (m==='MORE!'?'BINGE':m) : 'NONE';
+  const WS_KILL_MSG="You can turn this back on in your profile, but Pierre won't guess your watch habits anymore.";
+  async function renderWowSched(email){
+    const box=$('wowSched'); if(!box) return;
+    if(!email || DEMO || !window.WoW){ box.style.display='none'; return; }
+    let st=null; try{ st=await WoW.store.load(email); }catch(_){}
+    if(!st || !st.user){ box.style.display='none'; return; }
+    box.style.display='';
+    const cur=st.user.defaultMode||null, killed=!!st.user.globalKill;
+    const dc=$('wsDefault'); dc.innerHTML='';
+    const chip=document.createElement('button');
+    chip.className='ws-chip cycle'+(cur?' on':'');
+    chip.innerHTML=wsLabel(cur)+' <span class="ws-cyc">⟳</span>';
+    chip.onclick=()=>{ const nxt=WS_CYCLE[(WS_CYCLE.indexOf(cur||null)+1)%WS_CYCLE.length];
+      chip.disabled=true; WoW.store.setDefault(email, nxt).then(()=>renderWowSched(email)); };
+    dc.appendChild(chip);
+    const cl=$('wsClass'); cl.innerHTML='';
+    const badge=document.createElement('span'); badge.className='ws-state '+(killed?'off':'on'); badge.textContent=killed?'OFF':'ON';
+    cl.appendChild(badge);
+    if(killed){
+      const btn=document.createElement('button'); btn.className='ws-btn'; btn.textContent='Turn back on';
+      btn.onclick=()=>{ btn.disabled=true; WoW.store.reenable(email).then(()=>renderWowSched(email)); };
+      cl.appendChild(btn);
+    }
+    $('wsHint').textContent = killed ? WS_KILL_MSG
+      : 'Your general watch pattern. Tap to cycle. Pierre applies it to shows he cannot read yet; switch any show off on its own card. NONE lets the classifier decide per show.';
+  }
+
   async function refresh(){
     const email=session(); state.email=email;
     if(DEMO){ state.devices=DEMO_DEVICES; state.selected='phone'; renderDevices(); }
@@ -651,12 +724,13 @@
       if(!DEMO){ state.devices=[]; state.selected='phone'; renderDevices();
         $('stShows').textContent='0'; $('stEps').textContent='0'; $('stThird').textContent='0';
         $('adminBugs').style.display='none'; }  // signed out → zeros, no admin surface
+      const ws=$('wowSched'); if(ws) ws.style.display='none';
       return;
     }
     $('authBtn').textContent='log out';
     $('authBtn').onclick=()=>{ try{localStorage.removeItem('pg_user');}catch(_){} refresh(); };
     $('phandle').textContent=email;
-    if(!DEMO) loadStats(email);
+    if(!DEMO){ loadStats(email); renderWowSched(email); }
     try{
       const r=await fetch(API+'/profile/'+encodeURIComponent(email));
       if(r.status===404){ try{localStorage.removeItem('pg_user');}catch(_){} return refresh(); }  // account gone -> sign out

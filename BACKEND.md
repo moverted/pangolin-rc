@@ -13,6 +13,96 @@ Entry format:
 
 ---
 
+## 2026-07-26 — WoW scheduler Worker routes DEPLOYED to production (Ted's explicit OK)
+- **`wrangler deploy`** pushed `/scheduler/state|mode|default|notify|reenable` + the
+  `SCHED_DB` binding to the prod Worker `pangolin-rc.edward-m-willett.workers.dev`.
+  Version `a5c211cb-23fb-4406-8293-85b7757b52fa`. Preflight before push: diff vs main
+  purely additive (188 ins, 0 del), branch a superset of main (0 missing commits,
+  includes the reflection cap-exempt work), `tsc --noEmit` clean, dry-run resolved all
+  bindings, SCHED_DB migration confirmed (4 tables). Existing routes/bindings unchanged;
+  legacy `pangolin-rc` DB only read for users/episodes validation, never written by
+  these routes. Reversible via `wrangler rollback`.
+- **Smoke-tested live end to end** (state/default/mode/notify/reenable all persist +
+  read back). Note: workers.dev served mixed old/new versions for ~30s during global
+  colo propagation (intermittent "Not found"), then settled to 12/12 consistent.
+- **Data note:** restored Ted's declared `tvmaze:48090` (SNW) = `FRESH` server-side.
+  It had lived only in localStorage while the Worker was down; now that `store.load`
+  treats the server as authoritative and overwrites the local cache, the declaration
+  had to exist in `sched_mode_choice` or it would have been lost on next load.
+- Still branch-only on the frontend: no merge to `main`, no prod Pages/app deploy.
+
+## 2026-07-26 — WoW in-season scheduler: Core (new D1 + Worker routes, NOT deployed)
+- **New D1 database `pangolinrc-scheduler`** (id `3759f1e2-6779-4a31-8cb6-b8e18492cedc`,
+  WNAM) created via `wrangler d1 create`. Its OWN database — the legacy `pangolin-rc`
+  (`4bd25737`) is NOT touched, migrated, or rebound. Schema `migrations-scheduler/0001_init.sql`
+  applied remote: `sched_mode_choice`, `sched_user`, `sched_badge`, `sched_sent`.
+- **wrangler.toml**: added `SCHED_DB` binding (+ `Env.SCHED_DB` in types.ts).
+- **Worker (`src/handlers/scheduler.ts`), NOT deployed.** Routes `/scheduler/state|mode|default|reenable`
+  on `SCHED_DB` only. Two-strike consent logic is server-authoritative here. `npx tsc
+  --noEmit` clean. On branch `feat/wow-inseason-scheduler`; no prod Worker deploy without Ted's OK.
+- **Frontend (branch only):** `public/wow-scheduler.js` (shared service: phase engine,
+  classifier, five-rule nudge, TAG formatter, timely sort key, TVMaze airstamp fetch,
+  state client) + WATCH-face TAG on both tiles and timely sort. Deployed to the branch
+  preview only. Chip / LOG countdown / Pierre nudge / Profile default are the next increment.
+- Storage choice B (per Ted): scheduler state in the new D1, additive.
+- **UAT increment (branch preview, frontend only):** WATCH-face watch-pattern
+  "stamp" (derived cross-season via `classifyDeltas`, matched by season+number;
+  tappable to cycle; a dashed `SET PATTERN` stamp appears on the expanded card
+  when a show is claimable — 2+ watched — but not yet classified, so a pattern
+  can always be declared). LOG face: big TAG badge + greyed `DROPS {TAG}` START
+  that swings to Pierre. Pierre `enterNotifyFlow`/`offerNotify` (`[Notify me]` /
+  `[I'll check back]`, both pop back to the spinning cube via `pangolin-back`).
+  Preview auto-login gated to `*.pangolin-rc.pages.dev` subdomains. Still no prod
+  Worker deploy; `/scheduler/*` persistence runs off the localStorage fallback on
+  the preview. Deployed to `wow-scheduler.pangolin-rc.pages.dev`.
+- **UAT increment 2 (branch preview):** WATCH stamp moved under the season
+  selector on the expanded card. LOG **RAMP countdown** — the big TAG becomes a
+  live second-ticking `DROPS IN …` clock once the next drop is <=72h out (CFG
+  `RAMP_H`); precise airstamp fetched from TVMaze via `WoW.episodes`, airdate-at-
+  noon coarse fallback, 1s ticker self-clears at drop. No spec threshold change.
+- **Legacy DB (`pangolin-rc`) data writes this session — via the app's own
+  endpoints, at Ted's explicit request, no schema/config touch:** (1) corrected
+  Ted's real SNW S4E1 watch session to a 9:00–9:59 PM PT premiere-night finishTs
+  (`POST /profile/{email}/episodes/tvmaze:48090:s4e1`); prior session value saved
+  in the transcript for reversibility. (2) Added three shows to his account at
+  pattern `live` (caught-up): Ted Lasso `tvmaze:44458`, Lanterns `tvmaze:44776`,
+  Yellowjackets `tvmaze:36672` (`POST /catalog/initiate`). No migration/rebind.
+- **UAT increment 3 (branch preview):** LOG countdown redesigned per Ted to a
+  2-week (INSEASON_D) day-granularity progression: `SX NEXT {DOW}` -> `SX STARTS
+  {DOW}` -> `SX STARTS TOMORROW` -> `SX STARTS TODAY` (season prefix; warm glow on
+  today/tomorrow). RAMP second-ticker removed. **Timezone hardening** (last year's
+  Today/Tomorrow slip): new `WoW.daysUntil` / `WoW.weekday` compute on LOCAL
+  calendar dates parsed from the airdate Y-M-D components, never `new Date(isoString)`
+  (UTC midnight). `wowNextUnaired` now scans all seasons (premiere of a not-yet-
+  started season shows). **Proactive Pierre nudge:** on Pierre open, a tracked show
+  in RAMP triggers the mode-aware `WoW.nudge` line + `[Notify me]`/`[Got it]` chip;
+  RAMP-gated per the law, mode from manual override or `classifyDeltas`, scoped to
+  the drop's season to dodge the epNum collision. `?wownudge=1` (read off parent
+  URL, same-origin) forces a synthetic RAMP for UAT. All frontend; no Worker deploy.
+- **UAT increment 4 (branch preview):** shared reflection cards (`buildReflectionCard`
+  in Pierre) now ink the member's watchPattern; public label maps `MORE! -> BINGE`,
+  LIVE/FRESH/CASUAL carry through, silent for UNSAMPLED/DECLINED/kill. **Profile
+  Watch-patterns section** (`cube_profile_face.html`, now loads `/wow-scheduler.js`):
+  default-pattern chip (AUTO/LIVE/FRESH/CASUAL/MORE! -> `WoW.store.setDefault`) and a
+  classifier ON/OFF badge exposing the re-enable switch after a two-strike kill
+  (`WoW.store.reenable`; kill copy verbatim). No new API/route added (re-enable rides
+  the existing `/scheduler/reenable`; off remains the decline path). All frontend.
+- **UAT increment 5 (branch preview), per Ted — the two surfaces now behave
+  differently on purpose:** WATCH stamp = plain ON/OFF toggle for that show only
+  (clear <-> DECLINED), no type cycling; type comes from the classifier or the
+  Profile default; off renders greyed+struck and stays tappable; a declined show with
+  no derivable pattern shows a generic recoverable OFF; MORE! displays as BINGE; the
+  old SET PATTERN type-cycling affordance removed. Profile default = single cycling
+  chip NONE->LIVE->FRESH->CASUAL->BINGE (the general aspiration, feeds unclassified
+  shows via `wowEffMode` fallback). All frontend; no Worker/D1 change.
+- **UAT increment 6:** watch-pattern stamp suppressed on movies (`wowStampFor` returns
+  null for `kind==movie` / `tmdb:` ids) so the FRESH default stops stamping films.
+  Cards + LOG drop-label were already movie-safe. Frontend only.
+- **FUTURE (Ted, deferred by design):** repeated-movie viewing is a distinct watch
+  pattern (rewatch cadence / comfort loops) and does NOT belong in the WoW in-season
+  (weekly episodic) scheduler. If pursued, build it as a SEPARATE scheduler; do not
+  retrofit `MODES`/`classify`/`nudge` in `wow-scheduler.js` to cover films.
+
 ## 2026-07-26 — Exempt reflections from the comment cap (D1 migration + Worker DEPLOYED)
 - **D1 SCHEMA CHANGE + Worker, DEPLOYED to PROD.** Migration `0024_watch_comment_reflection.sql`
   applied to `pangolin-rc` (Ted ran `wrangler d1 migrations apply pangolin-rc --remote`):

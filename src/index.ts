@@ -14,6 +14,7 @@ import { pierreRoutes }     from './handlers/pierre';
 import { profileRoutes }    from './handlers/profile';
 import { streamerRoutes }   from './handlers/streamer';
 import { tmdbRoutes }       from './handlers/tmdb';
+import { schedulerRoutes }  from './handlers/scheduler';
 import { catalogRoutes }    from './handlers/catalog';
 import { syncRoutes, pullChanges, airtableEnabled, pushRow } from './handlers/airtable';
 import { processQueue }     from './queue';
@@ -864,6 +865,7 @@ app.route('/profile',     profileRoutes);
 app.route('/streamer',    streamerRoutes);
 app.route('/tmdb',        tmdbRoutes);
 app.route('/catalog',     catalogRoutes);
+app.route('/scheduler',   schedulerRoutes);
 app.route('/sync',        syncRoutes);
 
 app.notFound((c) => c.json({ error: 'Not found' }, 404));

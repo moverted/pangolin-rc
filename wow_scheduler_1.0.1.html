@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WoW_inSeason_scheduler 1.0.1 — SNW testbed</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* WoW_inSeason_scheduler 1.0.1 prototype. Live TVMaze fetch, SNW S4 testbed.
+     Do not hardcode data or treat this file as broken because a sandbox cannot reach the network. */
+  :root {
+    --base: #1a1612;
+    --base2: #241f19;
+    --amber: #f0a828;
+    --dgreen: #2e5c3a;
+    --green: #5fae6e;
+    --grey: #4a453e;
+    --text: #ece5da;
+    --dim: #a89f92;
+    --red: #7a2828;
+    --mono: 'JetBrains Mono', monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0f0d0a; color: var(--text);
+    font-family: 'Inter', sans-serif;
+    display: flex; flex-direction: column; align-items: center;
+    padding: 18px 12px 40px; gap: 14px;
+  }
+  .face {
+    width: min(92vw, 440px); aspect-ratio: 1/1;
+    background: var(--base); border-radius: 18px; overflow: hidden;
+    position: relative; display: flex; flex-direction: column;
+    box-shadow: 0 8px 40px rgba(0,0,0,.6);
+  }
+  .art {
+    position: absolute; inset: 0;
+    background-size: cover; background-position: center top;
+    filter: blur(9px) brightness(.9); transform: scale(1.08);
+  }
+  .scrim { position: absolute; inset: 0;
+    background: linear-gradient(180deg, rgba(15,13,10,.30) 0%, rgba(15,13,10,.78) 42%, rgba(20,17,13,.96) 70%, var(--base) 100%); }
+  .content { position: relative; z-index: 2; display: flex; flex-direction: column; height: 100%; padding: 18px 18px 14px; }
+  h1 { font-family: 'Space Grotesk', sans-serif; font-size: 24px; line-height: 1.05;
+       text-shadow: 0 2px 10px rgba(0,0,0,.8); letter-spacing: .2px; }
+  .meta { font-family: var(--mono); font-size: 10.5px; color: var(--dim); margin-top: 4px; }
+
+  .toprow { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+  .chip {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: .8px;
+    padding: 5px 10px; border-radius: 999px; cursor: pointer; user-select: none;
+    border: 1px solid var(--amber); color: var(--amber); background: rgba(26,22,18,.7);
+    white-space: nowrap; transition: all .15s;
+  }
+  .chip.auto { border-color: var(--dim); color: var(--dim); }
+  .chip.hidden { display: none; }
+  .chip .src { opacity: .6; font-size: 9px; }
+
+  .spacer { flex: 1; }
+
+  .phasebadge {
+    align-self: flex-start; font-family: var(--mono); font-size: 10px; letter-spacing: 1.4px;
+    color: var(--amber); border: 1px solid rgba(240,168,40,.45); border-radius: 4px;
+    padding: 3px 8px; margin-bottom: 8px; background: rgba(26,22,18,.55);
+  }
+  .phasebadge.quiet { color: var(--dim); border-color: rgba(168,159,146,.35); }
+
+  .seasons { display: flex; justify-content: space-between; font-family: var(--mono);
+    font-size: 10px; color: var(--dim); letter-spacing: 1px; margin-bottom: 6px; }
+
+  .bar { position: relative; height: 16px; border-radius: 8px; overflow: visible;
+    display: flex; background: var(--grey); margin-bottom: 7px; }
+  .seg { height: 100%; }
+  .seg.watched { background: var(--dgreen); }
+  .seg.avail { background: var(--green); cursor: pointer; }
+  .seg.unrel { background: var(--grey); }
+  .seg.first { border-radius: 8px 0 0 8px; }
+  .seg.last { border-radius: 0 8px 8px 0; }
+  .warmtick {
+    position: absolute; top: -4px; width: 3px; height: 24px; border-radius: 2px;
+    background: var(--amber); box-shadow: 0 0 8px rgba(240,168,40,.9);
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: .45; } 50% { opacity: 1; } }
+  .popcorn { position: absolute; top: -13px; font-size: 15px; transform: translateX(-50%);
+    filter: drop-shadow(0 2px 3px rgba(0,0,0,.7)); }
+
+  .underbar { display: flex; justify-content: space-between; align-items: baseline;
+    font-family: var(--mono); font-size: 10.5px; color: var(--dim); }
+  .countdown { color: var(--amber); font-weight: 500; letter-spacing: .5px; }
+
+  .pierre {
+    margin-top: 10px; border-top: 1px solid rgba(168,159,146,.18); padding-top: 9px;
+    display: flex; gap: 8px; align-items: flex-start; min-height: 44px;
+  }
+  .pierre .tag { font-family: var(--mono); font-size: 9px; color: var(--amber);
+    letter-spacing: 1.2px; padding-top: 2px; white-space: nowrap; }
+  .pierre .msg { font-size: 12.5px; line-height: 1.4; }
+  .pierre .msg.silent { color: var(--dim); font-style: italic; font-size: 11.5px; }
+  .pierre .why { font-family: var(--mono); font-size: 9px; color: var(--dim); display: block; margin-top: 3px; }
+
+  .killbanner {
+    position: absolute; inset: 0; z-index: 5; background: rgba(15,13,10,.94);
+    display: none; flex-direction: column; justify-content: center; align-items: center;
+    text-align: center; padding: 30px; gap: 16px;
+  }
+  .killbanner.show { display: flex; }
+  .killbanner p { font-size: 14px; line-height: 1.5; max-width: 300px; }
+  .killbanner button { font-family: var(--mono); font-size: 11px; background: none;
+    border: 1px solid var(--dim); color: var(--dim); border-radius: 6px; padding: 8px 16px; cursor: pointer; }
+
+  /* troubleshooting console */
+  .console {
+    width: min(92vw, 440px); background: var(--base2); border-radius: 12px;
+    padding: 14px 16px; font-family: var(--mono); font-size: 11px; color: var(--dim);
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .console h2 { font-family: var(--mono); font-size: 10px; letter-spacing: 1.6px;
+    color: var(--amber); font-weight: 500; }
+  .console .row { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  .console .row b { color: var(--text); font-weight: 500; }
+  input[type=range] { width: 100%; accent-color: var(--amber); }
+  .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  .btns button {
+    font-family: var(--mono); font-size: 10.5px; background: none; cursor: pointer;
+    border: 1px solid var(--grey); color: var(--dim); border-radius: 6px; padding: 6px 10px;
+  }
+  .btns button:hover { border-color: var(--amber); color: var(--amber); }
+  .note { font-size: 9.5px; line-height: 1.5; color: var(--dim); opacity: .8; }
+  .ver { font-family: var(--mono); font-size: 9px; color: var(--dim); opacity: .6; }
+</style>
+</head>
+<body>
+
+<div class="face">
+  <div class="art" id="art"></div>
+  <div class="scrim"></div>
+  <div class="killbanner" id="killbanner">
+    <p>You can turn this back on in your profile, but Pierre won't guess your watch habits anymore.</p>
+    <button onclick="reenable()">profile: turn back on</button>
+  </div>
+  <div class="content">
+    <div class="toprow">
+      <div>
+        <h1 id="title">…</h1>
+        <div class="meta" id="meta"></div>
+      </div>
+      <div class="chip hidden" id="chip" onclick="cycleChip()"></div>
+    </div>
+    <div class="spacer"></div>
+    <div class="phasebadge" id="phase">LOADING</div>
+    <div class="seasons"><span id="seasonL"></span><span id="seasonR"></span></div>
+    <div class="bar" id="bar"></div>
+    <div class="underbar">
+      <span id="ubLeft"></span>
+      <span class="countdown" id="ubCenter"></span>
+      <span id="ubRight"></span>
+    </div>
+    <div class="pierre">
+      <span class="tag">PIERRE</span>
+      <span class="msg" id="pierreMsg"></span>
+    </div>
+  </div>
+</div>
+
+<div class="console">
+  <h2>WOW SCHEDULER CONSOLE — troubleshooting only, not product UI</h2>
+  <div class="row"><span>timeNow</span><b id="dNow"></b></div>
+  <input type="range" id="scrub" min="0" max="100" value="0" step="1" oninput="onScrub()">
+  <div class="row"><span>phase</span><b id="dPhase"></b><span>watchMode</span><b id="dMode"></b></div>
+  <div class="row"><span>watched</span><b id="dWatched"></b><span>declines</span><b id="dDecl"></b></div>
+  <div class="btns">
+    <button onclick="resetNow()">NOW</button>
+    <button onclick="logNext()">log next ep @ timeNow</button>
+    <button onclick="clearLog()">clear watch log</button>
+    <button onclick="seedLive()">seed: LIVE watcher</button>
+    <button onclick="seedBinge()">seed: MORE! watcher</button>
+  </div>
+  <div class="note">Scrub time across the S4 run to watch phases roll. Log episodes at different scrub positions to feed the classifier. Choose the blank chip twice to trip the two-strike kill. Data is live from TVMaze; airstamps for Paramount+ land at 12:00 UTC (8am ET), a known source caveat for LIVE-window math.</div>
+  <div class="ver">WoW_inSeason_scheduler 1.0.1 | spec v1.0 | prototype, in-memory state only</div>
+</div>
+
+<script>
+/* ============ config (spec v1.0 phase boundaries, tunable) ============ */
+const CFG = {
+  LIVE_H: 3, FRESH_H: 48, RAMP_H: 72, PRESHOW_H: 2,
+  INSEASON_D: 14, WRAP_D: 7,
+  SHOW_ID: 48090, SEASON: 4
+};
+const MODES = ['LIVE','FRESH','CASUAL','MORE!'];
+
+/* ============ state (in-memory; D1 in the real build) ============ */
+let show = null, eps = [];            // season eps sorted by airstamp
+let watchLog = [];                     // {epNum, ts}
+let manualMode = null;                 // 'LIVE'|'FRESH'|'CASUAL'|'MORE!'|'DECLINED'|null(auto)
+let declineCount = 0, killed = false;
+let positiveInteraction = false;       // manual set, share, nudge follow-through
+let simNow = Date.now();               // scrubbed timeNow
+let scrubMin, scrubMax;
+
+/* ============ boot: live fetch, per standing principles ============ */
+fetch(`https://api.tvmaze.com/shows/${CFG.SHOW_ID}?embed=episodes`)
+  .then(r => r.json()).then(d => {
+    show = d;
+    eps = d._embedded.episodes.filter(e => e.season === CFG.SEASON && e.airstamp)
+      .sort((a,b) => new Date(a.airstamp) - new Date(b.airstamp));
+    scrubMin = new Date(eps[0].airstamp).getTime() - 6*864e5;
+    scrubMax = new Date(eps[eps.length-1].airstamp).getTime() + 10*864e5;
+    const s = document.getElementById('scrub');
+    s.min = scrubMin; s.max = scrubMax; s.step = 3600*1000; s.value = Date.now();
+    document.getElementById('art').style.backgroundImage = `url(${d.image.original})`;
+    document.getElementById('title').textContent = d.name;
+    document.getElementById('meta').textContent =
+      `${d.premiered.slice(0,4)} | ${(d.webChannel||d.network||{}).name||''} | ${d.genres[0]||''}`;
+    render();
+  })
+  .catch(() => { document.getElementById('title').textContent = 'TVMaze unreachable'; });
+
+/* ============ phase engine: airWindow x timeNow ============ */
+function getPhase(now) {
+  const H = 3600*1000;
+  const aired = eps.filter(e => new Date(e.airstamp).getTime() <= now);
+  const future = eps.filter(e => new Date(e.airstamp).getTime() > now);
+  const prev = aired[aired.length-1] || null;
+  const next = future[0] || null;
+  if (!prev && !next) return {name:'DORMANT', prev, next};
+  if (prev) {
+    const dt = now - new Date(prev.airstamp).getTime();
+    if (dt < CFG.LIVE_H*H) return {name:'LIVE', prev, next};
+    if (dt < CFG.FRESH_H*H) return {name:'FRESH', prev, next};
+  }
+  if (next) {
+    const tt = new Date(next.airstamp).getTime() - now;
+    if (tt > CFG.INSEASON_D*24*H) return {name:'DORMANT', prev, next};
+    if (tt < CFG.PRESHOW_H*H) return {name:'PRE-SHOW', prev, next};
+    if (tt < CFG.RAMP_H*H) return {name:'RAMP', prev, next};
+    return {name:'SETTLED', prev, next};
+  }
+  const sinceFinale = now - new Date(prev.airstamp).getTime();
+  return {name: sinceFinale < CFG.WRAP_D*24*H ? 'SEASON WRAP' : 'DORMANT', prev, next};
+}
+
+/* ============ classifier: userWatchBehavior, per user AND show ============ */
+function classify() {
+  if (killed) return {mode:'DECLINED', src:'off'};
+  if (manualMode) return {mode:manualMode, src:'set'};
+  if (watchLog.length < 2) return {mode:'UNSAMPLED', src:'derived'};
+  const deltas = watchLog.map(w => {
+    const ep = eps.find(e => e.number === w.epNum);
+    return ep ? (w.ts - new Date(ep.airstamp).getTime())/3600000 : null;
+  }).filter(v => v !== null);
+  // burst detection: 3 logs inside 24h = a binge sitting
+  const sorted = watchLog.map(w=>w.ts).sort((a,b)=>a-b);
+  let burst = 0;
+  for (let i=2; i<sorted.length; i++) if (sorted[i]-sorted[i-2] < 24*3600*1000) burst++;
+  if (burst > 0) return {mode:'MORE!', src:'derived'};
+  const med = deltas.sort((a,b)=>a-b)[Math.floor(deltas.length/2)];
+  if (med < CFG.LIVE_H) return {mode:'LIVE', src:'derived'};
+  if (med < CFG.FRESH_H) return {mode:'FRESH', src:'derived'};
+  return {mode:'CASUAL', src:'derived'};
+}
+
+/* ============ nudge law (spec v1.0, five rules) ============ */
+function pierre(phase, mode) {
+  const watchedNums = new Set(watchLog.map(w=>w.epNum));
+  const airedEps = eps.filter(e => new Date(e.airstamp).getTime() <= simNow);
+  const behind = airedEps.filter(e => !watchedNums.has(e.number));
+  const S = CFG.SEASON;
+  if (killed) return {silent:true, why:'classifier off (two-strike)'};
+  if (phase.name === 'SEASON WRAP' && mode.mode === 'MORE!')
+    return {silent:false, text:`MORE! is ready. All ${eps.length} episodes.`};
+  if (['UNSAMPLED','DECLINED'].includes(mode.mode)) return {silent:true, why:`mode ${mode.mode}: silence is default`};
+  if (mode.mode === 'MORE!') return {silent:true, why:'MORE!: silent all season, one message at wrap'};
+  if (phase.name !== 'RAMP') return {silent:true, why:`nudges fire only during RAMP (now: ${phase.name})`};
+  if (behind.length === 0) {
+    const next = phase.next;
+    const tt = new Date(next.airstamp).getTime() - simNow;
+    const d = Math.ceil(tt/864e5);
+    return {silent:false, text:`S${S}E${next.number} "${next.name}" ${d<=1?'drops tonight':'in '+d+' days'}. You're caught up.`};
+  }
+  const gap = behind[behind.length-1], next = phase.next;
+  const tt = new Date(next.airstamp).getTime() - simNow;
+  if (['LIVE','FRESH'].includes(mode.mode)) {
+    if (tt < 24*3600*1000)
+      return {silent:false, text:`You have tonight to watch S${S}E${gap.number} before S${S}E${next.number} drops!`};
+    return {silent:false, text:`S${S}E${next.number} drops ${fmtDay(next.airstamp)}. That's your spoiler deadline for S${S}E${gap.number}.`};
+  }
+  // CASUAL: deadline framing only, no urgency
+  return {silent:false, text:`Heads up: S${S}E${next.number} arrives ${fmtDay(next.airstamp)}. E${gap.number} is waiting whenever you are.`};
+}
+
+/* ============ render ============ */
+function render() {
+  if (!eps.length) return;
+  const phase = getPhase(simNow);
+  const mode = classify();
+  const watchedNums = new Set(watchLog.map(w=>w.epNum));
+
+  // phase badge
+  const pb = document.getElementById('phase');
+  pb.textContent = phase.name;
+  pb.className = 'phasebadge' + (['SETTLED','DORMANT'].includes(phase.name) ? ' quiet' : '');
+
+  // seasons row
+  document.getElementById('seasonL').textContent = `SEASON ${CFG.SEASON} | ${eps.length} EPS`;
+  document.getElementById('seasonR').textContent = phase.name === 'DORMANT' ? '' : 'IN SEASON';
+
+  // bar
+  const bar = document.getElementById('bar');
+  bar.innerHTML = '';
+  eps.forEach((e, i) => {
+    const seg = document.createElement('div');
+    const aired = new Date(e.airstamp).getTime() <= simNow;
+    const cls = watchedNums.has(e.number) ? 'watched' : aired ? 'avail' : 'unrel';
+    seg.className = `seg ${cls} ${i===0?'first':''} ${i===eps.length-1?'last':''}`;
+    seg.style.width = (100/eps.length) + '%';
+    if (cls === 'avail') seg.onclick = logNext;
+    bar.appendChild(seg);
+  });
+  // popcorn on last watched midpoint
+  const maxWatched = Math.max(0, ...[...watchedNums]);
+  if (maxWatched > 0) {
+    const pc = document.createElement('span');
+    pc.className = 'popcorn'; pc.textContent = '🍿';
+    pc.style.left = ((maxWatched - .5) * 100/eps.length) + '%';
+    bar.appendChild(pc);
+  }
+  // amber warm tick on next unreleased segment during RAMP and PRE-SHOW
+  if (['RAMP','PRE-SHOW'].includes(phase.name) && phase.next) {
+    const idx = eps.findIndex(e => e.id === phase.next.id);
+    const wt = document.createElement('div');
+    wt.className = 'warmtick';
+    wt.style.left = `calc(${(idx + .5) * 100/eps.length}% - 1.5px)`;
+    bar.appendChild(wt);
+  }
+
+  // underbar: last watched | countdown | next date
+  const lastLog = watchLog.length ? watchLog.reduce((a,b)=>a.ts>b.ts?a:b) : null;
+  document.getElementById('ubLeft').textContent = lastLog ? 'last: ' + fmtDay(new Date(lastLog.ts).toISOString()) : '';
+  document.getElementById('ubRight').textContent = phase.next ? 'next: ' + fmtDay(phase.next.airstamp) : '';
+  const cd = document.getElementById('ubCenter');
+  if (['RAMP','PRE-SHOW'].includes(phase.name) && phase.next) {
+    const tt = new Date(phase.next.airstamp).getTime() - simNow;
+    const d = Math.floor(tt/864e5), h = Math.floor(tt%864e5/36e5), m = Math.floor(tt%36e5/6e4);
+    cd.textContent = `${d}d ${String(h).padStart(2,'0')}h ${String(m).padStart(2,'0')}m`;
+  } else cd.textContent = phase.name === 'LIVE' ? 'ON NOW' : '';
+
+  // chip: hidden while UNSAMPLED (derived); blank renders empty when DECLINED
+  const chip = document.getElementById('chip');
+  if (killed || (mode.mode === 'UNSAMPLED' && !manualMode)) chip.className = 'chip hidden';
+  else {
+    chip.className = 'chip' + (mode.src === 'derived' ? ' auto' : '');
+    chip.innerHTML = mode.mode === 'DECLINED' ? '&nbsp;&nbsp;&nbsp;' :
+      `${mode.mode} <span class="src">${mode.src === 'derived' ? 'auto' : 'set'}</span>`;
+  }
+
+  // pierre
+  const p = pierre(phase, mode);
+  const pm = document.getElementById('pierreMsg');
+  if (p.silent) { pm.className = 'msg silent'; pm.innerHTML = `silent<span class="why">${p.why}</span>`; }
+  else { pm.className = 'msg'; pm.textContent = p.text; }
+
+  // kill banner
+  document.getElementById('killbanner').className = 'killbanner' + (killed ? ' show' : '');
+
+  // console readout
+  document.getElementById('dNow').textContent = new Date(simNow).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
+  document.getElementById('dPhase').textContent = phase.name;
+  document.getElementById('dMode').textContent = `${mode.mode} (${mode.src})`;
+  document.getElementById('dWatched').textContent = `${watchedNums.size}/${eps.length}`;
+  document.getElementById('dDecl').textContent = `${declineCount}${positiveInteraction?' (+pos)':''}${killed?' KILLED':''}`;
+}
+
+/* ============ interactions ============ */
+function cycleChip() {
+  if (killed) return;
+  const order = [null, ...MODES, 'DECLINED'];  // null = auto
+  const idx = order.indexOf(manualMode);
+  manualMode = order[(idx + 1) % order.length];
+  if (manualMode === 'DECLINED') {
+    // two-strike consent rule, with positive-interaction exception
+    if (!positiveInteraction) {
+      declineCount++;
+      if (declineCount >= 2) killed = true;
+    }
+  } else if (manualMode !== null) {
+    positiveInteraction = true;  // manual set counts as positive engagement
+  }
+  render();
+}
+function reenable() { killed = false; declineCount = 0; manualMode = null; render(); }
+function onScrub() { simNow = Number(document.getElementById('scrub').value); render(); }
+function resetNow() { simNow = Date.now(); document.getElementById('scrub').value = simNow; render(); }
+function logNext() {
+  const watched = new Set(watchLog.map(w=>w.epNum));
+  const next = eps.find(e => !watched.has(e.number) && new Date(e.airstamp).getTime() <= simNow);
+  if (next) { watchLog.push({epNum: next.number, ts: simNow}); render(); }
+}
+function clearLog() { watchLog = []; manualMode = null; render(); }
+function seedLive() {
+  clearWithoutRender();
+  eps.filter(e => new Date(e.airstamp).getTime() <= simNow).forEach(e =>
+    watchLog.push({epNum: e.number, ts: new Date(e.airstamp).getTime() + 40*60*1000}));
+  render();
+}
+function seedBinge() {
+  clearWithoutRender();
+  const aired = eps.filter(e => new Date(e.airstamp).getTime() <= simNow);
+  aired.forEach((e,i) => watchLog.push({epNum: e.number, ts: simNow - (aired.length-i)*30*60*1000}));
+  render();
+}
+function clearWithoutRender() { watchLog = []; manualMode = null; }
+function fmtDay(iso) {
+  return new Date(iso).toLocaleDateString('en-US',{weekday:'short', month:'short', day:'numeric'});
+}
+setInterval(() => { /* keep countdown live when unscubbed */ if (Math.abs(simNow - Date.now()) < 65*1000) { simNow = Date.now(); render(); } }, 30*1000);
+</script>
+</body>
+</html>
