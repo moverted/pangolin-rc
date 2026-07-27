@@ -6,6 +6,28 @@ same-session rule).
 
 ---
 
+## 2026-07-27 — TestFlight build 7 (1.0.1) — share card AS VIDEO (native AVFoundation) [PREPPED, UNVERIFIED Swift, archive pending Ted]
+
+- **Build 7, marketing 1.0.1.** Bumped `CURRENT_PROJECT_VERSION` 6→7. Supersedes build 6.
+- **NEW local Capacitor plugin `capacitor-card-video`** (repo root, mirrors @capacitor/share
+  SPM structure). `npm install ./capacitor-card-video` + `cap sync` → Found 3 plugins;
+  wired into `CapApp-SPM/Package.swift` as a local path package.
+- **#4 share-as-video:** a spoken reflection can be shared as a 9:16 mp4 (the 1:1 card
+  anchored at the top, audio = the reflection clip). JS renders the story frame
+  (`buildStoryFrame`) + hands image+audio (base64) to `CardVideo.compose` (AVFoundation:
+  AVAssetWriter still-video + AVMutableComposition/AVAssetExportSession mux → mp4 URI),
+  then shares via the Share plugin. Web/PWA uses a MediaRecorder fallback; both fall back
+  to sharing the still card if anything fails.
+- **⚠️ The Swift plugin is UNVERIFIED** (written without a compiler). **Expect possible
+  fixups on first archive** — likely spots: `AVURLAsset.duration` async loading (iOS 16+),
+  `CMTime.isNumeric`, pixel-buffer `bitmapInfo`, `AVAssetExportSession` optional. If it
+  won't build, the fix is isolated to `capacitor-card-video/ios/Sources/CardVideoPlugin/
+  CardVideoPlugin.swift`; the JS side degrades to the still-image share so nothing else
+  breaks. See `SHARE_VIDEO.md`.
+- **Also carries** everything in build 6 (native image share, season/series cards).
+- **Archive + upload = Ted's step.** On-device test: speak a reflection → SHARE → "Share
+  as video" → Instagram → Stories should take an mp4 video.
+
 ## 2026-07-27 — TestFlight build 6 (1.0.1) — native share (IG Stories fix) + season/series cards [PREPPED, archive+upload pending Ted]
 
 - **Build 6, marketing 1.0.1.** Bumped `CURRENT_PROJECT_VERSION` 5→6 (both Debug +

@@ -913,11 +913,26 @@
   }
   async function doShareVideo(cardBlob, ctx, text, audioUrl){
     addPierre('Making the video…');
-    const vid=await buildShareVideo(cardBlob, audioUrl).catch(()=>null);
-    if(!vid){ addPierre('Could not make the video — sharing the card instead.'); return doShareCard(cardBlob, ctx, text); }
     const caption=(ctx.show||'')+(ctx.ep?(' '+ctx.ep):'')+' — on pangolinRC';
-    const ext = vid.type.indexOf('mp4')>=0 ? 'mp4' : 'webm';
-    if(await shareBlob(vid, 'pangolinrc-card-'+Date.now()+'.'+ext, caption)){ addPierre('Shared.'); return; }
+    const Cap=(window.Capacitor)||(window.top&&window.top.Capacitor);
+    // Native (iOS app): compose an mp4 with AVFoundation (CardVideo plugin) — the reliable
+    // IG-Stories path — then share the file. JS renders the 9:16 frame; native muxes.
+    if(Cap && Cap.isNativePlatform && Cap.isNativePlatform() && Cap.Plugins && Cap.Plugins.CardVideo && Cap.Plugins.Share){
+      try{
+        const frame=await buildStoryFrame(cardBlob);
+        const frameBlob=await new Promise(r=> frame.toBlob(r,'image/png',0.92));
+        const audioBlob=await (await fetch(audioUrl)).blob();
+        const t=audioBlob.type||'';
+        const ext = (t.indexOf('mp4')>=0||t.indexOf('m4a')>=0||t.indexOf('aac')>=0) ? 'm4a'
+                  : t.indexOf('wav')>=0 ? 'wav' : t.indexOf('mpeg')>=0 ? 'mp3' : 'm4a';
+        const res=await Cap.Plugins.CardVideo.compose({ image:await _blobB64(frameBlob), audio:await _blobB64(audioBlob), audioExt:ext });
+        if(res && res.uri){ await Cap.Plugins.Share.share({ title:'pangolinRC', text:caption, files:[res.uri] }); addPierre('Shared.'); return; }
+      }catch(e){ /* fall through to the web encoder, then the still card */ }
+    }
+    // Web/PWA fallback: MediaRecorder (best-effort), else share the still card.
+    const vid=await buildShareVideo(cardBlob, audioUrl).catch(()=>null);
+    if(vid){ const ext = vid.type.indexOf('mp4')>=0 ? 'mp4' : 'webm';
+      if(await shareBlob(vid, 'pangolinrc-card-'+Date.now()+'.'+ext, caption)){ addPierre('Shared.'); return; } }
     addPierre('Sharing the card instead.'); return doShareCard(cardBlob, ctx, text);
   }
 

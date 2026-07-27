@@ -65,11 +65,20 @@ best-effort fallback for web only; iOS relies on Path A.
       **Could not verify headless** (MediaRecorder returned null — a headless/WKWebView
       limitation, not a code bug). Works where MediaRecorder is real (desktop/Android web);
       output webm (mp4 if the platform supports it).
-- [ ] `CardVideo` native plugin (AVFoundation) — the guaranteed-mp4 path for iOS/IG. Not
-      built; needs Swift + build 7 + device test. This is what makes iOS Stories video
-      reliable — MediaRecorder alone won't cut it on iOS.
+- [x] `CardVideo` native plugin (AVFoundation) — **built** as a local Capacitor plugin
+      `capacitor-card-video/` (mirrors @capacitor/share's SPM structure; `cap sync` found
+      3 plugins). `compose({image,audio,audioExt}) -> {uri}`: writes the audio to a temp
+      file, renders the still image as a video of the audio's duration (AVAssetWriter +
+      pixel-buffer adaptor), muxes video+audio (AVMutableComposition + AVAssetExportSession)
+      → mp4 URI → shared via the Share plugin. `doShareVideo` calls it on the native
+      platform, else the MediaRecorder web path, else the still card.
+      **UNVERIFIED — this Swift was written without a compiler.** Build 7 will surface any
+      fixups (API signatures, threading, deprecations). The web fallback means the app
+      never breaks if the plugin fails to build/register.
 
-## Not deployed
-On `feat/share-card-video` only — the encoder is unverified on the real targets. Decide:
-ship the web-only version (webm, best-effort) + build the native plugin, or go straight to
-the native plugin for iOS.
+## Notes for the build-7 compile
+- Audio format: iOS WKWebView MediaRecorder records `audio/mp4` (AAC), which AVFoundation
+  reads (ext `m4a`). Non-iOS (webm/opus) never hits the native path.
+- If `compose` rejects (e.g. duration read / export), JS falls back to the still card.
+- Likely fixup spots if it doesn't compile first try: `AVURLAsset.duration` async loading
+  on iOS 16+, `CMTime.isNumeric`, pixel-buffer bitmapInfo, export-session optional.
