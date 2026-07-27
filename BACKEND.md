@@ -13,6 +13,34 @@ Entry format:
 
 ---
 
+## 2026-07-27 — Episode-finish logging fix DEPLOYED to production (Ted's OK)
+- **Frontend only** (no Worker / D1 / wrangler.toml change). Fixes a lost episode
+  finish: when the episode-end timer had already elapsed on return, the shell jumped
+  straight to Pierre's "Did you finish …?" prompt and never wrote the completion —
+  if a share/crash intervened, the finish was lost while the co-view comment (own
+  path) survived (repro: Hacks S2E7). Now both return paths (on-return check +
+  end-of-episode notification) land on the LOG face at the launched episode via a
+  shared `openLaunchOnLog(L, promptFinish)`; when the timer ran out, FINISH is called
+  out (green glow-pulse) so the finish is a one-tap, account-writing act BEFORE any
+  Pierre/share step. Removed the now-dead Pierre "Did you finish …?" flow
+  (`enterEpisodeFinishFlow`/`chooseFinish`/`commitFinish`/`epCodeOf`/`saveJournalNote`,
+  `episode-finish` intent, `episodeFinish:commit` listener, `_armNextOnReturn`).
+- **Files:** `public/cube_shell.js`, `public/cube_log_face.html`,
+  `public/cube_pierre_face.html`. `www/` mirrors synced locally for the iOS wrapper.
+- **Git:** branch `fix-episode-finish-logging` (`d2666a0`), fast-forwarded to `main`
+  and pushed (`ac75866..d2666a0`). Branch also pushed to origin.
+- **Production Pages deploy:** `wrangler pages deploy public --project-name pangolin-rc
+  --branch main --commit-message "…"` -> deployment `08cd6423`, Environment
+  **Production**, source `d2666a0`. Serves `pangolin-rc.pages.dev`,
+  `remote.pangolinrc.com`, `remote.demo.pangolinrc.com`.
+- **Verified live** on `remote.pangolinrc.com` (cache-busted, following the Pages
+  clean-URL 308 that drops `.html`): `openLaunchOnLog`/`finishCallout`/`promptFinish`
+  present; `routeEpisodeFinish`/`episodeFinish:commit`/`enterEpisodeFinishFlow` gone.
+  Note: static assets carry `cache-control: max-age=14400, must-revalidate`, so the
+  edge may serve the prior JS/HTML to returning testers for up to ~4h absent a purge.
+- **iOS:** web/PWA production only; Capacitor app not re-synced/archived this session.
+- Rollback if needed: redeploy prior Pages deployment `20f1b085` (source `f7a50d0`).
+
 ## 2026-07-26 — WoW scheduler v1.0.1 MERGED to main + PRODUCTION (Ted's explicit OK)
 - **Merged** `feat/wow-inseason-scheduler` -> `main` (merge commit `f7a50d0`, `--no-ff`),
   pushed to `origin` (`3c974f6..f7a50d0`). Branch was 21 ahead / 0 behind (clean).
