@@ -546,6 +546,33 @@
     ]);
   }
 
+  // ── watch state for the shared card ────────────────────────────────────────────
+  // The share cards carry the member's watchPattern for the show: manual override
+  // wins, else it's derived from their watch-vs-airstamp deltas (same law as the
+  // WATCH stamp). Nothing shows for UNSAMPLED/DECLINED or when the classifier is off.
+  async function wowCardMode(em, titleId){
+    if(!window.WoW || !em || !titleId) return null;
+    let state=null; try{ state=await WoW.store.load(em); }catch(_){}
+    if(state && state.user && state.user.globalKill) return null;
+    const manual = state && state.modes && state.modes[titleId];
+    if(manual) return (manual==='DECLINED') ? null : manual;
+    try{
+      const eps=await WoW.episodes(titleId);
+      const airBy={}; eps.forEach(e=>{ airBy[e.season+'-'+e.number]=e.airstamp; });
+      const r=await fetch(`${API}/profile/${encodeURIComponent(em)}/titles/${encodeURIComponent(titleId)}`);
+      if(!r.ok) return null;
+      const list=(await r.json()).episodes||[]; const deltas=[], ts=[];
+      list.forEach(e=>{ const as=airBy[e.season+'-'+e.number];
+        (e.sessions||[]).forEach(s=>{ if(s && s.finished && !s.bp && typeof s.finishTs==='number' && as){
+          deltas.push((s.finishTs-new Date(as).getTime())/3600000); ts.push(s.finishTs); } }); });
+      const m=WoW.classifyDeltas(deltas, ts);
+      return (m && m.mode && m.mode!=='UNSAMPLED' && m.mode!=='DECLINED') ? m.mode : null;
+    }catch(_){ return null; }
+  }
+  // Public-facing label: internal mode names carry through except MORE!, which reads
+  // as BINGE to the wider audience (MORE! is our word; BINGE is theirs).
+  function wowCardLabel(mode){ return mode==='MORE!' ? 'BINGE' : mode; }
+
   // The captured thought: persist, then let Pierre react as a normal turn.
   async function noteTurn(text){
     const ctx=noteCtx; noteCtx=null; clearReflectComment();   // any voice comment was already posted by the mic
@@ -560,10 +587,11 @@
     await ask(text);
     if(ctx.finished || ctx.offerShare){
       let uname=''; try{ uname=(localStorage.getItem('pg_username')||'').trim(); }catch(_){}
+      const watchMode=await wowCardMode(email, ctx.titleId);   // stamp the card with their pattern
       // Pre-build the card NOW (async: loads poster) so the Share tap can fire
       // navigator.share synchronously in-gesture — iOS drops a share after an await.
       const blob=await buildReflectionCard({ username:uname||'Someone', epCode:ctx.ep,
-        show:ctx.show, platform:ctx.platform, poster:ctx.poster, comment:text, spoiler:noteSpoiler }).catch(()=>null);
+        show:ctx.show, platform:ctx.platform, poster:ctx.poster, comment:text, spoiler:noteSpoiler, watchMode }).catch(()=>null);
       if(blob) addCardPreview(blob);
       pierreSay(noteSpoiler ? 'Card ready (quote hidden — spoiler). Share it?' : 'Card ready. Share it?', [
         {label:'Share card', onClick:()=>doShareCard(blob, ctx, text)},
@@ -642,6 +670,20 @@
     let by=450+l2.length*58+8;
     if(o.platform){ g.fillStyle='rgba(248,242,232,0.65)'; g.font='500 32px Inter, system-ui, sans-serif';
       g.fillText('on '+o.platform, 110, by); }
+    // watch-state stamp: the member's pattern, ink-stamped (MORE! reads as BINGE).
+    if(o.watchMode){
+      const label=wowCardLabel(o.watchMode);
+      g.save();
+      g.font='800 36px Inter, system-ui, sans-serif';
+      const tw=g.measureText(label).width, padX=24, bh=64, bw=tw+padX*2;
+      g.translate(110, by + (o.platform ? 40 : 26));   // just under the title/platform block
+      g.rotate(-0.055);                                  // slight tilt, like a rubber stamp
+      g.lineWidth=3.5; g.strokeStyle='#f0a93b';
+      _rr(g,0,0,bw,bh,12); g.stroke();
+      g.fillStyle='#f0a93b'; g.textBaseline='middle';
+      g.fillText(label, padX, bh/2+2);
+      g.restore();
+    }
     // comment area (spoiler-aware)
     const cx=110, cy=690, cw=S-220, ch=300;
     if(o.spoiler || !o.comment){
