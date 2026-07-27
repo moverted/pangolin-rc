@@ -6,6 +6,29 @@ same-session rule).
 
 ---
 
+## 2026-07-27 — TestFlight build 5 (1.0.1) — share/reflection card redesign [PREPPED, archive+upload pending Ted]
+
+- **Build 5, marketing 1.0.1.** Bumped `CURRENT_PROJECT_VERSION` 4→5 in
+  `App.xcodeproj/project.pbxproj` (both Debug + Release). `MARKETING_VERSION` stays
+  `1.0.1`.
+- **`cap sync ios` ran clean** after `sync-www` — copied the updated `www/` into
+  `ios/App/App/public/`. Verified the bundle now carries the new card code
+  (`_cutout`, "watch with pangolinRC to hear", "Comments hidden at", "see the comment
+  in pangolinRC"); `ios/App/App/public/` is gitignored (mirror of `www/`).
+- **Bundles the finished-episode share/reflection card redesign** (already live on the
+  web/PWA at `remote.pangolinrc.com`, Pages deploy `31ad1aeb`; web commit `6d6d294`,
+  PR #28): username→email→"Someone" name fallback, live hidden-comment-times teaser
+  list + "hear them in real time" CTA (generic co-watch CTA when none), poster-hugging
+  copy, red cocked BINGE/FRESH stamp, cut-out Pierre on the green box, SPOILER-FREE/
+  SPOILER label over his head, 4-line quote with ellipsis overrun, new spoiler copy.
+- **Archive + upload NOT done here** — the archive is Ted's step (Xcode Organizer or
+  `xcodebuild -scheme App -configuration Release archive`, automatic signing, team
+  `289R5P7B76`), then Distribute App → App Store Connect → Upload, then Beta App
+  Review / cohort in App Store Connect. On-device checks per BUILD-SHEET §6 (share
+  card → Instagram Stories) before/after.
+- **Note:** build 4 (1.0.1) archive's upload was still pending Ted as of the last
+  entry — confirm whether 4 was ever uploaded; if not, 5 supersedes it.
+
 ## 2026-07-26 — TestFlight build 4 (1.0.1) — WoW in-season scheduler [ARCHIVED, upload pending Ted]
 
 - **Build 4, marketing 1.0.1.** Bumped `CURRENT_PROJECT_VERSION` 3→4 and
