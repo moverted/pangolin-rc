@@ -13,6 +13,22 @@ Entry format:
 
 ---
 
+## 2026-07-26 — WoW scheduler v1.0.1 MERGED to main + PRODUCTION (Ted's explicit OK)
+- **Merged** `feat/wow-inseason-scheduler` -> `main` (merge commit `f7a50d0`, `--no-ff`),
+  pushed to `origin` (`3c974f6..f7a50d0`). Branch was 21 ahead / 0 behind (clean).
+- **Production Pages deploy:** `wrangler pages deploy public --branch main`
+  (main = the project's production branch) -> deployment `20f1b085`, Environment
+  **Production**, source `f7a50d0`. Serves `pangolin-rc.pages.dev`,
+  `remote.pangolinrc.com`, `remote.demo.pangolinrc.com`.
+- **Worker** already at prod version `a5c211cb` from the earlier same-day deploy; main
+  now matches it, no re-deploy needed. `SCHED_DB` (pangolinrc-scheduler) live.
+- **Verified live:** prod `wow-scheduler.js` 200, custom domain 200, `/scheduler/state`
+  200. Legacy `pangolin-rc` DB never migrated/rebound; scheduler state in its own D1.
+- **iOS NOT shipped:** this is the web/PWA production only. The Capacitor app needs a
+  fresh `npx cap sync ios` + Xcode/TestFlight build to carry the scheduler on device
+  (prod TestFlight build 4 is unchanged). `www/` is synced; `ios/App/App/public/` is not.
+- Rollback if needed: `wrangler rollback` (Worker) / redeploy a prior Pages deployment.
+
 ## 2026-07-26 — WoW scheduler Worker routes DEPLOYED to production (Ted's explicit OK)
 - **`wrangler deploy`** pushed `/scheduler/state|mode|default|notify|reenable` + the
   `SCHED_DB` binding to the prod Worker `pangolin-rc.edward-m-willett.workers.dev`.
