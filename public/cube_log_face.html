@@ -787,6 +787,34 @@ const bingeLive=()=>isBinge() && !cooled;
 
 function runtimeOf(i){ return (eps[i]&&eps[i].runtime) || avgRuntime || 45; }
 
+// Digest for a finished scope, for the season/series share card. seasonNum!=null → that
+// season; null → the whole series. Finish timestamps come from the live session log
+// (current season) overlaid on the persisted savedDetail (all seasons), so the just-
+// finished episode is always counted. daysWatched sums per-season spans, which naturally
+// excludes the hiatus between seasons.
+function reflectionDigest(seasonNum){
+  const DAYMS=(typeof DAY==='number'?DAY:864e5);
+  const detail={};   // "season-number" → sessions[]
+  if(savedDetail) for(const k in savedDetail){ const d=savedDetail[k]; if(d && Array.isArray(d.sessions)) detail[k]=d.sessions; }
+  eps.forEach((e,i)=>{ if(epSessions[i] && epSessions[i].length) detail[sNum(e)+'-'+e.number]=epSessions[i]; });
+  const finsBySeason={}; const doneSeasons=new Set(); let episodeCount=0;
+  allEps.forEach(e=>{
+    const sn=sNum(e), key=sn+'-'+e.number;
+    if(seasonNum!=null && sn!==seasonNum) return;
+    const sess=detail[key]||[];
+    const fins=sess.filter(s=>s && s.finished && typeof s.finishTs==='number').map(s=>s.finishTs);
+    const done = fins.length || (savedDetail && savedDetail[key] && savedDetail[key].done);
+    if(done){ episodeCount++; doneSeasons.add(sn); fins.forEach(t=>{ (finsBySeason[sn]||(finsBySeason[sn]=[])).push(t); }); }
+  });
+  const spanDays=(ts)=>{ if(!ts||!ts.length) return 0; if(ts.length<2) return 1;
+    return Math.max(1, Math.round((Math.max(...ts)-Math.min(...ts))/DAYMS)+1); };
+  let daysWatched=0; for(const sn in finsBySeason) daysWatched+=spanDays(finsBySeason[sn]);
+  const airs=allEps.filter(e=>(seasonNum==null||sNum(e)===seasonNum) && (e.airstamp||e.airdate))
+    .map(e=>+new Date(e.airstamp||e.airdate)).filter(t=>!isNaN(t));
+  let yearsSpan=0; if(airs.length>1) yearsSpan=Math.round((Math.max(...airs)-Math.min(...airs))/(365.25*DAYMS));
+  return { episodeCount, daysWatched, seasonCount:doneSeasons.size, yearsSpan };
+}
+
 // Does the show have a season after the one currently loaded? If so, finishing
 // this season wraps onward rather than ending the show.
 function hasLaterSeason(){
@@ -799,11 +827,24 @@ function hasLaterSeason(){
 // finale hands off to the Log to finish the show. MVP only; DEMO keeps its chip.
 function finaleCheck(){
   const total=eps.length;
-  if(total>0 && watched>=total && hasLaterSeason()) return;   // season finale → wrap, not show finale
+  if(total>0 && watched>=total && hasLaterSeason()) return;   // season finale → wrap (advanceFocus→loadNextSeason)
   if(!DEMO && window.parent!==window && total>0 && watched>=total && curShowId){
-    _routedToPierre=true;   // the finale handoff owns the cube; skip the plain finished-note
-    window.parent.postMessage({type:'episode:finishedFinale', tvmazeId:curShowId, name:curShowName, kind:isMovie?'movie':'show'}, '*');
+    _routedToPierre=true;   // series end owns the cube; skip the plain finished-note
+    forceSeriesNote();      // last season's finale → whole-series reflection + share card
   }
+}
+// The last season's finale → Pierre hosts a whole-series reflection (spoiler toggle +
+// audio + series share card). eps is still the last season here, earlier seasons ride
+// savedDetail, so reflectionDigest(null) sees the whole run including the just-finished ep.
+function forceSeriesNote(){
+  if(window.parent===window || !curShowId) return;
+  const dg=reflectionDigest(null);
+  const finale=[...allEps].sort((a,b)=>(sNum(a)-sNum(b))||((a.number||0)-(b.number||0))).pop();
+  const payload={ intent:'series-note', scope:'series', finished:true, show:curShowName, titleId:curShowId,
+                  ep: finale?epCode(finale):'', runtime: finale?(finale.runtime||avgRuntime):avgRuntime,
+                  episodeCount:dg.episodeCount, daysWatched:dg.daysWatched, seasonCount:dg.seasonCount, yearsSpan:dg.yearsSpan };
+  if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('pierre', payload);
+  else window.parent.postMessage({type:'cube:rotateTo', face:'pierre', payload}, '*');
 }
 function markWatchedThrough(i){
   if(i+1>watched) watched=i+1;
@@ -834,16 +875,22 @@ function loadNextSeason(){
   const cur=sNum(eps[0]);
   const later=[...new Set(allEps.map(sNum))].filter(s=>s>cur).sort((a,b)=>a-b);
   if(!later.length) return false;    // already the last season — real finale
+  const dg=reflectionDigest(cur);    // compute BEFORE the switch resets the live session log
   switchToSeason(later[0]);
-  forceSeasonNote(cur);              // wrapped a season in-app → force a note in Pierre
+  forceSeasonNote(cur, dg);          // wrapped a season in-app → force a reflection in Pierre
   return true;
 }
-// A deliberate in-app season finish routes to Pierre for a forced thought on the
-// season just wrapped (reliable trigger; the return-from-launch prompt is not).
-function forceSeasonNote(finishedSeason){
+// A deliberate in-app season finish routes to Pierre for a forced reflection on the
+// season just wrapped (spoiler toggle + audio + season share card). dg is computed by
+// loadNextSeason before the season switch, when the live session log is still this season.
+function forceSeasonNote(finishedSeason, dg){
   if(window.parent===window || !curShowId) return;
   _routedToPierre=true;   // the season-note handoff owns the cube; skip the plain finished-note
-  const payload={ intent:'season-note', show:curShowName, ep:'Season '+finishedSeason };
+  dg=dg||reflectionDigest(finishedSeason);
+  const finale=[...allEps].filter(e=>sNum(e)===finishedSeason).sort((a,b)=>(a.number||0)-(b.number||0)).pop();
+  const payload={ intent:'season-note', scope:'season', finished:true, show:curShowName, titleId:curShowId,
+                  seasonNum:finishedSeason, ep: finale?epCode(finale):'', runtime: finale?(finale.runtime||avgRuntime):avgRuntime,
+                  episodeCount:dg.episodeCount, daysWatched:dg.daysWatched };
   if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('pierre', payload);
   else window.parent.postMessage({type:'cube:rotateTo', face:'pierre', payload}, '*');
 }

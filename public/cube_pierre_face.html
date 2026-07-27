@@ -410,16 +410,21 @@
     addFlow=null; acctFlow=null; joinFlow=null; seasonNoteFlow=false;
     setCtxIndicator('note');
     p=p||{};
+    const scope=p.scope||'episode';
     const where = p.show ? (p.show + (p.ep ? (' '+p.ep) : '')) : 'what you just watched';
     noteCtx={ show:p.show||'', ep:p.ep||'', titleId:p.titleId||null, ticketId:p.ticketId||null,
-              finished:!!p.finished, offerShare:!!p.offerShare, poster:'', platform:'' };
+              finished:!!p.finished, offerShare:!!p.offerShare, poster:'', platform:'',
+              scope, seasonNum:(p.seasonNum!=null?p.seasonNum:null), episodeCount:p.episodeCount||0,
+              seasonCount:p.seasonCount||0, daysWatched:p.daysWatched||0, yearsSpan:p.yearsSpan||0 };
     noteSpoiler=false;
     setReflectComment(p);
     // Prefetch poster + streamer for the share card so it's ready by share time.
     if(p.titleId) metaFetch(p.titleId).then(m=>{ if(noteCtx){ noteCtx.poster=m.poster; noteCtx.platform=m.platform; } });
-    askReflection(p.finished
-      ? ('You finished ' + where + '. Tell me what you made of it.')
-      : ('Noting ' + where + '. What did you make of it?'));
+    const prompt = scope==='series' ? ('You finished '+(p.show||'the show')+' — the whole run. What did it leave you with?')
+                 : scope==='season' ? ('You wrapped '+(p.show||'that')+(p.seasonNum!=null?(' season '+p.seasonNum):'')+'. What did you make of it?')
+                 : (p.finished ? ('You finished ' + where + '. Tell me what you made of it.')
+                               : ('Noting ' + where + '. What did you make of it?'));
+    askReflection(prompt);
     input.placeholder = '';   // blank — the "what to watch" hint conflicts with a note
     input.focus();
   }
@@ -587,23 +592,28 @@
     await ask(text);
     if(ctx.finished || ctx.offerShare){
       let uname=''; try{ uname=(localStorage.getItem('pg_username')||'').trim(); }catch(_){}
+      const scope=ctx.scope||'episode';
       const watchMode=await wowCardMode(email, ctx.titleId);   // stamp the card with their pattern
-      // Live-fetch this episode's own co-view comments for the card's teaser rows —
-      // timestamps only (the card hides the "what"). episode_id is the ep code (S02E07).
+      // Live-fetch the member's own co-view comments. Episode → this ep's hidden-times
+      // teaser row; season → the season's episodes; series → the whole run. episode_id
+      // is the ep code (S02E07), so a season filters on its "S0<n>E" prefix.
       let teasers=[], commentCount=0;
-      if(email && ctx.titleId && ctx.ep){
+      if(email && ctx.titleId){
         try{
           const cr=await fetch(`${API}/transcribe/comments?showId=${encodeURIComponent(ctx.titleId)}&email=${encodeURIComponent(email)}`);
-          if(cr.ok){ const cs=((await cr.json()).comments||[]).filter(c=>c.episodeId===ctx.ep && !c.replyTo);
+          if(cr.ok){ let cs=((await cr.json()).comments||[]).filter(c=>!c.replyTo);
+            if(scope==='episode') cs=cs.filter(c=>c.episodeId===ctx.ep);
+            else if(scope==='season' && ctx.seasonNum!=null){ const sp=new RegExp('^S0*'+ctx.seasonNum+'E','i'); cs=cs.filter(c=>sp.test(c.episodeId||'')); }
             commentCount=cs.length;
-            teasers=cs.map(c=>c.timestampMs).filter(v=>typeof v==='number').sort((a,b)=>a-b); }
+            if(scope==='episode') teasers=cs.map(c=>c.timestampMs).filter(v=>typeof v==='number').sort((a,b)=>a-b); }
         }catch(_){}
       }
       // Pre-build the card NOW (async: loads poster) so the Share tap can fire
       // navigator.share synchronously in-gesture — iOS drops a share after an await.
-      const blob=await buildReflectionCard({ username:uname, email, epCode:ctx.ep,
+      const blob=await buildReflectionCard({ username:uname, email, scope, epCode:ctx.ep, seasonNum:ctx.seasonNum,
         show:ctx.show, platform:ctx.platform, poster:ctx.poster, comment:text, spoiler:noteSpoiler,
-        watchMode, teasers, commentCount }).catch(()=>null);
+        watchMode, teasers, commentCount, episodeCount:ctx.episodeCount, seasonCount:ctx.seasonCount,
+        daysWatched:ctx.daysWatched, yearsSpan:ctx.yearsSpan }).catch(()=>null);
       if(blob) addCardPreview(blob);
       pierreSay(noteSpoiler ? 'Card ready (quote hidden — spoiler). Share it?' : 'Card ready. Share it?', [
         {label:'Share card', onClick:()=>doShareCard(blob, ctx, text)},
@@ -708,11 +718,16 @@
       g.drawImage(poster,sx,sy,sw,sh,pX,pY,pW,pH); g.restore(); }catch(_){ poster=null; } }
     if(!poster){ g.fillStyle='rgba(255,255,255,0.05)'; _rr(g,pX,pY,pW,pH,18); g.fill(); }
     // action copy — top-aligned (no wordmark). Name falls back username → email → "Someone".
+    // scope: 'episode' (just watched SxxExx) | 'season' (just finished season N) | 'series' (just finished show).
     const who=(o.username||o.email||'Someone');
+    const scope=o.scope||'episode';
     g.fillStyle='rgba(248,242,232,0.85)'; g.font='700 40px Inter, system-ui, sans-serif';
-    g.fillText(who+' just watched', M, 158);
+    g.fillText(who+(scope==='episode'?' just watched':' just finished'), M, 158);
     g.fillStyle='#fff'; g.font='800 52px Inter, system-ui, sans-serif';
-    const l2=_wrapFlow(g,(o.epCode?o.epCode+' of ':'')+(o.show||'a show'), M,226,58, pX-M-18, S-2*M, pY+pH).slice(0,3);
+    const titleText = scope==='series' ? (o.show||'a show')
+                    : scope==='season' ? ('season '+(o.seasonNum!=null?o.seasonNum:'?')+' of '+(o.show||'a show'))
+                    : ((o.epCode?o.epCode+' of ':'')+(o.show||'a show'));
+    const l2=_wrapFlow(g, titleText, M,226,58, pX-M-18, S-2*M, pY+pH).slice(0,3);
     l2.forEach(o2=> g.fillText(o2.text, M, o2.y));
     const titleBottom=(l2.length?l2[l2.length-1].y:226);
     let by=titleBottom+56;   // full line-gap so the platform never crashes the title
@@ -725,16 +740,31 @@
     const teasers=Array.isArray(o.teasers)?o.teasers:[];
     const cCount=o.commentCount||teasers.length;
     const ty=(o.platform?by:titleBottom)+62;
-    if(cCount>0){
+    // (The hero "WATCH WITH PANGOLINRC…" CTA now lives below the box — see further down.)
+    if(scope!=='episode'){
+      // Season / series digest: comments across episodes, watch span (in-season days
+      // only — hiatus excluded), the dominant mode, and (series) seasons + year range.
+      const epsN=o.episodeCount||0, days=o.daysWatched||0;
+      g.fillStyle='#f0a93b'; g.font='800 34px Inter, system-ui, sans-serif';
+      g.fillText(cCount>0 ? (cCount+' comment'+(cCount===1?'':'s')+' on '+epsN+' episode'+(epsN===1?'':'s'))
+                          : ('finished '+epsN+' episode'+(epsN===1?'':'s')), M, ty);
+      let yy=ty+40; g.fillStyle='rgba(248,242,232,0.6)'; g.font='500 28px Inter, system-ui, sans-serif';
+      if(scope==='series'){
+        const sc=o.seasonCount, ys=o.yearsSpan; let seasonsLine='';
+        if(sc) seasonsLine=sc+' season'+(sc===1?'':'s');
+        if(ys>=1) seasonsLine=(seasonsLine?seasonsLine+' ':'')+'over '+ys+' year'+(ys===1?'':'s');
+        if(seasonsLine){ g.fillText(seasonsLine, M, yy); yy+=38; }
+      }
+      const bits=[]; if(days) bits.push('watched '+days+' day'+(days===1?'':'s'));
+      if(o.watchMode) bits.push('mostly '+wowCardLabel(o.watchMode));
+      if(bits.length){ g.fillText(bits.join(' · '), M, yy); yy+=38; }
+    } else if(cCount>0){
       g.fillStyle='#f0a93b'; g.font='800 34px Inter, system-ui, sans-serif';
       g.fillText(cCount+' comment'+(cCount===1?'':'s')+' on this episode', M, ty);
-      g.fillStyle='rgba(248,242,232,0.6)'; g.font='500 28px Inter, system-ui, sans-serif';
-      const subLines=['watch with pangolinRC to hear','them in real time'];
-      subLines.forEach((ln,i)=> g.fillText(ln, M, ty+40+i*34));
       const times=teasers.map(cardMins);
       if(times.length){
         // Below the poster so the times list can run full-width (all fit, or "…" for the rest).
-        const listY=Math.max(ty+40+(subLines.length-1)*34+52, pB+40), listW=S-2*M;
+        const listY=Math.max(ty+52, pB+40), listW=S-2*M;
         g.fillStyle='rgba(248,242,232,0.55)'; g.font='600 28px Inter, system-ui, sans-serif';
         const lead='Comments hidden at ', shown=[];
         for(const t of times){ const more=shown.length+1<cCount;
@@ -743,14 +773,11 @@
         const text=lead+(shown.length?shown.join(', '):'')+(shown.length<cCount?(shown.length?', …':'…'):'');
         g.fillText(text, M, listY);
       }
-    } else {
-      // No comments on this episode yet — a generic co-watch CTA fills the space.
-      g.fillStyle='#f0a93b'; g.font='800 40px Inter, system-ui, sans-serif';
-      _wrapFlow(g,'watch along with '+who+' on pangolinRC', M, ty+8,50, colW, S-2*M, pB).slice(0,3).forEach(o2=> g.fillText(o2.text, M, o2.y));
     }
     // watch-state stamp: a red rubber stamp cocked in the gap between the poster's
     // lower edge and the green box, centered under the poster (MORE! reads as BINGE).
-    if(o.watchMode){
+    // Episode scope only — season/series state the mode in the digest text instead.
+    if(o.watchMode && scope==='episode'){
       const label=wowCardLabel(o.watchMode);
       g.save();
       g.font='800 42px Inter, system-ui, sans-serif';
@@ -765,7 +792,7 @@
       g.restore(); g.textBaseline='alphabetic';
     }
     // comment area (spoiler-aware) — bottom-anchored to the uniform margin (cy+ch = S-M).
-    const cx=M, cw=S-2*M, ch=250, cy=S-M-ch;
+    const cx=M, cw=S-2*M, ch=226, cy=714;   // lifted + shorter to leave a hero-CTA strip below
     // Pierre — cut out, seated on the box's bottom edge, bottom-LEFT. Loaded first so the
     // quote text can inset past his silhouette with a clear buffer.
     const pierre=await loadImg('/pierre.png',false);
@@ -785,7 +812,7 @@
       _wrap(g,'Hidden — watch it first, then see the comment in pangolinRC', tw2)
         .slice(0,4).forEach((ln,i)=> g.fillText(ln, tx, cy+92+i*40));
     } else {
-      g.fillStyle='#f8f2e8'; g.font='600 34px Inter, system-ui, sans-serif';
+      g.fillStyle='rgba(248,242,232,0.78)'; g.font='600 34px Inter, system-ui, sans-serif';   // a touch greyer so the white CTA + title pop
       // Overrun past 4 lines → truncate the last line with an ellipsis, keeping the quote closed.
       let lines=_wrap(g,'“'+o.comment+'”', tw2);
       if(lines.length>4){ lines=lines.slice(0,4); let last=lines[3].replace(/”$/,'');
@@ -794,6 +821,17 @@
       lines.forEach((ln,i)=> g.fillText(ln, tx, cy+64+i*46));
     }
     if(pc){ g.drawImage(pc, px2, cy+ch-ph2, pw2, ph2); }
+    // ── Hero CTA — the reason for the card. One big WHITE line just below the box,
+    // "hear all comments" when there are comments, else a plain co-watch invite. Size
+    // is locked to the long line and reused for the short one (centered, same size).
+    const ctaText = cCount>0 ? 'watch with pangolinRC to hear all comments in real time'
+                             : ('watch along with '+who.toLowerCase()+' on pangolinRC');
+    const fitStr='watch with pangolinRC to hear all comments in real time';   // always size to the long line
+    let cfs=48; g.font='800 '+cfs+'px Inter, system-ui, sans-serif';
+    while(cfs>16 && g.measureText(fitStr).width>cw){ cfs-=1; g.font='800 '+cfs+'px Inter, system-ui, sans-serif'; }
+    g.fillStyle='#fff'; g.textAlign='center';
+    g.fillText(ctaText, S/2, cy+ch+46);   // tighter to the box
+    g.textAlign='left';
     return await new Promise(res=> cv.toBlob(b=>res(b),'image/png',0.92));
   }
   function addCardPreview(blob){
@@ -1522,7 +1560,9 @@
       else if(p.intent==='device') enterDeviceFlow();
       else if(p.intent==='note') enterNoteFlow(p);
       else if(p.intent==='notify') enterNotifyFlow(p);
-      else if(p.intent==='season-note') enterSeasonNoteFlow(p);
+      // Season-wrap / series-end now run the full reflection (spoiler toggle + audio +
+      // scoped share card), not the old journal-only note. p.scope carries the scope.
+      else if(p.intent==='season-note' || p.intent==='series-note') enterNoteFlow(p);
     }
   });
 
