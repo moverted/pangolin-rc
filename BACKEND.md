@@ -13,6 +13,31 @@ Entry format:
 
 ---
 
+## 2026-07-27 — Season & series reflection cards + wiring DEPLOYED to production (Ted's "commit and deploy")
+- **Frontend only** (no Worker / D1 / wrangler.toml change). Extends the share card to
+  three scopes (episode / season / series) and wires the finishes that trigger them:
+  season wrap and series end now run the FULL reflection (spoiler toggle + audio co-view
+  comment anchored to the finale ep + scoped share card), replacing the old journal-only
+  season note and the dead `episode:finishedFinale` handoff. Season/series digest
+  (comments across episodes, in-season days with hiatus excluded, season count, years
+  span premiere→finale) computed in `cube_log_face.html reflectionDigest()`; the season
+  digest is computed BEFORE the season switch so the just-finished ep counts.
+- **Files:** `public/cube_pierre_face.html`, `public/cube_log_face.html`. `www/` synced
+  locally. NOTE: iOS bundle NOT re-synced — build 5 predates this (season/series reaches
+  iOS only in a future build 6 via `cap sync` + bump).
+- **Git:** committed `19a2a61` on branch `feat/share-card-reflection` (with PR #28). Not
+  fast-forwarded to `main` (harness blocks direct main push); deploy was from local files.
+- **Production Pages deploy:** `wrangler pages deploy public --project-name pangolin-rc
+  --branch main` -> deployment `3534f580`, Environment **Production**. Serves
+  `pangolin-rc.pages.dev`, `remote.pangolinrc.com`.
+- **Verified live** on `3534f580.pangolin-rc.pages.dev` and `remote.pangolinrc.com`
+  (`scope==='series'`, hero CTA, `reflectionDigest`, `forceSeriesNote` present). The
+  face HTML serves `cf-cache-status: DYNAMIC, max-age=0` so no purge needed.
+- **Needs in-app testing** (can't be auto-driven): finish a season finale → season card;
+  finish the final season's finale → series card. `daysWatched` only counts episodes with
+  in-app session finish timestamps (restored/pre-app history contributes 0, line drops).
+- Rollback if needed: redeploy prior Pages deployment `31ad1aeb` (source `6d6d294`).
+
 ## 2026-07-27 — Share/reflection card redesign DEPLOYED to production (Ted's "ship it")
 - **Frontend only** (no Worker / D1 / wrangler.toml change). Rebuild of the finished-
   episode share card (`buildReflectionCard` in `public/cube_pierre_face.html`): name
