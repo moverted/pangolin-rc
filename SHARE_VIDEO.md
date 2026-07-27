@@ -48,13 +48,28 @@ best-effort fallback for web only; iOS relies on Path A.
 5. **Stories framing**: option to render a 1080×1920 variant (card centered on the card's
    gradient bg) so it fills a Story. Keep 1:1 as default; add 9:16 as a flag.
 
-## Open decisions (ask Ted)
-- Aspect: keep 1:1, or make a 9:16 Stories-filling variant (recommended for Stories)?
-- Include the **typed** quote as on-card text only (current), or also caption?
-- If a reflection has BOTH typed + audio, video uses the audio; image share stays available.
+## Decisions (Ted)
+- **Aspect = 9:16 (1080×1920)** with the **1:1 card anchored at the TOP** on the card
+  gradient; lower third left clear so the user adds copy in Stories. `buildStoryFrame`
+  draws the card at y=96 (spans 96–1176) + a small `pangolinRC` hint; bottom stays empty.
+- Video uses the spoken reflection audio (stashed by the shell mic as
+  `window.__pgReflectAudioUrl`); the still-image "Share card" stays available alongside.
 
 ## Status
-- [ ] Plumb reflection audio to `doShareCard`
-- [ ] Web `buildShareVideo` (MediaRecorder) prototype — verifiable in the mockup harness
-- [ ] `CardVideo` native plugin (AVFoundation) — needs build 7 + device test
-- [ ] Two-option Share offer (card / video)
+- [x] Plumb reflection audio — shell stashes `window.__pgReflectAudioUrl`; Pierre reads
+      `window.top.__pgReflectAudioUrl`.
+- [x] `buildStoryFrame` (9:16, card top-anchored) — **verified visually** in the mockup.
+- [x] Two-option Share offer: "Share card" always; "Share as video" when audio + MediaRecorder.
+- [x] `shareBlob(blob,name,caption)` — shares any file (image/video) natively (build 6 path).
+- [~] `buildShareVideo` (MediaRecorder) — coded, graceful fallback to the still card.
+      **Could not verify headless** (MediaRecorder returned null — a headless/WKWebView
+      limitation, not a code bug). Works where MediaRecorder is real (desktop/Android web);
+      output webm (mp4 if the platform supports it).
+- [ ] `CardVideo` native plugin (AVFoundation) — the guaranteed-mp4 path for iOS/IG. Not
+      built; needs Swift + build 7 + device test. This is what makes iOS Stories video
+      reliable — MediaRecorder alone won't cut it on iOS.
+
+## Not deployed
+On `feat/share-card-video` only — the encoder is unverified on the real targets. Decide:
+ship the web-only version (webm, best-effort) + build the native plugin, or go straight to
+the native plugin for iOS.

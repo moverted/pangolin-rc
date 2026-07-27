@@ -1225,6 +1225,13 @@ document.getElementById('device-chip').addEventListener('click', () => cubeRotat
       if (email) {
         try {
           const blob = new Blob(chunks, { type: (chunks[0] && chunks[0].type) || 'audio/webm' });
+          // Stash the reflection clip so the share card can become a video with this audio
+          // (read by the Pierre face's doShareVideo). Only during a real reflection.
+          try {
+            if (window.__pgReflectAudioUrl) URL.revokeObjectURL(window.__pgReflectAudioUrl);
+            const _rc = window.__pgReflectComment;
+            window.__pgReflectAudioUrl = (_rc && _rc.showId && _rc.episodeId) ? URL.createObjectURL(blob) : null;
+          } catch (_) {}
           const fd = new FormData();
           fd.append('audio', blob);
           // In a finished-episode reflection (Pierre sets __pgReflectComment), post as a

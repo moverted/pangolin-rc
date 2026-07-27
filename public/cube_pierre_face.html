@@ -615,9 +615,12 @@
         watchMode, teasers, commentCount, episodeCount:ctx.episodeCount, seasonCount:ctx.seasonCount,
         daysWatched:ctx.daysWatched, yearsSpan:ctx.yearsSpan }).catch(()=>null);
       if(blob) addCardPreview(blob);
-      pierreSay(noteSpoiler ? 'Card ready (quote hidden — spoiler). Share it?' : 'Card ready. Share it?', [
-        {label:'Share card', onClick:()=>doShareCard(blob, ctx, text)},
-        {label:'Done', onClick:()=>{}}]);
+      // If this reflection was spoken, the mic stashed the clip — offer a video too (#4).
+      let audioUrl=null; try{ audioUrl=(window.top&&window.top.__pgReflectAudioUrl)||window.__pgReflectAudioUrl||null; }catch(_){}
+      const shareOpts=[{label:'Share card', onClick:()=>doShareCard(blob, ctx, text)}];
+      if(audioUrl && window.MediaRecorder) shareOpts.push({label:'Share as video', onClick:()=>doShareVideo(blob, ctx, text, audioUrl)});
+      shareOpts.push({label:'Done', onClick:()=>{}});
+      pierreSay(noteSpoiler ? 'Card ready (quote hidden — spoiler). Share it?' : 'Card ready. Share it?', shareOpts);
     }
     // Live+7: finished within a week of air and a next episode is coming → offer to flag
     // the drop (industry-standard Live+7 window), after the comment as usual.
@@ -845,28 +848,77 @@
   }
   function _blobB64(blob){ return new Promise((res,rej)=>{ const fr=new FileReader();
     fr.onload=()=>res(String(fr.result).split(',')[1]||''); fr.onerror=rej; fr.readAsDataURL(blob); }); }
-  async function doShareCard(blob, ctx, text){
-    const caption=(ctx.show||'')+(ctx.ep?(' '+ctx.ep):'')+' — on pangolinRC';
-    // Native (the Capacitor iOS app): web-share can't attach a file inside WKWebView, so it
-    // degrades to text and Instagram rejects it ("Can't send link"). Write the PNG to a temp
-    // file and share it through the native OS sheet — that hands the IMAGE to IG (Stories/feed).
-    // Capacitor's bridge lives on the TOP window, not this face iframe.
+  // Share a file (image or video) through the native OS sheet on the Capacitor app —
+  // web-share can't attach a file inside WKWebView (degrades to text; IG rejects it as a
+  // link). Writes to CACHE + Share.share({files:[uri]}). Capacitor's bridge is on the TOP
+  // window (share runs in this face iframe). Falls back to web-share where supported.
+  async function shareBlob(blob, name, caption){
     const Cap = (window.Capacitor) || (window.top && window.top.Capacitor);
     if(blob && Cap && Cap.isNativePlatform && Cap.isNativePlatform() && Cap.Plugins && Cap.Plugins.Share && Cap.Plugins.Filesystem){
       try{
-        const name='pangolinrc-card-'+Date.now()+'.png';
         await Cap.Plugins.Filesystem.writeFile({ path:name, data:await _blobB64(blob), directory:'CACHE' });
         const uri=(await Cap.Plugins.Filesystem.getUri({ path:name, directory:'CACHE' })).uri;
-        await Cap.Plugins.Share.share({ title:'pangolinRC', text:caption, files:[uri] });
-        addPierre('Shared.'); return;
+        await Cap.Plugins.Share.share({ title:'pangolinRC', text:caption, files:[uri] }); return true;
       }catch(e){ /* fall through to web share */ }
     }
-    // Web / PWA: native web-share with the file works here.
     try{
-      if(blob && navigator.canShare){ const file=new File([blob],'pangolinrc-card.png',{type:'image/png'});
-        if(navigator.canShare({files:[file]})){ await navigator.share({files:[file], text:caption}); addPierre('Shared.'); return; } }
-      if(navigator.share){ await navigator.share({ text:(noteSpoiler?'':('“'+text+'” — '))+caption }); addPierre('Shared.'); return; }
-    }catch(_){ /* cancelled or unsupported */ }
+      if(blob && navigator.canShare){ const file=new File([blob],name,{type:blob.type||'application/octet-stream'});
+        if(navigator.canShare({files:[file]})){ await navigator.share({files:[file], text:caption}); return true; } }
+    }catch(_){}
+    return false;
+  }
+  async function doShareCard(blob, ctx, text){
+    const caption=(ctx.show||'')+(ctx.ep?(' '+ctx.ep):'')+' — on pangolinRC';
+    if(await shareBlob(blob, 'pangolinrc-card-'+Date.now()+'.png', caption)){ addPierre('Shared.'); return; }
+    try{ if(navigator.share){ await navigator.share({ text:(noteSpoiler?'':('“'+text+'” — '))+caption }); addPierre('Shared.'); } }catch(_){}
+  }
+
+  // ── #4: share the card as a 9:16 VIDEO with the reflection audio ─────────────
+  // Frame: the 1:1 card anchored at the TOP on the card gradient; the lower third stays
+  // clear so the user can add copy in Stories.
+  async function buildStoryFrame(cardBlob){
+    const W=1080, H=1920, cv=document.createElement('canvas'); cv.width=W; cv.height=H; const g=cv.getContext('2d');
+    const bg=g.createLinearGradient(0,0,0,H); bg.addColorStop(0,'#17110b'); bg.addColorStop(1,'#0b0907');
+    g.fillStyle=bg; g.fillRect(0,0,W,H);
+    const card=await loadImg(URL.createObjectURL(cardBlob), false);
+    if(card){ g.drawImage(card, 0, 96, W, W); }   // 1:1 card, top-anchored (y 96 → 1176)
+    g.fillStyle='rgba(240,169,59,0.45)'; g.font='600 34px Inter, system-ui, sans-serif'; g.textAlign='center';
+    g.fillText('pangolinRC', W/2, W+180); g.textAlign='left';
+    return cv;
+  }
+  // Compose the still frame + the audio clip into a video via MediaRecorder (web/PWA;
+  // iOS mp4 support varies — falls back to the still image if it can't encode). A native
+  // AVFoundation compositor (build 7) is the guaranteed-mp4 path — see SHARE_VIDEO.md.
+  async function buildShareVideo(cardBlob, audioUrl){
+    if(!window.MediaRecorder || !audioUrl) return null;
+    const cv=await buildStoryFrame(cardBlob);
+    const audio=new Audio(); audio.src=audioUrl; audio.preload='auto'; audio.crossOrigin='anonymous';
+    await new Promise(res=>{ audio.onloadedmetadata=res; audio.onerror=res; setTimeout(res,3000); });
+    let actx,dest,src; try{ actx=new (window.AudioContext||window.webkitAudioContext)();
+      dest=actx.createMediaStreamDestination(); src=actx.createMediaElementSource(audio); src.connect(dest); }catch(_){}
+    const vStream=cv.captureStream(30);
+    const tracks=[...vStream.getVideoTracks(), ...(dest?dest.stream.getAudioTracks():[])];
+    const mime = MediaRecorder.isTypeSupported('video/mp4') ? 'video/mp4'
+               : MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus') ? 'video/webm;codecs=vp8,opus' : 'video/webm';
+    let rec; try{ rec=new MediaRecorder(new MediaStream(tracks), {mimeType:mime}); }catch(_){ return null; }
+    const parts=[]; rec.ondataavailable=e=>{ if(e.data&&e.data.size) parts.push(e.data); };
+    const stopped=new Promise(res=> rec.onstop=res);
+    try{ if(actx) await actx.resume(); }catch(_){}
+    rec.start();
+    try{ await audio.play(); }catch(_){}
+    await new Promise(res=>{ audio.onended=res; setTimeout(res, ((audio.duration&&isFinite(audio.duration)?audio.duration:6)*1000)+1000); });
+    try{ rec.stop(); }catch(_){} await stopped;
+    try{ if(actx) actx.close(); }catch(_){}
+    return parts.length ? new Blob(parts, {type: mime.split(';')[0]}) : null;
+  }
+  async function doShareVideo(cardBlob, ctx, text, audioUrl){
+    addPierre('Making the video…');
+    const vid=await buildShareVideo(cardBlob, audioUrl).catch(()=>null);
+    if(!vid){ addPierre('Could not make the video — sharing the card instead.'); return doShareCard(cardBlob, ctx, text); }
+    const caption=(ctx.show||'')+(ctx.ep?(' '+ctx.ep):'')+' — on pangolinRC';
+    const ext = vid.type.indexOf('mp4')>=0 ? 'mp4' : 'webm';
+    if(await shareBlob(vid, 'pangolinrc-card-'+Date.now()+'.'+ext, caption)){ addPierre('Shared.'); return; }
+    addPierre('Sharing the card instead.'); return doShareCard(cardBlob, ctx, text);
   }
 
   // Persist a typed thought to the shared journal Pierre recalls (journalContext).
