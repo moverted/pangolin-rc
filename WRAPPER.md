@@ -9,9 +9,11 @@ same-session rule).
 ## 2026-07-28 — TestFlight builds 8 & 9 (1.0.1) — ARCHIVED + DISTRIBUTED (Ted)
 - Ted archived + distributed **twice** this morning; TestFlight is now on **build 9** (build 8
   superseded). Both carry the same "app UI caught up to web" `www/` (no content change between
-  them — the second archive just bumped the build number). Repo `CURRENT_PROJECT_VERSION` set
-  to **9** to match. **Next archive → bump to 10** (9 is already used; re-using it = duplicate
-  rejection).
+  them — the second archive just bumped the build number).
+- **Repo now set to build 10** and fully synced for the next archive: `cap copy` re-run,
+  `ios/App/App/public` == `public/` on all faces (verified diff), icon present. PR #30 merged
+  to main. Ted just needs to pull main, `node scripts/sync-www.mjs && npx cap copy ios`, and
+  archive build 10 (9 is the current TestFlight build).
 - Content (builds 8/9): COMMENT_CLIP_SHARE stages 1–3 (chip flow — no Skip/Spoiler — private
   Journal, share-from-logs), movie scope, double-save + watch-next fixes, card name fix
   (username → "I"). Still carries build 7's native `CardVideo` video + share fixes.
