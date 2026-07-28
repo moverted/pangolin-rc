@@ -784,7 +784,7 @@
     if(!poster){ g.fillStyle='rgba(255,255,255,0.05)'; _rr(g,pX,pY,pW,pH,18); g.fill(); }
     // action copy — top-aligned (no wordmark). Name falls back username → email → "Someone".
     // scope: 'episode' (SxxExx) | 'movie' (single film) | 'season' | 'series'.
-    const who=(o.username||o.email||'Someone');
+    const who=(o.username||'I');   // username, else first-person "I" (no email fallback)
     const scope=o.scope||'episode';
     const perUnit=(scope==='episode'||scope==='movie');   // a single watched thing (ep or film)
     const unitWord=(scope==='movie'?'movie':'episode');
@@ -893,7 +893,7 @@
     // "hear all comments" when there are comments, else a plain co-watch invite. Size
     // is locked to the long line and reused for the short one (centered, same size).
     const ctaText = cCount>0 ? 'watch with pangolinRC to hear all comments in real time'
-                             : ('watch along with '+who.toLowerCase()+' on pangolinRC');
+                             : ('watch along with '+(o.username?o.username.toLowerCase():'me')+' on pangolinRC');
     const fitStr='watch with pangolinRC to hear all comments in real time';   // always size to the long line
     let cfs=48; g.font='800 '+cfs+'px Inter, system-ui, sans-serif';
     while(cfs>16 && g.measureText(fitStr).width>cw){ cfs-=1; g.font='800 '+cfs+'px Inter, system-ui, sans-serif'; }

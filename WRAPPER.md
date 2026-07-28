@@ -6,7 +6,35 @@ same-session rule).
 
 ---
 
-## 2026-07-27 — TestFlight build 7 (1.0.1) — share card AS VIDEO (native AVFoundation) [PREPPED, UNVERIFIED Swift, archive pending Ted]
+## 2026-07-28 — TestFlight build 8 (1.0.1) — app UI caught up to web [PREPPED, archive pending Ted]
+- **Build 8, marketing 1.0.1.** Bumped `CURRENT_PROJECT_VERSION` 7→8. **No new native code**
+  (build 7's `CardVideo` plugin carries over) — this is purely a `cap copy` to bring the
+  bundled `www/` level with production web. Low-risk catch-up build. Supersedes build 7.
+- **Brings into the app** (were web-only after build 7's cap-sync): COMMENT_CLIP_SHARE
+  stages 1–3 (the Comment/next-action chip flow — **no more Skip/Spoiler** — private Journal,
+  share-from-logs), the movie scope, the double-save + watch-next-nav fixes, and the card
+  name fix (username → "I", no email fallback). Verified in `ios/App/App/public/`:
+  `nextActionChip`, `scope==='movie'`, `publishReflection`, `reshareFromLog`, `o.username||'I'`.
+- **Still carries** (from build 7): native `CardVideo` video, native file share, capacitor://
+  URL fix, Save-to-Photos permission fix, card redesign, season/series.
+- **Archive + upload = Ted's step.** On-device: the finish flow should show the new chip
+  flow (Comment / Watch next episode / Next season / Done), and share cards say "I just
+  watched…" when no username is set. Build 7's native-video/share checks still apply.
+
+## 2026-07-28 — TestFlight build 7 (1.0.1) — ARCHIVED + UPLOADED for review (Ted)
+- Ted archived build 7 and pushed it to App Store Connect for beta review. **The native
+  CardVideo Swift compiled clean on the first archive** (no fixups needed).
+- **Bundle snapshot:** build 7's `www/` was cap-synced when CardVideo was added, so it
+  contains: native video (`CardVideo`), native file share, the `capacitor://`→file share
+  fix (shell routing), Save-to-Photos permission fix, the card redesign, season/series.
+- **NOT in build 7** (added to web AFTER the cap-sync): COMMENT_CLIP_SHARE stages 1–3
+  (chip flow / private Journal / share-from-logs) and the movie scope + the double-save /
+  watch-next fixes. Build 7 still shows the OLD reflection UI. A **build 8** (cap sync the
+  current `www/` + bump 7→8) is needed to bring the app UI level with web.
+- On-device test focus: reflect (spoken) → Share as video → IG Stories mp4; Save to Photos
+  (no crash); share hands apps the real image/video file (not a capacitor:// link).
+
+## 2026-07-27 — TestFlight build 7 (1.0.1) — share card AS VIDEO (native AVFoundation) [SUPERSEDED by the archived entry above]
 
 - **Build 7, marketing 1.0.1.** Bumped `CURRENT_PROJECT_VERSION` 6→7. Supersedes build 6.
 - **NEW local Capacitor plugin `capacitor-card-video`** (repo root, mirrors @capacitor/share
