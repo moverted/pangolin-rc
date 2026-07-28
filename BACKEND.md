@@ -13,6 +13,25 @@ Entry format:
 
 ---
 
+## 2026-07-27 — COMMENT_CLIP_SHARE stage 1 (chip flow) DEPLOYED to production (Ted's "deploy it to production web")
+- **Frontend only**, from `feat/share-card-video`. Restructures the finish→reflection flow
+  (episode/season/series) into the spec's chip flow: Step 1 Comment/next-action fork
+  (Watch next episode / Next episode <day> / Next season / Done, computed in
+  `cube_log_face.html pierreFinishedNote` → `nextAction/nextEp/nextWhen`); Step 2 Comment
+  cues the chat box (`.cue` blink) + mic (`pg:blinkMic` → shell Web-Animations pulse);
+  Step 3 explicit Spoiler / No spoiler; Step 4 typed → Share/Journal, recorded → Share
+  text / Share audio (dropped if spoiler) / Journal. Replaces the spoiler-toggle-during-
+  input and the two-step share offer. **Journal is a keep-it stub** — the private store +
+  share-from-logs are stages 2–3 (COMMENT_CLIP_SHARE.md).
+- **Files:** `public/cube_pierre_face.html`, `public/cube_log_face.html`, `public/cube_shell.js`.
+- **Git:** `feat/share-card-video`. **Production Pages deploy** `wrangler pages deploy public
+  --project-name pangolin-rc --branch main` -> deployment `6a39dabb`, **Production**.
+- **Verified live:** `nextActionChip`, `askSpoilerThenShare`, `pg:blinkMic` (pierre/shell),
+  `nextAction` (log) on `remote.pangolinrc.com`.
+- **Behavior change** for all web/PWA users (the core reflection flow). iOS unchanged
+  (build 7 still pending; stage 1 would ride a later build).
+- Rollback: redeploy prior Pages deployment `27130d00` (source `f4f4092`).
+
 ## 2026-07-27 — Share-as-video (#4 web path) + two-step share offer DEPLOYED to production (Ted's "deploy the web side")
 - **Frontend only** (no Worker / D1 change), from branch `feat/share-card-video`. Adds the
   #4 share-as-video web path (`buildStoryFrame` 9:16 top-anchored frame + `buildShareVideo`
