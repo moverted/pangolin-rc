@@ -1874,7 +1874,7 @@ export function getActiveDoc() {
       fr.readAsDataURL(blob);
     });
   }
-  async function shareFile(blob, name, caption, fileUri) {
+  async function shareFile(blob, name, caption, fileUri, source) {
     const Cap = window.Capacitor;
     try {
       if (Cap && Cap.isNativePlatform && Cap.isNativePlatform() && Cap.Plugins && Cap.Plugins.Share) {
@@ -1883,7 +1883,13 @@ export function getActiveDoc() {
           await Cap.Plugins.Filesystem.writeFile({ path: name, data: await blobToB64(blob), directory: 'CACHE' });
           uri = (await Cap.Plugins.Filesystem.getUri({ path: name, directory: 'CACHE' })).uri;
         }
-        if (uri) { await Cap.Plugins.Share.share({ title: 'pangolinRC', text: caption, files: [uri] }); return; }
+        if (uri) {
+          // files ONLY (no text) → Instagram/Stories gets the media, never treats it as a link
+          // ("Can't send link"). The result tells the face what the sheet did (e.g. Save to Photos).
+          const res = await Cap.Plugins.Share.share({ files: [uri] });
+          try { if (source) source.postMessage({ type: 'pg:shareDone', activityType: (res && res.activityType) || '' }, '*'); } catch (_) {}
+          return;
+        }
       }
       // Non-native safety net (web normally keeps its share in the face, in-gesture).
       if (blob && navigator.canShare) {
@@ -1894,7 +1900,7 @@ export function getActiveDoc() {
   }
   window.addEventListener('message', (e) => {
     if (e.data && e.data.type === 'pg:shareFile') {
-      shareFile(e.data.blob, e.data.name, e.data.caption, e.data.fileUri);
+      shareFile(e.data.blob, e.data.name, e.data.caption, e.data.fileUri, e.source);
     }
   });
 })();
