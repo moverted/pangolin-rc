@@ -921,9 +921,17 @@
   // gives apps a capacitor:// URL instead of the file. WEB/PWA: navigator.share must run
   // HERE, inside the tap's user-activation (a postMessage would drop it). Pass a blob, or a
   // pre-written file URI (the CardVideo mp4). Returns whether the share was handled.
+  // Are we inside the Capacitor native app? Capacitor injects window.Capacitor only into the
+  // TOP frame, so this face iframe usually can't see it — fall back to the URL scheme
+  // (capacitor://localhost in the app; https:// on web/PWA). Reliable from any frame.
+  function _isNativeApp(){
+    try{ const C=window.Capacitor||(window.top&&window.top.Capacitor); if(C&&C.isNativePlatform&&C.isNativePlatform()) return true; }catch(_){}
+    try{ if(location.protocol==='capacitor:'||location.protocol==='ionic:') return true; }catch(_){}
+    try{ const tp=window.top&&window.top.location&&window.top.location.protocol; if(tp==='capacitor:'||tp==='ionic:') return true; }catch(_){}
+    return false;
+  }
   async function shareBlob(blob, name, caption, fileUri){
-    const Cap = (window.Capacitor) || (window.top && window.top.Capacitor);
-    if(Cap && Cap.isNativePlatform && Cap.isNativePlatform()){
+    if(_isNativeApp()){
       try{ (window.top||window).postMessage({ type:'pg:shareFile', blob, name, caption, fileUri }, '*'); return true; }catch(_){}
     }
     try{
@@ -932,6 +940,13 @@
     }catch(_){}
     return false;
   }
+  // The shell reports back what the native share sheet did → confirm a Photos save.
+  try{ window.addEventListener('message', function(e){
+    if(e && e.data && e.data.type==='pg:shareDone'){
+      const at=String((e.data.activityType)||'');
+      if(at.indexOf('SaveToCameraRoll')>=0 || at.indexOf('save-to-camera-roll')>=0) addPierre('Saved to Photos ✓');
+    }
+  }); }catch(_){}
   async function doShareCard(blob, ctx, text){
     const caption=(ctx.show||'')+(ctx.ep?(' '+ctx.ep):'')+' — on pangolinRC';
     if(await shareBlob(blob, 'pangolinrc-card-'+Date.now()+'.png', caption)){ addPierre('Shared.'); return; }
