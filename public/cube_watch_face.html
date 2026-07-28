@@ -215,6 +215,11 @@
   .ep-play:active{transform:scale(.9)}
   .ep-refl{font-size:11.5px;line-height:1.4;color:var(--text);font-style:italic}
   .ep-refl .rq{color:var(--muted);font-family:var(--mono);font-size:9px;letter-spacing:.04em;font-style:normal}
+  /* Stage 3: share a past reflection from the logs. */
+  .rf-share{flex:none;margin-left:6px;background:transparent;border:1px solid var(--amber,#f0a93b);
+    color:var(--amber,#f0a93b);border-radius:12px;padding:2px 9px;font-family:var(--mono);font-size:9px;
+    letter-spacing:.06em;cursor:pointer;font-style:normal;vertical-align:1px}
+  .ep-cmt .rf-share{align-self:center}
   .ep-actions{margin-top:3px}
   .ep-share{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:6px 12px;cursor:pointer;
     font-family:var(--mono);font-weight:700;font-size:10.5px;letter-spacing:.05em;
@@ -1400,7 +1405,7 @@ function renderEpisodeArchive(host, s, data, includeBp){
     const when = e._all ? (s.lastDate?relDate(s.lastDate):'') : (fin?fin.date:'');
     const head = e._all ? (isMovie?'Film':'Viewing') : ('<b>'+key(e)+'</b>'+(e.name?' '+esc(e.name):''));
     const refl = (reflByEp[k]||[]).concat(i===0?orphanRefs:[]);
-    const body = archiveBody(s, sessions, ticketsByEp[k]||[], commentsByEp[k]||[], coviewByEp[k]||[], refl, includeBp);
+    const body = archiveBody(s, k, sessions, ticketsByEp[k]||[], commentsByEp[k]||[], coviewByEp[k]||[], refl, includeBp);
     return '<div class="vw">'+
       '<div class="vw-head"><span class="vw-caret">&#8250;</span><span class="vw-when">'+head+
         (when?' <span class="th">&middot; '+when+'</span>':'')+'</span></div>'+
@@ -1411,11 +1416,20 @@ function renderEpisodeArchive(host, s, data, includeBp){
   host.querySelectorAll('.ep-tix').forEach(b=>b.addEventListener('click',()=>showImg(b.dataset.img)));
   host.querySelectorAll('.ep-play').forEach(b=>b.addEventListener('click',()=>playAudio(b.dataset.audio)));
   host.querySelectorAll('.ep-share').forEach(b=>b.addEventListener('click',()=>viewingShare(s, b.dataset.tid||null, includeBp)));
+  host.querySelectorAll('.rf-share').forEach(b=>b.addEventListener('click',()=>reshareFromLog(s, b.dataset)));
+}
+// Stage 3 — share a past reflection from the logs. Hands the existing text (+ audio URL /
+// comment id for a recorded one) to Pierre, who rebuilds the card and offers the share.
+function reshareFromLog(s, d){
+  if(window.parent===window) return;
+  const payload={ intent:'reshare', show:s.name, titleId:s.titleId||null, kind:s.kind||'show',
+    ep:d.key||'', text:d.txt||'', audioUrl:d.audio||'', commentId:d.id||'' };
+  window.parent.postMessage({type:'cube:rotateTo', face:'pierre', payload}, '*');
 }
 
 // One episode block's inner body: sessions, tickets, my comments, friends' comments
 // + replies, reflections — everything for that episode, together.
-function archiveBody(s, sessions, tickets, comments, coview, refl, includeBp){
+function archiveBody(s, k, sessions, tickets, comments, coview, refl, includeBp){
   let h='';
   // 1) session timestamps (date · finished/paused · Nm · in→out); BP dimmed.
   if(sessions.length){
@@ -1437,15 +1451,17 @@ function archiveBody(s, sessions, tickets, comments, coview, refl, includeBp){
   comments.filter(c=>!cvIds.has(c.id)).forEach(c=>{ h+=myCommentLine(c); (repliesByParent[c.id]||[]).forEach(r=>h+=coviewLine(r,true)); });
   coview.filter(c=>!c.replyTo).forEach(c=>{ h+=coviewLine(c,false); (repliesByParent[c.id]||[]).forEach(r=>h+=coviewLine(r,true)); });
   // 5) reflections
-  refl.forEach(r=>{ h+='<div class="ep-refl">&ldquo;'+esc(r.text)+'&rdquo; <span class="rq">'+relDate(new Date(r.createdAt).toISOString())+'</span></div>'; });
+  refl.forEach(r=>{ h+='<div class="ep-refl">&ldquo;'+esc(r.text)+'&rdquo; <span class="rq">'+relDate(new Date(r.createdAt).toISOString())+'</span>'+
+    '<button class="rf-share" data-txt="'+esc(r.text)+'" data-key="'+esc(k||'')+'">Share</button></div>'; });
   // 6) share a thought (lands as a reflection on this episode's first ticket, if any)
   h+='<div class="ep-actions"><button class="ep-share" data-tid="'+((tickets[0]&&tickets[0].id)||'')+'">&#8599; share a thought</button></div>';
   return h;
 }
 function myCommentLine(c){
   const play=c.audioUrl?'<button class="ep-play" data-audio="'+esc(c.audioUrl)+'">&#9654;</button>':'';
+  const share='<button class="rf-share" data-txt="'+esc(c.transcription||'')+'" data-audio="'+esc(c.audioUrl||'')+'" data-id="'+esc(c.id||'')+'" data-key="'+esc(c.episodeId||'')+'">Share</button>';
   return '<div class="ep-cmt mine">'+play+'<span class="ep-mark">'+markAt(c.timestampMs)+'</span>'+
-    '<span class="ep-txt">'+esc(c.transcription||'Audio')+'</span></div>';
+    '<span class="ep-txt">'+esc(c.transcription||'Audio')+'</span>'+share+'</div>';
 }
 function coviewLine(c, nested){
   const play=c.audioUrl?'<button class="ep-play" data-audio="'+esc(c.audioUrl)+'">&#9654;</button>':'';

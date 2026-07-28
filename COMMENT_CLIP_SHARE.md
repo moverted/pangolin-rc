@@ -73,9 +73,14 @@ records a voice clip **or** types.
    `POST /transcribe/comments/:id/publish`; co-view feed excludes `private=1`. Chose the
    flag-flip over a full deferred commit (mic still uploads on stop, just private).
    Resolved opens: flag (not a new table); recorded+Journal keeps the audio (private).
-3. ⬜ **Share-from-logs** — the log face gets a Share affordance on past reflections
-   (public or journaled) that regenerates the card/video and, for a journaled one, can
-   `publish` it. (Reuses `publishReflection` + the card/video builders.)
+3. ✅ **Share-from-logs** — DONE. Each of the member's own reflections + audio comments in
+   the WATCH-face archive gets a `Share` button (`.rf-share`) → `reshareFromLog` routes to
+   Pierre `intent:'reshare'` → `enterReshareFlow` rebuilds the card from the existing text
+   (+ audio URL / comment id) and runs the spoiler → Share/Journal step. Publishing a
+   journaled one is `publishReflection` (no-op if already public), so no Worker change.
+   **Bug fix (step 0):** recorded reflections no longer double-save (a `/reflection` row is
+   only written for TYPED reflections now — the recorded one lives as its `watch_comment`);
+   existing dupes de-duped on prod D1 (44 → 40 rows, 0 dupes).
 
 ## Open
 - `Journal` private store: a new note table, or a `private=1` flag on the existing reflection +

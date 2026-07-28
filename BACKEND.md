@@ -13,6 +13,24 @@ Entry format:
 
 ---
 
+## 2026-07-27 — Reflection double-save fix + prod D1 de-dupe + Stage 3 share-from-logs (Ted's "bug fix first, then build it, and de-dupe")
+- **D1 data change (no schema):** de-duped the `reflection` table on **REMOTE**. Root cause:
+  a RECORDED reflection was saved twice — once as a `watch_comment` (audio) and again as a
+  `/reflection` row — so it doubled in the logs; and delete only removes the comment, so the
+  orphan reflection persisted. Ran two `wrangler d1 execute pangolin-rc --remote` DELETEs:
+  (1) reflection rows whose text matches an `is_reflection=1` comment (3 rows); (2) remaining
+  identical reflection dupes keep-earliest (1 row). Result: 44 → **40 rows, 0 dupes**.
+- **Frontend fix (Pages, pending deploy):** `noteTurn` only POSTs `/reflection` for TYPED
+  reflections now (recorded ones live as their `watch_comment`), so no future doubles.
+- **Stage 3 (frontend only):** WATCH-face archive rows (own reflections + audio comments)
+  get a `.rf-share` button → `reshareFromLog` → Pierre `intent:'reshare'` → `enterReshareFlow`
+  rebuilds the card + runs spoiler → Share/Journal; `publishReflection` publishes a journaled
+  one (no-op if public). No Worker/D1 schema change.
+- **Files:** `public/cube_pierre_face.html`, `public/cube_watch_face.html`.
+- **NOT deployed yet** (Pages) — awaiting Ted's go; the D1 de-dupe is already applied to prod.
+- Rollback: the de-dupe is a hard delete (no undo, but only removed confirmed dupes); Pages
+  redeploy `ba50a5ef` reverts the frontend.
+
 ## 2026-07-27 — Movie scope for the reflection flow DEPLOYED to production (Ted's "deploy it to production web")
 - **Frontend only** (no Worker / D1 change). A finished film now flows as `scope:'movie'`
   instead of falling through to episode with an empty key. Card: "just watched ‹Movie›" +
