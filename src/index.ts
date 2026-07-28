@@ -318,6 +318,25 @@ app.post('/transcribe/comments/:id/publish', async (c) => {
   return c.json({ ok: true });
 });
 
+// Same-origin image proxy for CDNs that send no CORS header (image.tmdb.org movie posters),
+// so the share-card canvas can loadImg them crossOrigin and still toBlob() to share. TVmaze
+// (series) posters already send CORS and don't need this. Host-whitelisted; cached at the edge.
+app.get('/img', async (c) => {
+  const u = c.req.query('u') || '';
+  let url: URL;
+  try { url = new URL(u); } catch { return c.json({ error: 'bad url' }, 400); }
+  if (url.hostname !== 'image.tmdb.org') return c.json({ error: 'host not allowed' }, 403);
+  const upstream = await fetch(url.toString(), { cf: { cacheTtl: 86400, cacheEverything: true } } as any);
+  if (!upstream.ok) return c.json({ error: 'upstream ' + upstream.status }, 502);
+  return new Response(upstream.body, {
+    headers: {
+      'content-type': upstream.headers.get('content-type') || 'image/jpeg',
+      'access-control-allow-origin': '*',
+      'cache-control': 'public, max-age=86400',
+    },
+  });
+});
+
 // Co-viewing: friends' audio comments for a show (or one episode), ordered by
 // timestamp_ms so the caption player can fire each clip as the wall-clock cursor
 // passes it, and the Episode face can render a spoiler-gated timeline. This is

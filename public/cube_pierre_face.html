@@ -709,7 +709,10 @@
         const id=String(titleId||'');
         if(id.startsWith('tmdb:')){
           const r=await fetch(API+'/tmdb/movie/'+encodeURIComponent(id.slice(5)));
-          if(r.ok){ const d=await r.json(); return { poster:(d.movie&&d.movie.poster)||'', platform:'' }; }
+          // image.tmdb.org sends no CORS header, so the crossOrigin canvas can't use it directly
+          // → route the movie poster through our same-origin /img proxy.
+          if(r.ok){ const d=await r.json(); const pp=(d.movie&&d.movie.poster)||'';
+            return { poster: pp ? (API+'/img?u='+encodeURIComponent(pp)) : '', platform:'' }; }
         } else {
           const r=await fetch('https://api.tvmaze.com/shows/'+encodeURIComponent(id.replace(/^tvmaze:/,'')));
           if(r.ok){ const d=await r.json(); return { poster:(d.image&&(d.image.original||d.image.medium))||'',

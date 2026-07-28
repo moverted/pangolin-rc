@@ -34,6 +34,23 @@ Entry format:
 - Rollback: the de-dupe is a hard delete (no undo, but only removed confirmed dupes); Pages
   redeploy `ba50a5ef` reverts the frontend.
 
+## 2026-07-28 — Movie card fixes: scope + poster proxy — Worker + Pages DEPLOYED to production
+- Two linked bugs: a finished MOVIE rendered the SERIES card ("2 comments on 1 episode / 1
+  season / watched 1 day") with a blank poster.
+- **Scope (frontend):** `finaleCheck` lacked an `isMovie` guard, so a movie (total=1,
+  watched=1, no later season) fell into `forceSeriesNote()` → scope:'series'. Added
+  `if(isMovie) return;` so a movie routes via `pierreFinishedNote` (scope:'movie') → the
+  movie card (no episode/season/days lines).
+- **Poster (Worker + frontend):** `image.tmdb.org` sends NO CORS header, so the crossOrigin
+  card canvas couldn't load movie posters (works for TVmaze/series which do send CORS). Added
+  **`GET /img?u=<url>`** — a host-allowlisted (`image.tmdb.org` only) same-origin image proxy
+  that adds `access-control-allow-origin: *` + 1-day cache; `metaFetch` now routes movie
+  posters through it. Verified: proxy returns image+CORS, non-tmdb host → 403.
+- **Files:** `src/index.ts` (/img), `public/cube_log_face.html` (finaleCheck),
+  `public/cube_pierre_face.html` (metaFetch).
+- **Deployed:** Worker `d1293fc0`, Pages `e1d9d68d`. Branch `fix/movie-scope-poster` (PR).
+- Rollback: Worker `wrangler rollback`; Pages redeploy `e1d9d68d`'s predecessor `9514758b`.
+
 ## 2026-07-28 — Card name username→"I" DEPLOYED to production (Ted's "deploy the card fix to web")
 - **Frontend only.** `buildReflectionCard` name line now `o.username || 'I'` (dropped the
   `o.email` fallback that surfaced "edward.m.willett@gmail.com just watched"); the no-comment
