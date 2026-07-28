@@ -13,6 +13,19 @@ Entry format:
 
 ---
 
+## 2026-07-27 — Movie scope for the reflection flow DEPLOYED to production (Ted's "deploy it to production web")
+- **Frontend only** (no Worker / D1 change). A finished film now flows as `scope:'movie'`
+  instead of falling through to episode with an empty key. Card: "just watched ‹Movie›" +
+  "N comments on this movie" + hidden-times list, no BINGE stamp. `pierreFinishedNote` sends
+  `scope:'movie'` + `ep:'🎬'` (the movie comment key) so the count + recorded reflection line
+  up; `noteTurn` filters the single-unit key for episode AND movie. Next-action = Done;
+  `TODO(sequels)` marked for a later franchise "next".
+- **Files:** `public/cube_pierre_face.html`, `public/cube_log_face.html`.
+- **Git:** `feat/share-card-video` (`ff435c5`). **Pages deploy** `wrangler pages deploy public
+  --project-name pangolin-rc --branch main` -> deployment `ba50a5ef`, **Production**.
+- **Verified live:** `scope==='movie'` (pierre), `scope:isMovie` (log) on `remote.pangolinrc.com`.
+- Rollback: redeploy prior Pages `9034b87f` (source stage-2 commit).
+
 ## 2026-07-27 — COMMENT_CLIP_SHARE stage 2: private Journal — D1 MIGRATION + Worker + Pages (Ted authorized the migration)
 - **First backend change this session.** Ted explicitly authorized migrating the
   `pangolin-rc` D1 (normally off-limits) via the "Private flag (migrate the DB)" choice.
