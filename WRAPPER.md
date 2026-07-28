@@ -6,7 +6,17 @@ same-session rule).
 
 ---
 
-## 2026-07-28 — TestFlight build 8 (1.0.1) — app UI caught up to web [PREPPED, archive pending Ted]
+## 2026-07-28 — TestFlight builds 8 & 9 (1.0.1) — ARCHIVED + DISTRIBUTED (Ted)
+- Ted archived + distributed **twice** this morning; TestFlight is now on **build 9** (build 8
+  superseded). Both carry the same "app UI caught up to web" `www/` (no content change between
+  them — the second archive just bumped the build number). Repo `CURRENT_PROJECT_VERSION` set
+  to **9** to match. **Next archive → bump to 10** (9 is already used; re-using it = duplicate
+  rejection).
+- Content (builds 8/9): COMMENT_CLIP_SHARE stages 1–3 (chip flow — no Skip/Spoiler — private
+  Journal, share-from-logs), movie scope, double-save + watch-next fixes, card name fix
+  (username → "I"). Still carries build 7's native `CardVideo` video + share fixes.
+
+## 2026-07-28 — TestFlight build 8 (1.0.1) — app UI caught up to web [PREPPED → became builds 8 & 9]
 - **Build 8, marketing 1.0.1.** Bumped `CURRENT_PROJECT_VERSION` 7→8. **No new native code**
   (build 7's `CardVideo` plugin carries over) — this is purely a `cap copy` to bring the
   bundled `www/` level with production web. Low-risk catch-up build. Supersedes build 7.
