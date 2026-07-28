@@ -60,6 +60,9 @@ app.post('/transcribe', async (c) => {
     // A finished-episode reflection is a co-view comment that is EXEMPT from the
     // per-episode cap — it neither gets rejected by it nor counts toward it.
     const isReflection = ((formData.get('reflection') as string) || '') === '1';
+    // Private (journal) reflection: stored + transcribed but kept OUT of the co-view feed
+    // until the member taps Share (which flips it public via /publish). Reflections only.
+    const isPrivate = ((formData.get('private') as string) || '') === '1';
 
     if (!audio || !episodeId) {
       return c.json({ error: 'missing audio or episodeId' }, 400);
@@ -158,10 +161,10 @@ app.post('/transcribe', async (c) => {
 
     const now = Date.now();
     await c.env.DB.prepare(
-      `INSERT INTO watch_comment (id, user_email, episode_id, show_id, timestamp_ms, transcription, audio_r2_key, reply_to, is_reflection, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO watch_comment (id, user_email, episode_id, show_id, timestamp_ms, transcription, audio_r2_key, reply_to, is_reflection, private, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-      .bind(commentId, email, episodeId, showId || null, timestampMs, transcription || null, r2Key, replyParent, isReflection ? 1 : 0, now)
+      .bind(commentId, email, episodeId, showId || null, timestampMs, transcription || null, r2Key, replyParent, isReflection ? 1 : 0, isPrivate ? 1 : 0, now)
       .run();
 
     console.log(replyParent ? 'Audio reply saved:' : 'Audio comment saved:', commentId);
@@ -300,6 +303,21 @@ app.get('/transcribe/comments', async (c) => {
   return c.json({ comments });
 });
 
+// Publish a private (journaled) reflection → flip it to a public co-view comment when the
+// member taps Share. Scoped to the member's own comment (id + user_email).
+app.post('/transcribe/comments/:id/publish', async (c) => {
+  const id = c.req.param('id');
+  let email = '';
+  try { const b: any = await c.req.json(); email = ((b && b.email) || '').trim(); } catch {}
+  if (!email) email = (c.req.query('email') || '').trim();
+  if (!id || !email) return c.json({ error: 'id and email required' }, 400);
+  await c.env.DB
+    .prepare('UPDATE watch_comment SET private = 0 WHERE id = ? AND user_email = ?')
+    .bind(id, email)
+    .run();
+  return c.json({ ok: true });
+});
+
 // Co-viewing: friends' audio comments for a show (or one episode), ordered by
 // timestamp_ms so the caption player can fire each clip as the wall-clock cursor
 // passes it, and the Episode face can render a spoiler-gated timeline. This is
@@ -345,7 +363,8 @@ app.get('/transcribe/coview', async (c) => {
   // and a friend's reply to YOUR comment already arrives via the friend clause — the
   // client threads those under your own (non-coview) comment rows.
   const ph = allowed.map(() => '?').join(',');
-  const where = ['c.show_id = ?', `(c.user_email IN (${ph}) OR (c.user_email = ? AND c.reply_to IS NOT NULL))`];
+  // c.private = 0 → journaled (private) reflections never reach a friend's co-view feed.
+  const where = ['c.show_id = ?', 'c.private = 0', `(c.user_email IN (${ph}) OR (c.user_email = ? AND c.reply_to IS NOT NULL))`];
   const binds: any[] = [showId, ...allowed, email];
   if (episodeId) { where.push('c.episode_id = ?'); binds.push(episodeId); }
   const { results } = await c.env.DB

@@ -480,9 +480,16 @@
   // REAL co-view comment on this episode (audio + transcription) rather than a
   // throwaway 'pierre-note'. Anchored at the episode end (runtime) so it reveals to
   // friends only once they finish. Read by the shell mic (cube_shell.js initPierreMic).
-  function setReflectComment(p){ try{ if(window.top) window.top.__pgReflectComment =
-    (p && p.finished && p.titleId && p.ep) ? { showId:p.titleId, episodeId:p.ep, timestampMs:(p.runtime||0)*60000 } : null;
+  function setReflectComment(p){ try{ if(window.top){ window.top.__pgReflectCommentId=null;   // reset the id each new flow
+    window.top.__pgReflectComment = (p && p.finished && p.titleId && p.ep) ? { showId:p.titleId, episodeId:p.ep, timestampMs:(p.runtime||0)*60000 } : null; }
   }catch(_){} }
+  // Stage 2: a recorded reflection is stored PRIVATE; Share flips it to a public co-view
+  // comment friends hear. Journal leaves it private (in the member's logs only).
+  async function publishReflection(){
+    try{ const email=pgSession(); let id=null; try{ id=(window.top&&window.top.__pgReflectCommentId)||window.__pgReflectCommentId||null; }catch(_){}
+      if(email && id) await fetch(`${API}/transcribe/comments/${encodeURIComponent(id)}/publish`,{ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({email}) });
+    }catch(_){}
+  }
   function clearReflectComment(){ try{ if(window.top) window.top.__pgReflectComment=null; }catch(_){} }
   // Skip the reflection: the episode is already logged, so just drop the note and
   // return to plain chat (no journal entry, no comment).
@@ -655,12 +662,12 @@
     const recorded=!!(audioUrl && window.MediaRecorder);
     const opts=[];
     if(recorded){
-      opts.push({label:'Share text', onClick:()=>doShareCard(blob, ctx, text)});
-      if(!noteSpoiler) opts.push({label:'Share audio', onClick:()=>doShareVideo(blob, ctx, text, audioUrl)});
+      opts.push({label:'Share text', onClick:()=>{ publishReflection(); doShareCard(blob, ctx, text); }});
+      if(!noteSpoiler) opts.push({label:'Share audio', onClick:()=>{ publishReflection(); doShareVideo(blob, ctx, text, audioUrl); }});
     } else {
-      opts.push({label:'Share', onClick:()=>doShareCard(blob, ctx, text)});
+      opts.push({label:'Share', onClick:()=>{ publishReflection(); doShareCard(blob, ctx, text); }});
     }
-    opts.push({label:'Journal', onClick:()=>{ addPierre('Saved to your journal — private, share anytime from your logs.'); }});
+    opts.push({label:'Journal', onClick:()=>{ addPierre('Kept in your journal — private. Share it anytime from your logs.'); }});
     pierreSay('Share it, or keep it in your journal?', opts);
   }
 

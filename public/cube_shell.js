@@ -1243,13 +1243,16 @@ document.getElementById('device-chip').addEventListener('click', () => cubeRotat
             fd.append('showId', rc.showId);
             fd.append('timestampMs', String(rc.timestampMs || 0));
             fd.append('reflection', '1');   // exempt from the per-episode comment cap
+            fd.append('private', '1');      // stage 2: start PRIVATE; Share flips it public
           } else {
             fd.append('episodeId', 'pierre-note');
             fd.append('timestampMs', '0');
           }
           fd.append('userEmail', email);
           const res = await fetch(`${API}/transcribe`, { method: 'POST', body: fd, mode: 'cors' });
-          if (res.ok) { const d = await res.json(); txt = ((d && d.transcription) || '').trim(); }
+          if (res.ok) { const d = await res.json(); txt = ((d && d.transcription) || '').trim();
+            // Stash the comment id so the Pierre face can flip it public on Share.
+            try { window.__pgReflectCommentId = (rc && rc.showId && rc.episodeId) ? ((d && d.id) || null) : null; } catch (_) {} }
         } catch (_) {}
       }
       btn.classList.remove('busy'); count.textContent = '';
