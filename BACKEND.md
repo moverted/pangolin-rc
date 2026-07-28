@@ -34,6 +34,17 @@ Entry format:
 - Rollback: the de-dupe is a hard delete (no undo, but only removed confirmed dupes); Pages
   redeploy `ba50a5ef` reverts the frontend.
 
+## 2026-07-28 — Card name username→"I" DEPLOYED to production (Ted's "deploy the card fix to web")
+- **Frontend only.** `buildReflectionCard` name line now `o.username || 'I'` (dropped the
+  `o.email` fallback that surfaced "edward.m.willett@gmail.com just watched"); the no-comment
+  CTA uses `o.username ? username : 'me'` ("watch along with me on pangolinRC").
+- **Files:** `public/cube_pierre_face.html`. **Git:** `feat/card-name-build8` (PR #30).
+- **Pages deploy** `wrangler pages deploy public --project-name pangolin-rc --branch main`
+  -> deployment `9514758b`, **Production**. Verified: served `who` line = `o.username||'I'`,
+  no `o.email` in the file.
+- Also bundled into **iOS build 8** (prepped, pending Ted's archive).
+- Rollback: redeploy prior Pages `08e8eef3`.
+
 ## 2026-07-27 — Movie scope for the reflection flow DEPLOYED to production (Ted's "deploy it to production web")
 - **Frontend only** (no Worker / D1 change). A finished film now flows as `scope:'movie'`
   instead of falling through to episode with an empty key. Card: "just watched ‹Movie›" +
