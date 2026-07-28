@@ -26,8 +26,11 @@ Entry format:
   get a `.rf-share` button → `reshareFromLog` → Pierre `intent:'reshare'` → `enterReshareFlow`
   rebuilds the card + runs spoiler → Share/Journal; `publishReflection` publishes a journaled
   one (no-op if public). No Worker/D1 schema change.
-- **Files:** `public/cube_pierre_face.html`, `public/cube_watch_face.html`.
-- **NOT deployed yet** (Pages) — awaiting Ted's go; the D1 de-dupe is already applied to prod.
+- **Files:** `public/cube_pierre_face.html`, `public/cube_watch_face.html` (+ `cube_pierre_face`
+  watch-next `nav('episodes')` fix — FACE_INDEX keys are swapped vs labels; 'episodes' =
+  cube_log_face = the LOG tracker).
+- **DEPLOYED** (Pages `08e8eef3`, source `2076214` + nav fix) — the D1 de-dupe was already
+  applied. Verified live: `enterReshareFlow`, `nav('episodes', {})`, `reshareFromLog`.
 - Rollback: the de-dupe is a hard delete (no undo, but only removed confirmed dupes); Pages
   redeploy `ba50a5ef` reverts the frontend.
 
