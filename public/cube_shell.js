@@ -1895,3 +1895,22 @@ export function getActiveDoc() {
     }
   });
 })();
+
+// ── Mic blink cue ───────────────────────────────────────────────────────────
+// Pierre posts pg:blinkMic when he invites a comment; pulse the mic button so the
+// member notices they can record. Web Animations API (no CSS edit to the frozen shell).
+window.addEventListener('message', (e) => {
+  if (e.data && e.data.type === 'pg:blinkMic') {
+    const mic = document.getElementById('pierre-mic');
+    if (mic && mic.animate) {
+      try {
+        mic.animate(
+          [ { boxShadow: '0 0 0 0 rgba(240,169,59,0.55)', transform: 'scale(1)' },
+            { boxShadow: '0 0 0 12px rgba(240,169,59,0)',  transform: 'scale(1.1)' },
+            { boxShadow: '0 0 0 0 rgba(240,169,59,0)',     transform: 'scale(1)' } ],
+          { duration: 850, iterations: 3, easing: 'ease-in-out' }
+        );
+      } catch (_) {}
+    }
+  }
+});

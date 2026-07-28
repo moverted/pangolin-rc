@@ -2010,8 +2010,21 @@ let _routedToPierre=false;   // set by finaleCheck / forceSeasonNote within a fi
 function pierreFinishedNote(idx){
   if(DEMO || window.parent===window) return;
   const e=eps[idx]||{};
+  // Next-action for the Comment / next-action fork (COMMENT_CLIP_SHARE.md). Season/series
+  // finales don't reach here (finaleCheck/forceSeasonNote own those); this is the mid-season
+  // and caught-up cases: next episode released → watch next; unaired → its air day.
+  let nextAction='done', nextEp='', nextWhen='';
+  if(!isMovie){
+    const ne=eps[idx+1];
+    if(ne && released(ne)){ nextAction='watchnext'; nextEp=epCode(ne); }
+    else {
+      const nx = (ne && ne.airdate && !released(ne)) ? ne : wowNextUnaired();
+      if(nx){ nextAction='later'; nextWhen = nx.airdate ? wowWeekday(nx.airdate) : ''; }
+    }
+  }
   const payload={ intent:'note', finished:true, kind:isMovie?'movie':'show',
-                  show:curShowName, ep:isMovie?'':epCode(e), titleId:curShowId, runtime:runtimeOf(idx) };
+                  show:curShowName, ep:isMovie?'':epCode(e), titleId:curShowId, runtime:runtimeOf(idx),
+                  nextAction, nextEp, nextWhen };
   if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('pierre', payload);
   else window.parent.postMessage({type:'cube:rotateTo', face:'pierre', payload}, '*');
 }

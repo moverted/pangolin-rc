@@ -150,6 +150,10 @@
     outline:none;resize:none;overflow-y:auto;max-height:120px;
     height:42px;   /* one-line default; JS auto-grow overrides */
   }
+  /* Cue the chat box when Pierre invites a comment (pairs with the mic blink). */
+  .composer #input.cue{ animation:inputCue 0.7s ease-in-out 3; }
+  @keyframes inputCue{ 0%,100%{ border-color:var(--line); box-shadow:none; }
+    50%{ border-color:var(--amber); box-shadow:0 0 0 2px rgba(240,169,59,0.28); } }
   .composer #input::placeholder{color:var(--ink-dim);}
   .composer #input:focus{border-color:rgba(239,177,78,.55);box-shadow:0 0 0 3px rgba(239,177,78,.12);}
   .composer #input.secret{ -webkit-text-security:disc; text-security:disc; }   /* password steps */
@@ -411,23 +415,47 @@
     setCtxIndicator('note');
     p=p||{};
     const scope=p.scope||'episode';
-    const where = p.show ? (p.show + (p.ep ? (' '+p.ep) : '')) : 'what you just watched';
     noteCtx={ show:p.show||'', ep:p.ep||'', titleId:p.titleId||null, ticketId:p.ticketId||null,
               finished:!!p.finished, offerShare:!!p.offerShare, poster:'', platform:'',
               scope, seasonNum:(p.seasonNum!=null?p.seasonNum:null), episodeCount:p.episodeCount||0,
-              seasonCount:p.seasonCount||0, daysWatched:p.daysWatched||0, yearsSpan:p.yearsSpan||0 };
+              seasonCount:p.seasonCount||0, daysWatched:p.daysWatched||0, yearsSpan:p.yearsSpan||0,
+              nextAction:p.nextAction||'', nextEp:p.nextEp||'', nextWhen:p.nextWhen||'' };
     noteSpoiler=false;
     setReflectComment(p);
     // Prefetch poster + streamer for the share card so it's ready by share time.
     if(p.titleId) metaFetch(p.titleId).then(m=>{ if(noteCtx){ noteCtx.poster=m.poster; noteCtx.platform=m.platform; } });
-    const prompt = scope==='series' ? ('You finished '+(p.show||'the show')+' — the whole run. What did it leave you with?')
-                 : scope==='season' ? ('You wrapped '+(p.show||'that')+(p.seasonNum!=null?(' season '+p.seasonNum):'')+'. What did you make of it?')
-                 : (p.finished ? ('You finished ' + where + '. Tell me what you made of it.')
-                               : ('Noting ' + where + '. What did you make of it?'));
-    askReflection(prompt);
-    input.placeholder = '';   // blank — the "what to watch" hint conflicts with a note
+    // Step 1 — the Comment / next-action fork (COMMENT_CLIP_SHARE.md).
+    const finishedLabel = scope==='series' ? (p.show||'the show')
+                        : scope==='season' ? ((p.show||'that')+' season '+(p.seasonNum!=null?p.seasonNum:''))
+                        : ((p.show||'')+(p.ep?(' '+p.ep):''));
+    pierreSay('You finished '+finishedLabel+'.', [ {label:'Comment', onClick:beginComment}, nextActionChip(p) ], true);
+    input.placeholder='';
+  }
+  // Step 2 — they chose to comment: cue the chat box + mic, ready the input.
+  function beginComment(){
+    if(!noteCtx) return;
+    try{ input.classList.add('cue'); setTimeout(()=>{ try{ input.classList.remove('cue'); }catch(_){} }, 2400); }catch(_){}
+    try{ if(window.parent!==window) window.parent.postMessage({type:'pg:blinkMic'}, '*'); }catch(_){}
+    addPierre('Go ahead — record it or type it.');
+    input.placeholder='Tell me what you made of it…';
     input.focus();
   }
+  // The adaptive next-action chip: watch next / next-drop reminder / next season / done.
+  function nextActionChip(p){
+    const scope=p.scope||'episode';
+    if(scope==='series') return {label:'Done', onClick:()=>{ skipNote(); backOut(); }};
+    if(scope==='season') return {label:'Next season', onClick:()=>{ skipNote(); remindDone('the next season', p); }};
+    if(p.nextAction==='watchnext') return {label:'Watch next episode', onClick:()=>{ skipNote(); nav('log', {}); }};
+    if(p.nextAction==='later') return {label:'Next episode '+(p.nextWhen||'soon'), onClick:()=>{ skipNote(); remindDone('the next episode', p); }};
+    return {label:'Done', onClick:()=>{ skipNote(); backOut(); }};
+  }
+  function remindDone(what, p){
+    pierreSay('Want a nudge when '+what+' is ready?', [
+      {label:'Remind me', onClick:()=>{ enterNotifyFlow(p); }},
+      {label:'Done', onClick:()=>{ backOut(); }}
+    ]);
+  }
+  function backOut(){ try{ if(window.parent!==window) window.parent.postMessage({type:'pangolin-back'}, '*'); }catch(_){} }
   // The reflection prompt: a Skip chip + a Spoiler TOGGLE (stays on/off, unlike the
   // one-shot chips). Spoiler hides the quote on the shared card. Custom-rendered
   // because pierreSay's chips disable themselves on tap.
@@ -590,55 +618,50 @@
         body:JSON.stringify({ userEmail:email, showId:ctx.titleId, ticketId:ctx.ticketId||null, text }) }); }catch(_){}
     }
     await ask(text);
-    if(ctx.finished || ctx.offerShare){
-      let uname=''; try{ uname=(localStorage.getItem('pg_username')||'').trim(); }catch(_){}
-      const scope=ctx.scope||'episode';
-      const watchMode=await wowCardMode(email, ctx.titleId);   // stamp the card with their pattern
-      // Live-fetch the member's own co-view comments. Episode → this ep's hidden-times
-      // teaser row; season → the season's episodes; series → the whole run. episode_id
-      // is the ep code (S02E07), so a season filters on its "S0<n>E" prefix.
-      let teasers=[], commentCount=0;
-      if(email && ctx.titleId){
-        try{
-          const cr=await fetch(`${API}/transcribe/comments?showId=${encodeURIComponent(ctx.titleId)}&email=${encodeURIComponent(email)}`);
-          if(cr.ok){ let cs=((await cr.json()).comments||[]).filter(c=>!c.replyTo);
-            if(scope==='episode') cs=cs.filter(c=>c.episodeId===ctx.ep);
-            else if(scope==='season' && ctx.seasonNum!=null){ const sp=new RegExp('^S0*'+ctx.seasonNum+'E','i'); cs=cs.filter(c=>sp.test(c.episodeId||'')); }
-            commentCount=cs.length;
-            if(scope==='episode') teasers=cs.map(c=>c.timestampMs).filter(v=>typeof v==='number').sort((a,b)=>a-b); }
-        }catch(_){}
-      }
-      // Pre-build the card NOW (async: loads poster) so the Share tap can fire
-      // navigator.share synchronously in-gesture — iOS drops a share after an await.
-      const blob=await buildReflectionCard({ username:uname, email, scope, epCode:ctx.ep, seasonNum:ctx.seasonNum,
-        show:ctx.show, platform:ctx.platform, poster:ctx.poster, comment:text, spoiler:noteSpoiler,
-        watchMode, teasers, commentCount, episodeCount:ctx.episodeCount, seasonCount:ctx.seasonCount,
-        daysWatched:ctx.daysWatched, yearsSpan:ctx.yearsSpan }).catch(()=>null);
-      if(blob) addCardPreview(blob);
-      // Two-step share: Share/Skip, then (only if a spoken clip was stashed) Still / Audio
-      // clip. Still = the square card; Audio clip = the 9:16 video with the voice clip.
-      let audioUrl=null; try{ audioUrl=(window.top&&window.top.__pgReflectAudioUrl)||window.__pgReflectAudioUrl||null; }catch(_){}
-      const hasClip=!!(audioUrl && window.MediaRecorder);
-      const offerFormat=()=> pierreSay('The still, or the clip with your audio?', [
-        {label:'Still', onClick:()=>doShareCard(blob, ctx, text)},
-        {label:'Audio clip', onClick:()=>doShareVideo(blob, ctx, text, audioUrl)}]);
-      pierreSay(noteSpoiler ? 'Card ready (quote hidden — spoiler). Share it?' : 'Card ready. Share it?', [
-        {label:'Share', onClick:()=> hasClip ? offerFormat() : doShareCard(blob, ctx, text)},
-        {label:'Skip', onClick:()=>{}}]);
-    }
-    // Live+7: finished within a week of air and a next episode is coming → offer to flag
-    // the drop (industry-standard Live+7 window), after the comment as usual.
-    if(ctx.finished && ctx.titleId && window.WoW){
+    if(ctx.finished || ctx.offerShare){ askSpoilerThenShare(ctx, text); }
+  }
+  // Step 3 — after the comment, an explicit spoiler choice; then Step 4.
+  function askSpoilerThenShare(ctx, text){
+    pierreSay('Spoiler, or safe to show?', [
+      {label:'Spoiler', onClick:()=>{ noteSpoiler=true; buildAndOfferShare(ctx, text); }},
+      {label:'No spoiler', onClick:()=>{ noteSpoiler=false; buildAndOfferShare(ctx, text); }}
+    ]);
+  }
+  // Step 4 — build the card, then Share (text / audio) or Journal. "Share audio" is dropped
+  // when spoiler (the audio would speak the spoiler aloud). Journal = keep it (private —
+  // the private store + share-from-logs land in stage 2/3 of COMMENT_CLIP_SHARE.md).
+  async function buildAndOfferShare(ctx, text){
+    const email=pgSession();
+    let uname=''; try{ uname=(localStorage.getItem('pg_username')||'').trim(); }catch(_){}
+    const scope=ctx.scope||'episode';
+    const watchMode=await wowCardMode(email, ctx.titleId);
+    let teasers=[], commentCount=0;
+    if(email && ctx.titleId){
       try{
-        const eps=await WoW.episodes(ctx.titleId);
-        const mm=/S0*(\d+)E0*(\d+)/i.exec(ctx.ep||'');
-        const fin=mm?eps.find(e=>e.season===+mm[1]&&e.number===+mm[2]):null;
-        const airMs=fin&&fin.airstamp?new Date(fin.airstamp).getTime():0;
-        const next=WoW.nextUp(eps);
-        if(next && airMs && Date.now()>=airMs && (Date.now()-airMs)<=7*24*3600*1000)
-          offerNotify(ctx.show, ctx.titleId, next, WoW.tag(next.airstamp));
+        const cr=await fetch(`${API}/transcribe/comments?showId=${encodeURIComponent(ctx.titleId)}&email=${encodeURIComponent(email)}`);
+        if(cr.ok){ let cs=((await cr.json()).comments||[]).filter(c=>!c.replyTo);
+          if(scope==='episode') cs=cs.filter(c=>c.episodeId===ctx.ep);
+          else if(scope==='season' && ctx.seasonNum!=null){ const sp=new RegExp('^S0*'+ctx.seasonNum+'E','i'); cs=cs.filter(c=>sp.test(c.episodeId||'')); }
+          commentCount=cs.length;
+          if(scope==='episode') teasers=cs.map(c=>c.timestampMs).filter(v=>typeof v==='number').sort((a,b)=>a-b); }
       }catch(_){}
     }
+    const blob=await buildReflectionCard({ username:uname, email, scope, epCode:ctx.ep, seasonNum:ctx.seasonNum,
+      show:ctx.show, platform:ctx.platform, poster:ctx.poster, comment:text, spoiler:noteSpoiler,
+      watchMode, teasers, commentCount, episodeCount:ctx.episodeCount, seasonCount:ctx.seasonCount,
+      daysWatched:ctx.daysWatched, yearsSpan:ctx.yearsSpan }).catch(()=>null);
+    if(blob) addCardPreview(blob);
+    let audioUrl=null; try{ audioUrl=(window.top&&window.top.__pgReflectAudioUrl)||window.__pgReflectAudioUrl||null; }catch(_){}
+    const recorded=!!(audioUrl && window.MediaRecorder);
+    const opts=[];
+    if(recorded){
+      opts.push({label:'Share text', onClick:()=>doShareCard(blob, ctx, text)});
+      if(!noteSpoiler) opts.push({label:'Share audio', onClick:()=>doShareVideo(blob, ctx, text, audioUrl)});
+    } else {
+      opts.push({label:'Share', onClick:()=>doShareCard(blob, ctx, text)});
+    }
+    opts.push({label:'Journal', onClick:()=>{ addPierre('Saved to your journal — private, share anytime from your logs.'); }});
+    pierreSay('Share it, or keep it in your journal?', opts);
   }
 
   // ── Share card ──────────────────────────────────────────────────────────────
