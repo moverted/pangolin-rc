@@ -13,6 +13,154 @@ Entry format:
 
 ---
 
+## 2026-07-27 — Reflection double-save fix + prod D1 de-dupe + Stage 3 share-from-logs (Ted's "bug fix first, then build it, and de-dupe")
+- **D1 data change (no schema):** de-duped the `reflection` table on **REMOTE**. Root cause:
+  a RECORDED reflection was saved twice — once as a `watch_comment` (audio) and again as a
+  `/reflection` row — so it doubled in the logs; and delete only removes the comment, so the
+  orphan reflection persisted. Ran two `wrangler d1 execute pangolin-rc --remote` DELETEs:
+  (1) reflection rows whose text matches an `is_reflection=1` comment (3 rows); (2) remaining
+  identical reflection dupes keep-earliest (1 row). Result: 44 → **40 rows, 0 dupes**.
+- **Frontend fix (Pages, pending deploy):** `noteTurn` only POSTs `/reflection` for TYPED
+  reflections now (recorded ones live as their `watch_comment`), so no future doubles.
+- **Stage 3 (frontend only):** WATCH-face archive rows (own reflections + audio comments)
+  get a `.rf-share` button → `reshareFromLog` → Pierre `intent:'reshare'` → `enterReshareFlow`
+  rebuilds the card + runs spoiler → Share/Journal; `publishReflection` publishes a journaled
+  one (no-op if public). No Worker/D1 schema change.
+- **Files:** `public/cube_pierre_face.html`, `public/cube_watch_face.html` (+ `cube_pierre_face`
+  watch-next `nav('episodes')` fix — FACE_INDEX keys are swapped vs labels; 'episodes' =
+  cube_log_face = the LOG tracker).
+- **DEPLOYED** (Pages `08e8eef3`, source `2076214` + nav fix) — the D1 de-dupe was already
+  applied. Verified live: `enterReshareFlow`, `nav('episodes', {})`, `reshareFromLog`.
+- Rollback: the de-dupe is a hard delete (no undo, but only removed confirmed dupes); Pages
+  redeploy `ba50a5ef` reverts the frontend.
+
+## 2026-07-27 — Movie scope for the reflection flow DEPLOYED to production (Ted's "deploy it to production web")
+- **Frontend only** (no Worker / D1 change). A finished film now flows as `scope:'movie'`
+  instead of falling through to episode with an empty key. Card: "just watched ‹Movie›" +
+  "N comments on this movie" + hidden-times list, no BINGE stamp. `pierreFinishedNote` sends
+  `scope:'movie'` + `ep:'🎬'` (the movie comment key) so the count + recorded reflection line
+  up; `noteTurn` filters the single-unit key for episode AND movie. Next-action = Done;
+  `TODO(sequels)` marked for a later franchise "next".
+- **Files:** `public/cube_pierre_face.html`, `public/cube_log_face.html`.
+- **Git:** `feat/share-card-video` (`ff435c5`). **Pages deploy** `wrangler pages deploy public
+  --project-name pangolin-rc --branch main` -> deployment `ba50a5ef`, **Production**.
+- **Verified live:** `scope==='movie'` (pierre), `scope:isMovie` (log) on `remote.pangolinrc.com`.
+- Rollback: redeploy prior Pages `9034b87f` (source stage-2 commit).
+
+## 2026-07-27 — COMMENT_CLIP_SHARE stage 2: private Journal — D1 MIGRATION + Worker + Pages (Ted authorized the migration)
+- **First backend change this session.** Ted explicitly authorized migrating the
+  `pangolin-rc` D1 (normally off-limits) via the "Private flag (migrate the DB)" choice.
+- **D1 migration `0025_watch_comment_private.sql`** — `ALTER TABLE watch_comment ADD COLUMN
+  private INTEGER NOT NULL DEFAULT 0`. Additive; existing rows default public (0), so no
+  behavior change for prior data. **Applied to REMOTE** (`wrangler d1 migrations apply
+  pangolin-rc --remote`, non-interactive fallback = yes). ✅.
+- **Worker (`src/index.ts`)**: `/transcribe` reads a `private` form field and stores it
+  (reflections now send `private=1`); new **`POST /transcribe/comments/:id/publish`** flips
+  a comment public (`UPDATE … SET private=0 WHERE id=? AND user_email=?`, own-comment
+  scoped); `/transcribe/coview` WHERE gains `c.private = 0` so journaled reflections never
+  reach a friend's feed. `/transcribe/comments` (own) unchanged → private ones still show in
+  the member's own logs. **Deployed** — Worker Version `59dc9887`.
+- **Frontend (Pages `9034b87f`)**: shell mic sends `private=1` for reflections + stashes
+  `window.__pgReflectCommentId`; Pierre `publishReflection()` flips it on any Share option;
+  Journal leaves it private (message "Kept in your journal — private…").
+- **Deploy order (important):** migration → Worker → Pages (the Worker INSERT references the
+  new column). Verified: `/publish` routed (400 w/o email), comments/coview 200, frontend
+  markers live on `remote.pangolinrc.com`.
+- **Net behavior:** recorded reflections are private until Share; Journal keeps them private
+  but in the member's logs. Typed reflections never created a co-view comment, so unaffected.
+- **Freeze note:** new endpoint + column = surface area past the July-20 freeze; Ted directed it.
+- Rollback: redeploy prior Pages `6a39dabb` + Worker `wrangler rollback`; the column is
+  additive/backward-compatible so it can stay.
+
+## 2026-07-27 — COMMENT_CLIP_SHARE stage 1 (chip flow) DEPLOYED to production (Ted's "deploy it to production web")
+- **Frontend only**, from `feat/share-card-video`. Restructures the finish→reflection flow
+  (episode/season/series) into the spec's chip flow: Step 1 Comment/next-action fork
+  (Watch next episode / Next episode <day> / Next season / Done, computed in
+  `cube_log_face.html pierreFinishedNote` → `nextAction/nextEp/nextWhen`); Step 2 Comment
+  cues the chat box (`.cue` blink) + mic (`pg:blinkMic` → shell Web-Animations pulse);
+  Step 3 explicit Spoiler / No spoiler; Step 4 typed → Share/Journal, recorded → Share
+  text / Share audio (dropped if spoiler) / Journal. Replaces the spoiler-toggle-during-
+  input and the two-step share offer. **Journal is a keep-it stub** — the private store +
+  share-from-logs are stages 2–3 (COMMENT_CLIP_SHARE.md).
+- **Files:** `public/cube_pierre_face.html`, `public/cube_log_face.html`, `public/cube_shell.js`.
+- **Git:** `feat/share-card-video`. **Production Pages deploy** `wrangler pages deploy public
+  --project-name pangolin-rc --branch main` -> deployment `6a39dabb`, **Production**.
+- **Verified live:** `nextActionChip`, `askSpoilerThenShare`, `pg:blinkMic` (pierre/shell),
+  `nextAction` (log) on `remote.pangolinrc.com`.
+- **Behavior change** for all web/PWA users (the core reflection flow). iOS unchanged
+  (build 7 still pending; stage 1 would ride a later build).
+- Rollback: redeploy prior Pages deployment `27130d00` (source `f4f4092`).
+
+## 2026-07-27 — Share-as-video (#4 web path) + two-step share offer DEPLOYED to production (Ted's "deploy the web side")
+- **Frontend only** (no Worker / D1 change), from branch `feat/share-card-video`. Adds the
+  #4 share-as-video web path (`buildStoryFrame` 9:16 top-anchored frame + `buildShareVideo`
+  MediaRecorder encoder, best-effort webm, still-card fallback), the two-step share offer
+  (Share/Skip → Still/Audio clip), and the native share bridge (Pierre face posts
+  `pg:shareFile` to the shell, which owns Capacitor + a real file://). On web the native
+  branch is skipped (not `isNativePlatform`), so web sharing = `navigator.share` in-face,
+  unchanged; the bridge is inert on web. The reliable mp4 path is native (CardVideo, build 7).
+- **Files:** `public/cube_pierre_face.html`, `public/cube_shell.js`.
+- **Git:** branch `feat/share-card-video` (`f4f4092`). Not merged to `main`.
+- **Production Pages deploy:** `wrangler pages deploy public --project-name pangolin-rc
+  --branch main` -> deployment `27130d00`, Environment **Production**.
+- **Verified live:** `buildStoryFrame`, `doShareVideo`, "Audio clip", `pg:shareFile` present
+  on `remote.pangolinrc.com`.
+- **iOS:** unchanged — build 7 (native CardVideo + share routing + Photos fix) still pending
+  Ted's archive; this deploy is web/PWA only.
+- Rollback: redeploy prior Pages deployment `0a70bae9` (source `6bb4697`).
+
+## 2026-07-27 — Season & series reflection cards + wiring DEPLOYED to production (Ted's "commit and deploy")
+- **Frontend only** (no Worker / D1 / wrangler.toml change). Extends the share card to
+  three scopes (episode / season / series) and wires the finishes that trigger them:
+  season wrap and series end now run the FULL reflection (spoiler toggle + audio co-view
+  comment anchored to the finale ep + scoped share card), replacing the old journal-only
+  season note and the dead `episode:finishedFinale` handoff. Season/series digest
+  (comments across episodes, in-season days with hiatus excluded, season count, years
+  span premiere→finale) computed in `cube_log_face.html reflectionDigest()`; the season
+  digest is computed BEFORE the season switch so the just-finished ep counts.
+- **Files:** `public/cube_pierre_face.html`, `public/cube_log_face.html`. `www/` synced
+  locally. NOTE: iOS bundle NOT re-synced — build 5 predates this (season/series reaches
+  iOS only in a future build 6 via `cap sync` + bump).
+- **Git:** committed `19a2a61` on branch `feat/share-card-reflection` (with PR #28). Not
+  fast-forwarded to `main` (harness blocks direct main push); deploy was from local files.
+- **Production Pages deploy:** `wrangler pages deploy public --project-name pangolin-rc
+  --branch main` -> deployment `3534f580`, Environment **Production**. Serves
+  `pangolin-rc.pages.dev`, `remote.pangolinrc.com`.
+- **Verified live** on `3534f580.pangolin-rc.pages.dev` and `remote.pangolinrc.com`
+  (`scope==='series'`, hero CTA, `reflectionDigest`, `forceSeriesNote` present). The
+  face HTML serves `cf-cache-status: DYNAMIC, max-age=0` so no purge needed.
+- **Needs in-app testing** (can't be auto-driven): finish a season finale → season card;
+  finish the final season's finale → series card. `daysWatched` only counts episodes with
+  in-app session finish timestamps (restored/pre-app history contributes 0, line drops).
+- Rollback if needed: redeploy prior Pages deployment `31ad1aeb` (source `6d6d294`).
+
+## 2026-07-27 — Share/reflection card redesign DEPLOYED to production (Ted's "ship it")
+- **Frontend only** (no Worker / D1 / wrangler.toml change). Rebuild of the finished-
+  episode share card (`buildReflectionCard` in `public/cube_pierre_face.html`): name
+  line falls back username → email → "Someone"; live-fetch of this episode's own
+  co-view comments (`GET /transcribe/comments`, filtered `episodeId === ctx.ep`) drives
+  a hidden-times teaser list ("Comments hidden at 12m, 17m, …", eliding extras with "…"
+  so the count reconciles) + "watch with pangolinRC to hear them in real time" CTA, with
+  a generic co-watch CTA when there are none. Layout: wordmark dropped, action block
+  top-aligned, title/copy float-wrapped tight around the poster, red cocked BINGE/FRESH
+  stamp moved into the poster→box gap, Pierre cut out (edge flood-fill de-halo, eye
+  preserved) seated on the green box with the SPOILER-FREE/SPOILER label over his head,
+  quote up to 4 lines with ellipsis overrun, updated spoiler copy.
+- **Files:** `public/cube_pierre_face.html`. `www/` mirror synced locally (iOS wrapper).
+- **Git:** committed `6d6d294` on branch `feat/share-card-reflection`. NOTE: not yet
+  fast-forwarded/pushed to `main` — the direct push to `main` was blocked by the harness
+  (PR-review policy); awaiting Ted's call on merge vs PR. Deploy was from local files.
+- **Production Pages deploy:** `wrangler pages deploy public --project-name pangolin-rc
+  --branch main --commit-message "…"` -> deployment `31ad1aeb`, Environment
+  **Production**. Serves `pangolin-rc.pages.dev`, `remote.pangolinrc.com`.
+- **Verified live** on `31ad1aeb.pangolin-rc.pages.dev` and `remote.pangolinrc.com`
+  (cache-busted, following the clean-URL 308 that drops `.html`): `_cutout`,
+  "watch with pangolinRC to hear", "Comments hidden at", "see the comment in pangolinRC"
+  all present. Static assets carry `max-age=14400`, so returning testers may see prior
+  JS/HTML for up to ~4h absent a purge.
+- **iOS:** web/PWA production only; Capacitor app not re-synced/archived this session.
+- Rollback if needed: redeploy prior Pages deployment `08cd6423` (source `d2666a0`).
+
 ## 2026-07-27 — Episode-finish logging fix DEPLOYED to production (Ted's OK)
 - **Frontend only** (no Worker / D1 / wrangler.toml change). Fixes a lost episode
   finish: when the episode-end timer had already elapsed on return, the shell jumped

@@ -150,6 +150,10 @@
     outline:none;resize:none;overflow-y:auto;max-height:120px;
     height:42px;   /* one-line default; JS auto-grow overrides */
   }
+  /* Cue the chat box when Pierre invites a comment (pairs with the mic blink). */
+  .composer #input.cue{ animation:inputCue 0.7s ease-in-out 3; }
+  @keyframes inputCue{ 0%,100%{ border-color:var(--line); box-shadow:none; }
+    50%{ border-color:var(--amber); box-shadow:0 0 0 2px rgba(240,169,59,0.28); } }
   .composer #input::placeholder{color:var(--ink-dim);}
   .composer #input:focus{border-color:rgba(239,177,78,.55);box-shadow:0 0 0 3px rgba(239,177,78,.12);}
   .composer #input.secret{ -webkit-text-security:disc; text-security:disc; }   /* password steps */
@@ -410,18 +414,70 @@
     addFlow=null; acctFlow=null; joinFlow=null; seasonNoteFlow=false;
     setCtxIndicator('note');
     p=p||{};
-    const where = p.show ? (p.show + (p.ep ? (' '+p.ep) : '')) : 'what you just watched';
+    const scope=p.scope||'episode';
     noteCtx={ show:p.show||'', ep:p.ep||'', titleId:p.titleId||null, ticketId:p.ticketId||null,
-              finished:!!p.finished, offerShare:!!p.offerShare, poster:'', platform:'' };
+              finished:!!p.finished, offerShare:!!p.offerShare, poster:'', platform:'',
+              scope, seasonNum:(p.seasonNum!=null?p.seasonNum:null), episodeCount:p.episodeCount||0,
+              seasonCount:p.seasonCount||0, daysWatched:p.daysWatched||0, yearsSpan:p.yearsSpan||0,
+              nextAction:p.nextAction||'', nextEp:p.nextEp||'', nextWhen:p.nextWhen||'' };
     noteSpoiler=false;
     setReflectComment(p);
     // Prefetch poster + streamer for the share card so it's ready by share time.
     if(p.titleId) metaFetch(p.titleId).then(m=>{ if(noteCtx){ noteCtx.poster=m.poster; noteCtx.platform=m.platform; } });
-    askReflection(p.finished
-      ? ('You finished ' + where + '. Tell me what you made of it.')
-      : ('Noting ' + where + '. What did you make of it?'));
-    input.placeholder = '';   // blank — the "what to watch" hint conflicts with a note
+    // Step 1 — the Comment / next-action fork (COMMENT_CLIP_SHARE.md).
+    const finishedLabel = scope==='series' ? (p.show||'the show')
+                        : scope==='season' ? ((p.show||'that')+' season '+(p.seasonNum!=null?p.seasonNum:''))
+                        : scope==='movie'  ? (p.show||'the movie')
+                        : ((p.show||'')+(p.ep?(' '+p.ep):''));
+    pierreSay('You finished '+finishedLabel+'.', [ {label:'Comment', onClick:beginComment}, nextActionChip(p) ], true);
+    input.placeholder='';
+  }
+  // Step 2 — they chose to comment: cue the chat box + mic, ready the input.
+  function beginComment(){
+    if(!noteCtx) return;
+    try{ input.classList.add('cue'); setTimeout(()=>{ try{ input.classList.remove('cue'); }catch(_){} }, 2400); }catch(_){}
+    try{ if(window.parent!==window) window.parent.postMessage({type:'pg:blinkMic'}, '*'); }catch(_){}
+    addPierre('Go ahead — record it or type it.');
+    input.placeholder='Tell me what you made of it…';
     input.focus();
+  }
+  // The adaptive next-action chip: watch next / next-drop reminder / next season / done.
+  function nextActionChip(p){
+    const scope=p.scope||'episode';
+    // TODO(sequels): movies will eventually get a franchise "next" (sequel / same universe).
+    // For now every movie — and the series end — is just Done.
+    if(scope==='series' || scope==='movie') return {label:'Done', onClick:()=>{ skipNote(); backOut(); }};
+    if(scope==='season') return {label:'Next season', onClick:()=>{ skipNote(); remindDone('the next season', p); }};
+    // NB: FACE_INDEX keys are swapped vs labels — the LOG-labeled tracker (where you watch
+    // the next episode) is face id 'episodes' (cube_log_face), not 'log'.
+    if(p.nextAction==='watchnext') return {label:'Watch next episode', onClick:()=>{ skipNote(); nav('episodes', {}); }};
+    if(p.nextAction==='later') return {label:'Next episode '+(p.nextWhen||'soon'), onClick:()=>{ skipNote(); remindDone('the next episode', p); }};
+    return {label:'Done', onClick:()=>{ skipNote(); backOut(); }};
+  }
+  function remindDone(what, p){
+    pierreSay('Want a nudge when '+what+' is ready?', [
+      {label:'Remind me', onClick:()=>{ enterNotifyFlow(p); }},
+      {label:'Done', onClick:()=>{ backOut(); }}
+    ]);
+  }
+  function backOut(){ try{ if(window.parent!==window) window.parent.postMessage({type:'pangolin-back'}, '*'); }catch(_){} }
+  // Stage 3 — share an EXISTING reflection from the logs. We already have the text (and,
+  // for a recorded one, its audio URL + comment id), so skip Comment/input and go straight
+  // to spoiler → share/journal. A journaled (private) one publishes on Share (no-op if public).
+  async function enterReshareFlow(p){
+    if(IS_DEMO) return;
+    addFlow=null; acctFlow=null; joinFlow=null; seasonNoteFlow=false; noteCtx=null;
+    setCtxIndicator('note');
+    p=p||{};
+    const ep=p.ep||''; const scope = ep==='🎬' ? 'movie' : 'episode';
+    const ctx={ show:p.show||'', ep, titleId:p.titleId||null, ticketId:null, scope,
+                finished:true, offerShare:true, poster:'', platform:'',
+                seasonNum:null, episodeCount:0, seasonCount:0, daysWatched:0, yearsSpan:0 };
+    try{ if(window.top){ window.top.__pgReflectAudioUrl = p.audioUrl||null; window.top.__pgReflectCommentId = p.commentId||null; } }catch(_){}
+    if(p.titleId){ try{ const m=await metaFetch(p.titleId); ctx.poster=m.poster; ctx.platform=m.platform; }catch(_){} }
+    noteSpoiler=false;
+    addPierre('Share this thought?');
+    askSpoilerThenShare(ctx, p.text||'');
   }
   // The reflection prompt: a Skip chip + a Spoiler TOGGLE (stays on/off, unlike the
   // one-shot chips). Spoiler hides the quote on the shared card. Custom-rendered
@@ -447,9 +503,16 @@
   // REAL co-view comment on this episode (audio + transcription) rather than a
   // throwaway 'pierre-note'. Anchored at the episode end (runtime) so it reveals to
   // friends only once they finish. Read by the shell mic (cube_shell.js initPierreMic).
-  function setReflectComment(p){ try{ if(window.top) window.top.__pgReflectComment =
-    (p && p.finished && p.titleId && p.ep) ? { showId:p.titleId, episodeId:p.ep, timestampMs:(p.runtime||0)*60000 } : null;
+  function setReflectComment(p){ try{ if(window.top){ window.top.__pgReflectCommentId=null;   // reset the id each new flow
+    window.top.__pgReflectComment = (p && p.finished && p.titleId && p.ep) ? { showId:p.titleId, episodeId:p.ep, timestampMs:(p.runtime||0)*60000 } : null; }
   }catch(_){} }
+  // Stage 2: a recorded reflection is stored PRIVATE; Share flips it to a public co-view
+  // comment friends hear. Journal leaves it private (in the member's logs only).
+  async function publishReflection(){
+    try{ const email=pgSession(); let id=null; try{ id=(window.top&&window.top.__pgReflectCommentId)||window.__pgReflectCommentId||null; }catch(_){}
+      if(email && id) await fetch(`${API}/transcribe/comments/${encodeURIComponent(id)}/publish`,{ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({email}) });
+    }catch(_){}
+  }
   function clearReflectComment(){ try{ if(window.top) window.top.__pgReflectComment=null; }catch(_){} }
   // Skip the reflection: the episode is already logged, so just drop the note and
   // return to plain chat (no journal entry, no comment).
@@ -580,36 +643,60 @@
     input.placeholder = "Ask Pierre what to watch...";
     pushJournal(ctx.show, ctx.ep, text);
     const email=pgSession();
-    if(email && ctx.titleId){
+    // Only TYPED reflections get a /reflection row. A RECORDED one already lives as a
+    // watch_comment (audio + transcription) that Pierre reads — a /reflection row would
+    // just duplicate it in the logs (the double-save bug).
+    let recorded=false; try{ recorded=!!((window.top&&window.top.__pgReflectCommentId)||window.__pgReflectCommentId); }catch(_){}
+    if(email && ctx.titleId && !recorded){
       try{ fetch(`${API}/reflection`,{ method:'POST', headers:{'Content-Type':'application/json'},
         body:JSON.stringify({ userEmail:email, showId:ctx.titleId, ticketId:ctx.ticketId||null, text }) }); }catch(_){}
     }
     await ask(text);
-    if(ctx.finished || ctx.offerShare){
-      let uname=''; try{ uname=(localStorage.getItem('pg_username')||'').trim(); }catch(_){}
-      const watchMode=await wowCardMode(email, ctx.titleId);   // stamp the card with their pattern
-      // Pre-build the card NOW (async: loads poster) so the Share tap can fire
-      // navigator.share synchronously in-gesture — iOS drops a share after an await.
-      const blob=await buildReflectionCard({ username:uname||'Someone', epCode:ctx.ep,
-        show:ctx.show, platform:ctx.platform, poster:ctx.poster, comment:text, spoiler:noteSpoiler, watchMode }).catch(()=>null);
-      if(blob) addCardPreview(blob);
-      pierreSay(noteSpoiler ? 'Card ready (quote hidden — spoiler). Share it?' : 'Card ready. Share it?', [
-        {label:'Share card', onClick:()=>doShareCard(blob, ctx, text)},
-        {label:'Done', onClick:()=>{}}]);
-    }
-    // Live+7: finished within a week of air and a next episode is coming → offer to flag
-    // the drop (industry-standard Live+7 window), after the comment as usual.
-    if(ctx.finished && ctx.titleId && window.WoW){
+    if(ctx.finished || ctx.offerShare){ askSpoilerThenShare(ctx, text); }
+  }
+  // Step 3 — after the comment, an explicit spoiler choice; then Step 4.
+  function askSpoilerThenShare(ctx, text){
+    pierreSay('Spoiler, or safe to show?', [
+      {label:'Spoiler', onClick:()=>{ noteSpoiler=true; buildAndOfferShare(ctx, text); }},
+      {label:'No spoiler', onClick:()=>{ noteSpoiler=false; buildAndOfferShare(ctx, text); }}
+    ]);
+  }
+  // Step 4 — build the card, then Share (text / audio) or Journal. "Share audio" is dropped
+  // when spoiler (the audio would speak the spoiler aloud). Journal = keep it (private —
+  // the private store + share-from-logs land in stage 2/3 of COMMENT_CLIP_SHARE.md).
+  async function buildAndOfferShare(ctx, text){
+    const email=pgSession();
+    let uname=''; try{ uname=(localStorage.getItem('pg_username')||'').trim(); }catch(_){}
+    const scope=ctx.scope||'episode';
+    const watchMode=await wowCardMode(email, ctx.titleId);
+    let teasers=[], commentCount=0;
+    if(email && ctx.titleId){
       try{
-        const eps=await WoW.episodes(ctx.titleId);
-        const mm=/S0*(\d+)E0*(\d+)/i.exec(ctx.ep||'');
-        const fin=mm?eps.find(e=>e.season===+mm[1]&&e.number===+mm[2]):null;
-        const airMs=fin&&fin.airstamp?new Date(fin.airstamp).getTime():0;
-        const next=WoW.nextUp(eps);
-        if(next && airMs && Date.now()>=airMs && (Date.now()-airMs)<=7*24*3600*1000)
-          offerNotify(ctx.show, ctx.titleId, next, WoW.tag(next.airstamp));
+        const cr=await fetch(`${API}/transcribe/comments?showId=${encodeURIComponent(ctx.titleId)}&email=${encodeURIComponent(email)}`);
+        if(cr.ok){ let cs=((await cr.json()).comments||[]).filter(c=>!c.replyTo);
+          // episode + movie filter on the single unit's key (movie key is '🎬', in ctx.ep).
+          if(scope==='episode'||scope==='movie') cs=cs.filter(c=>c.episodeId===ctx.ep);
+          else if(scope==='season' && ctx.seasonNum!=null){ const sp=new RegExp('^S0*'+ctx.seasonNum+'E','i'); cs=cs.filter(c=>sp.test(c.episodeId||'')); }
+          commentCount=cs.length;
+          if(scope==='episode'||scope==='movie') teasers=cs.map(c=>c.timestampMs).filter(v=>typeof v==='number').sort((a,b)=>a-b); }
       }catch(_){}
     }
+    const blob=await buildReflectionCard({ username:uname, email, scope, epCode:ctx.ep, seasonNum:ctx.seasonNum,
+      show:ctx.show, platform:ctx.platform, poster:ctx.poster, comment:text, spoiler:noteSpoiler,
+      watchMode, teasers, commentCount, episodeCount:ctx.episodeCount, seasonCount:ctx.seasonCount,
+      daysWatched:ctx.daysWatched, yearsSpan:ctx.yearsSpan }).catch(()=>null);
+    if(blob) addCardPreview(blob);
+    let audioUrl=null; try{ audioUrl=(window.top&&window.top.__pgReflectAudioUrl)||window.__pgReflectAudioUrl||null; }catch(_){}
+    const recorded=!!(audioUrl && window.MediaRecorder);
+    const opts=[];
+    if(recorded){
+      opts.push({label:'Share text', onClick:()=>{ publishReflection(); doShareCard(blob, ctx, text); }});
+      if(!noteSpoiler) opts.push({label:'Share audio', onClick:()=>{ publishReflection(); doShareVideo(blob, ctx, text, audioUrl); }});
+    } else {
+      opts.push({label:'Share', onClick:()=>{ publishReflection(); doShareCard(blob, ctx, text); }});
+    }
+    opts.push({label:'Journal', onClick:()=>{ addPierre('Kept in your journal — private. Share it anytime from your logs.'); }});
+    pierreSay('Share it, or keep it in your journal?', opts);
   }
 
   // ── Share card ──────────────────────────────────────────────────────────────
@@ -642,61 +729,177 @@
   function _wrap(g,text,maxW){ const words=String(text||'').split(/\s+/); const lines=[]; let ln='';
     for(const w of words){ const t=ln?ln+' '+w:w; if(g.measureText(t).width>maxW && ln){ lines.push(ln); ln=w; } else ln=t; }
     if(ln) lines.push(ln); return lines; }
+  // Float-wrap: text hugs the poster's left edge (narrowW) while a line sits beside it,
+  // then flows to fullW once the line drops below the poster. Returns {text,y} per line.
+  function _wrapFlow(g,text,x,yStart,lineH,narrowW,fullW,posterBottom){
+    const words=String(text||'').split(/\s+/); const out=[]; let ln='', y=yStart;
+    const wAt=(yy)=> yy>posterBottom ? fullW : narrowW;
+    for(const w of words){ const t=ln?ln+' '+w:w;
+      if(g.measureText(t).width>wAt(y) && ln){ out.push({text:ln,y}); y+=lineH; ln=w; } else ln=t; }
+    if(ln) out.push({text:ln,y}); return out; }
+  // A playback-cursor timestamp, compact: "12m" under an hour, "1h9m" past it.
+  function cardMins(ms){ let t=Math.max(0,Math.round((ms||0)/60000)); const h=Math.floor(t/60), m=t%60;
+    return h ? (h+'h'+(m?m+'m':'')) : (m+'m'); }
+  // Cut Pierre out of his white studio plate. Flood-fill white inward from the image
+  // edges to find ONLY the background (so enclosed whites like his eye are preserved):
+  // background → transparent, its light fringe → darkened (no white halo). Then trim to
+  // his silhouette. Same-origin image → getImageData is untainted.
+  function _cutout(img){
+    const c=document.createElement('canvas'); c.width=img.width; c.height=img.height; const x=c.getContext('2d');
+    x.drawImage(img,0,0); const W=c.width,H=c.height, d=x.getImageData(0,0,W,H), p=d.data;
+    const bg=new Uint8Array(W*H), stack=[];
+    const white=(idx)=>{ const i=idx*4; return p[i]>224&&p[i+1]>224&&p[i+2]>224; };
+    function seed(xx,yy){ if(xx<0||yy<0||xx>=W||yy>=H) return; const idx=yy*W+xx;
+      if(!bg[idx]&&white(idx)){ bg[idx]=1; stack.push(idx); } }
+    for(let xx=0;xx<W;xx++){ seed(xx,0); seed(xx,H-1); }
+    for(let yy=0;yy<H;yy++){ seed(0,yy); seed(W-1,yy); }
+    while(stack.length){ const idx=stack.pop(), xx=idx%W, yy=(idx/W)|0;
+      seed(xx-1,yy); seed(xx+1,yy); seed(xx,yy-1); seed(xx,yy+1); }
+    let x0=W,y0=H,x1=0,y1=0;
+    for(let yy=0;yy<H;yy++) for(let xx=0;xx<W;xx++){ const idx=yy*W+xx, i=idx*4;
+      if(bg[idx]){ p[i+3]=0; continue; }                                  // background → transparent
+      if(p[i]>168&&p[i+1]>168&&p[i+2]>168){                               // light pixel…
+        const edge=(xx>0&&bg[idx-1])||(xx<W-1&&bg[idx+1])||(yy>0&&bg[idx-W])||(yy<H-1&&bg[idx+W]);
+        if(edge){ p[i]*=0.45; p[i+1]*=0.45; p[i+2]*=0.45; }               // …touching background → darken fringe
+      }
+      if(xx<x0)x0=xx; if(xx>x1)x1=xx; if(yy<y0)y0=yy; if(yy>y1)y1=yy; }
+    x.putImageData(d,0,0);
+    const tw=Math.max(1,x1-x0+1), th=Math.max(1,y1-y0+1);
+    const t=document.createElement('canvas'); t.width=tw; t.height=th;
+    t.getContext('2d').drawImage(c,x0,y0,tw,th,0,0,tw,th); return t;
+  }
   async function buildReflectionCard(o){
-    const S=1080, cv=document.createElement('canvas'); cv.width=S; cv.height=S; const g=cv.getContext('2d');
+    const S=1080, M=110, cv=document.createElement('canvas'); cv.width=S; cv.height=S; const g=cv.getContext('2d');
     const bg=g.createLinearGradient(0,0,S,S); bg.addColorStop(0,'#17110b'); bg.addColorStop(1,'#0b0907');
     g.fillStyle=bg; g.fillRect(0,0,S,S);
     g.fillStyle='rgba(240,169,59,0.10)'; _rr(g,40,40,S-80,S-80,36); g.fill();
-    // poster (top-right); tainted/cross-origin failure just omits it
+    g.textBaseline='alphabetic';
+    // poster (top-right), top-aligned to the uniform M margin (pX+pW = S-M).
     let poster=await loadImg(o.poster,true);
-    // right edge on the same 110px margin as the wordmark + comment box; a touch bigger
-    const pW=340, pH=Math.round(pW*444/300), pX=S-110-pW, pY=150;
+    const pW=300, pH=Math.round(pW*444/300), pX=S-M-pW, pY=M;
     if(poster){ try{ g.save(); _rr(g,pX,pY,pW,pH,18); g.clip();
       const tr=pW/pH; let sw=poster.width,sh=poster.height,sx=0,sy=0;
       if(poster.width/poster.height>tr){ sw=poster.height*tr; sx=(poster.width-sw)/2; } else { sh=poster.width/tr; sy=(poster.height-sh)/2; }
       g.drawImage(poster,sx,sy,sw,sh,pX,pY,pW,pH); g.restore(); }catch(_){ poster=null; } }
     if(!poster){ g.fillStyle='rgba(255,255,255,0.05)'; _rr(g,pX,pY,pW,pH,18); g.fill(); }
-    // Pierre host + wordmark
-    const pierre=await loadImg('/pierre.png',false);
-    if(pierre){ const pw=250, ph=Math.round(pw*pierre.height/pierre.width), x=110, y=155;   // keep aspect — no squish
-      g.save(); _rr(g,x,y,pw,ph,20); g.clip(); g.drawImage(pierre,x,y,pw,ph); g.restore(); }
-    g.fillStyle='#f0a93b'; g.font='700 30px Inter, system-ui, sans-serif'; g.fillText('pangolinRC', 110, 130);
-    // action copy
+    // action copy — top-aligned (no wordmark). Name falls back username → email → "Someone".
+    // scope: 'episode' (SxxExx) | 'movie' (single film) | 'season' | 'series'.
+    const who=(o.username||o.email||'Someone');
+    const scope=o.scope||'episode';
+    const perUnit=(scope==='episode'||scope==='movie');   // a single watched thing (ep or film)
+    const unitWord=(scope==='movie'?'movie':'episode');
     g.fillStyle='rgba(248,242,232,0.85)'; g.font='700 40px Inter, system-ui, sans-serif';
-    g.fillText((o.username||'Someone')+' just watched', 110, 380);
+    g.fillText(who+(perUnit?' just watched':' just finished'), M, 158);
     g.fillStyle='#fff'; g.font='800 52px Inter, system-ui, sans-serif';
-    const l2=_wrap(g,(o.epCode?o.epCode+' of ':'')+(o.show||'a show'), pX-140).slice(0,2);
-    l2.forEach((ln,i)=> g.fillText(ln, 110, 450+i*58));
-    let by=450+l2.length*58+8;
+    const titleText = scope==='series' ? (o.show||'a show')
+                    : scope==='season' ? ('season '+(o.seasonNum!=null?o.seasonNum:'?')+' of '+(o.show||'a show'))
+                    : scope==='movie'  ? (o.show||'a movie')
+                    : ((o.epCode?o.epCode+' of ':'')+(o.show||'a show'));
+    const l2=_wrapFlow(g, titleText, M,226,58, pX-M-18, S-2*M, pY+pH).slice(0,3);
+    l2.forEach(o2=> g.fillText(o2.text, M, o2.y));
+    const titleBottom=(l2.length?l2[l2.length-1].y:226);
+    let by=titleBottom+56;   // full line-gap so the platform never crashes the title
     if(o.platform){ g.fillStyle='rgba(248,242,232,0.65)'; g.font='500 32px Inter, system-ui, sans-serif';
-      g.fillText('on '+o.platform, 110, by); }
-    // watch-state stamp: the member's pattern, ink-stamped (MORE! reads as BINGE).
-    if(o.watchMode){
+      g.fillText('on '+o.platform, M, by); }
+    const pB=pY+pH, colW=pX-M-18;
+    // ── Teaser comments: hook + a single hidden-times list. The list shows as many
+    // times as fit and elides the rest with "…", so its count always reconciles with
+    // the header (never looks like we miscounted).
+    const teasers=Array.isArray(o.teasers)?o.teasers:[];
+    const cCount=o.commentCount||teasers.length;
+    const ty=(o.platform?by:titleBottom)+62;
+    // (The hero "WATCH WITH PANGOLINRC…" CTA now lives below the box — see further down.)
+    if(!perUnit){
+      // Season / series digest: comments across episodes, watch span (in-season days
+      // only — hiatus excluded), the dominant mode, and (series) seasons + year range.
+      const epsN=o.episodeCount||0, days=o.daysWatched||0;
+      g.fillStyle='#f0a93b'; g.font='800 34px Inter, system-ui, sans-serif';
+      g.fillText(cCount>0 ? (cCount+' comment'+(cCount===1?'':'s')+' on '+epsN+' episode'+(epsN===1?'':'s'))
+                          : ('finished '+epsN+' episode'+(epsN===1?'':'s')), M, ty);
+      let yy=ty+40; g.fillStyle='rgba(248,242,232,0.6)'; g.font='500 28px Inter, system-ui, sans-serif';
+      if(scope==='series'){
+        const sc=o.seasonCount, ys=o.yearsSpan; let seasonsLine='';
+        if(sc) seasonsLine=sc+' season'+(sc===1?'':'s');
+        if(ys>=1) seasonsLine=(seasonsLine?seasonsLine+' ':'')+'over '+ys+' year'+(ys===1?'':'s');
+        if(seasonsLine){ g.fillText(seasonsLine, M, yy); yy+=38; }
+      }
+      const bits=[]; if(days) bits.push('watched '+days+' day'+(days===1?'':'s'));
+      if(o.watchMode) bits.push('mostly '+wowCardLabel(o.watchMode));
+      if(bits.length){ g.fillText(bits.join(' · '), M, yy); yy+=38; }
+    } else if(cCount>0){
+      g.fillStyle='#f0a93b'; g.font='800 34px Inter, system-ui, sans-serif';
+      g.fillText(cCount+' comment'+(cCount===1?'':'s')+' on this '+unitWord, M, ty);
+      const times=teasers.map(cardMins);
+      if(times.length){
+        // Below the poster so the times list can run full-width (all fit, or "…" for the rest).
+        const listY=Math.max(ty+52, pB+40), listW=S-2*M;
+        g.fillStyle='rgba(248,242,232,0.55)'; g.font='600 28px Inter, system-ui, sans-serif';
+        const lead='Comments hidden at ', shown=[];
+        for(const t of times){ const more=shown.length+1<cCount;
+          const trial=lead+[...shown,t].join(', ')+(more?', …':'');
+          if(g.measureText(trial).width<=listW) shown.push(t); else break; }
+        const text=lead+(shown.length?shown.join(', '):'')+(shown.length<cCount?(shown.length?', …':'…'):'');
+        g.fillText(text, M, listY);
+      }
+    }
+    // watch-state stamp: a red rubber stamp cocked in the gap between the poster's
+    // lower edge and the green box, centered under the poster (MORE! reads as BINGE).
+    // Episode scope only — season/series state the mode in the digest text instead.
+    if(o.watchMode && scope==='episode'){
       const label=wowCardLabel(o.watchMode);
       g.save();
-      g.font='800 36px Inter, system-ui, sans-serif';
-      const tw=g.measureText(label).width, padX=24, bh=64, bw=tw+padX*2;
-      g.translate(110, by + (o.platform ? 40 : 26));   // just under the title/platform block
-      g.rotate(-0.055);                                  // slight tilt, like a rubber stamp
-      g.lineWidth=3.5; g.strokeStyle='#f0a93b';
+      g.font='800 42px Inter, system-ui, sans-serif';
+      const tw=g.measureText(label).width, padX=28, bh=72, bw=tw+padX*2;
+      g.translate(pX+pW/2, (pB + (S-M-250))/2);   // midpoint of poster-bottom → green-box-top
+      g.rotate(-0.13);                            // cocked a little more than before
+      g.translate(-bw/2,-bh/2);
+      g.lineWidth=4; g.strokeStyle='#e0322c';
       _rr(g,0,0,bw,bh,12); g.stroke();
-      g.fillStyle='#f0a93b'; g.textBaseline='middle';
+      g.fillStyle='#e0322c'; g.textBaseline='middle';
       g.fillText(label, padX, bh/2+2);
-      g.restore();
+      g.restore(); g.textBaseline='alphabetic';
     }
-    // comment area (spoiler-aware)
-    const cx=110, cy=690, cw=S-220, ch=300;
-    if(o.spoiler || !o.comment){
-      g.fillStyle='rgba(224,50,44,0.15)'; _rr(g,cx,cy,cw,ch,24); g.fill();
-      g.fillStyle='#ff9d5c'; g.font='800 32px Inter, system-ui, sans-serif'; g.fillText('⚠ SPOILER', cx+40, cy+80);
-      g.fillStyle='rgba(248,242,232,0.6)'; g.font='500 32px Inter, system-ui, sans-serif';
-      g.fillText('Hidden — watch it first.', cx+40, cy+145);
+    // comment area (spoiler-aware) — bottom-anchored to the uniform margin (cy+ch = S-M).
+    const cx=M, cw=S-2*M, ch=226, cy=714;   // lifted + shorter to leave a hero-CTA strip below
+    // Pierre — cut out, seated on the box's bottom edge, bottom-LEFT. Loaded first so the
+    // quote text can inset past his silhouette with a clear buffer.
+    const pierre=await loadImg('/pierre.png',false);
+    let px2=cx+16, pw2=0, ph2=0, pc=null;
+    if(pierre){ pc=_cutout(pierre); ph2=136; pw2=Math.round(ph2*pc.width/pc.height); }   // 20% smaller than before
+    const tx=(pc?px2+pw2+30:cx+40), tw2=cx+cw-40-tx;   // 30px buffer keeps text off Pierre
+    const spoiler=o.spoiler||!o.comment;
+    g.fillStyle= spoiler ? 'rgba(224,50,44,0.15)' : 'rgba(91,191,123,0.15)'; _rr(g,cx,cy,cw,ch,24); g.fill();
+    // Label sits over Pierre's head (not in the quote column), so the quote gets the
+    // full right column — up to 4 lines instead of 3.
+    const labelText= spoiler ? '⚠ SPOILER' : 'SPOILER-FREE';
+    g.font='800 26px Inter, system-ui, sans-serif'; g.fillStyle= spoiler ? '#ff9d5c' : '#5bbf7b';
+    const lw=g.measureText(labelText).width; let lx= pc ? (px2+pw2/2-lw/2) : (cx+40); if(lx<cx+30) lx=cx+30;
+    g.fillText(labelText, lx, cy+66);
+    if(spoiler){
+      g.fillStyle='rgba(248,242,232,0.6)'; g.font='500 30px Inter, system-ui, sans-serif';
+      _wrap(g,'Hidden — watch it first, then see the comment in pangolinRC', tw2)
+        .slice(0,4).forEach((ln,i)=> g.fillText(ln, tx, cy+92+i*40));
     } else {
-      g.fillStyle='rgba(91,191,123,0.15)'; _rr(g,cx,cy,cw,ch,24); g.fill();
-      g.fillStyle='#5bbf7b'; g.font='800 26px Inter, system-ui, sans-serif'; g.fillText('SPOILER-FREE', cx+40, cy+58);
-      g.fillStyle='#f8f2e8'; g.font='600 38px Inter, system-ui, sans-serif';
-      _wrap(g,'“'+o.comment+'”', cw-80).slice(0,4).forEach((ln,i)=> g.fillText(ln, cx+40, cy+120+i*50));
+      g.fillStyle='rgba(248,242,232,0.78)'; g.font='600 34px Inter, system-ui, sans-serif';   // a touch greyer so the white CTA + title pop
+      // Overrun past 4 lines → truncate the last line with an ellipsis, keeping the quote closed.
+      let lines=_wrap(g,'“'+o.comment+'”', tw2);
+      if(lines.length>4){ lines=lines.slice(0,4); let last=lines[3].replace(/”$/,'');
+        while(last && g.measureText(last+'…”').width>tw2){ last=last.replace(/\s*\S+$/,''); }
+        lines[3]=last.replace(/\s+$/,'')+'…”'; }
+      lines.forEach((ln,i)=> g.fillText(ln, tx, cy+64+i*46));
     }
+    if(pc){ g.drawImage(pc, px2, cy+ch-ph2, pw2, ph2); }
+    // ── Hero CTA — the reason for the card. One big WHITE line just below the box,
+    // "hear all comments" when there are comments, else a plain co-watch invite. Size
+    // is locked to the long line and reused for the short one (centered, same size).
+    const ctaText = cCount>0 ? 'watch with pangolinRC to hear all comments in real time'
+                             : ('watch along with '+who.toLowerCase()+' on pangolinRC');
+    const fitStr='watch with pangolinRC to hear all comments in real time';   // always size to the long line
+    let cfs=48; g.font='800 '+cfs+'px Inter, system-ui, sans-serif';
+    while(cfs>16 && g.measureText(fitStr).width>cw){ cfs-=1; g.font='800 '+cfs+'px Inter, system-ui, sans-serif'; }
+    g.fillStyle='#fff'; g.textAlign='center';
+    g.fillText(ctaText, S/2, cy+ch+46);   // tighter to the box
+    g.textAlign='left';
     return await new Promise(res=> cv.toBlob(b=>res(b),'image/png',0.92));
   }
   function addCardPreview(blob){
@@ -708,13 +911,92 @@
       wrap.appendChild(img); log.appendChild(wrap); log.scrollTop=log.scrollHeight;
     }catch(_){}
   }
+  function _blobB64(blob){ return new Promise((res,rej)=>{ const fr=new FileReader();
+    fr.onload=()=>res(String(fr.result).split(',')[1]||''); fr.onerror=rej; fr.readAsDataURL(blob); }); }
+  // Share a file (image or video). NATIVE: hand it to the SHELL (top window) to present —
+  // Capacitor's bridge and a real file:// live there; presenting from this face iframe
+  // gives apps a capacitor:// URL instead of the file. WEB/PWA: navigator.share must run
+  // HERE, inside the tap's user-activation (a postMessage would drop it). Pass a blob, or a
+  // pre-written file URI (the CardVideo mp4). Returns whether the share was handled.
+  async function shareBlob(blob, name, caption, fileUri){
+    const Cap = (window.Capacitor) || (window.top && window.top.Capacitor);
+    if(Cap && Cap.isNativePlatform && Cap.isNativePlatform()){
+      try{ (window.top||window).postMessage({ type:'pg:shareFile', blob, name, caption, fileUri }, '*'); return true; }catch(_){}
+    }
+    try{
+      if(blob && navigator.canShare){ const file=new File([blob],name,{type:blob.type||'application/octet-stream'});
+        if(navigator.canShare({files:[file]})){ await navigator.share({files:[file], text:caption}); return true; } }
+    }catch(_){}
+    return false;
+  }
   async function doShareCard(blob, ctx, text){
     const caption=(ctx.show||'')+(ctx.ep?(' '+ctx.ep):'')+' — on pangolinRC';
-    try{
-      if(blob && navigator.canShare){ const file=new File([blob],'pangolinrc-card.png',{type:'image/png'});
-        if(navigator.canShare({files:[file]})){ await navigator.share({files:[file], text:caption}); addPierre('Shared.'); return; } }
-      if(navigator.share){ await navigator.share({ text:(noteSpoiler?'':('“'+text+'” — '))+caption }); addPierre('Shared.'); return; }
-    }catch(_){ /* cancelled or unsupported */ }
+    if(await shareBlob(blob, 'pangolinrc-card-'+Date.now()+'.png', caption)){ addPierre('Shared.'); return; }
+    try{ if(navigator.share){ await navigator.share({ text:(noteSpoiler?'':('“'+text+'” — '))+caption }); addPierre('Shared.'); } }catch(_){}
+  }
+
+  // ── #4: share the card as a 9:16 VIDEO with the reflection audio ─────────────
+  // Frame: the 1:1 card anchored at the TOP on the card gradient; the lower third stays
+  // clear so the user can add copy in Stories.
+  async function buildStoryFrame(cardBlob){
+    const W=1080, H=1920, cv=document.createElement('canvas'); cv.width=W; cv.height=H; const g=cv.getContext('2d');
+    const bg=g.createLinearGradient(0,0,0,H); bg.addColorStop(0,'#17110b'); bg.addColorStop(1,'#0b0907');
+    g.fillStyle=bg; g.fillRect(0,0,W,H);
+    const card=await loadImg(URL.createObjectURL(cardBlob), false);
+    if(card){ g.drawImage(card, 0, 96, W, W); }   // 1:1 card, top-anchored (y 96 → 1176)
+    g.fillStyle='rgba(240,169,59,0.45)'; g.font='600 34px Inter, system-ui, sans-serif'; g.textAlign='center';
+    g.fillText('pangolinRC', W/2, W+180); g.textAlign='left';
+    return cv;
+  }
+  // Compose the still frame + the audio clip into a video via MediaRecorder (web/PWA;
+  // iOS mp4 support varies — falls back to the still image if it can't encode). A native
+  // AVFoundation compositor (build 7) is the guaranteed-mp4 path — see SHARE_VIDEO.md.
+  async function buildShareVideo(cardBlob, audioUrl){
+    if(!window.MediaRecorder || !audioUrl) return null;
+    const cv=await buildStoryFrame(cardBlob);
+    const audio=new Audio(); audio.src=audioUrl; audio.preload='auto'; audio.crossOrigin='anonymous';
+    await new Promise(res=>{ audio.onloadedmetadata=res; audio.onerror=res; setTimeout(res,3000); });
+    let actx,dest,src; try{ actx=new (window.AudioContext||window.webkitAudioContext)();
+      dest=actx.createMediaStreamDestination(); src=actx.createMediaElementSource(audio); src.connect(dest); }catch(_){}
+    const vStream=cv.captureStream(30);
+    const tracks=[...vStream.getVideoTracks(), ...(dest?dest.stream.getAudioTracks():[])];
+    const mime = MediaRecorder.isTypeSupported('video/mp4') ? 'video/mp4'
+               : MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus') ? 'video/webm;codecs=vp8,opus' : 'video/webm';
+    let rec; try{ rec=new MediaRecorder(new MediaStream(tracks), {mimeType:mime}); }catch(_){ return null; }
+    const parts=[]; rec.ondataavailable=e=>{ if(e.data&&e.data.size) parts.push(e.data); };
+    const stopped=new Promise(res=> rec.onstop=res);
+    try{ if(actx) await actx.resume(); }catch(_){}
+    rec.start();
+    try{ await audio.play(); }catch(_){}
+    await new Promise(res=>{ audio.onended=res; setTimeout(res, ((audio.duration&&isFinite(audio.duration)?audio.duration:6)*1000)+1000); });
+    try{ rec.stop(); }catch(_){} await stopped;
+    try{ if(actx) actx.close(); }catch(_){}
+    return parts.length ? new Blob(parts, {type: mime.split(';')[0]}) : null;
+  }
+  async function doShareVideo(cardBlob, ctx, text, audioUrl){
+    addPierre('Making the video…');
+    const caption=(ctx.show||'')+(ctx.ep?(' '+ctx.ep):'')+' — on pangolinRC';
+    const Cap=(window.Capacitor)||(window.top&&window.top.Capacitor);
+    // Native (iOS app): compose an mp4 with AVFoundation (CardVideo plugin) — the reliable
+    // IG-Stories path — then share the file. JS renders the 9:16 frame; native muxes.
+    if(Cap && Cap.isNativePlatform && Cap.isNativePlatform() && Cap.Plugins && Cap.Plugins.CardVideo){
+      try{
+        const frame=await buildStoryFrame(cardBlob);
+        const frameBlob=await new Promise(r=> frame.toBlob(r,'image/png',0.92));
+        const audioBlob=await (await fetch(audioUrl)).blob();
+        const t=audioBlob.type||'';
+        const ext = (t.indexOf('mp4')>=0||t.indexOf('m4a')>=0||t.indexOf('aac')>=0) ? 'm4a'
+                  : t.indexOf('wav')>=0 ? 'wav' : t.indexOf('mpeg')>=0 ? 'mp3' : 'm4a';
+        const res=await Cap.Plugins.CardVideo.compose({ image:await _blobB64(frameBlob), audio:await _blobB64(audioBlob), audioExt:ext });
+        // Route the actual share to the SHELL (see shareBlob) — the mp4 URI presents there.
+        if(res && res.uri && await shareBlob(null, 'pangolinrc-card-'+Date.now()+'.mp4', caption, res.uri)){ addPierre('Shared.'); return; }
+      }catch(e){ /* fall through to the web encoder, then the still card */ }
+    }
+    // Web/PWA fallback: MediaRecorder (best-effort), else share the still card.
+    const vid=await buildShareVideo(cardBlob, audioUrl).catch(()=>null);
+    if(vid){ const ext = vid.type.indexOf('mp4')>=0 ? 'mp4' : 'webm';
+      if(await shareBlob(vid, 'pangolinrc-card-'+Date.now()+'.'+ext, caption)){ addPierre('Shared.'); return; } }
+    addPierre('Sharing the card instead.'); return doShareCard(cardBlob, ctx, text);
   }
 
   // Persist a typed thought to the shared journal Pierre recalls (journalContext).
@@ -1425,7 +1707,10 @@
       else if(p.intent==='device') enterDeviceFlow();
       else if(p.intent==='note') enterNoteFlow(p);
       else if(p.intent==='notify') enterNotifyFlow(p);
-      else if(p.intent==='season-note') enterSeasonNoteFlow(p);
+      // Season-wrap / series-end now run the full reflection (spoiler toggle + audio +
+      // scoped share card), not the old journal-only note. p.scope carries the scope.
+      else if(p.intent==='season-note' || p.intent==='series-note') enterNoteFlow(p);
+      else if(p.intent==='reshare') enterReshareFlow(p);   // stage 3: share a past reflection
     }
   });
 

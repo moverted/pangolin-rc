@@ -1225,6 +1225,13 @@ document.getElementById('device-chip').addEventListener('click', () => cubeRotat
       if (email) {
         try {
           const blob = new Blob(chunks, { type: (chunks[0] && chunks[0].type) || 'audio/webm' });
+          // Stash the reflection clip so the share card can become a video with this audio
+          // (read by the Pierre face's doShareVideo). Only during a real reflection.
+          try {
+            if (window.__pgReflectAudioUrl) URL.revokeObjectURL(window.__pgReflectAudioUrl);
+            const _rc = window.__pgReflectComment;
+            window.__pgReflectAudioUrl = (_rc && _rc.showId && _rc.episodeId) ? URL.createObjectURL(blob) : null;
+          } catch (_) {}
           const fd = new FormData();
           fd.append('audio', blob);
           // In a finished-episode reflection (Pierre sets __pgReflectComment), post as a
@@ -1236,13 +1243,16 @@ document.getElementById('device-chip').addEventListener('click', () => cubeRotat
             fd.append('showId', rc.showId);
             fd.append('timestampMs', String(rc.timestampMs || 0));
             fd.append('reflection', '1');   // exempt from the per-episode comment cap
+            fd.append('private', '1');      // stage 2: start PRIVATE; Share flips it public
           } else {
             fd.append('episodeId', 'pierre-note');
             fd.append('timestampMs', '0');
           }
           fd.append('userEmail', email);
           const res = await fetch(`${API}/transcribe`, { method: 'POST', body: fd, mode: 'cors' });
-          if (res.ok) { const d = await res.json(); txt = ((d && d.transcription) || '').trim(); }
+          if (res.ok) { const d = await res.json(); txt = ((d && d.transcription) || '').trim();
+            // Stash the comment id so the Pierre face can flip it public on Share.
+            try { window.__pgReflectCommentId = (rc && rc.showId && rc.episodeId) ? ((d && d.id) || null) : null; } catch (_) {} }
         } catch (_) {}
       }
       btn.classList.remove('busy'); count.textContent = '';
@@ -1848,3 +1858,62 @@ export function getActiveDoc() {
   } catch (_) {}
   return doc;
 }
+
+// ── Native share bridge ─────────────────────────────────────────────────────
+// A face iframe can't reliably present the native share: Capacitor's bridge and a
+// real file:// live on THIS top window, and web-share loses the file inside WKWebView
+// (apps get a capacitor:// URL). So the Pierre face posts the share here and the SHELL
+// runs it — same principle as "Share this chat". Accepts a Blob (written to CACHE) or a
+// pre-written file URI (e.g. the CardVideo mp4).
+(function initShareBridge() {
+  function blobToB64(blob) {
+    return new Promise((res, rej) => {
+      const fr = new FileReader();
+      fr.onload = () => res(String(fr.result).split(',')[1] || '');
+      fr.onerror = rej;
+      fr.readAsDataURL(blob);
+    });
+  }
+  async function shareFile(blob, name, caption, fileUri) {
+    const Cap = window.Capacitor;
+    try {
+      if (Cap && Cap.isNativePlatform && Cap.isNativePlatform() && Cap.Plugins && Cap.Plugins.Share) {
+        let uri = fileUri || null;
+        if (!uri && blob && Cap.Plugins.Filesystem) {
+          await Cap.Plugins.Filesystem.writeFile({ path: name, data: await blobToB64(blob), directory: 'CACHE' });
+          uri = (await Cap.Plugins.Filesystem.getUri({ path: name, directory: 'CACHE' })).uri;
+        }
+        if (uri) { await Cap.Plugins.Share.share({ title: 'pangolinRC', text: caption, files: [uri] }); return; }
+      }
+      // Non-native safety net (web normally keeps its share in the face, in-gesture).
+      if (blob && navigator.canShare) {
+        const file = new File([blob], name, { type: blob.type || 'application/octet-stream' });
+        if (navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], text: caption }); return; }
+      }
+    } catch (e) { /* cancelled or unsupported */ }
+  }
+  window.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'pg:shareFile') {
+      shareFile(e.data.blob, e.data.name, e.data.caption, e.data.fileUri);
+    }
+  });
+})();
+
+// ── Mic blink cue ───────────────────────────────────────────────────────────
+// Pierre posts pg:blinkMic when he invites a comment; pulse the mic button so the
+// member notices they can record. Web Animations API (no CSS edit to the frozen shell).
+window.addEventListener('message', (e) => {
+  if (e.data && e.data.type === 'pg:blinkMic') {
+    const mic = document.getElementById('pierre-mic');
+    if (mic && mic.animate) {
+      try {
+        mic.animate(
+          [ { boxShadow: '0 0 0 0 rgba(240,169,59,0.55)', transform: 'scale(1)' },
+            { boxShadow: '0 0 0 12px rgba(240,169,59,0)',  transform: 'scale(1.1)' },
+            { boxShadow: '0 0 0 0 rgba(240,169,59,0)',     transform: 'scale(1)' } ],
+          { duration: 850, iterations: 3, easing: 'ease-in-out' }
+        );
+      } catch (_) {}
+    }
+  }
+});
