@@ -60,10 +60,15 @@ records a voice clip **or** types.
 - The audio clip anchors to the finale episode for season/series (as today).
 
 ## Staging
-1. **Chip flow (visible)** — the Step 1–4 chips + next-action branches, scope-aware. Prototype
-   first (`flow.html`), then wire into the real reflection flow.
-2. **Deferred commit + `Journal` private store.**
-3. **Share-from-logs** affordance.
+1. ✅ **Chip flow (visible)** — DONE + deployed (Step 1–4 chips + next-action branches).
+2. ✅ **Private `Journal` store** — DONE + deployed. `watch_comment.private` (migration 0025);
+   recorded reflections upload `private=1`; `Share` flips them public via
+   `POST /transcribe/comments/:id/publish`; co-view feed excludes `private=1`. Chose the
+   flag-flip over a full deferred commit (mic still uploads on stop, just private).
+   Resolved opens: flag (not a new table); recorded+Journal keeps the audio (private).
+3. ⬜ **Share-from-logs** — the log face gets a Share affordance on past reflections
+   (public or journaled) that regenerates the card/video and, for a journaled one, can
+   `publish` it. (Reuses `publishReflection` + the card/video builders.)
 
 ## Open
 - `Journal` private store: a new note table, or a `private=1` flag on the existing reflection +

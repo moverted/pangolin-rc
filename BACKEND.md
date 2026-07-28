@@ -13,6 +13,31 @@ Entry format:
 
 ---
 
+## 2026-07-27 — COMMENT_CLIP_SHARE stage 2: private Journal — D1 MIGRATION + Worker + Pages (Ted authorized the migration)
+- **First backend change this session.** Ted explicitly authorized migrating the
+  `pangolin-rc` D1 (normally off-limits) via the "Private flag (migrate the DB)" choice.
+- **D1 migration `0025_watch_comment_private.sql`** — `ALTER TABLE watch_comment ADD COLUMN
+  private INTEGER NOT NULL DEFAULT 0`. Additive; existing rows default public (0), so no
+  behavior change for prior data. **Applied to REMOTE** (`wrangler d1 migrations apply
+  pangolin-rc --remote`, non-interactive fallback = yes). ✅.
+- **Worker (`src/index.ts`)**: `/transcribe` reads a `private` form field and stores it
+  (reflections now send `private=1`); new **`POST /transcribe/comments/:id/publish`** flips
+  a comment public (`UPDATE … SET private=0 WHERE id=? AND user_email=?`, own-comment
+  scoped); `/transcribe/coview` WHERE gains `c.private = 0` so journaled reflections never
+  reach a friend's feed. `/transcribe/comments` (own) unchanged → private ones still show in
+  the member's own logs. **Deployed** — Worker Version `59dc9887`.
+- **Frontend (Pages `9034b87f`)**: shell mic sends `private=1` for reflections + stashes
+  `window.__pgReflectCommentId`; Pierre `publishReflection()` flips it on any Share option;
+  Journal leaves it private (message "Kept in your journal — private…").
+- **Deploy order (important):** migration → Worker → Pages (the Worker INSERT references the
+  new column). Verified: `/publish` routed (400 w/o email), comments/coview 200, frontend
+  markers live on `remote.pangolinrc.com`.
+- **Net behavior:** recorded reflections are private until Share; Journal keeps them private
+  but in the member's logs. Typed reflections never created a co-view comment, so unaffected.
+- **Freeze note:** new endpoint + column = surface area past the July-20 freeze; Ted directed it.
+- Rollback: redeploy prior Pages `6a39dabb` + Worker `wrangler rollback`; the column is
+  additive/backward-compatible so it can stay.
+
 ## 2026-07-27 — COMMENT_CLIP_SHARE stage 1 (chip flow) DEPLOYED to production (Ted's "deploy it to production web")
 - **Frontend only**, from `feat/share-card-video`. Restructures the finish→reflection flow
   (episode/season/series) into the spec's chip flow: Step 1 Comment/next-action fork
