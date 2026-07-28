@@ -615,12 +615,16 @@
         watchMode, teasers, commentCount, episodeCount:ctx.episodeCount, seasonCount:ctx.seasonCount,
         daysWatched:ctx.daysWatched, yearsSpan:ctx.yearsSpan }).catch(()=>null);
       if(blob) addCardPreview(blob);
-      // If this reflection was spoken, the mic stashed the clip — offer a video too (#4).
+      // Two-step share: Share/Skip, then (only if a spoken clip was stashed) Still / Audio
+      // clip. Still = the square card; Audio clip = the 9:16 video with the voice clip.
       let audioUrl=null; try{ audioUrl=(window.top&&window.top.__pgReflectAudioUrl)||window.__pgReflectAudioUrl||null; }catch(_){}
-      const shareOpts=[{label:'Share card', onClick:()=>doShareCard(blob, ctx, text)}];
-      if(audioUrl && window.MediaRecorder) shareOpts.push({label:'Share as video', onClick:()=>doShareVideo(blob, ctx, text, audioUrl)});
-      shareOpts.push({label:'Done', onClick:()=>{}});
-      pierreSay(noteSpoiler ? 'Card ready (quote hidden — spoiler). Share it?' : 'Card ready. Share it?', shareOpts);
+      const hasClip=!!(audioUrl && window.MediaRecorder);
+      const offerFormat=()=> pierreSay('The still, or the clip with your audio?', [
+        {label:'Still', onClick:()=>doShareCard(blob, ctx, text)},
+        {label:'Audio clip', onClick:()=>doShareVideo(blob, ctx, text, audioUrl)}]);
+      pierreSay(noteSpoiler ? 'Card ready (quote hidden — spoiler). Share it?' : 'Card ready. Share it?', [
+        {label:'Share', onClick:()=> hasClip ? offerFormat() : doShareCard(blob, ctx, text)},
+        {label:'Skip', onClick:()=>{}}]);
     }
     // Live+7: finished within a week of air and a next episode is coming → offer to flag
     // the drop (industry-standard Live+7 window), after the comment as usual.
