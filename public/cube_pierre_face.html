@@ -852,18 +852,15 @@
   }
   function _blobB64(blob){ return new Promise((res,rej)=>{ const fr=new FileReader();
     fr.onload=()=>res(String(fr.result).split(',')[1]||''); fr.onerror=rej; fr.readAsDataURL(blob); }); }
-  // Share a file (image or video) through the native OS sheet on the Capacitor app —
-  // web-share can't attach a file inside WKWebView (degrades to text; IG rejects it as a
-  // link). Writes to CACHE + Share.share({files:[uri]}). Capacitor's bridge is on the TOP
-  // window (share runs in this face iframe). Falls back to web-share where supported.
-  async function shareBlob(blob, name, caption){
+  // Share a file (image or video). NATIVE: hand it to the SHELL (top window) to present —
+  // Capacitor's bridge and a real file:// live there; presenting from this face iframe
+  // gives apps a capacitor:// URL instead of the file. WEB/PWA: navigator.share must run
+  // HERE, inside the tap's user-activation (a postMessage would drop it). Pass a blob, or a
+  // pre-written file URI (the CardVideo mp4). Returns whether the share was handled.
+  async function shareBlob(blob, name, caption, fileUri){
     const Cap = (window.Capacitor) || (window.top && window.top.Capacitor);
-    if(blob && Cap && Cap.isNativePlatform && Cap.isNativePlatform() && Cap.Plugins && Cap.Plugins.Share && Cap.Plugins.Filesystem){
-      try{
-        await Cap.Plugins.Filesystem.writeFile({ path:name, data:await _blobB64(blob), directory:'CACHE' });
-        const uri=(await Cap.Plugins.Filesystem.getUri({ path:name, directory:'CACHE' })).uri;
-        await Cap.Plugins.Share.share({ title:'pangolinRC', text:caption, files:[uri] }); return true;
-      }catch(e){ /* fall through to web share */ }
+    if(Cap && Cap.isNativePlatform && Cap.isNativePlatform()){
+      try{ (window.top||window).postMessage({ type:'pg:shareFile', blob, name, caption, fileUri }, '*'); return true; }catch(_){}
     }
     try{
       if(blob && navigator.canShare){ const file=new File([blob],name,{type:blob.type||'application/octet-stream'});
@@ -921,7 +918,7 @@
     const Cap=(window.Capacitor)||(window.top&&window.top.Capacitor);
     // Native (iOS app): compose an mp4 with AVFoundation (CardVideo plugin) — the reliable
     // IG-Stories path — then share the file. JS renders the 9:16 frame; native muxes.
-    if(Cap && Cap.isNativePlatform && Cap.isNativePlatform() && Cap.Plugins && Cap.Plugins.CardVideo && Cap.Plugins.Share){
+    if(Cap && Cap.isNativePlatform && Cap.isNativePlatform() && Cap.Plugins && Cap.Plugins.CardVideo){
       try{
         const frame=await buildStoryFrame(cardBlob);
         const frameBlob=await new Promise(r=> frame.toBlob(r,'image/png',0.92));
@@ -930,7 +927,8 @@
         const ext = (t.indexOf('mp4')>=0||t.indexOf('m4a')>=0||t.indexOf('aac')>=0) ? 'm4a'
                   : t.indexOf('wav')>=0 ? 'wav' : t.indexOf('mpeg')>=0 ? 'mp3' : 'm4a';
         const res=await Cap.Plugins.CardVideo.compose({ image:await _blobB64(frameBlob), audio:await _blobB64(audioBlob), audioExt:ext });
-        if(res && res.uri){ await Cap.Plugins.Share.share({ title:'pangolinRC', text:caption, files:[res.uri] }); addPierre('Shared.'); return; }
+        // Route the actual share to the SHELL (see shareBlob) — the mp4 URI presents there.
+        if(res && res.uri && await shareBlob(null, 'pangolinrc-card-'+Date.now()+'.mp4', caption, res.uri)){ addPierre('Shared.'); return; }
       }catch(e){ /* fall through to the web encoder, then the still card */ }
     }
     // Web/PWA fallback: MediaRecorder (best-effort), else share the still card.

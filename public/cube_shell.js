@@ -1855,3 +1855,43 @@ export function getActiveDoc() {
   } catch (_) {}
   return doc;
 }
+
+// ── Native share bridge ─────────────────────────────────────────────────────
+// A face iframe can't reliably present the native share: Capacitor's bridge and a
+// real file:// live on THIS top window, and web-share loses the file inside WKWebView
+// (apps get a capacitor:// URL). So the Pierre face posts the share here and the SHELL
+// runs it — same principle as "Share this chat". Accepts a Blob (written to CACHE) or a
+// pre-written file URI (e.g. the CardVideo mp4).
+(function initShareBridge() {
+  function blobToB64(blob) {
+    return new Promise((res, rej) => {
+      const fr = new FileReader();
+      fr.onload = () => res(String(fr.result).split(',')[1] || '');
+      fr.onerror = rej;
+      fr.readAsDataURL(blob);
+    });
+  }
+  async function shareFile(blob, name, caption, fileUri) {
+    const Cap = window.Capacitor;
+    try {
+      if (Cap && Cap.isNativePlatform && Cap.isNativePlatform() && Cap.Plugins && Cap.Plugins.Share) {
+        let uri = fileUri || null;
+        if (!uri && blob && Cap.Plugins.Filesystem) {
+          await Cap.Plugins.Filesystem.writeFile({ path: name, data: await blobToB64(blob), directory: 'CACHE' });
+          uri = (await Cap.Plugins.Filesystem.getUri({ path: name, directory: 'CACHE' })).uri;
+        }
+        if (uri) { await Cap.Plugins.Share.share({ title: 'pangolinRC', text: caption, files: [uri] }); return; }
+      }
+      // Non-native safety net (web normally keeps its share in the face, in-gesture).
+      if (blob && navigator.canShare) {
+        const file = new File([blob], name, { type: blob.type || 'application/octet-stream' });
+        if (navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], text: caption }); return; }
+      }
+    } catch (e) { /* cancelled or unsupported */ }
+  }
+  window.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'pg:shareFile') {
+      shareFile(e.data.blob, e.data.name, e.data.caption, e.data.fileUri);
+    }
+  });
+})();
