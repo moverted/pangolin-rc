@@ -826,6 +826,7 @@ function hasLaterSeason(){
 // With more seasons ahead this wraps to the next season; only the LAST season's
 // finale hands off to the Log to finish the show. MVP only; DEMO keeps its chip.
 function finaleCheck(){
+  if(isMovie) return;   // a movie is a single unit → pierreFinishedNote (scope:'movie'), never series-end
   const total=eps.length;
   if(total>0 && watched>=total && hasLaterSeason()) return;   // season finale → wrap (advanceFocus→loadNextSeason)
   if(!DEMO && window.parent!==window && total>0 && watched>=total && curShowId){
