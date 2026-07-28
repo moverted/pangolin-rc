@@ -54,8 +54,15 @@ records a voice clip **or** types.
 
 ## Scope notes
 
-- `Comment` copy is scope-generic. Card scope (episode/season/series) is already handled by
+- `Comment` copy is scope-generic. Card scopes: **episode / movie / season / series** in
   `buildReflectionCard`.
+- **Movie** (a single film): card reads "just watched ‹Movie›" + "N comments on this movie"
+  + the hidden-times list (like an episode). Keyed on `'🎬'` (the movie comment key), so the
+  count + recorded reflection line up. `pierreFinishedNote` sends `scope:'movie'`, `ep:'🎬'`.
+  **Next-action = `Done` for now.**
+  - **TODO(sequels):** a movie's "next" will eventually be a sequel / same-universe pick
+    (a franchise ordering). Until then every movie is `Done`. Marked in
+    `nextActionChip` and `pierreFinishedNote`.
 - Season wrap: "next" = next season's E1 → the `Next season` branch. Series end: no next → `Done`.
 - The audio clip anchors to the finale episode for season/series (as today).
 

@@ -2013,6 +2013,8 @@ function pierreFinishedNote(idx){
   // Next-action for the Comment / next-action fork (COMMENT_CLIP_SHARE.md). Season/series
   // finales don't reach here (finaleCheck/forceSeasonNote own those); this is the mid-season
   // and caught-up cases: next episode released → watch next; unaired → its air day.
+  // TODO(sequels): a movie's next-action will one day be a sequel / same-universe pick.
+  // For now a movie is always 'done' (no next). isMovie skips the episode next logic.
   let nextAction='done', nextEp='', nextWhen='';
   if(!isMovie){
     const ne=eps[idx+1];
@@ -2023,8 +2025,9 @@ function pierreFinishedNote(idx){
     }
   }
   const payload={ intent:'note', finished:true, kind:isMovie?'movie':'show',
-                  show:curShowName, ep:isMovie?'':epCode(e), titleId:curShowId, runtime:runtimeOf(idx),
-                  nextAction, nextEp, nextWhen };
+                  scope:isMovie?'movie':'episode', show:curShowName,
+                  ep:isMovie?'🎬':epCode(e),   // movie key '🎬' → the card + reflection anchor on it
+                  titleId:curShowId, runtime:runtimeOf(idx), nextAction, nextEp, nextWhen };
   if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('pierre', payload);
   else window.parent.postMessage({type:'cube:rotateTo', face:'pierre', payload}, '*');
 }

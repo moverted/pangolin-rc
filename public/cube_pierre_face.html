@@ -427,6 +427,7 @@
     // Step 1 — the Comment / next-action fork (COMMENT_CLIP_SHARE.md).
     const finishedLabel = scope==='series' ? (p.show||'the show')
                         : scope==='season' ? ((p.show||'that')+' season '+(p.seasonNum!=null?p.seasonNum:''))
+                        : scope==='movie'  ? (p.show||'the movie')
                         : ((p.show||'')+(p.ep?(' '+p.ep):''));
     pierreSay('You finished '+finishedLabel+'.', [ {label:'Comment', onClick:beginComment}, nextActionChip(p) ], true);
     input.placeholder='';
@@ -443,7 +444,9 @@
   // The adaptive next-action chip: watch next / next-drop reminder / next season / done.
   function nextActionChip(p){
     const scope=p.scope||'episode';
-    if(scope==='series') return {label:'Done', onClick:()=>{ skipNote(); backOut(); }};
+    // TODO(sequels): movies will eventually get a franchise "next" (sequel / same universe).
+    // For now every movie — and the series end — is just Done.
+    if(scope==='series' || scope==='movie') return {label:'Done', onClick:()=>{ skipNote(); backOut(); }};
     if(scope==='season') return {label:'Next season', onClick:()=>{ skipNote(); remindDone('the next season', p); }};
     if(p.nextAction==='watchnext') return {label:'Watch next episode', onClick:()=>{ skipNote(); nav('log', {}); }};
     if(p.nextAction==='later') return {label:'Next episode '+(p.nextWhen||'soon'), onClick:()=>{ skipNote(); remindDone('the next episode', p); }};
@@ -647,10 +650,11 @@
       try{
         const cr=await fetch(`${API}/transcribe/comments?showId=${encodeURIComponent(ctx.titleId)}&email=${encodeURIComponent(email)}`);
         if(cr.ok){ let cs=((await cr.json()).comments||[]).filter(c=>!c.replyTo);
-          if(scope==='episode') cs=cs.filter(c=>c.episodeId===ctx.ep);
+          // episode + movie filter on the single unit's key (movie key is '🎬', in ctx.ep).
+          if(scope==='episode'||scope==='movie') cs=cs.filter(c=>c.episodeId===ctx.ep);
           else if(scope==='season' && ctx.seasonNum!=null){ const sp=new RegExp('^S0*'+ctx.seasonNum+'E','i'); cs=cs.filter(c=>sp.test(c.episodeId||'')); }
           commentCount=cs.length;
-          if(scope==='episode') teasers=cs.map(c=>c.timestampMs).filter(v=>typeof v==='number').sort((a,b)=>a-b); }
+          if(scope==='episode'||scope==='movie') teasers=cs.map(c=>c.timestampMs).filter(v=>typeof v==='number').sort((a,b)=>a-b); }
       }catch(_){}
     }
     const blob=await buildReflectionCard({ username:uname, email, scope, epCode:ctx.ep, seasonNum:ctx.seasonNum,
@@ -755,14 +759,17 @@
       g.drawImage(poster,sx,sy,sw,sh,pX,pY,pW,pH); g.restore(); }catch(_){ poster=null; } }
     if(!poster){ g.fillStyle='rgba(255,255,255,0.05)'; _rr(g,pX,pY,pW,pH,18); g.fill(); }
     // action copy — top-aligned (no wordmark). Name falls back username → email → "Someone".
-    // scope: 'episode' (just watched SxxExx) | 'season' (just finished season N) | 'series' (just finished show).
+    // scope: 'episode' (SxxExx) | 'movie' (single film) | 'season' | 'series'.
     const who=(o.username||o.email||'Someone');
     const scope=o.scope||'episode';
+    const perUnit=(scope==='episode'||scope==='movie');   // a single watched thing (ep or film)
+    const unitWord=(scope==='movie'?'movie':'episode');
     g.fillStyle='rgba(248,242,232,0.85)'; g.font='700 40px Inter, system-ui, sans-serif';
-    g.fillText(who+(scope==='episode'?' just watched':' just finished'), M, 158);
+    g.fillText(who+(perUnit?' just watched':' just finished'), M, 158);
     g.fillStyle='#fff'; g.font='800 52px Inter, system-ui, sans-serif';
     const titleText = scope==='series' ? (o.show||'a show')
                     : scope==='season' ? ('season '+(o.seasonNum!=null?o.seasonNum:'?')+' of '+(o.show||'a show'))
+                    : scope==='movie'  ? (o.show||'a movie')
                     : ((o.epCode?o.epCode+' of ':'')+(o.show||'a show'));
     const l2=_wrapFlow(g, titleText, M,226,58, pX-M-18, S-2*M, pY+pH).slice(0,3);
     l2.forEach(o2=> g.fillText(o2.text, M, o2.y));
@@ -778,7 +785,7 @@
     const cCount=o.commentCount||teasers.length;
     const ty=(o.platform?by:titleBottom)+62;
     // (The hero "WATCH WITH PANGOLINRC…" CTA now lives below the box — see further down.)
-    if(scope!=='episode'){
+    if(!perUnit){
       // Season / series digest: comments across episodes, watch span (in-season days
       // only — hiatus excluded), the dominant mode, and (series) seasons + year range.
       const epsN=o.episodeCount||0, days=o.daysWatched||0;
@@ -797,7 +804,7 @@
       if(bits.length){ g.fillText(bits.join(' · '), M, yy); yy+=38; }
     } else if(cCount>0){
       g.fillStyle='#f0a93b'; g.font='800 34px Inter, system-ui, sans-serif';
-      g.fillText(cCount+' comment'+(cCount===1?'':'s')+' on this episode', M, ty);
+      g.fillText(cCount+' comment'+(cCount===1?'':'s')+' on this '+unitWord, M, ty);
       const times=teasers.map(cardMins);
       if(times.length){
         // Below the poster so the times list can run full-width (all fit, or "…" for the rest).
