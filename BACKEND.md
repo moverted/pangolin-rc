@@ -13,6 +13,24 @@ Entry format:
 
 ---
 
+## 2026-07-27 — Share-as-video (#4 web path) + two-step share offer DEPLOYED to production (Ted's "deploy the web side")
+- **Frontend only** (no Worker / D1 change), from branch `feat/share-card-video`. Adds the
+  #4 share-as-video web path (`buildStoryFrame` 9:16 top-anchored frame + `buildShareVideo`
+  MediaRecorder encoder, best-effort webm, still-card fallback), the two-step share offer
+  (Share/Skip → Still/Audio clip), and the native share bridge (Pierre face posts
+  `pg:shareFile` to the shell, which owns Capacitor + a real file://). On web the native
+  branch is skipped (not `isNativePlatform`), so web sharing = `navigator.share` in-face,
+  unchanged; the bridge is inert on web. The reliable mp4 path is native (CardVideo, build 7).
+- **Files:** `public/cube_pierre_face.html`, `public/cube_shell.js`.
+- **Git:** branch `feat/share-card-video` (`f4f4092`). Not merged to `main`.
+- **Production Pages deploy:** `wrangler pages deploy public --project-name pangolin-rc
+  --branch main` -> deployment `27130d00`, Environment **Production**.
+- **Verified live:** `buildStoryFrame`, `doShareVideo`, "Audio clip", `pg:shareFile` present
+  on `remote.pangolinrc.com`.
+- **iOS:** unchanged — build 7 (native CardVideo + share routing + Photos fix) still pending
+  Ted's archive; this deploy is web/PWA only.
+- Rollback: redeploy prior Pages deployment `0a70bae9` (source `6bb4697`).
+
 ## 2026-07-27 — Season & series reflection cards + wiring DEPLOYED to production (Ted's "commit and deploy")
 - **Frontend only** (no Worker / D1 / wrangler.toml change). Extends the share card to
   three scopes (episode / season / series) and wires the finishes that trigger them:
