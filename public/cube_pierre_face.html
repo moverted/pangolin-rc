@@ -448,7 +448,9 @@
     // For now every movie — and the series end — is just Done.
     if(scope==='series' || scope==='movie') return {label:'Done', onClick:()=>{ skipNote(); backOut(); }};
     if(scope==='season') return {label:'Next season', onClick:()=>{ skipNote(); remindDone('the next season', p); }};
-    if(p.nextAction==='watchnext') return {label:'Watch next episode', onClick:()=>{ skipNote(); nav('log', {}); }};
+    // NB: FACE_INDEX keys are swapped vs labels — the LOG-labeled tracker (where you watch
+    // the next episode) is face id 'episodes' (cube_log_face), not 'log'.
+    if(p.nextAction==='watchnext') return {label:'Watch next episode', onClick:()=>{ skipNote(); nav('episodes', {}); }};
     if(p.nextAction==='later') return {label:'Next episode '+(p.nextWhen||'soon'), onClick:()=>{ skipNote(); remindDone('the next episode', p); }};
     return {label:'Done', onClick:()=>{ skipNote(); backOut(); }};
   }
