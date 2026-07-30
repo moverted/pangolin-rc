@@ -168,6 +168,15 @@
   .send:active{transform:scale(.94);}
   .send:disabled{opacity:.4;cursor:default;}
   .send svg{width:18px;height:18px;}
+  /* The composer button morphs during the end-note Comment step: MIC at rest (amber),
+     REC (red) with a 10-tick countdown ring while recording, then '…' (red) while the
+     clip transcribes, then back to the amber send ARROW. */
+  .send.rec, .send.busy{ background:linear-gradient(160deg,#e0554e,#a8322c); color:#fff; }
+  .send.busy{ font-family:'Space Mono';font-weight:700;font-size:15px; opacity:1; }
+  .send .rec-lbl{ font-family:'Space Mono';font-weight:700;font-size:9px;letter-spacing:.06em; }
+  .send .rec-ring{ position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+    width:56px;height:56px;pointer-events:none;color:#fff; }
+  .send .rec-ring .rec-seg{ transition:opacity .15s; }
 
   .toast{
     position:absolute;left:50%;bottom:80px;transform:translateX(-50%) translateY(8px);
@@ -409,6 +418,93 @@
   // and, with a titleId, persisted as a reflection), then goes to the LLM as a
   // real turn. Finished watches and share requests get a Share offer after.
   let noteCtx=null;   // {show, ep, titleId, ticketId, finished, offerShare} while a note is pending
+  // ── Composer chrome + the morphing send/mic button (end-note Comment step) ──────
+  function showComposer(on){ try{ const comp=document.querySelector('.composer'); if(comp) comp.style.display = on ? '' : 'none'; }catch(_){} }
+  // The shell suppresses its band mic on pg:micSuppress so pierreMicSync can't re-reveal
+  // it mid-flow (the in-composer mic replaces it for the Comment step).
+  function suppressBandMic(on){ try{ if(window.parent!==window) window.parent.postMessage({ type:'pg:micSuppress', on:!!on }, '*'); }catch(_){} }
+  // Used at each decision point (fork · spoiler · share) and at flow end: show=false hides
+  // the composer + band mic (chips only); show=true restores both (and normal chat).
+  function flowChrome(show){ showComposer(show); suppressBandMic(!show); if(show) setSendMode('send'); }
+  // Pin the conversation to the bottom AFTER layout settles (a double rAF) — arriving at
+  // the finish fork and hiding the composer both reflow the log, so a synchronous
+  // scrollTop lands short and clips the newest message behind the console band.
+  function scrollLogBottom(){ try{ requestAnimationFrame(()=>{ requestAnimationFrame(()=>{ try{ log.scrollTop=log.scrollHeight; }catch(_){} }); }); }catch(_){} }
+
+  const _ARROW_SVG='<svg viewBox="0 0 24 24" fill="none"><path d="M4 12L20 12M20 12L13 5M20 12L13 19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const _MIC_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>';
+  // The composer button has four faces: 'send' (amber arrow — submit), 'mic' (amber mic at
+  // rest — start recording), 'rec' (red REC + ticks — stop), 'busy' (red … — transcribing).
+  let sendMode='send';
+  function setSendMode(m){
+    sendMode=m;
+    send.classList.remove('mic','rec','busy');
+    if(m==='mic'){ send.innerHTML=_MIC_SVG; send.setAttribute('aria-label','Record'); send.classList.add('mic'); send.disabled=false; }
+    else if(m==='rec'){ send.setAttribute('aria-label','Stop recording'); send.classList.add('rec'); send.disabled=false; }
+    else if(m==='busy'){ send.innerHTML='…'; send.setAttribute('aria-label','Transcribing'); send.classList.add('busy'); send.disabled=true; }
+    else { send.innerHTML=_ARROW_SVG; send.setAttribute('aria-label','Send'); send.disabled=false; }   // 'send'
+  }
+  // 10-tick countdown ring around the button (matches the shell/LOG REC indicators):
+  // r=46 in a 100 viewBox → C≈289.03, one arc per second blinking out.
+  function _recRing(total){
+    const C=289.03, step=C/total, seg=Math.max(6, step-11); let s='';
+    for(let i=0;i<total;i++){ s+='<circle class="rec-seg" data-i="'+i+'" cx="50" cy="50" r="46" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" stroke-dasharray="'+seg.toFixed(2)+' '+(C-seg).toFixed(2)+'" stroke-dashoffset="'+(-step*i).toFixed(2)+'" transform="rotate(-90 50 50)"/>'; }
+    return '<svg class="rec-ring" viewBox="0 0 100 100" aria-hidden="true">'+s+'</svg>';
+  }
+  function _recSync(l){ send.querySelectorAll('.rec-seg').forEach(x=>{ x.style.opacity=(+x.getAttribute('data-i')<l)?'1':'0'; }); }
+  let _rec=null,_recChunks=[],_recTimer=null,_recLeft=0;
+  async function startComposerRec(){
+    if(_recTimer) return;
+    let stream; try{ stream=await navigator.mediaDevices.getUserMedia({audio:true}); }
+    catch(_){ input.focus(); setSendMode('send'); return; }   // no mic → fall back to typing
+    _recChunks=[]; _rec=new MediaRecorder(stream); _rec.ondataavailable=e=>_recChunks.push(e.data); _rec.start();
+    _recLeft=10; setSendMode('rec'); send.innerHTML='<span class="rec-lbl">REC</span>'+_recRing(10); _recSync(_recLeft);
+    _recTimer=setInterval(()=>{ _recLeft--; _recSync(Math.max(_recLeft,0)); if(_recLeft<=0) stopComposerRec(); },1000);
+  }
+  function stopComposerRec(){
+    if(_recTimer){ clearInterval(_recTimer); _recTimer=null; }
+    if(!_rec || _rec.state==='inactive'){ return; }
+    _rec.onstop=async()=>{
+      try{ _rec.stream.getTracks().forEach(t=>t.stop()); }catch(_){}
+      if(!_recChunks.length){ setSendMode('mic'); return; }
+      setSendMode('busy');   // red …
+      let email=pgSession(), txt='', ok=false;
+      try{
+        const blob=new Blob(_recChunks,{type:(_recChunks[0]&&_recChunks[0].type)||'audio/webm'});
+        let rc=null; try{ rc=window.top&&window.top.__pgReflectComment; }catch(_){}
+        try{ if(window.top){ if(window.top.__pgReflectAudioUrl) URL.revokeObjectURL(window.top.__pgReflectAudioUrl);
+          window.top.__pgReflectAudioUrl=(rc&&rc.showId&&rc.episodeId)?URL.createObjectURL(blob):null; } }catch(_){}
+        const fd=new FormData(); fd.append('audio',blob);
+        // Upload as a PRIVATE reflection (cap-exempt) — NOT endnote=1. Sending endnote=1 here
+        // would create an is_endnote row + trip the 1-per-episode cap on every re-record before
+        // the member has even committed. The finalize step (Share/Journal → commitEndnote →
+        // /transcribe/comments/:id/finalize) is what stamps is_endnote + reveal_on + spoiler.
+        if(rc&&rc.showId&&rc.episodeId){ fd.append('episodeId',rc.episodeId); fd.append('showId',rc.showId);
+          fd.append('timestampMs',String(rc.timestampMs||0)); fd.append('reflection','1'); fd.append('private','1'); }
+        else { fd.append('episodeId','pierre-note'); fd.append('timestampMs','0'); }
+        fd.append('userEmail',email||'');
+        const res=await fetch(`${API}/transcribe`,{method:'POST',body:fd,mode:'cors'});
+        if(res.ok){ const d=await res.json(); txt=((d&&d.transcription)||'').trim(); ok=true;
+          try{ if(window.top) window.top.__pgReflectCommentId=(rc&&rc.showId&&rc.episodeId)?((d&&d.id)||null):null; }catch(_){} }
+      }catch(_){}
+      if(txt){ input.value=(input.value?input.value+' ':'')+txt; autoGrow(); }
+      if(ok){ setSendMode('send'); input.focus(); }   // red … → amber arrow; transcript editable + sendable
+      else { addPierre("That recording didn't save — tap the mic to try again, or type it."); setSendMode('mic'); }
+    };
+    try{ _rec.stop(); }catch(_){}
+  }
+  // Local, offline spoiler guess for the end-note. Past-tense plot turns and reveal/
+  // death words lean SPOILER; a short reaction ("loved it", "so good") leans SAFE.
+  // Returns true (spoiler) / false (safe) / null (no signal → neutral, nothing pre-picked).
+  function guessSpoiler(text){
+    const t=String(text||'').toLowerCase();
+    if(!t.trim()) return null;
+    const spoilery=/\b(dies?|died|dead|kills?|killed|death|murder(?:ed|s)?|betray(?:ed|s|al)?|reveal(?:ed|s)?|turns? out|it was|secret(?:ly)?|pregnan|married|wedding|proposed?|breaks? up|broke up|cheat(?:ed|s|ing)?|arrested|survives?|survived|escapes?|escaped|rescued|finale|ending|the killer|is the|affair|twist)\b/;
+    const safe=/\b(love[d]?|loved it|so good|amazing|incredible|heartfelt|beautiful|hilarious|can'?t wait|excited|great episode|what an episode|enjoyed|fun|touching|gorgeous)\b/;
+    if(spoilery.test(t)) return true;
+    if(safe.test(t)) return false;
+    return null;
+  }
   function enterNoteFlow(p){
     if(IS_DEMO) return;
     addFlow=null; acctFlow=null; joinFlow=null; seasonNoteFlow=false;
@@ -416,7 +512,7 @@
     p=p||{};
     const scope=p.scope||'episode';
     noteCtx={ show:p.show||'', ep:p.ep||'', titleId:p.titleId||null, ticketId:p.ticketId||null,
-              finished:!!p.finished, offerShare:!!p.offerShare, poster:'', platform:'',
+              finished:!!p.finished, endnote:!!p.finished, offerShare:!!p.offerShare, poster:'', platform:'',
               scope, seasonNum:(p.seasonNum!=null?p.seasonNum:null), episodeCount:p.episodeCount||0,
               seasonCount:p.seasonCount||0, daysWatched:p.daysWatched||0, yearsSpan:p.yearsSpan||0,
               nextAction:p.nextAction||'', nextEp:p.nextEp||'', nextWhen:p.nextWhen||'' };
@@ -429,17 +525,27 @@
                         : scope==='season' ? ((p.show||'that')+' season '+(p.seasonNum!=null?p.seasonNum:''))
                         : scope==='movie'  ? (p.show||'the movie')
                         : ((p.show||'')+(p.ep?(' '+p.ep):''));
+    // Step 1 is a two-chip fork — hide the input/arrow/mic so nothing competes with the choice.
+    flowChrome(false);
     pierreSay('You finished '+finishedLabel+'.', [ {label:'Comment', onClick:beginComment}, nextActionChip(p) ], true);
     input.placeholder='';
+    scrollLogBottom();   // land pinned to the bottom so the fork chips aren't clipped
   }
-  // Step 2 — they chose to comment: cue the chat box + mic, ready the input.
+  // Step 2 — they chose to comment: show the text box AND the mic, both at REST. No focus,
+  // no keyboard, no blinking cursor — the two elements are the implicit choice (record vs
+  // type). Tapping the box raises the keyboard + morphs the mic into the send arrow; tapping
+  // the mic records. The band mic stays hidden — the in-composer mic replaces it here.
   function beginComment(){
     if(!noteCtx) return;
-    try{ input.classList.add('cue'); setTimeout(()=>{ try{ input.classList.remove('cue'); }catch(_){} }, 2400); }catch(_){}
-    try{ if(window.parent!==window) window.parent.postMessage({type:'pg:blinkMic'}, '*'); }catch(_){}
-    addPierre('Go ahead — record it or type it.');
+    showComposer(true);
+    suppressBandMic(true);
+    setSendMode('mic');
+    input.value=''; autoGrow();
     input.placeholder='Tell me what you made of it…';
-    input.focus();
+    try{ input.classList.add('cue'); setTimeout(()=>{ try{ input.classList.remove('cue'); }catch(_){} }, 2400); }catch(_){}
+    addPierre('Go ahead — record it or type it.');
+    input.blur();   // NO auto-focus → no blinking cursor
+    scrollLogBottom();
   }
   // The adaptive next-action chip: watch next / next-drop reminder / next season / done.
   function nextActionChip(p){
@@ -516,7 +622,7 @@
   function clearReflectComment(){ try{ if(window.top) window.top.__pgReflectComment=null; }catch(_){} }
   // Skip the reflection: the episode is already logged, so just drop the note and
   // return to plain chat (no journal entry, no comment).
-  function skipNote(){ clearReflectComment(); noteCtx=null; setCtxIndicator('chat'); input.placeholder="Ask Pierre what to watch..."; }
+  function skipNote(){ clearReflectComment(); noteCtx=null; setCtxIndicator('chat'); flowChrome(true); input.placeholder="Ask Pierre what to watch..."; }
 
   // WoW notify skill: offer to flag the next drop. Fired from the LOG greyed START
   // (intent:notify) and after a Live+7 reflection. In-app now (RAMP nudge / Sentry);
@@ -643,28 +749,74 @@
     input.placeholder = "Ask Pierre what to watch...";
     pushJournal(ctx.show, ctx.ep, text);
     const email=pgSession();
-    // Only TYPED reflections get a /reflection row. A RECORDED one already lives as a
-    // watch_comment (audio + transcription) that Pierre reads — a /reflection row would
-    // just duplicate it in the logs (the double-save bug).
     let recorded=false; try{ recorded=!!((window.top&&window.top.__pgReflectCommentId)||window.__pgReflectCommentId); }catch(_){}
+    // END-NOTE (a finished watch): NO LLM riff. The line lands and goes straight to the
+    // spoiler choice. A typed end-note is held client-side and committed to /transcribe/endnote
+    // at Share/Journal; a recorded one already lives as a private comment (finalized there),
+    // so neither writes a /reflection row here.
+    if(ctx.finished){ askSpoilerThenShare(ctx, text); return; }
+    // Non-finished note-to-Pierre / share-a-thought keeps the /reflection row + the chat riff.
+    // Only TYPED reflections get a row — a RECORDED one already lives as a watch_comment.
     if(email && ctx.titleId && !recorded){
       try{ fetch(`${API}/reflection`,{ method:'POST', headers:{'Content-Type':'application/json'},
         body:JSON.stringify({ userEmail:email, showId:ctx.titleId, ticketId:ctx.ticketId||null, text }) }); }catch(_){}
     }
     await ask(text);
-    if(ctx.finished || ctx.offerShare){ askSpoilerThenShare(ctx, text); }
+    if(ctx.offerShare){ askSpoilerThenShare(ctx, text); }
   }
-  // Step 3 — after the comment, an explicit spoiler choice; then Step 4.
+  // Step 3 — after the comment, an explicit spoiler choice (with a local guess pre-picked);
+  // then Step 4. Input/mic/arrow stay hidden — this is a two-chip decision.
   function askSpoilerThenShare(ctx, text){
-    pierreSay('Spoiler, or safe to show?', [
-      {label:'Spoiler', onClick:()=>{ noteSpoiler=true; buildAndOfferShare(ctx, text); }},
-      {label:'No spoiler', onClick:()=>{ noteSpoiler=false; buildAndOfferShare(ctx, text); }}
-    ]);
+    flowChrome(false);
+    const guess = guessSpoiler(text);
+    const spoilerChip = {label:'Spoiler', onClick:()=>{ noteSpoiler=true; buildAndOfferShare(ctx, text); }};
+    const safeChip    = {label:'No spoiler', onClick:()=>{ noteSpoiler=false; buildAndOfferShare(ctx, text); }};
+    if(guess===true){
+      pierreSay('That sounds like a spoiler — tap Spoiler to confirm, or No spoiler to overrule.',
+        [ Object.assign({on:true}, spoilerChip), safeChip ]);
+    } else if(guess===false){
+      pierreSay('Reads spoiler-free to me — tap No spoiler to confirm, or Spoiler to flag it.',
+        [ spoilerChip, Object.assign({on:true}, safeChip) ]);
+    } else {
+      pierreSay('Spoiler, or safe to show?', [ spoilerChip, safeChip ]);
+    }
   }
   // Step 4 — build the card, then Share (text / audio) or Journal. "Share audio" is dropped
   // when spoiler (the audio would speak the spoiler aloud). Journal = keep it (private —
   // the private store + share-from-logs land in stage 2/3 of COMMENT_CLIP_SHARE.md).
+  // Commit the end-note with the chosen SPLR/NOSP once the member taps Share or Journal.
+  // Recorded: the clip already uploaded private → finalize it (stamp endnote + spoiler,
+  // publish on Share). Typed: create the end-note now (private=1 for Journal, 0 for Share).
+  async function commitEndnote(ctx, text, publish){
+    const email=pgSession(); if(!email) return;
+    let cid=null; try{ cid=(window.top&&window.top.__pgReflectCommentId)||window.__pgReflectCommentId||null; }catch(_){}
+    try{
+      if(cid){
+        await fetch(`${API}/transcribe/comments/${encodeURIComponent(cid)}/finalize`,{ method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({ email, spoiler:noteSpoiler, publish:!!publish }) });
+      } else if(ctx.titleId && ctx.ep){
+        await fetch(`${API}/transcribe/endnote`,{ method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({ email, showId:ctx.titleId, episodeId:ctx.ep, text, spoiler:noteSpoiler, private: publish?0:1 }) });
+      }
+    }catch(_){}
+  }
+  // After Share/Journal, go where the next-action chip would have: next episode / next
+  // season on the LOG face, the Watch face when nothing's ready, or stay on Pierre at
+  // series/movie end and guide onward.
+  function finishNav(ctx){
+    const scope=ctx.scope||'episode';
+    if(scope==='series' || scope==='movie'){
+      addPierre("That's the whole thing. Want your next one? Tell me what you're in the mood for — or head back to your shows.");
+      return;
+    }
+    if(scope==='season'){ nav('episodes', {}); return; }        // LOG face is already on the next season's E1
+    if(ctx.nextAction==='watchnext'){ nav('episodes', {}); return; }   // next episode, ready to start
+    backOut();   // caught up (next airs later) / unknown → Watch face
+  }
   async function buildAndOfferShare(ctx, text){
+    flowChrome(false);   // share step — chips only, no input/mic/arrow
     const email=pgSession();
     let uname=''; try{ uname=(localStorage.getItem('pg_username')||'').trim(); }catch(_){}
     const scope=ctx.scope||'episode';
@@ -688,14 +840,32 @@
     if(blob) addCardPreview(blob);
     let audioUrl=null; try{ audioUrl=(window.top&&window.top.__pgReflectAudioUrl)||window.__pgReflectAudioUrl||null; }catch(_){}
     const recorded=!!(audioUrl && window.MediaRecorder);
-    const opts=[];
-    if(recorded){
-      opts.push({label:'Share text', onClick:()=>{ publishReflection(); doShareCard(blob, ctx, text); }});
-      if(!noteSpoiler) opts.push({label:'Share audio', onClick:()=>{ publishReflection(); doShareVideo(blob, ctx, text, audioUrl); }});
-    } else {
-      opts.push({label:'Share', onClick:()=>{ publishReflection(); doShareCard(blob, ctx, text); }});
+    const isEnd=!!ctx.endnote;   // a fresh end-note commits on Share/Journal; a reshare-from-logs just publishes
+    // Share: commit (end-note) or publish (reshare), run the share, then advance. Journal:
+    // commit private and advance. flowChrome(true) restores the composer for whatever's next.
+    async function onShare(shareFn){
+      flowChrome(true);
+      if(isEnd) await commitEndnote(ctx, text, true); else publishReflection();
+      if(shareFn) await shareFn();
+      if(isEnd) finishNav(ctx);
     }
-    opts.push({label:'Journal', onClick:()=>{ addPierre('Kept in your journal — private. Share it anytime from your logs.'); }});
+    async function onJournal(){
+      flowChrome(true);
+      if(isEnd) await commitEndnote(ctx, text, false);
+      addPierre('Kept in your journal — private. Share it anytime from your logs.');
+      if(isEnd) finishNav(ctx);
+    }
+    const opts=[];
+    if(recorded && !noteSpoiler){
+      // Recorded + safe: the still card OR the 9:16 voice video.
+      opts.push({label:'Share text', onClick:()=>onShare(()=>doShareCard(blob, ctx, text))});
+      opts.push({label:'Share audio', onClick:()=>onShare(()=>doShareVideo(blob, ctx, text, audioUrl))});
+    } else {
+      // Typed, or recorded+spoiler (audio dropped — it would speak the spoiler): one card.
+      // A spoiler card hides the quote, so it's just "Share", not "Share text".
+      opts.push({label:'Share', onClick:()=>onShare(()=>doShareCard(blob, ctx, text))});
+    }
+    opts.push({label:'Journal', onClick:onJournal});
     pierreSay('Share it, or keep it in your journal?', opts);
   }
 
@@ -910,7 +1080,10 @@
       const wrap=document.createElement('div'); wrap.className='msg pierre';
       wrap.innerHTML='<div class="who">Pierre</div>';
       const img=document.createElement('img'); img.src=url; img.alt='Share card';
-      img.style.cssText='width:min(240px,70%);border-radius:14px;display:block;margin-top:4px;';
+      img.style.cssText='width:min(120px,35%);border-radius:14px;display:block;margin-top:4px;';
+      // Re-scroll once the image actually lays out: setting scrollTop before the img has
+      // height leaves the following "Share it, or keep it?" prompt hidden below the fold.
+      img.onload=()=>{ try{ log.scrollTop=log.scrollHeight; }catch(_){} };
       wrap.appendChild(img); log.appendChild(wrap); log.scrollTop=log.scrollHeight;
     }catch(_){}
   }
@@ -932,7 +1105,13 @@
   }
   async function shareBlob(blob, name, caption, fileUri){
     if(_isNativeApp()){
-      try{ (window.top||window).postMessage({ type:'pg:shareFile', blob, name, caption, fileUri }, '*'); return true; }catch(_){}
+      // Hand the shell a base64 STRING, never the Blob. A Blob can throw when structured-cloned
+      // across the face→shell frame boundary in WKWebView; that throw used to drop us into the
+      // web navigator.share() path below, and iOS then hands Instagram a blob: URL instead of the
+      // file ("Can't send link"). The shell writes a real file and shares it via the native plugin.
+      try{ const dataB64=(!fileUri && blob) ? await _blobB64(blob) : null;
+        (window.top||window).postMessage({ type:'pg:shareFile', dataB64, name, caption, fileUri }, '*'); }catch(_){}
+      return true;   // native: the shell owns this share — never fall through to the web share below
     }
     try{
       if(blob && navigator.canShare){ const file=new File([blob],name,{type:blob.type||'application/octet-stream'});
@@ -949,7 +1128,11 @@
   }); }catch(_){}
   async function doShareCard(blob, ctx, text){
     const caption=(ctx.show||'')+(ctx.ep?(' '+ctx.ep):'')+' — on pangolinRC';
-    if(await shareBlob(blob, 'pangolinrc-card-'+Date.now()+'.png', caption)){ addPierre('Shared.'); return; }
+    // Share a 9:16 frame (square card anchored top on the gradient) so Instagram Reel/Story
+    // fill without cropping the card's sides. Fall back to the raw square if framing fails.
+    let shareB=blob;
+    try{ const cv=await buildStoryFrame(blob); const fb=await new Promise(r=>cv.toBlob(r,'image/png',0.92)); if(fb) shareB=fb; }catch(_){}
+    if(await shareBlob(shareB, 'pangolinrc-card-'+Date.now()+'.png', caption)){ addPierre('Shared.'); return; }
     try{ if(navigator.share){ await navigator.share({ text:(noteSpoiler?'':('“'+text+'” — '))+caption }); addPierre('Shared.'); } }catch(_){}
   }
 
@@ -971,7 +1154,20 @@
   // AVFoundation compositor (build 7) is the guaranteed-mp4 path — see SHARE_VIDEO.md.
   async function buildShareVideo(cardBlob, audioUrl){
     if(!window.MediaRecorder || !audioUrl) return null;
-    const cv=await buildStoryFrame(cardBlob);
+    // Draw our OWN canvas and REPAINT it every frame while recording. A canvas captured
+    // via captureStream only emits frames as it changes — a static frame (the old
+    // buildStoryFrame one-shot) records as a black/frozen video on iOS, so the share came
+    // out as "just the audio". The card image is loaded once; the loop just re-blits it.
+    const W=1080,H=1920, cv=document.createElement('canvas'); cv.width=W; cv.height=H; const g=cv.getContext('2d');
+    const card=await loadImg(URL.createObjectURL(cardBlob), false);
+    const drawFrame=()=>{
+      const bg=g.createLinearGradient(0,0,0,H); bg.addColorStop(0,'#17110b'); bg.addColorStop(1,'#0b0907');
+      g.fillStyle=bg; g.fillRect(0,0,W,H);
+      if(card) g.drawImage(card,0,96,W,W);   // 1:1 card, top-anchored
+      g.fillStyle='rgba(240,169,59,0.45)'; g.font='600 34px Inter, system-ui, sans-serif'; g.textAlign='center';
+      g.fillText('pangolinRC', W/2, W+180); g.textAlign='left';
+    };
+    drawFrame();
     const audio=new Audio(); audio.src=audioUrl; audio.preload='auto'; audio.crossOrigin='anonymous';
     await new Promise(res=>{ audio.onloadedmetadata=res; audio.onerror=res; setTimeout(res,3000); });
     let actx,dest,src; try{ actx=new (window.AudioContext||window.webkitAudioContext)();
@@ -984,10 +1180,13 @@
     const parts=[]; rec.ondataavailable=e=>{ if(e.data&&e.data.size) parts.push(e.data); };
     const stopped=new Promise(res=> rec.onstop=res);
     try{ if(actx) await actx.resume(); }catch(_){}
-    rec.start();
+    // Keep the canvas changing so captureStream keeps emitting frames for the whole clip.
+    let raf=null; const loop=()=>{ drawFrame(); raf=requestAnimationFrame(loop); }; raf=requestAnimationFrame(loop);
+    rec.start(100);   // timeslice → periodic ondataavailable, so a short clip still yields data
     try{ await audio.play(); }catch(_){}
     await new Promise(res=>{ audio.onended=res; setTimeout(res, ((audio.duration&&isFinite(audio.duration)?audio.duration:6)*1000)+1000); });
     try{ rec.stop(); }catch(_){} await stopped;
+    if(raf) cancelAnimationFrame(raf);
     try{ if(actx) actx.close(); }catch(_){}
     return parts.length ? new Blob(parts, {type: mime.split(';')[0]}) : null;
   }
@@ -1108,7 +1307,17 @@
   // Don't let tapping Send blur the input (which would close the keyboard and
   // pop us out of the pinned chat). preventDefault on mousedown keeps focus.
   send.addEventListener('mousedown', e => e.preventDefault());
-  send.addEventListener('click', submit);
+  // The composer button routes by its current face: mic → record, rec → stop, busy →
+  // nothing, send → submit.
+  send.addEventListener('click', ()=>{
+    if(sendMode==='mic'){ startComposerRec(); return; }
+    if(sendMode==='rec'){ stopComposerRec(); return; }
+    if(sendMode==='busy'){ return; }
+    submit();
+  });
+  // Tapping the text box during the Comment step is the "type it" choice — raise the
+  // keyboard and morph the resting mic into the send arrow.
+  input.addEventListener('focus', ()=>{ if(sendMode==='mic') setSendMode('send'); });
   // Enter sends; Shift+Enter makes a newline. Auto-grow the box as text wraps.
   input.addEventListener('keydown', e=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); submit(); } });
   input.addEventListener('input', autoGrow);
@@ -1209,7 +1418,7 @@
     wrap.querySelector('.bubble').textContent=text;
     if(chips && chips.length){
       const c=document.createElement('div'); c.className='chips';
-      chips.forEach(ch=>{ const b=document.createElement('button'); b.className='chip'; b.textContent=ch.label;
+      chips.forEach(ch=>{ const b=document.createElement('button'); b.className='chip'+(ch.on?' on':''); b.textContent=ch.label;
         if(keepFocus) b.addEventListener('mousedown', e=>e.preventDefault());  // don't blur the input
         b.onclick=()=>{ c.querySelectorAll('button').forEach(x=>x.disabled=true); ch.onClick(); };
         c.appendChild(b); });

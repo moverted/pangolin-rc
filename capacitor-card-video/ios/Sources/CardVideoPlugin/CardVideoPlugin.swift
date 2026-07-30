@@ -91,10 +91,17 @@ public class CardVideoPlugin: CAPPlugin, CAPBridgedPlugin {
             writer.cancelWriting(); completion(false); return
         }
         let queue = DispatchQueue(label: "com.pangolinrc.cardvideo")
+        var appended = false
         input.requestMediaDataWhenReady(on: queue) {
-            if input.isReadyForMoreMediaData { adaptor.append(buffer, withPresentationTime: .zero) }
+            // Run exactly once, when the input can take data. Two identical frames (start + end)
+            // plus an explicit endSession make the still hold for the whole audio length — a lone
+            // sample at .zero collapses the track to ~0 length, which reads back as a blank video.
+            guard !appended, input.isReadyForMoreMediaData else { return }
+            appended = true
+            adaptor.append(buffer, withPresentationTime: .zero)
             if input.isReadyForMoreMediaData { adaptor.append(buffer, withPresentationTime: duration) }
             input.markAsFinished()
+            writer.endSession(atSourceTime: duration)
             writer.finishWriting { completion(writer.status == .completed) }
         }
     }
@@ -118,6 +125,10 @@ public class CardVideoPlugin: CAPPlugin, CAPBridgedPlugin {
                                   bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue) else { return nil }
         ctx.clear(CGRect(origin: .zero, size: size))
         if let cg = image.cgImage {
+            // No flip. Verified across two builds: a vertical flip → upside-down, a horizontal
+            // flip → mirrored — each showed ONLY the transform applied, so this pipeline adds no
+            // orientation of its own. Drawing straight lands the card correct. (The real fix for
+            // the earlier blank video was endSession in writeStillVideo, not any flip here.)
             ctx.draw(cg, in: CGRect(origin: .zero, size: size))
         }
         return buffer

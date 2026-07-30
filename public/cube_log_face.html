@@ -1111,6 +1111,13 @@ function notifyCommentCap(){
   _capNoticeTimer=setTimeout(()=>{ cap.style.opacity=''; cap.style.color=''; paintTranscripts(); }, 2600);
 }
 
+// The stamp after the episode code. End-notes carry no timecode — they reveal on
+// finish — so they show their spoiler tag (SPLR/NOSP); everything else shows its mark.
+function commentStamp(o){ return o && o.endNote ? (o.spoiler ? 'SPLR' : 'NOSP') : (o ? o.time : ''); }
+// A co-view original is "answered" once ANY reply threads under it (server enforces
+// one reply per comment; this mirrors the lock in the UI). End-notes are never repliable.
+function coviewIsAnswered(id){ return !!id && coviewComments.some(c=>c.replyTo===id); }
+
 function paintTranscripts(){
   const label=$('transcriptLabel');
   const container=$('transcripts');
@@ -1192,7 +1199,7 @@ function paintTranscripts(){
     textDiv.style.minWidth = '0';
     textDiv.style.fontSize = '1.4em';
     textDiv.style.color = 'var(--mine)';   // your own comments render white
-    textDiv.innerHTML = `<strong>${t.epCode} ${t.time}</strong> — <span class="tx">${escHtml(t.text)}</span>`;
+    textDiv.innerHTML = `<strong>${t.epCode} ${commentStamp(t)}</strong> — <span class="tx">${escHtml(t.text)}</span>`;
     if(t.id) textDiv.appendChild(txControls(t));
 
     line.appendChild(speakerBtn);
@@ -1253,14 +1260,17 @@ function coviewRow(c, nested, replied){
   const txt=document.createElement('div');
   txt.style.flex='1'; txt.style.minWidth='0'; txt.style.color=tier;   // friend=orange, reply=green
   const who=`<span style="color:${tier};font-weight:600;">${escHtml(c.author)}</span>`;
-  const when=`<strong>${escHtml(c.epCode)} ${c.time}</strong>`;
+  const when=`<strong>${escHtml(c.epCode)} ${commentStamp(c)}</strong>`;
   if(!c.revealed){
-    txt.innerHTML=`${when} · ${who} — <em style="opacity:.6;">reveals at ${c.time}</em>`;
+    // An end-note has no minute — it unlocks when you finish the episode, not at a mark.
+    const revealAt = c.endNote ? 'reveals when you finish' : `reveals at ${c.time}`;
+    txt.innerHTML=`${when} · ${who} — <em style="opacity:.6;">${revealAt}</em>`;
   } else if(nested){
     txt.innerHTML=`${who} — ${escHtml(c.text)}`;
   } else {
     // Audio is the default; the words sit behind a tap (audio default + per-comment text).
-    const repliedTag = replied.has(c.id) ? ` <span style="color:${tier};opacity:.8;">· ✓ replied</span>` : '';
+    // "answered" reflects the one-reply lock — any reply (yours or another friend's).
+    const repliedTag = (coviewIsAnswered(c.id) || replied.has(c.id)) ? ` <span style="color:${tier};opacity:.8;">· ✓ answered</span>` : '';
     txt.innerHTML=`${when} · ${who}${repliedTag} — <a href="#" style="color:var(--amber);text-decoration:none;">show text ▾</a><span style="display:none;">${escHtml(c.text)}</span>`;
     const a=txt.querySelector('a'), span=txt.querySelector('span:last-child');
     a.onclick=(e)=>{ e.preventDefault(); const open=span.style.display!=='none';
@@ -1300,6 +1310,8 @@ async function loadComments(){
         id: c.id,
         edited: !!c.edited,
         replyTo: c.replyTo || null,   // reply → excluded from the per-episode comment cap
+        endNote: !!c.endNote,         // end-of-episode note → SPLR/NOSP label, not a timecode
+        spoiler: !!c.spoiler,         // the SPLR/NOSP choice (only meaningful when endNote)
         hasText: !!(c.transcription && c.transcription.trim()),
         epCode: c.episodeId || '',
         time: `${Math.floor(m/60)}:${String(m%60).padStart(2,'0')}`,
@@ -1471,8 +1483,11 @@ async function loadCoview(){
   if(!curShowId || !email || !e || !set.length){ paintTranscripts(); return; }
   try{
     const u = new URL(`${API_BASE}/transcribe/coview`);
+    // finishedEps: the focused episode, only once you've marked it done — end-notes
+    // (reveal_on='finish') unlock on that, never on a minute.
+    const finishedEps = epDone[focus] ? epCode(e) : '';
     u.search = new URLSearchParams({ showId:curShowId, episodeId:epCode(e), email,
-      with:set.join(','), seenMs:String(coviewSeenMs()) }).toString();
+      with:set.join(','), seenMs:String(coviewSeenMs()), finishedEps }).toString();
     const r = await fetch(u); if(!r.ok){ paintTranscripts(); return; }
     const d = await r.json();
     coviewComments = (d.comments||[]).map(c=>{
@@ -1480,9 +1495,12 @@ async function loadCoview(){
       // "reveals at" clock all run off revealMs, not the raw timestamp.
       const reveal = (c.revealMs!=null) ? c.revealMs : ((c.timestampMs||0)+30000);
       const rm = Math.round(reveal/60000);
-      if(!c.revealed) coviewNextLock = Math.min(coviewNextLock, reveal);
+      // End-notes unlock on finish, not at a mark, so they never set the minute
+      // watermark that drives live re-fetch (that's coviewCheckReveal's minute path).
+      if(!c.revealed && !c.endNote) coviewNextLock = Math.min(coviewNextLock, reveal);
       return { id:c.id, author:c.author||'friend', authorEmail:c.authorEmail||'',
         epCode:c.episodeId||epCode(e),
+        endNote:!!c.endNote, spoiler:!!c.spoiler,
         time:`${Math.floor(rm/60)}:${String(rm%60).padStart(2,'0')}`,
         ms:c.timestampMs||0, revealMs:reveal, replyTo:c.replyTo||null, phone:c.phone||null,
         revealed:!!c.revealed, audioUrl:c.audioUrl||null,
@@ -1497,7 +1515,9 @@ async function loadCoview(){
     const firstForEp = (_announcedKey !== epKey);
     _announcedKey = epKey;
     const heard = coviewHeardSet();
-    const fresh = coviewComments.filter(c=>!c.replyTo && c.revealed && c.audioUrl && !heard.has(c.id));
+    // End-notes aren't live-crossing reply targets (they unlock on finish and can't be
+    // replied to), so they never arm the reply window or pop the surface banner.
+    const fresh = coviewComments.filter(c=>!c.replyTo && !c.endNote && c.revealed && c.audioUrl && !heard.has(c.id));
     if(fresh.length){
       surfaceCoview(fresh[fresh.length-1], !firstForEp);   // latest unheard; autoplay only on a live crossing
       fresh.forEach(c=> coviewMarkHeard(c.id));
@@ -1632,8 +1652,11 @@ function hideCoviewToast(){
 // and that you haven't already answered.
 function coviewReplyTarget(){
   if(!activeReply || replySecsLeft<=0) return null;
-  if(coviewRepliedSet().has(activeReply.c.id)) return null;
-  return activeReply.c;
+  const c = activeReply.c;
+  if(c.endNote) return null;                       // end-notes are terminal — never repliable
+  if(coviewRepliedSet().has(c.id)) return null;    // you already answered it
+  if(coviewIsAnswered(c.id)) return null;          // someone else got there first (one-reply lock)
+  return c;
 }
 
 // Reflect the reply target on the mic: green + "REPLY" when one is pending, plain
@@ -1676,9 +1699,12 @@ async function replyFlow(target){
   // SMS draft opens regardless so the reply still reaches them.
   if(email && target.id){
     try{
-      await fetch(`${API_BASE}/transcribe/reply`, { method:'POST',
+      const rr = await fetch(`${API_BASE}/transcribe/reply`, { method:'POST',
         headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ email, showId:curShowId, episodeId:target.epCode, replyTo:target.id, text }) });
+      // One-reply lock: a friend answered first. Don't send an SMS for a reply that
+      // didn't land — surface it, refresh so their reply shows, and stop here.
+      if(rr && rr.status===409){ closeReplyWindow(); loadCoview(); alert('Someone already replied to this comment — only one reply is allowed.'); return; }
     }catch(_){ /* the SMS draft below is the fallback path */ }
   }
   coviewMarkReplied(target.id);
@@ -1854,6 +1880,9 @@ function stopRecording(){
         // Cap reached (server-enforced 409 on an original comment): brief notice,
         // no error row. The mic normally blocks this, so a 409 here is a race.
         if(res.status===409 && !rTgt){ notifyCommentCap(); return; }
+        // One-reply lock (409 on a reply): a friend answered first. Drop the window
+        // and reload so their reply threads in — no error row.
+        if(res.status===409 && rTgt){ closeReplyWindow(); loadCoview(); alert('Someone already replied to this comment — only one reply is allowed.'); return; }
         transcripts.unshift({
           epCode: code,
           time: timeStr,

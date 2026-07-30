@@ -216,10 +216,13 @@ function snapToFace(fi) {
 // The Pierre mic + context picker are two of the four items in the console-chrome
 // band (Device · Mic · Chat-picker · Cube); they show whenever the Pierre face is
 // open. Re-checked on every keyboard show/hide and face snap.
+// The Pierre face suppresses the mic (and hides the chat-picker) at each end-note
+// decision point via pg:micSuppress, so pierreMicSync can't re-reveal it mid-flow.
+let pierreMicSuppressed = false;
 function pierreMicSync() {
-  const on = locked && activeFace === PIERRE_FACE;
+  const on = locked && activeFace === PIERRE_FACE && !pierreMicSuppressed;
   if (window._setPierreMic)
-    window._setPierreMic(on || !!(window._pierreMicBusy && window._pierreMicBusy()));   // a live capture holds its ground
+    window._setPierreMic(on || (!pierreMicSuppressed && !!(window._pierreMicBusy && window._pierreMicBusy())));   // a live capture holds its ground
   if (window._setPierreCtx) window._setPierreCtx(on);
 }
 
@@ -1866,21 +1869,13 @@ export function getActiveDoc() {
 // runs it — same principle as "Share this chat". Accepts a Blob (written to CACHE) or a
 // pre-written file URI (e.g. the CardVideo mp4).
 (function initShareBridge() {
-  function blobToB64(blob) {
-    return new Promise((res, rej) => {
-      const fr = new FileReader();
-      fr.onload = () => res(String(fr.result).split(',')[1] || '');
-      fr.onerror = rej;
-      fr.readAsDataURL(blob);
-    });
-  }
-  async function shareFile(blob, name, caption, fileUri, source) {
+  async function shareFile(dataB64, name, caption, fileUri, source) {
     const Cap = window.Capacitor;
     try {
       if (Cap && Cap.isNativePlatform && Cap.isNativePlatform() && Cap.Plugins && Cap.Plugins.Share) {
         let uri = fileUri || null;
-        if (!uri && blob && Cap.Plugins.Filesystem) {
-          await Cap.Plugins.Filesystem.writeFile({ path: name, data: await blobToB64(blob), directory: 'CACHE' });
+        if (!uri && dataB64 && Cap.Plugins.Filesystem) {
+          await Cap.Plugins.Filesystem.writeFile({ path: name, data: dataB64, directory: 'CACHE' });
           uri = (await Cap.Plugins.Filesystem.getUri({ path: name, directory: 'CACHE' })).uri;
         }
         if (uri) {
@@ -1888,19 +1883,15 @@ export function getActiveDoc() {
           // ("Can't send link"). The result tells the face what the sheet did (e.g. Save to Photos).
           const res = await Cap.Plugins.Share.share({ files: [uri] });
           try { if (source) source.postMessage({ type: 'pg:shareDone', activityType: (res && res.activityType) || '' }, '*'); } catch (_) {}
-          return;
         }
       }
-      // Non-native safety net (web normally keeps its share in the face, in-gesture).
-      if (blob && navigator.canShare) {
-        const file = new File([blob], name, { type: blob.type || 'application/octet-stream' });
-        if (navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], text: caption }); return; }
-      }
+      // No web navigator.share() fallback on purpose: in WKWebView it shares the file as a
+      // blob: URL (Instagram → "Can't send link"). On native we share via the Share plugin only.
     } catch (e) { /* cancelled or unsupported */ }
   }
   window.addEventListener('message', (e) => {
     if (e.data && e.data.type === 'pg:shareFile') {
-      shareFile(e.data.blob, e.data.name, e.data.caption, e.data.fileUri, e.source);
+      shareFile(e.data.dataB64, e.data.name, e.data.caption, e.data.fileUri, e.source);
     }
   });
 })();
@@ -1921,5 +1912,11 @@ window.addEventListener('message', (e) => {
         );
       } catch (_) {}
     }
+  }
+  // Pierre suppresses the mic + chat-picker while an end-note decision point shows only
+  // its chips; on:false restores them (re-synced against focus/lock).
+  if (e.data && e.data.type === 'pg:micSuppress') {
+    pierreMicSuppressed = !!e.data.on;
+    pierreMicSync();
   }
 });
