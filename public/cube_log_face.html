@@ -235,6 +235,10 @@
      the finish is waiting for your confirming tap. A green glow-pulse pulls the eye
      without changing the button's action. */
   .sfbtn.finish.callout{ animation:finishCallout 1.4s ease-in-out infinite; }
+  /* Timer ran out while you were away → the finish is staged: invert the button (filled
+     green, dark text) and ask "FINISHED?" so one deliberate tap commits it. */
+  .sfbtn.finish.finished{ background:var(--green); color:#06140b; border-color:var(--green);
+    box-shadow:0 0 16px rgba(91,191,123,.5); }
   @keyframes finishCallout{ 0%,100%{ box-shadow:0 0 0 rgba(91,191,123,0);  transform:none; }
                             50%   { box-shadow:0 0 16px rgba(91,191,123,.75); transform:translateY(-1px); } }
   /* Mic button: larger, round, standalone focal point */
@@ -2371,14 +2375,16 @@ $('finishEpBtn').onclick=()=>{ clearFinishCallout(); flashBtn($('finishEpBtn'));
 // whose episode-end timer already ran out: the finish is staged and just needs their
 // confirming tap. Scroll it into view; lift the pulse after a while so it doesn't
 // throb forever if they wander off.
-let _finishCalloutT=null;
+let _finishCalloutT=null, finishPrompt=false;
 function calloutFinish(){
   const fn=$('finishEpBtn'); if(!fn) return;
+  finishPrompt=true;                 // invert the button + relabel it "FINISHED?"
   fn.classList.add('callout');
+  updateTheaterUI();
   try{ fn.scrollIntoView({block:'center', behavior:'smooth'}); }catch(_){}
   clearTimeout(_finishCalloutT); _finishCalloutT=setTimeout(clearFinishCallout, 30000);
 }
-function clearFinishCallout(){ const fn=$('finishEpBtn'); if(fn) fn.classList.remove('callout'); clearTimeout(_finishCalloutT); }
+function clearFinishCallout(){ finishPrompt=false; const fn=$('finishEpBtn'); if(fn) fn.classList.remove('callout'); updateTheaterUI(); clearTimeout(_finishCalloutT); }
 $('micBtn').onclick=()=>{
   // In REPLY mode the mic answers the pending friend comment instead of recording.
   if(!isRecording){
@@ -2912,8 +2918,9 @@ function renderSvcCorner(){
 // ticket-upload prompt. Driven by chosenSvc, so it follows every pick/guess.
 function updateTheaterUI(){
   const fn=$('finishEpBtn'); if(!fn) return;
+  fn.classList.toggle('finished', !!finishPrompt && !isTheater());
   if(isTheater()){ fn.textContent='TICKET'; fn.classList.add('theater'); }
-  else { fn.textContent='FINISH'; fn.classList.remove('theater'); }
+  else { fn.textContent = finishPrompt ? 'FINISHED?' : 'FINISH'; fn.classList.remove('theater'); }
 }
 
 // ----- ticket upload (camera or screengrab) -----

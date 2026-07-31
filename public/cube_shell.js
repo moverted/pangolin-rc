@@ -139,12 +139,15 @@ camera.position.set(0, 0, 13);
 const geo  = new THREE.BoxGeometry(1.8, 1.8, 1.8);
 const mats = FACES.map((f, i) => new THREE.MeshBasicMaterial({ map: makeTex(f, i) }));
 const cube = new THREE.Mesh(geo, mats);
-cube.quaternion.setFromEuler(SNAP_EULER[5]); // open showing the JOIN face
+// Cold open presents WATCH (material index 1); the gentle idle drift (-Y, in animate)
+// then rolls it slowly WATCH → LOG → FEED → BROWSE. A live-watch resume (resumeLaunch)
+// overrides this and lands on the LOG face instead.
+cube.quaternion.setFromEuler(SNAP_EULER[1]); // open showing the WATCH face
 scene.add(cube);
 
 // ─── interaction state ────────────────────────────────────────────────────
 let locked     = false;
-let activeFace = 5; // JOIN starts
+let activeFace = 1; // WATCH starts (rolls onward via the idle drift)
 
 // Single-pointer drag
 let dragging   = false;
@@ -159,6 +162,13 @@ let pinchTriggered = false; // prevent re-trigger until fingers lift
 // Snap animation
 let snapping  = false;
 let snapQ     = new THREE.Quaternion();
+
+// Overlay-projection throttle. The mid-spin composite of several live iframes is the
+// GPU-heavy step (and the documented crash risk), so during the slow idle drift we
+// re-project the faces every Nth frame instead of every frame — a gentle ambient roll
+// doesn't need a fresh transform 60×/s. Full rate during drag/snap and while locked.
+let _ovFrame = 0;
+const OV_THROTTLE = 2;
 
 // Camera target z
 let camTargetZ = 8.5;
@@ -341,6 +351,23 @@ function rotateToFace(fi) {
   }
   if (fi === PIERRE_FACE) focusPierre(); else focusPierreBlur();
   bounceFromEmptyWatch(fi);
+}
+
+// The click-wheel's core-face ring (nav mode only): a ring notch rolls the cube
+// through WATCH → LOG → FEED → BROWSE by their material indices, WITHOUT opening any
+// (locked stays false). Order matches the idle drift's -Y direction, so a wheel nudge
+// reads as a hand on the same slow carousel. Base off the face currently facing the
+// camera (nearestFace) so it steps from what you actually see, not a stale snap.
+const CORE_RING = [1, 4, 0, 5];   // WATCH(-X), LOG(+Z), FEED(+X), JOIN/BROWSE(-Z)
+export function cubeNavStep(dir) {
+  if (locked) return;
+  const cur = nearestFace();
+  let i = CORE_RING.indexOf(cur);
+  if (i < 0) i = 0;                                   // on PIERRE/PROFILE (off-ring) → start at WATCH
+  const n = CORE_RING.length;
+  const next = CORE_RING[(i + (dir > 0 ? 1 : n - 1)) % n];
+  snapToFace(next);
+  showFaceInfo(next);
 }
 
 // Faces call this DIRECTLY (same-origin) rather than postMessage so the tap's
@@ -719,6 +746,9 @@ let t = 0;
   // the cube face as it spins (looks identical in nav), but it is INERT there:
   // pointer-events stay off until the face is the locked/active one, so touches in
   // navigation mode drive the cube (drag / double-tap), never the side's content.
+  const ambient = !locked && !dragging && !snapping;
+  _ovFrame = (_ovFrame + 1) % OV_THROTTLE;
+  if (!ambient || _ovFrame === 0)
   for (const [fi, cfg] of Object.entries(FACE_OVERLAYS)) {
     _fN.copy(cfg.normal).applyQuaternion(cube.quaternion);
     const dot = _fN.z;

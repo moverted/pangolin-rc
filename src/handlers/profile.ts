@@ -57,7 +57,7 @@ profileRoutes.post('/signup', async (c) => {
 
   // Member cap. Existing members always get in (returning login). New people
   // beyond the cap go on the waitlist instead of becoming members.
-  const MEMBER_CAP = 10;
+  const MEMBER_CAP = 20;
   const already = await c.env.DB.prepare('SELECT email FROM users WHERE email = ?').bind(email).first();
   if (!already) {
     const countRow = await c.env.DB.prepare('SELECT COUNT(*) AS c FROM users').first<{ c: number }>();

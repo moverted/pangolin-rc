@@ -3,7 +3,7 @@
 // cube directly: it reads focus + reaches the open face's document through the
 // CubeShell interface it imports below, then drives that face's own content
 // (scroll + the SELECT highlight/dialog). See the cube map in CLAUDE.md.
-import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey } from './cube_shell.js';
+import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey, cubeNavStep } from './cube_shell.js';
 
 // ─── iPod-style click wheel: the ring scrolls the open face; the four card actions
 // (WATCH top / SHARE left / STOP right / SELECT center) drive the open show by
@@ -310,6 +310,10 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey } from './c
       stepAccum += d;
       while(stepAccum >=  STEP_NOTCH){ moveSelect(+1); stepAccum -= STEP_NOTCH; }   // clockwise → next/down
       while(stepAccum <= -STEP_NOTCH){ moveSelect(-1); stepAccum += STEP_NOTCH; }   // ccw → prev/up
+    } else if(!getFocus().locked){                        // cube view → ring rolls the 4 core faces
+      stepAccum += d;
+      while(stepAccum >=  STEP_NOTCH){ cubeNavStep(+1); tick(8); stepAccum -= STEP_NOTCH; }   // clockwise → WATCH→LOG→FEED→BROWSE
+      while(stepAccum <= -STEP_NOTCH){ cubeNavStep(-1); tick(8); stepAccum += STEP_NOTCH; }   // ccw → reverse
     } else {
       wheelScroll((d / (2*Math.PI)) * SCROLL_PER_REV);   // clockwise → scroll down
     }
