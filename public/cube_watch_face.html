@@ -454,6 +454,10 @@ const TOTAL_SAVED=SUBS.reduce((a,s)=>a+(s.full-s.paid)*s.months,0);
 
 const NOW=new Date();
 let LOG=[], activeTab="current", addSeq=0, selectedId=null;
+// VIEWING LOG open-state, persisted across re-renders so a refresh/rotate-in can't wipe
+// it (that was the "closes randomly"). Keyed by show: opening a different show resets to
+// all-closed. `open` = the master toggle; `eps` = the episode keys whose block is open.
+let archState = { showId:null, open:false, eps:new Set() };
 const face=document.getElementById("face");
 
 // DEMO = showcase build (dummy savings + "finished" chip); MVP = clean product.
@@ -641,7 +645,8 @@ function renderPierre(){
 // Playhead marker: popcorn by default; flame when the show's watch-mode is BINGE,
 // leaf when FRESH (movies have no watch-mode, so they always get the popcorn).
 function playheadMarkerHTML(s, leftPct){
-  const m=(typeof wowStampFor==='function')?wowStampFor(s):null;
+  // flame/leaf are series-only; movies always get the default popcorn box.
+  const m=(s.kind!=='movie' && typeof wowStampFor==='function')?wowStampFor(s):null;
   const mode=(m && !m.off)?m.mode:null;
   if(mode==='MORE!'||mode==='BINGE') return '<div class="pop mk flame" style="left:'+leftPct+'%"><svg viewBox="0 0 24 24"><use href="#mkFlame"/></svg></div>';
   if(mode==='FRESH') return '<div class="pop mk leaf" style="left:'+leftPct+'%"><svg viewBox="0 0 24 24"><use href="#mkLeaf"/></svg></div>';
@@ -1449,6 +1454,9 @@ function renderEpisodeArchive(host, s, data, includeBp){
     (ticketsByEp[key(e)]||[]).forEach(t=>{ if((t.createdAt||0)>m) m=t.createdAt; }); return m; };
   eps.sort((a,b)=>sortTs(b)-sortTs(a));
 
+  // A different show than the state remembers → start it all-closed.
+  if(archState.showId !== s.id) archState = { showId:s.id, open:false, eps:new Set() };
+
   const rowsHTML = eps.map((e,i)=>{
     const k = e._all ? (Object.keys(ticketsByEp)[0] ?? Object.keys(commentsByEp)[0] ?? Object.keys(coviewByEp)[0] ?? '') : key(e);
     const sessions=e.sessions||[];
@@ -1457,7 +1465,8 @@ function renderEpisodeArchive(host, s, data, includeBp){
     const head = e._all ? (isMovie?'Film':'Viewing') : ('<b>'+key(e)+'</b>'+(e.name?' '+esc(e.name):''));
     const refl = (reflByEp[k]||[]).concat(i===0?orphanRefs:[]);
     const body = archiveBody(s, k, sessions, ticketsByEp[k]||[], commentsByEp[k]||[], coviewByEp[k]||[], refl, includeBp);
-    return '<div class="vw">'+
+    const openCls = archState.eps.has(k) ? ' open' : '';   // restore this episode's state
+    return '<div class="vw'+openCls+'" data-k="'+esc(String(k))+'">'+
       '<div class="vw-head"><span class="vw-caret">&#8250;</span><span class="vw-when">'+head+
         (when?' <span class="th">&middot; '+when+'</span>':'')+'</span></div>'+
       '<div class="vw-body">'+body+'</div></div>';
@@ -1467,9 +1476,17 @@ function renderEpisodeArchive(host, s, data, includeBp){
   const label = isMovie ? 'VIEWING' : 'VIEWING LOG';
   host.innerHTML = '<div class="arch-toggle"><span class="arch-caret">&#8250;</span>'+label+
     ' <span class="arch-n">'+eps.length+'</span></div><div class="arch-list">'+rowsHTML+'</div>';
-  host.querySelector('.arch-toggle').addEventListener('click',()=>host.classList.toggle('open'));
+  host.classList.toggle('open', !!archState.open);   // restore the master toggle
+  host.querySelector('.arch-toggle').addEventListener('click',()=>{
+    archState.open = !archState.open; host.classList.toggle('open', archState.open);
+  });
 
-  host.querySelectorAll('.vw-head').forEach(h=>h.addEventListener('click',()=>h.parentElement.classList.toggle('open')));
+  // Each episode toggles independently; its open/closed persists in archState.eps so the
+  // next render (refresh/rotate-in) restores exactly what the member left open.
+  host.querySelectorAll('.vw-head').forEach(h=>h.addEventListener('click',()=>{
+    const vw=h.parentElement, k=vw.dataset.k||'';
+    if(vw.classList.toggle('open')) archState.eps.add(k); else archState.eps.delete(k);
+  }));
   host.querySelectorAll('.ep-tix').forEach(b=>b.addEventListener('click',()=>showImg(b.dataset.img)));
   host.querySelectorAll('.ep-play').forEach(b=>b.addEventListener('click',()=>playAudio(b.dataset.audio)));
   host.querySelectorAll('.ep-share').forEach(b=>b.addEventListener('click',()=>viewingShare(s, b.dataset.tid||null, includeBp)));

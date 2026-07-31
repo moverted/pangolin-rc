@@ -197,12 +197,15 @@
   .minhandle.mk svg{ display:block; width:22px; height:22px; }
   .minhandle.flame svg{ filter:drop-shadow(0 0 5px rgba(255,90,20,.85)); }
   .minhandle.leaf svg{ filter:drop-shadow(0 0 5px rgba(70,196,111,.85)); }
-  /* Paused / scrubbing: a || pause badge — the timer is stopped, awaiting a LOG. */
+  /* Paused / scrubbing: the ▶-◀ badge — the timer is stopped, awaiting a LOG. */
   .minhandle.paused{ background:none; border:none; box-shadow:none; width:auto; height:auto; }
-  .minhandle .pausebars{ display:flex; gap:3px; align-items:center; justify-content:center;
-    background:var(--amber); border:2px solid #2a1c08; border-radius:5px; padding:3px 5px;
+  .minhandle .pauseglyph{ display:flex; gap:1px; align-items:center; justify-content:center;
+    width:22px; height:18px; background:var(--amber); border:2px solid #2a1c08; border-radius:6px;
     box-shadow:0 2px 6px rgba(0,0,0,.6), 0 0 10px rgba(240,169,59,.45); }
-  .minhandle .pausebars i{ width:2.5px; height:9px; background:#2a1c08; border-radius:1px; }
+  .minhandle .pauseglyph i{ width:0; height:0; border-top:4px solid transparent; border-bottom:4px solid transparent; }
+  .minhandle .pauseglyph .l{ border-left:5px solid #2a1c08; }    /* ▶ */
+  .minhandle .pauseglyph .r{ border-right:5px solid #2a1c08; }   /* ◀ */
+  .minhandle .pauseglyph .d{ width:3px; height:2px; background:#2a1c08; }
   /* relative so the total can be pinned dead-center, immune to the left readout
      widening when the >> running-timer animation appends frames */
   .minfoot{ position:relative; display:flex; align-items:center; justify-content:space-between; margin-top:11px;
@@ -669,6 +672,7 @@ function wowTagFor(e){ return (window.WoW && e && e.airdate) ? WoW.tag(e.airdate
 // account default). Drives the playhead glyph: flame = BINGE, leaf = FRESH.
 function wowShowModeLog(){
   try{
+    if(isMovie) return null;   // BINGE/FRESH are series-only — a movie has no watch cadence
     const st = window.WoW && WoW.store && WoW.store.stateNow();
     if(!st) return null;
     const m = st.modes && curShowId && st.modes[curShowId];
@@ -836,6 +840,14 @@ const isBinge=()=>{ const t=inAppTimes(); return t.length>=3 && (t[t.length-1]-t
 const bingeLive=()=>isBinge() && !cooled;
 
 function runtimeOf(i){ return (eps[i]&&eps[i].runtime) || avgRuntime || 45; }
+
+// Minute readout: "45 min" under an hour; "1 h 17 m" at/over 60 to keep it compact.
+function fmtMin(n){
+  n=Math.max(0,Math.round(n));
+  if(n<60) return n+' min';
+  const h=Math.floor(n/60), m=n%60;
+  return m ? (h+' h '+m+' m') : (h+' h');
+}
 
 // Digest for a finished scope, for the season/series share card. seasonNum!=null → that
 // season; null → the whole series. Finish timestamps come from the live session log
@@ -2173,10 +2185,11 @@ function paint(){
       stBtn.textContent = tg ? ('DROPS '+tg.toUpperCase()) : 'NOT OUT YET';
       stBtn.classList.add('greyed');
       stBtn.dataset.action = 'notify';
-    } else if(awaitingLog) {
-      // A scrubbed preview is staged → the button itself commits it (no tap-elsewhere).
+    } else if(awaitingLog || minDragging) {
+      // Scrubbing (or a staged scrub) → the button commits that position. Held for the
+      // WHOLE gesture (grab through release) so it never flickers to CONTINUE mid-drag.
       const pv = Math.round(minPreview!=null ? minPreview : (epMin[focus]||0));
-      stBtn.textContent = `LOG ${pv} min`;
+      stBtn.textContent = 'LOG '+fmtMin(pv);
       stBtn.classList.add('logpart');
       stBtn.dataset.action = 'log';
     } else if(watching) {
@@ -2314,23 +2327,31 @@ function paintMinute(){
   const pct=rt>0?cur/rt*100:0;
   $('minFill').style.width=pct+'%';
   const hnd=$('minHandle'); hnd.style.left=pct+'%';
-  // Playhead glyph: paused/scrubbing → || badge; else the show's watch-mode
-  // (flame=BINGE, leaf=FRESH); else the default amber puck.
-  hnd.classList.remove('mk','flame','leaf','paused');
+  // Playhead glyph: paused/scrubbing → ▶-◀; else the show's watch-mode (flame=BINGE,
+  // leaf=FRESH); else the default amber puck. Rebuild the DOM ONLY when the kind changes
+  // so a 60fps scrub just moves the handle (smooth) instead of thrashing innerHTML.
   const paused = (typeof minDragging!=='undefined' && minDragging) || awaitingLog;
   const mode = wowShowModeLog();
-  if(paused){ hnd.classList.add('paused'); hnd.innerHTML='<span class="pausebars"><i></i><i></i></span>'; }
-  else if(bingeLive() || mode==='MORE!' || mode==='BINGE'){ hnd.classList.add('mk','flame'); hnd.innerHTML='<svg viewBox="0 0 24 24"><use href="#mkFlame"/></svg>'; }
-  else if(mode==='FRESH'){ hnd.classList.add('mk','leaf'); hnd.innerHTML='<svg viewBox="0 0 24 24"><use href="#mkLeaf"/></svg>'; }
-  else { hnd.innerHTML=''; }
+  // flame (BINGE) and leaf (FRESH) are reserved for SERIES; a movie is always the puck.
+  const kind = paused ? 'paused'
+    : (!isMovie && (bingeLive() || mode==='MORE!' || mode==='BINGE')) ? 'flame'
+    : (!isMovie && mode==='FRESH') ? 'leaf' : 'puck';
+  if(hnd.dataset.mk !== kind){
+    hnd.dataset.mk = kind;
+    hnd.classList.remove('mk','flame','leaf','paused');
+    if(kind==='paused'){ hnd.classList.add('paused'); hnd.innerHTML='<span class="pauseglyph"><i class="l"></i><span class="d"></span><i class="r"></i></span>'; }
+    else if(kind==='flame'){ hnd.classList.add('mk','flame'); hnd.innerHTML='<svg viewBox="0 0 24 24"><use href="#mkFlame"/></svg>'; }
+    else if(kind==='leaf'){ hnd.classList.add('mk','leaf'); hnd.innerHTML='<svg viewBox="0 0 24 24"><use href="#mkLeaf"/></svg>'; }
+    else { hnd.innerHTML=''; }
+  }
   // Left: elapsed time with animation frames after the number when watching
-  const elapsedText = Math.round(cur)+' min';
+  const elapsedText = fmtMin(cur);
   $('minElapsed').textContent = watchingLive[focus] ? elapsedText + ' ' + buildFrames[buildFrame % buildFrames.length] : elapsedText;
-  $('minRem').textContent=Math.max(0,Math.round(rt-cur))+' min';      // right: remaining
+  $('minRem').textContent=fmtMin(rt-cur);      // right: remaining
   coviewCheckReveal();   // unlock friends' comments as your mark passes theirs
   const mid=$('minMid');                                              // middle: total / prompt / BP
-  if(awaitingLog){ mid.textContent='press LOG to save · grab again to adjust'; mid.classList.add('phrase'); }
-  else { mid.classList.remove('phrase'); mid.textContent = epBp[focus] ? 'BP' : (Math.round(rt)+' min'); }
+  if(awaitingLog || (typeof minDragging!=='undefined' && minDragging)){ mid.textContent='press LOG to save · grab again to adjust'; mid.classList.add('phrase'); }
+  else { mid.classList.remove('phrase'); mid.textContent = epBp[focus] ? 'BP' : fmtMin(rt); }
 }
 
 // Note → Pierre: jotting a thought isn't a textarea dead-end. The button hands
@@ -2527,12 +2548,28 @@ minBar.addEventListener('pointerdown',ev=>{ ev.preventDefault(); minBar.setPoint
   // can't resume ticking underneath the paused preview.
   if(watchingLive[focus]){ epMin[focus]=liveMin(focus); sessionBase[focus]=epMin[focus]; watchingLive[focus]=false; startedAt[focus]=null; }
   minPreview=minFromX(ev.clientX); awaitingLog=false; paint(); });
-minBar.addEventListener('pointermove',ev=>{ if(!minDragging)return; minPreview=minFromX(ev.clientX); paintMinute(); });
+minBar.addEventListener('pointermove',ev=>{ if(!minDragging)return; minPreview=minFromX(ev.clientX); paintMinute();
+  // Live-update the LOG label as you drag (pointermove skips the full paint for speed).
+  const b=$('startEpBtn'); if(b && b.dataset.action==='log') b.textContent='LOG '+fmtMin(minPreview); });
 // On release the staged position becomes commit-ready: the left button flips to
 // "LOG <n> min" (see paint's state machine), so we repaint the whole face — no
 // more "tap anywhere" to commit. Grabbing the bar again re-stages a new position.
 minBar.addEventListener('pointerup',ev=>{ if(!minDragging)return; minDragging=false; awaitingLog=true; paint(); });
 minBar.addEventListener('pointercancel',()=>{ minDragging=false; });
+
+// Console-ring fine-tune. While the playhead is paused (▶-◀ showing / awaiting a LOG),
+// the click wheel calls this to nudge the mark minute-by-minute, so you can dial it in
+// with the wheel after grabbing the bar, then LOG. active() gates it to the ▶-◀ state.
+window.__logTune = {
+  active(){ return awaitingLog || minDragging; },
+  step(dir){
+    const rt=runtimeOf(focus);
+    const base = (minPreview!=null ? minPreview : (epMin[focus]||0));
+    minPreview = Math.max(0, Math.min(rt, Math.round(base) + (dir>0?1:-1)));
+    awaitingLog = true;   // keep it staged for LOG
+    paint();
+  }
+};
 
 // Episode selection moved to the top-bar EP readout + picker sheet (openEpSheet).
 // The old green preview-slider bar was removed to stop it reading as a season slider.

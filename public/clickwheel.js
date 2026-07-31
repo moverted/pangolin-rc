@@ -65,6 +65,15 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey, cubeNavSte
     const sc = scrollContainer(doc);
     if(sc) sc.scrollTop += dy;
   }
+  // While the LOG-face playhead is paused (▶-◀ showing), the ring FINE-TUNES the mark a
+  // minute per notch instead of scrolling the page. __logTune is exposed by the LOG face;
+  // its presence + active() gate this so it only kicks in there, only while paused.
+  function logTuneActive(){
+    try{ const w = activeDoc() && activeDoc().defaultView; return !!(w && w.__logTune && w.__logTune.active()); }catch(_){ return false; }
+  }
+  function logTuneStep(dir){
+    try{ const w = activeDoc() && activeDoc().defaultView; if(w && w.__logTune) w.__logTune.step(dir); }catch(_){}
+  }
   // ── SELECT highlight cursor: a glowing outline that steps DOWN the open face's
   //    selectable buttons (one per SELECT tap, wraps at the bottom). Long-press
   //    SELECT to activate the highlighted button. A floating overlay in the face's
@@ -314,6 +323,10 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey, cubeNavSte
       stepAccum += d;
       while(stepAccum >=  STEP_NOTCH){ cubeNavStep(+1); tick(8); stepAccum -= STEP_NOTCH; }   // clockwise → WATCH→LOG→FEED→BROWSE
       while(stepAccum <= -STEP_NOTCH){ cubeNavStep(-1); tick(8); stepAccum += STEP_NOTCH; }   // ccw → reverse
+    } else if(logTuneActive()){                           // LOG playhead paused (▶-◀) → ring tunes the mark
+      stepAccum += d;
+      while(stepAccum >=  STEP_NOTCH){ logTuneStep(+1); tick(6); stepAccum -= STEP_NOTCH; }   // clockwise → forward
+      while(stepAccum <= -STEP_NOTCH){ logTuneStep(-1); tick(6); stepAccum += STEP_NOTCH; }   // ccw → back
     } else {
       wheelScroll((d / (2*Math.PI)) * SCROLL_PER_REV);   // clockwise → scroll down
     }

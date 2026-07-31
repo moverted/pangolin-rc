@@ -780,3 +780,6 @@ Entry format:
   work — until then `runtime` is undefined and movies fall back to
   "not started"/"in progress".
 - Deploy message to use: "titles list: add movie runtime for min-left display".
+- MEMBER_CAP raised 10 → 20 (profile.ts join handler) in the same change.
+- DEPLOYED 2026-07-30 via `npm run deploy` (wrangler deploy). Version ID
+  cd8ab320-4977-4f72-9964-fcf0b3de2624. Live: movie runtime field + cap=20.
