@@ -264,6 +264,7 @@ profileRoutes.get('/:email/titles', async (c) => {
             wt.current_episode_id, wt.started_at, wt.updated_at,
             (SELECT COUNT(*) FROM watch_episode we WHERE we.user_email=wt.user_email AND we.title_id=wt.title_id AND we.done=1) AS watched,
             (SELECT COALESCE(SUM(we.minute),0) FROM watch_episode we WHERE we.user_email=wt.user_email AND we.title_id=wt.title_id) AS minutes,
+            (SELECT e.runtime FROM episodes e WHERE e.title_id=wt.title_id ORDER BY e.season, e.number LIMIT 1) AS runtime,
             (SELECT COUNT(*) FROM episodes e WHERE e.title_id=wt.title_id AND e.airdate IS NOT NULL AND e.airdate <= date('now')) AS released,
             (SELECT e.season FROM episodes e JOIN watch_episode we ON we.episode_id=e.episode_id AND we.user_email=wt.user_email WHERE e.title_id=wt.title_id AND (we.done=1 OR we.minute>0) ORDER BY e.season DESC, e.number DESC LIMIT 1) AS last_season,
             (SELECT e.number FROM episodes e JOIN watch_episode we ON we.episode_id=e.episode_id AND we.user_email=wt.user_email WHERE e.title_id=wt.title_id AND (we.done=1 OR we.minute>0) ORDER BY e.season DESC, e.number DESC LIMIT 1) AS last_number

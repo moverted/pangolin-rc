@@ -768,3 +768,15 @@ Entry format:
 ## 2026-07-03 — Log created
 - Created BACKEND.md and added "Backend and deploy rules" section to CLAUDE.md.
 - No Worker, D1, or deploy-config changes this session.
+
+## 2026-07-30 — Movie runtime in titles list
+- Worker: `GET /:email/titles` (src/handlers/profile.ts) now also selects
+  `runtime` via subquery `(SELECT e.runtime FROM episodes e WHERE
+  e.title_id=wt.title_id ORDER BY e.season, e.number LIMIT 1)`. Movies are one
+  unit whose length lives on the single episode row; the WATCH face needs it to
+  show "X min left" instead of episode counts. Read-only, additive column; no
+  D1 schema change, no new route.
+- Requires a Worker deploy (`npm run deploy`) for the movie progress display to
+  work — until then `runtime` is undefined and movies fall back to
+  "not started"/"in progress".
+- Deploy message to use: "titles list: add movie runtime for min-left display".

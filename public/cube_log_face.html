@@ -192,6 +192,17 @@
     border:2px solid #2a1c08; box-shadow:0 2px 6px rgba(0,0,0,.6), 0 0 10px rgba(240,169,59,.45);
     cursor:grab; }
   .minhandle:active{ cursor:grabbing; }
+  /* Icon-mode handle: drop the puck chrome, show the glyph (flame=BINGE, leaf=FRESH). */
+  .minhandle.mk{ background:none; border:none; box-shadow:none; width:auto; height:auto; }
+  .minhandle.mk svg{ display:block; width:22px; height:22px; }
+  .minhandle.flame svg{ filter:drop-shadow(0 0 5px rgba(255,90,20,.85)); }
+  .minhandle.leaf svg{ filter:drop-shadow(0 0 5px rgba(70,196,111,.85)); }
+  /* Paused / scrubbing: a || pause badge — the timer is stopped, awaiting a LOG. */
+  .minhandle.paused{ background:none; border:none; box-shadow:none; width:auto; height:auto; }
+  .minhandle .pausebars{ display:flex; gap:3px; align-items:center; justify-content:center;
+    background:var(--amber); border:2px solid #2a1c08; border-radius:5px; padding:3px 5px;
+    box-shadow:0 2px 6px rgba(0,0,0,.6), 0 0 10px rgba(240,169,59,.45); }
+  .minhandle .pausebars i{ width:2.5px; height:9px; background:#2a1c08; border-radius:1px; }
   /* relative so the total can be pinned dead-center, immune to the left readout
      widening when the >> running-timer animation appends frames */
   .minfoot{ position:relative; display:flex; align-items:center; justify-content:space-between; margin-top:11px;
@@ -213,6 +224,10 @@
      (a tap swings to Pierre to offer a notification). */
   .sfbtn.start.greyed{ --accent:var(--faint); color:var(--faint); border-color:rgba(162,150,132,.4);
     background:rgba(0,0,0,.28); font-size:9.5px; }
+  /* Drops today: out now and loggable. Amber + a soft glow-pulse (matches the "soon"
+     badge) so it reads as fresh-and-tappable, not the greyed not-out-yet state. */
+  .sfbtn.start.dropstoday{ --accent:#ffcf7a; color:#ffcf7a; border-color:rgba(240,169,59,.85);
+    background:rgba(52,32,8,.5); animation:wowSoonGlow 2.4s ease-in-out infinite; }
   .sfbtn.logpart{ --accent:var(--text);  --flipfg:#1a1206;         border-color:var(--accent); color:var(--accent); }
   .sfbtn.continue{ --accent:var(--text); --flipfg:#1a1206;         border-color:var(--accent); color:var(--accent); }
   .sfbtn.finish{ --accent:var(--green); --flipfg:#06140b;          border-color:var(--accent); color:var(--accent); }
@@ -446,6 +461,17 @@
 </style>
 </head>
 <body>
+<!-- Shared playhead-marker glyphs: flame = BINGE, leaf = FRESH (referenced via <use>). -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <linearGradient id="mkFlameG" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#e11d1d"/><stop offset="52%" stop-color="#ff6a00"/><stop offset="100%" stop-color="#ffd21a"/>
+  </linearGradient>
+  <linearGradient id="mkLeafG" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0%" stop-color="#86e6a0"/><stop offset="55%" stop-color="#46c46f"/><stop offset="100%" stop-color="#2f8a4f"/>
+  </linearGradient>
+  <symbol id="mkFlame" viewBox="0 0 24 24"><path fill="url(#mkFlameG)" d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></symbol>
+  <symbol id="mkLeaf" viewBox="0 0 24 24"><path fill="url(#mkLeafG)" d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path fill="none" stroke="#e7fbee" stroke-width="1.6" stroke-linecap="round" d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></symbol>
+</defs></svg>
 <div class="face" id="face">
   <div class="bg bg-fallback" id="bg"></div>
   <div class="scrim"></div>
@@ -635,6 +661,17 @@ const released=e=>e.airdate && new Date(e.airdate+'T23:59:59')<=NOW;
 // avoid a tz day-slip), the next not-yet-aired episode, and the "swing to Pierre" when a
 // member taps START on an episode that has not dropped yet (offer a notify instead).
 function wowTagFor(e){ return (window.WoW && e && e.airdate) ? WoW.tag(e.airdate+'T12:00:00') : ''; }
+// The show's effective watch-mode from the shared WoW store (manual pick, else the
+// account default). Drives the playhead glyph: flame = BINGE, leaf = FRESH.
+function wowShowModeLog(){
+  try{
+    const st = window.WoW && WoW.store && WoW.store.stateNow();
+    if(!st) return null;
+    const m = st.modes && curShowId && st.modes[curShowId];
+    if(m && m!=='DECLINED') return m;
+    return (st.user && st.user.defaultMode) || null;
+  }catch(_){ return null; }
+}
 // The next drop across the whole show (air order), not just the loaded season -- a
 // premiere of a not-yet-started season lives outside `eps`. allEps is season/number
 // ordered, so the first unaired episode is the true next drop.
@@ -671,17 +708,26 @@ function wowDropLabel(nx){
   if(!nx) return null;
   const d=wowDaysUntil(nx.airdate); if(d==null || d<0 || d>14) return null;   // outside the 2-week window
   const S='S'+(nx.season||1);
-  if(d===0) return { txt:S+' STARTS TODAY', soon:true };
-  if(d===1) return { txt:S+' STARTS TOMORROW', soon:true };
+  // "STARTS" only fits a true season premiere (episode 1). Mid-season the season already
+  // began, so name the episode instead -- "S4 EP2 TODAY", not the wrong "S4 STARTS TODAY".
+  const lead = (nx.number===1) ? (S+' STARTS') : (S+' EP'+(nx.number||'?'));
+  if(d===0) return { txt:lead+' TODAY', soon:true };
+  if(d===1) return { txt:lead+' TOMORROW', soon:true };
   const dow=wowWeekday(nx.airdate).toUpperCase();
-  if(d<=6) return { txt:S+' STARTS '+dow, soon:false };   // this week
-  return { txt:S+' NEXT '+dow, soon:false };               // 7-14 days out
+  if(d<=6) return { txt:lead+' '+dow, soon:false };       // this week
+  // 7-14 days out: premiere keeps the tight "S4 NEXT WED"; mid-season carries its EP tag.
+  return { txt:(nx.number===1 ? (S+' NEXT '+dow) : (lead+' NEXT '+dow)), soon:false };
 }
 
 function boot(show,list,isDefault){
   hideEmpty();                       // a show is loading — clear the empty state
   allEps=list;
   curShowId=show.id||null; curShowName=show.name||'';
+  // Pull the shared watch-mode store so the playhead glyph knows BINGE/FRESH; repaint
+  // the handle once it lands (async; the store is localStorage-backed and cached).
+  if(!DEMO && window.WoW && WoW.store && WoW.store.load){
+    try{ WoW.store.load(typeof acctEmail==='function'?acctEmail():'').then(()=>{ try{ paintMinute(); }catch(_){}}).catch(()=>{}); }catch(_){}
+  }
   const aired=[...new Set(allEps.filter(released).map(sNum))];
   const cur=aired.length?Math.max(...aired):(allEps.length?Math.max(...allEps.map(sNum)):1);
   eps=allEps.filter(e=>sNum(e)===cur); if(!eps.length) eps=allEps;
@@ -2109,8 +2155,13 @@ function paint(){
   const stBtn=$('startEpBtn');
   if(stBtn){
     stBtn.disabled = false;
-    stBtn.classList.remove('logpart', 'continue', 'greyed');
-    const unaired = !isMovie && eps[focus] && eps[focus].airdate && !released(eps[focus]);
+    stBtn.classList.remove('logpart', 'continue', 'greyed', 'dropstoday');
+    // "Drops today" (airdate is the local calendar today) is out already, even though
+    // released() waits for the full air-day to end -- so it is loggable now. Only a
+    // genuinely future episode stays greyed/notify.
+    const notReleased = !isMovie && eps[focus] && eps[focus].airdate && !released(eps[focus]);
+    const dropsToday = notReleased && wowDaysUntil(eps[focus].airdate)===0;
+    const unaired = notReleased && !dropsToday;
     if(unaired) {
       // Next episode has not dropped yet — greyed START. Tapping it swings to Pierre
       // to offer a notification, rather than starting an episode that does not exist yet.
@@ -2132,9 +2183,17 @@ function paint(){
       stBtn.textContent = 'CONTINUE';
       stBtn.classList.add('continue');
       stBtn.dataset.action = 'continue';
+    } else if((epMin[focus]||0) > 0) {
+      stBtn.textContent = 'CONTINUE';
+      stBtn.classList.add('continue');
+      stBtn.dataset.action = 'start';
+    } else if(dropsToday) {
+      // Fresh today: keep the "DROPS TODAY" cue but make it a live START (amber, not greyed).
+      stBtn.textContent = 'DROPS TODAY';
+      stBtn.classList.add('dropstoday');
+      stBtn.dataset.action = 'start';
     } else {
-      stBtn.textContent = (epMin[focus]||0) > 0 ? 'CONTINUE' : 'START';
-      if((epMin[focus]||0) > 0) stBtn.classList.add('continue');
+      stBtn.textContent = 'START';
       stBtn.dataset.action = 'start';
     }
   }
@@ -2250,7 +2309,16 @@ function paintMinute(){
   const cur=Math.max(0,Math.min(rt, minPreview!=null?minPreview:base));
   const pct=rt>0?cur/rt*100:0;
   $('minFill').style.width=pct+'%';
-  $('minHandle').style.left=pct+'%';
+  const hnd=$('minHandle'); hnd.style.left=pct+'%';
+  // Playhead glyph: paused/scrubbing → || badge; else the show's watch-mode
+  // (flame=BINGE, leaf=FRESH); else the default amber puck.
+  hnd.classList.remove('mk','flame','leaf','paused');
+  const paused = (typeof minDragging!=='undefined' && minDragging) || awaitingLog;
+  const mode = wowShowModeLog();
+  if(paused){ hnd.classList.add('paused'); hnd.innerHTML='<span class="pausebars"><i></i><i></i></span>'; }
+  else if(bingeLive() || mode==='MORE!' || mode==='BINGE'){ hnd.classList.add('mk','flame'); hnd.innerHTML='<svg viewBox="0 0 24 24"><use href="#mkFlame"/></svg>'; }
+  else if(mode==='FRESH'){ hnd.classList.add('mk','leaf'); hnd.innerHTML='<svg viewBox="0 0 24 24"><use href="#mkLeaf"/></svg>'; }
+  else { hnd.innerHTML=''; }
   // Left: elapsed time with animation frames after the number when watching
   const elapsedText = Math.round(cur)+' min';
   $('minElapsed').textContent = watchingLive[focus] ? elapsedText + ' ' + buildFrames[buildFrame % buildFrames.length] : elapsedText;
@@ -2447,6 +2515,11 @@ minBar.addEventListener('pointerdown',ev=>{ ev.preventDefault(); minBar.setPoint
   // after a scrub let the visibility handler log time-away as a watch. The live
   // anchor belongs solely to START / CONTINUE (startEpisode).
   minDragging=true;
+  // Grabbing the bar pauses a live watch: freeze the wall-clock timer at the current
+  // elapsed minute so scrubbing adjusts a stopped position (the || marker + "LOG n min"
+  // then ask you to commit it). The live anchor is cleared so a background/return walk
+  // can't resume ticking underneath the paused preview.
+  if(watchingLive[focus]){ epMin[focus]=liveMin(focus); sessionBase[focus]=epMin[focus]; watchingLive[focus]=false; startedAt[focus]=null; }
   minPreview=minFromX(ev.clientX); awaitingLog=false; paint(); });
 minBar.addEventListener('pointermove',ev=>{ if(!minDragging)return; minPreview=minFromX(ev.clientX); paintMinute(); });
 // On release the staged position becomes commit-ready: the left button flips to

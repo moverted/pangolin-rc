@@ -191,6 +191,15 @@
   /* Per-episode archive (WATCH): one collapsible block per episode, folding session
      timestamps + tickets + comments + replies + reflections together. */
   .ep-arch{margin-top:11px;display:flex;flex-direction:column;gap:7px}
+  /* Master collapse for the whole viewing log: starts closed, pops down on tap. */
+  .arch-toggle{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;
+    font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.12em;color:var(--muted);
+    text-transform:uppercase;padding:2px 0}
+  .arch-caret{font-size:12px;transition:transform .15s;flex:none}
+  .ep-arch.open .arch-caret{transform:rotate(90deg)}
+  .arch-toggle .arch-n{color:var(--ash);font-weight:400}
+  .arch-list{display:none;flex-direction:column;gap:7px}
+  .ep-arch.open .arch-list{display:flex}
   .ep-sessions{display:flex;flex-direction:column;gap:2px;margin-bottom:2px}
   .ep-sess{font-family:var(--mono);font-size:10px;color:var(--muted);line-height:1.45}
   .ep-sess .ts{color:var(--ash)}
@@ -273,6 +282,11 @@
   .bar.cd .fill{height:100%;background:var(--countdown);border-radius:3px}
   .bar.cd .fill.soon{background:var(--amber);box-shadow:0 0 5px rgba(233,162,60,.7)}
   .pop{position:absolute;top:50%;width:11px;height:11px;transform:translate(-50%,-50%);font-size:11px;line-height:11px;filter:drop-shadow(0 0 3px rgba(233,162,60,.8));pointer-events:none}
+  /* mode markers on the playhead: flame = BINGE, leaf = FRESH (SVG, own glow) */
+  .pop.mk{filter:none;width:auto;height:auto}
+  .pop.mk svg{display:block;width:14px;height:14px}
+  .pop.flame svg{filter:drop-shadow(0 0 4px rgba(255,90,20,.8))}
+  .pop.leaf svg{filter:drop-shadow(0 0 4px rgba(70,196,111,.8))}
 
   .tile.completed .poster{filter:saturate(.6) brightness(.74)}
   .tile.stopped{opacity:.62} .tile.stopped .poster{filter:grayscale(.85) brightness(.6)}
@@ -362,6 +376,17 @@
 </style>
 </head>
 <body>
+<!-- Shared playhead-marker glyphs: flame = BINGE, leaf = FRESH (referenced via <use>). -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <linearGradient id="mkFlameG" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#e11d1d"/><stop offset="52%" stop-color="#ff6a00"/><stop offset="100%" stop-color="#ffd21a"/>
+  </linearGradient>
+  <linearGradient id="mkLeafG" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0%" stop-color="#86e6a0"/><stop offset="55%" stop-color="#46c46f"/><stop offset="100%" stop-color="#2f8a4f"/>
+  </linearGradient>
+  <symbol id="mkFlame" viewBox="0 0 24 24"><path fill="url(#mkFlameG)" d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></symbol>
+  <symbol id="mkLeaf" viewBox="0 0 24 24"><path fill="url(#mkLeafG)" d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path fill="none" stroke="#e7fbee" stroke-width="1.6" stroke-linecap="round" d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></symbol>
+</defs></svg>
 <div class="face" id="face">
   <div class="head">
     <div class="label">WATCH</div>
@@ -613,14 +638,34 @@ function renderPierre(){
   el.innerHTML='<span class="q">Last:</span> <b>'+esc(s.name)+"</b>"+where+mid+' <span class="q">&middot; '+relDate(e.at)+"</span>";
 }
 
+// Playhead marker: popcorn by default; flame when the show's watch-mode is BINGE,
+// leaf when FRESH (movies have no watch-mode, so they always get the popcorn).
+function playheadMarkerHTML(s, leftPct){
+  const m=(typeof wowStampFor==='function')?wowStampFor(s):null;
+  const mode=(m && !m.off)?m.mode:null;
+  if(mode==='MORE!'||mode==='BINGE') return '<div class="pop mk flame" style="left:'+leftPct+'%"><svg viewBox="0 0 24 24"><use href="#mkFlame"/></svg></div>';
+  if(mode==='FRESH') return '<div class="pop mk leaf" style="left:'+leftPct+'%"><svg viewBox="0 0 24 24"><use href="#mkLeaf"/></svg></div>';
+  return '<div class="pop" style="left:'+leftPct+'%">&#127871;</div>';
+}
 function episodeBar(s){
-  if(s.failed||s.total===0)return '<div class="bar"></div>';
+  if(s.failed)return '<div class="bar"></div>';
+  // A movie is one runtime, not a pile of episodes: fill by minutes watched / runtime.
+  if(s.kind==='movie'){
+    const rt=s.runtime||0, mins=Math.max(0,s.lastMinute||0), done=bucketOf(s)==="completed";
+    const w=done?100:(rt>0?Math.max(0,Math.min(100,mins/rt*100)):0);
+    let h='<div class="bar">';
+    if(w>0)h+='<div class="seg w" style="width:'+w+'%"></div>';
+    if(w<100)h+='<div class="seg u" style="width:'+(100-w)+'%"></div>';
+    if(!done&&mins>0)h+=playheadMarkerHTML(s,w);
+    return h+"</div>";
+  }
+  if(s.total===0)return '<div class="bar"></div>';
   const w=(s.watched/s.total)*100,a=((s.released-s.watched)/s.total)*100,u=((s.total-s.released)/s.total)*100;
   let h='<div class="bar">';
   if(w>0)h+='<div class="seg w" style="width:'+w+'%"></div>';
   if(a>0)h+='<div class="seg a" style="width:'+a+'%"></div>';
   if(u>0)h+='<div class="seg u" style="width:'+u+'%"></div>';
-  if(bucketOf(s)!=="completed"&&s.watched>0&&s.watched<s.total&&!s.returnDate)h+='<div class="pop" style="left:'+w+'%">&#127871;</div>';
+  if(bucketOf(s)!=="completed"&&s.watched>0&&s.watched<s.total&&!s.returnDate)h+=playheadMarkerHTML(s,w);
   return h+"</div>";
 }
 function countdownBar(s){
@@ -635,7 +680,9 @@ function metaFor(s){
   if(s.failed)return '<span>data unavailable</span>';
   if(s.kind==='movie'){
     if(bucketOf(s)==="completed")return '<span class="done">&#10003; watched</span><span>film</span>';
-    return "<span>&#127909; film</span><span>"+(s.lastMinute>0?'in progress':'not started')+"</span>";
+    const rt=s.runtime||0, mins=Math.max(0,s.lastMinute||0), left=Math.max(0,rt-mins);
+    const state=(mins>0&&rt>0)?(left+' min left'):(rt>0?(rt+' min'):(mins>0?'in progress':'not started'));
+    return "<span>&#127909; film</span><span>"+state+"</span>";
   }
   if(bucketOf(s)==="completed")return '<span class="done">&#10003; done</span><span>'+s.total+'ep</span>';
   const left=s.released-s.watched,pos=s.lastWatched?"S"+s.lastWatched.season+" E"+s.lastWatched.number:"";
@@ -677,7 +724,8 @@ function expandedCard(s, mode){
   const pos = isMovie ? 'Film' : (s.lastWatched ? ('S'+s.lastWatched.season+' E'+s.lastWatched.number) : '');
   let metaTxt;
   if(mode==='completed'){ metaTxt = isMovie ? '&#10003; watched &middot; film' : ('&#10003; done &middot; '+(s.total||0)+' episodes'); }
-  else if(isMovie){ metaTxt = '&#127909; film &middot; '+(s.lastMinute>0?'in progress':'not started'); }
+  else if(isMovie){ const rt=s.runtime||0, mins=Math.max(0,s.lastMinute||0), left=Math.max(0,rt-mins);
+    metaTxt = '&#127909; film &middot; '+((mins>0&&rt>0)?(left+' min left'):(rt>0?(rt+' min'):(mins>0?'in progress':'not started'))); }
   else { const left=s.released-s.watched; metaTxt=(pos?pos+' &middot; ':'')+(left>0?left+' left':'caught up');
     const tg=wowTag(s); if(tg) metaTxt+='<span class="exc-tag">'+tg+'</span>'; }
   const poster = s.poster ? 'style="background-image:url('+s.poster+')"'
@@ -1077,7 +1125,10 @@ function recordFromTitle(t){
     lastDate:today, returnDate:null,
     comfort:t.status==="comfort", forceCompleted:t.status==="completed", stopped:t.status==="stopped",
     plan:null, isNew:false, addedSeq:0,
-    lastMinute:0, startedAt:t.started_at||null, epDetail:{}, currentEpisodeId:t.current_episode_id||null };
+    runtime: t.runtime||null,   // movie length (episodes.runtime of the single unit), for "min left"
+    // Seed a movie's paused position from its summed minutes so the tile bar/meta show
+    // progress on cold load (episode shows fill from watched counts instead).
+    lastMinute: isMovie ? (t.minutes||0) : 0, startedAt:t.started_at||null, epDetail:{}, currentEpisodeId:t.current_episode_id||null };
 }
 
 // Load the signed-in member's tracked titles from the catalog-backed endpoint.
@@ -1398,7 +1449,7 @@ function renderEpisodeArchive(host, s, data, includeBp){
     (ticketsByEp[key(e)]||[]).forEach(t=>{ if((t.createdAt||0)>m) m=t.createdAt; }); return m; };
   eps.sort((a,b)=>sortTs(b)-sortTs(a));
 
-  host.innerHTML = eps.map((e,i)=>{
+  const rowsHTML = eps.map((e,i)=>{
     const k = e._all ? (Object.keys(ticketsByEp)[0] ?? Object.keys(commentsByEp)[0] ?? Object.keys(coviewByEp)[0] ?? '') : key(e);
     const sessions=e.sessions||[];
     const fin=sessions.filter(x=>x.finished).pop();
@@ -1411,6 +1462,12 @@ function renderEpisodeArchive(host, s, data, includeBp){
         (when?' <span class="th">&middot; '+when+'</span>':'')+'</span></div>'+
       '<div class="vw-body">'+body+'</div></div>';
   }).join('');
+
+  // Whole log starts collapsed behind one header; the chevron > turns to v on tap.
+  const label = isMovie ? 'VIEWING' : 'VIEWING LOG';
+  host.innerHTML = '<div class="arch-toggle"><span class="arch-caret">&#8250;</span>'+label+
+    ' <span class="arch-n">'+eps.length+'</span></div><div class="arch-list">'+rowsHTML+'</div>';
+  host.querySelector('.arch-toggle').addEventListener('click',()=>host.classList.toggle('open'));
 
   host.querySelectorAll('.vw-head').forEach(h=>h.addEventListener('click',()=>h.parentElement.classList.toggle('open')));
   host.querySelectorAll('.ep-tix').forEach(b=>b.addEventListener('click',()=>showImg(b.dataset.img)));
