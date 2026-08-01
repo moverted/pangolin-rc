@@ -1440,7 +1440,50 @@
   const tedChip=()=>[{label:'Get Ted', onClick:getTed}];
   function getTed(){ pierreSay("Pinging Ted. He is the human in this operation, he can pick up what I cannot."); }
 
+  // A "which one?" poster picker. Hide the composer + band mic (like the end-note forks)
+  // so the full lineup is uncovered — the input box was overlapping the posters — and add
+  // a "type another" escape that restores the composer. Then reveal the options with a
+  // gentle scroll that RE-settles as the posters load (they arrive late and used to scroll
+  // the top pick out of view before you could see it).
+  function presentPicker(text, chips){
+    flowChrome(false);
+    const withEscape = chips.concat([{ label:'↻ type another', onClick:()=>{
+      flowChrome(true); const inp=document.getElementById('input'); if(inp) inp.focus();
+    }}]);
+    pierreSay(text, withEscape);
+    revealChips();
+  }
+  // eased custom scroll (native 'smooth' is too quick / uncontrollable for the bounce)
+  function glideScroll(el, to, dur){
+    const start=el.scrollTop, change=Math.round(to)-start, t0=performance.now();
+    if(!change) return;
+    const ease=t=>t<.5?2*t*t:1-Math.pow(-2*t+2,2)/2;   // easeInOutQuad
+    (function step(now){ const p=Math.min(1,(now-t0)/dur);
+      el.scrollTop=start+change*ease(p); if(p<1) requestAnimationFrame(step); })(performance.now());
+  }
+  // Bounce reveal: once the posters have sized, snap to the bottom (the whole lineup is
+  // there), then SLOWLY glide back up so the top pick sits near the top of the view. Fixes
+  // "it already scrolled by" — the options arrive, then settle on the recommended choice.
+  function revealChips(){
+    const msg=log.lastElementChild; if(!msg) return;
+    const chipsEl=msg.querySelector('.chips'); if(!chipsEl) return;
+    let ran=false;
+    const run=()=>{ if(ran || log.lastElementChild!==msg) return; ran=true;
+      log.scrollTop=log.scrollHeight;                 // 1) show the full lineup at the bottom
+      const first=chipsEl.querySelector('button')||chipsEl;
+      const delta=first.getBoundingClientRect().top - log.getBoundingClientRect().top - 14;
+      requestAnimationFrame(()=>glideScroll(log, log.scrollTop+delta, 900));  // 2) glide up to the top pick
+    };
+    const imgs=[...chipsEl.querySelectorAll('img')].filter(im=>!im.complete);
+    if(!imgs.length){ requestAnimationFrame(()=>requestAnimationFrame(run)); return; }
+    let left=imgs.length;
+    imgs.forEach(im=>{ const done=()=>{ if(--left<=0) run(); };
+      im.addEventListener('load', done, {once:true}); im.addEventListener('error', done, {once:true}); });
+    setTimeout(run, 1400);   // fallback if a poster stalls
+  }
+
   function enterAddFlow(vlog){
+    flowChrome(true);                 // ensure the composer is back if a prior picker hid it
     addHistory=Array.isArray(vlog)?vlog:[];
     addFlow='kind'; addKind='show'; addFailCount=0; joinFlow=null; acctFlow=null; noteCtx=null;
     setCtxIndicator('add');           // keep the chat; switching no longer wipes history
@@ -1511,9 +1554,9 @@
     // make them tap so a weird result can't load itself before they can react.
     const loneUncertain = mCands.length===1 && !sCands.length && mR && mR.uncertain;
     if(chips.length===1 && !loneUncertain){ sCands.length ? resolveShow(sCands[0]) : handoffMovie(mCands[0]); return; }
-    // Stay in 'kind': typing another title re-runs the combined search until they tap.
+    // Stay in 'kind': the "type another" escape restores the composer to re-run the search.
     addFlow='kind';
-    pierreSay("You did not say series or movie, so here is the whole spread. Which one?", chips);
+    presentPicker("You did not say series or movie, so here is the whole spread. Which one?", chips);
   }
 
   function candLabel(s){
@@ -1595,10 +1638,11 @@
     const cands=results.slice(0,4).map(x=>x.show);
     if(cands.length===1){ resolveShow(cands[0]); return; }
     addFlow='disambig';
-    pierreSay("More than one of those. Which?", cands.map(s=>({label:candLabel(s), poster:(s.image&&(s.image.medium||s.image.original))||null, onClick:()=>resolveShow(s)})));
+    presentPicker("More than one of those. Which?", cands.map(s=>({label:candLabel(s), poster:(s.image&&(s.image.medium||s.image.original))||null, onClick:()=>resolveShow(s)})));
   }
 
   function resolveShow(show){
+    flowChrome(true);                 // picked one → restore the composer for whatever's next
     addFlow='pattern';
     const h=findInHistory(show);
     const cur=h&&h.current;      // first not-done = where you actually are (may be mid-episode)
@@ -1702,10 +1746,11 @@
     const cands=results.slice(0,4);
     // Auto-pick only a confident lone hit; an uncertain one waits for a tap.
     if(cands.length===1 && !uncertain){ handoffMovie(cands[0]); return; }
-    pierreSay("More than one of those. Which?",
+    presentPicker(cands.length===1 ? "Is it this one?" : "More than one of those. Which?",
       cands.map(m=>({label:m.title+(m.year?' ('+m.year+')':''), poster:m.poster||null, onClick:()=>handoffMovie(m)})));
   }
   function handoffMovie(m){
+    flowChrome(true);                 // picked one → restore the composer
     addFlow=null;
     pierreSay("Putting on "+m.title+". Over to the screen.");
     try{ localStorage.setItem('pg_watch_open', 'tmdb:'+String(m.id).replace(/^tmdb:/,'')); }catch(_){}
@@ -1945,6 +1990,9 @@
     if(e.data && e.data.type==='cube:payload' && e.data.face==='pierre'){
       if(IS_DEMO) return;   // demo: Pierre's flows are off
       const p=e.data.payload||{};
+      // Safety: a picker hides the composer — if we return to Pierre for anything other than
+      // a note/reflection flow (which manage their own chrome), make sure it's back.
+      if(p.intent!=='note' && p.intent!=='season-note' && p.intent!=='series-note') flowChrome(true);
       if(p.intent) _intentSeen=true;   // arrived via an explicit flow → don't also proactively nudge
       if(p.intent==='add') enterAddFlow(p.history||[]);
       else if(p.intent==='join') enterJoinFlow();

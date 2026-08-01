@@ -90,6 +90,32 @@ async function searchMovies(env: Env, query: string): Promise<any[]> {
     .map(card);
 }
 
+// TMDB's search is punctuation-sensitive: "WALL·E" is found by "WALL.E" but NOT by
+// "WALL-E" / "WALL E" (the hyphen/space tokenise into junk like "Dawn Wall"). So for a
+// query carrying punctuation, also try dot / collapsed / spaced forms. No punctuation →
+// no variants (normal queries stay a single call).
+function punctVariants(q: string): string[] {
+  if (!/[^A-Za-z0-9\s]/.test(q)) return [];
+  const out = new Set<string>([
+    q.replace(/[^A-Za-z0-9\s]+/g, '.'),      // WALL-E → WALL.E  (TMDB's happy path)
+    q.replace(/[^A-Za-z0-9]+/g, ''),         // WALL-E → WALLE
+    q.replace(/[^A-Za-z0-9]+/g, ' ').trim(), // WALL-E → WALL E
+  ]);
+  out.delete(q);
+  return [...out].filter(Boolean);
+}
+
+// searchMovies for the query PLUS its punctuation variants, merged & de-duped, so a
+// title like "WALL·E" surfaces even when the user typed "WALL-E".
+async function searchAll(env: Env, q: string): Promise<any[]> {
+  const out = await searchMovies(env, q);
+  const seen = new Set(out.map((m) => m.id));
+  for (const v of punctVariants(q)) {
+    for (const m of await searchMovies(env, v)) if (!seen.has(m.id)) { seen.add(m.id); out.push(m); }
+  }
+  return out;
+}
+
 // ── Fuzzy matching (no LLM) ──────────────────────────────────────────────────
 // TMDB's keyword index has no spell/semantic tolerance, so the raw top hit can be
 // zero, or a literal-but-wrong title (e.g. "The Odessey" → a Zombies live album).
@@ -117,17 +143,21 @@ function lev(a: string, b: string): number {
   return prev[b.length] ?? 0;
 }
 
-// Blend of token recall (how many query words land in the title) and whole-string
-// edit similarity. 0..1; higher = closer to what the user typed.
+// Blend of token F1 (precision + recall of shared words) and whole-string edit
+// similarity. 0..1; higher = closer to what the user typed. F1 (not just recall) so a
+// padded title ("Pixar Remix: WALL·E in 16-Bit") can't beat the concise exact one
+// ("WALL·E") just by containing every word the user typed.
 function simScore(q: string, title: string): number {
   const a = nrm(q), b = nrm(title);
   if (!a || !b) return 0;
-  const qt = toks(q), tt = new Set(toks(title));
-  let hit = 0;
-  for (const t of qt) if (tt.has(t)) hit++;
-  const recall = qt.length ? hit / qt.length : 0;
+  const qset = new Set(toks(q)), tset = new Set(toks(title));
+  let inter = 0;
+  for (const t of qset) if (tset.has(t)) inter++;
+  const recall = qset.size ? inter / qset.size : 0;      // query words found in the title
+  const precision = tset.size ? inter / tset.size : 0;   // title words that are query words
+  const f1 = (recall + precision) ? (2 * recall * precision) / (recall + precision) : 0;
   const editSim = 1 - lev(a, b) / Math.max(a.length, b.length);
-  return 0.6 * recall + 0.4 * editSim;
+  return 0.6 * f1 + 0.4 * editSim;
 }
 
 // A confident hit = most query words present AND the title isn't padded with a pile
@@ -146,13 +176,21 @@ function confident(q: string, title: string): boolean {
 async function broadenSearch(env: Env, q: string, seed: any[]): Promise<any[]> {
   const pool = [...seed];
   const seen = new Set(pool.map((m) => m.id));
-  const qt = toks(q);
-  for (let cut = qt.length - 1; cut >= 1 && pool.length < 20; cut--) {
-    const sub = qt.slice(0, cut).join(' ');
-    if (sub.length < 2) break;
-    for (const m of await searchMovies(env, sub)) {
-      if (!seen.has(m.id)) { seen.add(m.id); pool.push(m); }
-    }
+  // Split on whitespace only — keep punctuation inside a word so "wall-e" stays intact
+  // for searchAll's dot-variant (dropping to nrm tokens would lose it).
+  const words = q.trim().split(/\s+/);
+  const subs = new Set<string>();
+  // Drop trailing words → the franchise anchor ("Spider-Man Brave New Day" → "Spider-Man").
+  for (let cut = words.length - 1; cut >= 1; cut--) subs.add(words.slice(0, cut).join(' '));
+  // Drop leading words → strip a descriptor prefix ("pixar wall-e" → "wall-e").
+  for (let start = 1; start < words.length; start++) subs.add(words.slice(start).join(' '));
+  // Search every sub-query (both directions get a fair shot — no early cap that lets a
+  // broad term like "pixar" starve the one that isolates the title). Bounded by word count.
+  let n = 0;
+  for (const sub of subs) {
+    if (n++ >= 10) break;
+    if (sub.replace(/[^A-Za-z0-9]/g, '').length < 2) continue;
+    for (const m of await searchAll(env, sub)) if (!seen.has(m.id)) { seen.add(m.id); pool.push(m); }
   }
   return pool;
 }
@@ -237,7 +275,7 @@ tmdbRoutes.get('/search', async (c) => {
   const q = clean(c.req.query('q'));
   if (!q) return c.json({ results: [] });
 
-  const raw = await searchMovies(c.env, q);
+  const raw = await searchAll(c.env, q);
   // A confident top hit is the common case — return immediately, no rescue cost.
   if (raw.length && confident(q, raw[0].title)) return c.json({ results: raw });
 
@@ -264,7 +302,7 @@ tmdbRoutes.get('/search', async (c) => {
     const top = raw[0]?.title || '';
     const suggest = await llmSuggestTitle(c.env, q, top);
     if (suggest && nrm(suggest) !== nrm(q) && nrm(suggest) !== nrm(top)) {
-      const alt = await searchMovies(c.env, suggest);
+      const alt = await searchAll(c.env, suggest);   // variants too: "WALL-E" suggestion → finds WALL·E
       if (alt.length > 0) {
         const merged = mergeById(alt, raw).slice(0, 12);
         // If we also kept an obscure raw hit alongside the suggestion, it's a genuine

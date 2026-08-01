@@ -66,6 +66,24 @@ configuration adds an entry here before the session ends (see CLAUDE.md,
     the search is `uncertain` — shows the poster lineup so the user chooses.
   - www/ re-mirrored + `cap copy ios` (still needs Ted's clean build for iOS).
 
+## 2026-07-31 (WALL·E fix) — Punctuation-robust search + F1 ranking
+- Worker: `GET /tmdb/search` (tmdb.ts) v4. TMDB is punctuation-sensitive — "WALL·E"
+  is found by "WALL.E" but NOT "WALL-E"/"WALL E" (hyphen/space → junk like "Dawn
+  Wall"). Fixes: `searchAll` also tries dot/collapsed/spaced variants of the query
+  (and of the LLM suggestion); `broadenSearch` now splits on whitespace (keeps
+  "wall-e" intact for the dot-variant) and drops BOTH leading and trailing words
+  (so "pixar wall-e" → "wall-e" → WALL·E) via searchAll, capped by sub-query count
+  (no pool-cap starvation). `simScore` now uses token F1 (precision+recall) not just
+  recall, so a padded title ("Pixar Remix: WALL·E in 16-Bit") can't outrank the
+  concise exact "WALL·E". Verified: WALL-E/wall-e/pixar wall-e all → WALL·E (2008);
+  Spider-Man Brave New Day, Interstellar, Dune unaffected.
+- DEPLOYED via `npm run deploy`. Final Version ID f5203075-f77e-43d7-964e-57a3f5a615c6.
+- Client (Pages, deployment 9af4a842): pierre add-flow poster picker now hides the
+  composer + band mic while choosing (the input box was overlapping the posters) via
+  the existing flowChrome, adds a "↻ type another" escape, and reveals the lineup with
+  a BOUNCE scroll (snap to bottom, then glide up to the top pick once posters load).
+  Composer restored on pick / add-flow entry / non-note rotate-in. www + cap copy synced.
+
 ## 2026-07-31 (later still) — Service picker options
 - Client only (Pages `pangolin-rc`, no Worker/D1 change). cube_log_face.html
   SERVICES: renamed "IRL Theater" → "Theaters" (THEATER_LABEL + a legacy remap
