@@ -84,6 +84,20 @@ configuration adds an entry here before the session ends (see CLAUDE.md,
   a BOUNCE scroll (snap to bottom, then glide up to the top pick once posters load).
   Composer restored on pick / add-flow entry / non-note rotate-in. www + cap copy synced.
 
+## 2026-08-01 — Log tickets via Pierre; don't mark watched on upload
+- Uploading a ticket is now a Pierre flow (add → "🎟 Ticket"): pick an image, the
+  server OCRs the TITLE + date/time/theater, Pierre fuzzy-matches the film, adds it,
+  and attaches the ticket — WITHOUT marking it watched. A future screening stays
+  "upcoming"; only a past screening finishes as watched (anchored to showtime). The
+  old LOG-face TICKET button got the same watched-vs-upcoming guard.
+- Worker: `readTicket` (index.ts) now also OCRs `title` and returns null for relative
+  date phrases ("Next Thursday"). `POST /ticket` returns `title` and accepts NO showId
+  (stores show_id=NULL for a Pierre upload). New `PATCH /ticket/:id/attach {showId}`
+  binds the ticket to the film once resolved. DEPLOYED — Version 9086c246-cab0-472a-9ed9-1747c6747aa0.
+- Client (Pages 9795ad0d): cube_pierre_face.html add-flow ticket option + upload +
+  OCR-title→fuzzy→handoff; cube_log_face.html logTicketedFilm (materialize + attach +
+  finish only if screening past). www + cap copy synced.
+
 ## 2026-08-01 — Theater ticket freshness badge (HOT/FRESH/CASUAL)
 - Films watched at a theater (a `watch_ticket` on file) get a torn-ticket stub badge
   on the WATCH tile: weekday you went + a freshness class from the delta between the

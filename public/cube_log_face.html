@@ -2669,6 +2669,28 @@ async function loadMovie(m,pattern){
   boot(show,[ep],false);
   applyPattern(pattern||{kind:'beginning'});
 }
+// A ticket logged from Pierre (OCR'd title → resolved film). Add the film to the log
+// and attach the ticket, but do NOT mark it watched unless the screening already
+// happened — a future ticket leaves the film "upcoming", just carrying the badge.
+async function logTicketedFilm(movie, ticket){
+  const titleId='tmdb:'+String(movie.id).replace(/^tmdb:/,'');
+  await loadTitle(titleId, {kind:'beginning'});      // materialize + add to the member's log
+  // bind the (show_id-null) Pierre ticket to this film
+  try{ await fetch(API_BASE+'/ticket/'+encodeURIComponent(ticket.id)+'/attach',{method:'PATCH',
+    headers:{'Content-Type':'application/json'}, body:JSON.stringify({showId:titleId, showName:movie.title})}); }catch(_){}
+  // theater becomes the "where"
+  if(ticket.theater){ chosenSvc=svcByLabel(ticket.theater); userPinned=true;
+    const k=svcKey(); if(k){ try{ localStorage.setItem(k, ticket.theater); }catch(_){} } renderSvcCorner(); }
+  const scr=parseScreening(ticket.date, ticket.time);
+  if(scr && scr.showtime <= Date.now()){
+    finishEpisode(scr);                               // already happened → watched, anchored to showtime
+  } else if(scr){                                     // upcoming → stay unwatched, nudge a reflection at let-out
+    const rt=runtimeOf(focus)||0, end=scr.filmStart + rt*60000;
+    (window.parent||window).postMessage({ type:'pg:scheduleReflection', at:end, titleId, showName:movie.title,
+      title:'How was '+movie.title+'?', body:'Tap to share a reflection while it is fresh.' }, '*');
+  }
+  loadTickets();
+}
 // Re-arm a live watch that was interrupted by a reload. The minute bar is recomputed
 // from wall-clock (liveMin), but its anchor (startedAt) lives only in memory — so a reload
 // would otherwise snap the bar back to the last saved minute and kill the timer ("lost
@@ -2758,7 +2780,8 @@ window.addEventListener('message',(e)=>{
     const p=e.data.payload||{};
     // The Log hands off a title_id; the Watch face loads episodes + the member's
     // progress from the catalog. (Legacy movie/show payloads still resolve.)
-    if(p.titleId){ loadTitle(p.titleId, p.pattern); }
+    if(p.movie && p.movie.id!=null && p.ticket){ logTicketedFilm(p.movie, p.ticket); }
+    else if(p.titleId){ loadTitle(p.titleId, p.pattern); }
     else if(p.movie && p.movie.id!=null){ loadTitle('tmdb:'+String(p.movie.id).replace(/^tmdb:/,''), p.pattern); }
     else if(p.show && p.show.id){ loadTitle(String(p.show.id).startsWith('tvmaze:')?p.show.id:'tvmaze:'+p.show.id, p.pattern); }
   }
@@ -3032,15 +3055,14 @@ async function uploadTicket(file){
     const r=await fetch(API_BASE+'/ticket', { method:'POST', body:fd, mode:'cors' });
     if(!r.ok){ const t=await r.text(); alert('Ticket upload failed: '+t.substring(0,80)); return; }
     const d=await r.json();
-    // Anchor the viewing to the ticket's real showtime (film starts 25 min after, past
-    // the trailers) instead of the upload moment — best-effort; unreadable → plain finish.
+    // Anchor to the ticket's real showtime (film starts 25 min after, past the trailers).
     const scr=parseScreening(d.date, d.time);
-    // Compute the film's let-out (filmStart + runtime) BEFORE finishEpisode advances focus.
     const scrEnd = scr ? scr.filmStart + (runtimeOf(focus)||0)*60000 : 0;
     const scrName = curShowName || 'that film';
-    finishEpisode(scr || undefined);   // submitting the ticket marks the film watched
-    // Theater = no live logging (you're in the dark). Instead ask the shell to fire a
-    // local notification when the movie lets out, nudging a reflection while it's fresh.
+    // Only mark watched if the screening already HAPPENED. A future ticket just logs —
+    // the film stays "upcoming" until the show lets out (then the reflection nudge fires).
+    if(!scr || scr.showtime <= Date.now()) finishEpisode(scr || undefined);
+    // Theater = no live logging (you're in the dark). Fire a reflection nudge at let-out.
     if(scr && scrEnd > Date.now()){
       (window.parent||window).postMessage({ type:'pg:scheduleReflection', at:scrEnd,
         titleId:curShowId||'', showName:curShowName||'',

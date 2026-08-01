@@ -638,9 +638,9 @@ app.post('/transcribe/reply', async (c) => {
 // Read a cinema ticket image with Claude vision: date, showtime, theater name.
 // Reuses the same Anthropic key as Pierre. Best-effort — any failure returns all
 // nulls so the ticket still saves. Haiku is plenty for this little OCR job.
-type TicketInfo = { date: string | null; time: string | null; theater: string | null };
+type TicketInfo = { title: string | null; date: string | null; time: string | null; theater: string | null };
 async function readTicket(env: Env, buffer: ArrayBuffer, mediaType: string): Promise<TicketInfo> {
-  const empty: TicketInfo = { date: null, time: null, theater: null };
+  const empty: TicketInfo = { title: null, date: null, time: null, theater: null };
   if (!env.ANTHROPIC_API_KEY) return empty;
   // Anthropic vision accepts jpeg/png/gif/webp; fall back to jpeg for anything else.
   const mt = /^image\/(jpeg|png|gif|webp)$/.test(mediaType) ? mediaType : 'image/jpeg';
@@ -668,12 +668,15 @@ async function readTicket(env: Env, buffer: ArrayBuffer, mediaType: string): Pro
             { type: 'image', source: { type: 'base64', media_type: mt, data: b64 } },
             { type: 'text', text:
               'This is a photo or screenshot of a movie theater ticket or screening confirmation. ' +
-              'Transcribe three fields EXACTLY as printed, reading carefully — do not infer or normalize: ' +
+              'Transcribe four fields EXACTLY as printed, reading carefully — do not infer or normalize: ' +
+              '"title" = the movie title (e.g. "Spider-Man: Brand New Day" or "The Odyssey"); drop any ' +
+              'trailing "(2026)" year in parentheses. ' +
               '"date" = the date as shown, verbatim, including the weekday if present (e.g. "Wed, Jun 24" or ' +
-              '"Saturday, June 20"); never add or guess a year that is not printed on the image. ' +
+              '"Saturday, June 20"); if the only date shown is a relative phrase like "Next Thursday" or ' +
+              '"Tomorrow", return null (do NOT transcribe the phrase); never add or guess a year that is not printed. ' +
               '"time" = the showtime as printed (e.g. "5:30 PM"). ' +
               '"theater" = the cinema/theater name (e.g. "AMC Burbank 16"). ' +
-              'Return ONLY minified JSON with exactly these keys: date, time, theater. ' +
+              'Return ONLY minified JSON with exactly these keys: title, date, time, theater. ' +
               'Use null for any field not present. No prose, no code fence.' },
           ],
         }],
@@ -686,7 +689,7 @@ async function readTicket(env: Env, buffer: ArrayBuffer, mediaType: string): Pro
     if (!m) return empty;
     const parsed = JSON.parse(m[0]) as Partial<TicketInfo>;
     const clean = (v: unknown) => (typeof v === 'string' && v.trim() && v.trim().toLowerCase() !== 'null' ? v.trim() : null);
-    return { date: clean(parsed.date), time: clean(parsed.time), theater: clean(parsed.theater) };
+    return { title: clean(parsed.title), date: clean(parsed.date), time: clean(parsed.time), theater: clean(parsed.theater) };
   } catch {
     return empty;
   }
@@ -733,12 +736,29 @@ app.post('/ticket', async (c) => {
 
     return c.json({
       id, episodeId, ticketUrl: `${new URL(c.req.url).origin}/ticket/${id}/image`,
-      date: info.date, time: info.time, theater: info.theater, createdAt: now,
+      title: info.title, date: info.date, time: info.time, theater: info.theater, createdAt: now,
     });
   } catch (error) {
     console.error('Ticket upload error:', error);
     return c.json({ error: 'upload failed', details: String(error).substring(0, 200) }, 500);
   }
+});
+
+// PATCH /ticket/:id/attach — bind a Pierre-uploaded ticket (show_id was null at read
+// time) to the film the client resolved from the OCR'd title. Idempotent.
+app.patch('/ticket/:id/attach', async (c) => {
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const id = c.req.param('id');
+  const showId = ((body.showId as string) || '').trim();
+  const showName = ((body.showName as string) || '').trim() || null;
+  const episodeId = ((body.episodeId as string) || '').trim() || null;
+  if (!showId) return c.json({ error: 'showId required' }, 400);
+  const res = await c.env.DB
+    .prepare('UPDATE watch_ticket SET show_id = ?, show_name = COALESCE(?, show_name), episode_id = COALESCE(?, episode_id) WHERE id = ?')
+    .bind(showId, showName, episodeId, id).run();
+  if (!res.meta.changes) return c.json({ error: 'not found' }, 404);
+  return c.json({ ok: true, id, showId });
 });
 
 // Stream a stored ticket image back from R2 (R2 has no signed-URL method).
