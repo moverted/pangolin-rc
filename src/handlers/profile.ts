@@ -268,7 +268,8 @@ profileRoutes.get('/:email/titles', async (c) => {
             (SELECT COUNT(*) FROM episodes e WHERE e.title_id=wt.title_id AND e.airdate IS NOT NULL AND e.airdate <= date('now')) AS released,
             (SELECT e.season FROM episodes e JOIN watch_episode we ON we.episode_id=e.episode_id AND we.user_email=wt.user_email WHERE e.title_id=wt.title_id AND (we.done=1 OR we.minute>0) ORDER BY e.season DESC, e.number DESC LIMIT 1) AS last_season,
             (SELECT e.number FROM episodes e JOIN watch_episode we ON we.episode_id=e.episode_id AND we.user_email=wt.user_email WHERE e.title_id=wt.title_id AND (we.done=1 OR we.minute>0) ORDER BY e.season DESC, e.number DESC LIMIT 1) AS last_number,
-            (SELECT wtk.created_at FROM watch_ticket wtk WHERE wtk.user_email=wt.user_email AND wtk.show_id=wt.title_id ORDER BY wtk.created_at DESC LIMIT 1) AS ticket_at
+            (SELECT wtk.created_at FROM watch_ticket wtk WHERE wtk.user_email=wt.user_email AND wtk.show_id=wt.title_id ORDER BY wtk.created_at DESC LIMIT 1) AS ticket_at,
+            (SELECT wtk.ticket_date FROM watch_ticket wtk WHERE wtk.user_email=wt.user_email AND wtk.show_id=wt.title_id ORDER BY wtk.created_at DESC LIMIT 1) AS ticket_date
        FROM watch_title wt JOIN titles t ON t.title_id = wt.title_id
       WHERE wt.user_email = ? ORDER BY wt.updated_at DESC`).bind(email).all();
   const list = (rows.results || []) as any[];

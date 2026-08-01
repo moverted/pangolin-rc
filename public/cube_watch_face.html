@@ -734,6 +734,32 @@ function filmDayTag(s){
 // caught it — HOT ≤7 days, FRESH 7–14, CASUAL after. Only films with BOTH a ticket
 // and a real release date qualify (others keep the plain filmDayTag).
 const TB_DOW=['SUN','MON','TUE','WED','THU','FRI','SAT'];
+const TB_MON={jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+const TB_DOWI={sun:0,mon:1,tue:2,wed:3,thu:4,fri:5,sat:6};
+// Turn a ticket's printed date ("TUE, AUG 04", "Aug 6 2026") into a real screening
+// timestamp. Tickets rarely print a year, so infer it: an explicit 4-digit year wins;
+// else if the weekday is printed (AMC does), pick the year near the upload where that
+// month/day actually falls on that weekday (deterministic); else the nearest year.
+function parseTicketDate(dateStr, fallbackMs){
+  if(!dateStr) return fallbackMs?Number(fallbackMs):null;
+  const s=String(dateStr).toLowerCase();
+  const mo=s.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/);
+  const dy=s.match(/\b(\d{1,2})\b/);
+  if(!mo||!dy) return fallbackMs?Number(fallbackMs):null;
+  const month=TB_MON[mo[1]], day=parseInt(dy[1],10);
+  const yr4=s.match(/\b(20\d{2})\b/), dow=s.match(/\b(sun|mon|tue|wed|thu|fri|sat)/);
+  const anchor=fallbackMs?new Date(Number(fallbackMs)):new Date(), base=anchor.getFullYear();
+  const nearest=()=>{ let b=base,g=Infinity; for(let y=base-2;y<=base+1;y++){ const c=new Date(y,month,day,12).getTime(), gg=Math.abs(c-anchor.getTime()); if(gg<g){g=gg;b=y;} } return b; };
+  let year;
+  if(yr4) year=parseInt(yr4[1],10);
+  else if(dow){
+    const want=TB_DOWI[dow[1]]; let b=null,g=Infinity;
+    for(let y=base-3;y<=base+1;y++){ const c=new Date(y,month,day,12); if(c.getDay()===want){ const gg=Math.abs(c-anchor); if(gg<g){g=gg;b=y;} } }
+    year = b!=null ? b : nearest();
+  } else year=nearest();
+  const ts=new Date(year,month,day,12).getTime();
+  return isNaN(ts) ? (fallbackMs?Number(fallbackMs):null) : ts;
+}
 function ticketClass(releaseDate, whenMs){
   if(!releaseDate || !whenMs) return null;
   const rel=new Date(releaseDate+'T12:00').getTime(); if(isNaN(rel)) return null;
@@ -757,7 +783,8 @@ function tbPath(w,h,n,rng){
 }
 function ticketBadge(s){
   if(!s || s.kind!=='movie' || !s.ticketAt) return '';
-  const when=Number(s.ticketAt);
+  // Real screening date from the ticket (weekday-confirmed year); fall back to upload time.
+  const when=parseTicketDate(s.ticketDate, s.ticketAt) || Number(s.ticketAt);
   const info=ticketClass(s.releaseDate, when); if(!info) return '';
   const day=TB_DOW[new Date(when).getDay()];
   const W=54,H=34, d=tbPath(W,H,3.4, tbRand(tbSeed(s.titleId||s.name||'x')));
@@ -1202,7 +1229,8 @@ function recordFromTitle(t){
     // progress on cold load (episode shows fill from watched counts instead).
     lastMinute: isMovie ? (t.minutes||0) : 0, startedAt:t.started_at||null, epDetail:{}, currentEpisodeId:t.current_episode_id||null,
     releaseDate: t.premiered||null,          // film's theatrical release (drives the ticket freshness class)
-    ticketAt: t.ticket_at||null };           // when a theater ticket was logged (epoch ms) → shows the stub badge
+    ticketAt: t.ticket_at||null,             // when a theater ticket was logged (epoch ms) → shows the stub badge
+    ticketDate: t.ticket_date||null };       // the ticket's printed date ("TUE, AUG 04") → real screening day
 }
 
 // Load the signed-in member's tracked titles from the catalog-backed endpoint.
