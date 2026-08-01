@@ -231,8 +231,9 @@ function snapToFace(fi) {
 let pierreMicSuppressed = false;
 function pierreMicSync() {
   const on = locked && activeFace === PIERRE_FACE && !pierreMicSuppressed;
-  if (window._setPierreMic)
-    window._setPierreMic(on || (!pierreMicSuppressed && !!(window._pierreMicBusy && window._pierreMicBusy())));   // a live capture holds its ground
+  // Band mic retired — the mic now lives in the Pierre composer (voice-first). Keep it
+  // hidden; only the context picker still syncs to Pierre focus.
+  if (window._setPierreMic) window._setPierreMic(false);
   if (window._setPierreCtx) window._setPierreCtx(on);
 }
 

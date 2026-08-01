@@ -430,7 +430,10 @@
   function suppressBandMic(on){ try{ if(window.parent!==window) window.parent.postMessage({ type:'pg:micSuppress', on:!!on }, '*'); }catch(_){} }
   // Used at each decision point (fork · spoiler · share) and at flow end: show=false hides
   // the composer + band mic (chips only); show=true restores both (and normal chat).
-  function flowChrome(show){ showComposer(show); suppressBandMic(!show); if(show) setSendMode('send'); }
+  // Voice-first: the composer rests on the MIC (same record→transcribe as the end-note
+  // Comment step). Typing is the fallback — tap the text box and the focus handler morphs
+  // the mic into the send arrow. suppressBandMic stays for the old band mic (now removed).
+  function flowChrome(show){ showComposer(show); suppressBandMic(!show); if(show) setSendMode('mic'); }
   // Pin the conversation to the bottom AFTER layout settles (a double rAF) — arriving at
   // the finish fork and hiding the composer both reflow the log, so a synchronous
   // scrollTop lands short and clips the newest message behind the console band.
@@ -1305,7 +1308,7 @@
     // Name step: the typed line is a title, not a chat turn. Route by kind (TMDB
     // for a film, TVmaze for a series). Drop the keyboard so results show full-face.
     if(addFlow==='name'){ input.blur(); (addKind==='movie'?resolveMovieName:resolveShowName)(text); return; }
-    input.focus();   // keep the keyboard up / stay pinned in the chat
+    setSendMode('mic'); input.blur();   // voice-first: settle back on the mic after each turn
     ask(text);
   }
 
@@ -1328,6 +1331,7 @@
   input.addEventListener('input', autoGrow);
   function autoGrow(){ input.style.height='auto'; input.style.height=Math.min(input.scrollHeight, 120)+'px'; }
   function inputSecret(on){ input.classList.toggle('secret', !!on); }
+  setSendMode('mic');   // voice-first resting state on load (typing is a tap away)
 
   // Console-keyboard email mode. The shell keyboard reads data-kb="email" off the
   // focused field and switches to its email layout (@ / . on the primary row +
