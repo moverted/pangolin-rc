@@ -29,6 +29,7 @@
     --base:#181210; --base-2:#211915; --line:#352a23;
     --amber:#E9A23C; --watched:#1c5a37; --avail:#46c46f; --unrel:#463d36;
     --countdown:#caa15e; --ash:#6b5d52; --plan:#bb8ae6; --text:#f5efe9; --muted:#b3a193;
+    --hot:#ff5a3c; --fresh:#46c46f; --casual:#c9a15e;   /* theater ticket freshness */
     --mine:#FFFFFF; --friend:#F0C070; --reply:#A8E0A0;   /* comment tiers: me / friend / reply */
     --display:"Space Grotesk",sans-serif; --body:"Inter",sans-serif; --mono:"JetBrains Mono",monospace;
   }
@@ -264,6 +265,13 @@
     padding:3px 7px;border-radius:5px;box-shadow:0 1px 4px rgba(0,0,0,.5);white-space:nowrap}
   .exc-tag{display:inline-block;font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.06em;color:var(--amber);
     border:1px solid rgba(240,168,40,.55);background:rgba(26,18,6,.5);padding:2px 8px;border-radius:999px;margin-left:8px}
+  /* Theater ticket stub: torn-left / notched-right badge, weekday + freshness class. */
+  .tile .tikbadge{position:absolute;top:8px;right:8px;z-index:2;width:54px;height:34px;color:var(--casual)}
+  .tile .tikbadge.hot{color:var(--hot)} .tile .tikbadge.fresh{color:var(--fresh)} .tile .tikbadge.casual{color:var(--casual)}
+  .tile .tikbadge svg{position:absolute;inset:0;width:100%;height:100%;filter:drop-shadow(0 1px 4px rgba(0,0,0,.55))}
+  .tile .tikbadge .tb-txt{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1;padding-left:3px}
+  .tile .tikbadge .tb-day{font-family:var(--mono);font-weight:700;font-size:12px;letter-spacing:.02em}
+  .tile .tikbadge .tb-cls{font-family:var(--mono);font-weight:700;font-size:6.5px;letter-spacing:.12em;margin-top:2px;opacity:.95}
   /* Watch-pattern rubber stamp: the user's watchMode, ink-stamped on the card. */
   .tile .wowstamp{position:absolute;top:40px;right:8px;z-index:3;transform:rotate(-11deg);
     font-family:var(--mono);font-weight:700;font-size:10px;letter-spacing:.14em;color:var(--amber);
@@ -719,6 +727,44 @@ function filmDayTag(s){
   if(!d || isNaN(d.getTime())) return '';
   return d.toLocaleDateString('en-US',{weekday:'long'}).toUpperCase();   // "TUESDAY"
 }
+
+// ── Theater ticket stub badge ────────────────────────────────────────────────
+// A film watched at a theater (a ticket is on file) gets a torn-ticket badge: the
+// weekday you went + a freshness class from how long after theatrical release you
+// caught it — HOT ≤7 days, FRESH 7–14, CASUAL after. Only films with BOTH a ticket
+// and a real release date qualify (others keep the plain filmDayTag).
+const TB_DOW=['SUN','MON','TUE','WED','THU','FRI','SAT'];
+function ticketClass(releaseDate, whenMs){
+  if(!releaseDate || !whenMs) return null;
+  const rel=new Date(releaseDate+'T12:00').getTime(); if(isNaN(rel)) return null;
+  const days=Math.floor((whenMs-rel)/86400000);
+  if(days < -1) return null;                       // "watched" before release → not a theater catch
+  if(days <= 7)  return {cls:'hot',    label:'HOT'};
+  if(days <= 14) return {cls:'fresh',  label:'FRESH'};
+  return           {cls:'casual', label:'CASUAL'};
+}
+// Deterministic RNG so a film's tear is stable across re-renders (no flicker).
+function tbSeed(str){ let h=2166136261>>>0; for(let i=0;i<str.length;i++){ h^=str.charCodeAt(i); h=Math.imul(h,16777619);} return h>>>0; }
+function tbRand(seed){ let x=(seed||1)>>>0; return ()=>{ x=(Math.imul(x,1664525)+1013904223)>>>0; return x/4294967296; }; }
+// Stub outline: straight top & bottom, a semicircle notch on the RIGHT, an irregular
+// RIPPED left edge (seeded jitter). Same shape approved in the localhost preview.
+function tbPath(w,h,n,rng){
+  const m=h/2, jMax=6;
+  let p='M 0 0 H '+w+' V '+(m-n)+' A '+n+' '+n+' 0 0 0 '+w+' '+(m+n)+' V '+h+' H 0 ';
+  let y=h;
+  while(y>0){ y=Math.max(0, y-(1.6+rng()*2.6)); const x=(Math.pow(rng(),0.7)*jMax); p+='L '+x.toFixed(1)+' '+y.toFixed(1)+' '; }
+  return p+'L 0 0 Z';
+}
+function ticketBadge(s){
+  if(!s || s.kind!=='movie' || !s.ticketAt) return '';
+  const when=Number(s.ticketAt);
+  const info=ticketClass(s.releaseDate, when); if(!info) return '';
+  const day=TB_DOW[new Date(when).getDay()];
+  const W=54,H=34, d=tbPath(W,H,3.4, tbRand(tbSeed(s.titleId||s.name||'x')));
+  return '<div class="tikbadge '+info.cls+'">'
+    + '<svg viewBox="0 0 '+W+' '+H+'"><path d="'+d+'" fill="rgba(26,18,6,.92)" stroke="currentColor" stroke-width="1.5"/></svg>'
+    + '<span class="tb-txt"><span class="tb-day">'+day+'</span><span class="tb-cls">'+info.label+'</span></span></div>';
+}
 function tileFor(s,asStopped){
   const b=bucketOf(s);
   const cls="tile"+(b==="completed"?" completed":"")+(s.failed?" failed":"")+(asStopped?" stopped":"");
@@ -729,10 +775,11 @@ function tileFor(s,asStopped){
   if(asStopped) footer='<button class="tryagain" data-act="resume" data-id="'+s.id+'">&#8635; try again</button>';
   else if(s.returnDate&&b!=="completed") footer=returnLine(s);
   else footer='<div class="meta">'+metaFor(s)+"</div>";
-  const tg = wowTag(s) || filmDayTag(s);
+  const tb = ticketBadge(s);                         // theater films: torn-ticket stub
+  const tg = tb ? '' : (wowTag(s) || filmDayTag(s)); // others: plain day / airdate tag
   return '<div class="'+cls+'" data-id="'+s.id+'">'+posterDiv(s)+'<div class="scrim"></div>'+
     (s.isNew?'<div class="newflag">NEW</div>':'')+
-    (tg?'<div class="wowtag">'+tg+'</div>':'')+
+    (tb || (tg?'<div class="wowtag">'+tg+'</div>':''))+
     wowStampHTML(s)+
     '<div class="body"><div class="title">'+titleHTML(s.name)+"</div>"+bars+footer+"</div></div>";
 }
@@ -1153,7 +1200,9 @@ function recordFromTitle(t){
     runtime: t.runtime||null,   // movie length (episodes.runtime of the single unit), for "min left"
     // Seed a movie's paused position from its summed minutes so the tile bar/meta show
     // progress on cold load (episode shows fill from watched counts instead).
-    lastMinute: isMovie ? (t.minutes||0) : 0, startedAt:t.started_at||null, epDetail:{}, currentEpisodeId:t.current_episode_id||null };
+    lastMinute: isMovie ? (t.minutes||0) : 0, startedAt:t.started_at||null, epDetail:{}, currentEpisodeId:t.current_episode_id||null,
+    releaseDate: t.premiered||null,          // film's theatrical release (drives the ticket freshness class)
+    ticketAt: t.ticket_at||null };           // when a theater ticket was logged (epoch ms) → shows the stub badge
 }
 
 // Load the signed-in member's tracked titles from the catalog-backed endpoint.

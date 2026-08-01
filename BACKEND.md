@@ -84,6 +84,25 @@ configuration adds an entry here before the session ends (see CLAUDE.md,
   a BOUNCE scroll (snap to bottom, then glide up to the top pick once posters load).
   Composer restored on pick / add-flow entry / non-note rotate-in. www + cap copy synced.
 
+## 2026-08-01 — Theater ticket freshness badge (HOT/FRESH/CASUAL)
+- Films watched at a theater (a `watch_ticket` on file) get a torn-ticket stub badge
+  on the WATCH tile: weekday you went + a freshness class from the delta between the
+  film's theatrical release and the ticket. HOT ≤7 days, FRESH 7–14, CASUAL after.
+- Worker: `card()` (tmdb.ts) now carries full `release_date`; catalog materializer
+  (catalog.ts) stores it as the movie's `premiered`/episode `airdate` (was `YYYY-01-01`
+  year-fallback). `ensureReleaseDate()` self-heals older titles: when the titles
+  endpoint returns a *ticketed* film with a `-01-01` fallback, it re-fetches the real
+  date from TMDB once and persists it. `GET /:email/titles` (profile.ts) now also
+  returns `ticket_at` (latest ticket created_at) and back-fills release dates for
+  ticketed films before responding. Reads/writes titles+episodes only; no schema change.
+- DEPLOYED via `npm run deploy`. Version ID 71f7b083-300e-41ef-88b6-b0423221d654.
+  Verified: The Odyssey → premiered 2026-07-15, ticket 2026-08-01 → 16d → CASUAL.
+- Client (Pages, deployment 0e139549): cube_watch_face.html renders the stub badge
+  (tbPath = straight top/bottom, right notch, seeded irregular torn left edge — the
+  shape approved on localhost) with --hot/--fresh/--casual colors; only films with a
+  ticket + release date show it, others keep the plain filmDayTag. www + cap copy
+  synced for the next iOS build.
+
 ## 2026-07-31 (clickwheel picker) — Wheel-driven poster selection
 - Client only (Pages, deployment d720f950). Extends the existing wheel dialog-scrub
   (clickwheel.js `activeDialog`) with a case for Pierre's add-flow poster picker: a

@@ -63,11 +63,14 @@ async function materializeTitle(env: Env, source: string, ref: string, titleId: 
   if (source === 'tmdb') {
     const m = await fetchTmdbMovie(env, ref);
     if (!m) return null;
+    // Real theatrical release date drives the theater "freshness" badge (HOT/FRESH/CASUAL);
+    // fall back to Jan 1 of the year only when TMDB has no full date.
+    const relDate = m.release_date || (m.year ? `${m.year}-01-01` : null);
     titleRow = { title_id: titleId, source, name: m.title || '', kind: 'movie', status: 'Film',
       poster: m.poster || null, platform: '', total_episodes: 1, summary: cleanSummary(m.overview),
-      premiered: m.year ? `${m.year}-01-01` : null, updated_at: now };
+      premiered: relDate, updated_at: now };
     epInputs = [{ season: 1, number: 1, name: m.title || '', runtime: m.runtime || 120,
-      airdate: m.year ? `${m.year}-01-01` : null, summary: cleanSummary(m.overview) }];
+      airdate: relDate, summary: cleanSummary(m.overview) }];
   } else {
     let show: any;
     try {
@@ -137,6 +140,29 @@ export async function ensureTitleSummary(env: Env, titleId: string): Promise<str
     await env.DB.prepare('UPDATE titles SET summary = ? WHERE title_id = ?').bind(summary, titleId).run();
   }
   return summary;
+}
+
+// Lazy backfill of a movie's real theatrical release date. Titles materialized before
+// full release dates were stored carry a year-fallback (`YYYY-01-01`); when the freshness
+// badge needs one (a ticketed film), re-fetch it once from TMDB and persist to both
+// titles.premiered and the single episode's airdate. Best-effort; returns the date in use.
+export async function ensureReleaseDate(env: Env, titleId: string): Promise<string | null> {
+  const row = await env.DB.prepare('SELECT source, kind, premiered FROM titles WHERE title_id = ?').bind(titleId).first<any>();
+  if (!row || row.kind !== 'movie' || row.source !== 'tmdb') return row?.premiered ?? null;
+  const cur: string | null = row.premiered;
+  if (cur && !/-01-01$/.test(cur)) return cur;                 // already a real (non-Jan-1-fallback) date
+  const i = titleId.indexOf(':');
+  const ref = i >= 0 ? titleId.slice(i + 1) : titleId;
+  let rel: string | null = null;
+  try { const m = await fetchTmdbMovie(env, ref); rel = m?.release_date || null; } catch { return cur; }
+  if (rel && rel !== cur) {
+    await env.DB.batch([
+      env.DB.prepare('UPDATE titles SET premiered = ? WHERE title_id = ?').bind(rel, titleId),
+      env.DB.prepare('UPDATE episodes SET airdate = ? WHERE title_id = ?').bind(rel, titleId),
+    ]);
+    return rel;
+  }
+  return cur;
 }
 
 // POST /catalog/initiate — materialize a title for a member at a watch pattern.

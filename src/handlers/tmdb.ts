@@ -33,6 +33,7 @@ const card = (m: any) => ({
   id: m.id,
   title: m.title || m.name || '',
   year: year(m.release_date),
+  release_date: typeof m.release_date === 'string' && m.release_date ? m.release_date : null, // full YYYY-MM-DD
   poster: m.poster_path ? IMG + m.poster_path : null,
   overview: typeof m.overview === 'string' ? m.overview : '',
   runtime: typeof m.runtime === 'number' ? m.runtime : null, // only present on /movie/:id

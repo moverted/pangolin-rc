@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { pushRow, pushRows, deleteRow } from './airtable';
-import { ensureTitleSummary } from './catalog';
+import { ensureTitleSummary, ensureReleaseDate } from './catalog';
 
 // Account + device API. SEAM:identity — email is the key, no auth in this build.
 export const profileRoutes = new Hono<{ Bindings: Env }>();
@@ -267,10 +267,20 @@ profileRoutes.get('/:email/titles', async (c) => {
             (SELECT e.runtime FROM episodes e WHERE e.title_id=wt.title_id ORDER BY e.season, e.number LIMIT 1) AS runtime,
             (SELECT COUNT(*) FROM episodes e WHERE e.title_id=wt.title_id AND e.airdate IS NOT NULL AND e.airdate <= date('now')) AS released,
             (SELECT e.season FROM episodes e JOIN watch_episode we ON we.episode_id=e.episode_id AND we.user_email=wt.user_email WHERE e.title_id=wt.title_id AND (we.done=1 OR we.minute>0) ORDER BY e.season DESC, e.number DESC LIMIT 1) AS last_season,
-            (SELECT e.number FROM episodes e JOIN watch_episode we ON we.episode_id=e.episode_id AND we.user_email=wt.user_email WHERE e.title_id=wt.title_id AND (we.done=1 OR we.minute>0) ORDER BY e.season DESC, e.number DESC LIMIT 1) AS last_number
+            (SELECT e.number FROM episodes e JOIN watch_episode we ON we.episode_id=e.episode_id AND we.user_email=wt.user_email WHERE e.title_id=wt.title_id AND (we.done=1 OR we.minute>0) ORDER BY e.season DESC, e.number DESC LIMIT 1) AS last_number,
+            (SELECT wtk.created_at FROM watch_ticket wtk WHERE wtk.user_email=wt.user_email AND wtk.show_id=wt.title_id ORDER BY wtk.created_at DESC LIMIT 1) AS ticket_at
        FROM watch_title wt JOIN titles t ON t.title_id = wt.title_id
       WHERE wt.user_email = ? ORDER BY wt.updated_at DESC`).bind(email).all();
-  return c.json({ titles: rows.results || [] });
+  const list = (rows.results || []) as any[];
+  // Ticketed films drive the freshness badge → make sure their release date is real
+  // (self-healing: year-fallback → TMDB), so HOT/FRESH/CASUAL is accurate.
+  await Promise.all(list.map(async (t) => {
+    if (t.kind === 'movie' && t.ticket_at && typeof t.premiered === 'string' && /-01-01$/.test(t.premiered)) {
+      const rel = await ensureReleaseDate(c.env, t.title_id).catch(() => null);
+      if (rel) t.premiered = rel;
+    }
+  }));
+  return c.json({ titles: list });
 });
 
 // One title's full detail for the episode face: catalog episodes merged with the
