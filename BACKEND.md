@@ -42,6 +42,30 @@ configuration adds an entry here before the session ends (see CLAUDE.md,
   done; www/ mirrored from public/. Native plugin + web bundle need a CLEAN
   build to take effect.
 
+## 2026-07-31 (later) — Full delete + no obscure auto-load
+- Worker: `DELETE /:email/titles/:title_id` (profile.ts) is now a FULL delete —
+  also drops the member's `watch_ticket` + `reflection` rows for that show_id
+  and best-effort deletes the ticket R2 images (was title + episodes only).
+  Still email-scoped (a member can only delete their own copy). Fixes: no way
+  to fully remove a title (e.g. a wrong movie) from the log after STOP.
+- Worker: `GET /tmdb/search` gate v3 — new `uncertain` flag + `llmSuggestTitle`.
+  When the only hit is an obscure real title that isn't what they meant
+  ("The Odessey" → a 1968 Zombies album), Haiku suggests the mainstream film
+  ("The Odyssey") and BOTH go in `results` (suggestion first); `uncertain:true`
+  when a weak/obscure raw hit is kept, so the client won't auto-pick a lone
+  result. Verified: "The Odessey" now leads with The Odyssey (2026); Brand New
+  Day / Interstellar / Gladeator still correct.
+- DEPLOYED 2026-07-31 via `npm run deploy`. Version ID
+  41dcc1cd-60f8-4397-a3c1-2fa626a37788.
+- Client (Pages `pangolin-rc`) DEPLOYED via `wrangler pages deploy public`
+  (deployment 632e0911):
+  - cube_watch_face.html: "REMOVE FROM LOG / DELETE" button on the completed/
+    stopped expanded card (data-act=remove → removePermanently, now with a
+    confirm() and a real server delete for any signed-in member, not owner-only).
+  - cube_pierre_face.html: add-flow no longer auto-picks a lone film hit when
+    the search is `uncertain` — shows the poster lineup so the user chooses.
+  - www/ re-mirrored + `cap copy ios` (still needs Ted's clean build for iOS).
+
 Entry format:
 
 ## YYYY-MM-DD — short title

@@ -1507,7 +1507,10 @@
     const chips=[];
     sCands.forEach(s=>chips.push({label:candLabel(s)+' · Series', poster:(s.image&&(s.image.medium||s.image.original))||null, onClick:()=>resolveShow(s)}));
     mCands.forEach(m=>chips.push({label:m.title+(m.year?' ('+m.year+')':'')+' · Movie', poster:m.poster||null, onClick:()=>handoffMovie(m)}));
-    if(chips.length===1){ sCands.length ? resolveShow(sCands[0]) : handoffMovie(mCands[0]); return; }
+    // Auto-pick a lone hit — UNLESS it's an uncertain film match (obscure/weak), where we
+    // make them tap so a weird result can't load itself before they can react.
+    const loneUncertain = mCands.length===1 && !sCands.length && mR && mR.uncertain;
+    if(chips.length===1 && !loneUncertain){ sCands.length ? resolveShow(sCands[0]) : handoffMovie(mCands[0]); return; }
     // Stay in 'kind': typing another title re-runs the combined search until they tap.
     addFlow='kind';
     pierreSay("You did not say series or movie, so here is the whole spread. Which one?", chips);
@@ -1679,9 +1682,9 @@
         return;
       }
     }catch(_){ /* log unreachable → fall through to the world search */ }
-    let results=[], corrected=null;
+    let results=[], corrected=null, uncertain=false;
     try{ const r=await fetch(`${API}/tmdb/search?q=`+encodeURIComponent(text));
-      if(r.ok){ const d=await r.json(); results=d.results||[]; corrected=d.corrected||null; } else results=[]; }
+      if(r.ok){ const d=await r.json(); results=d.results||[]; corrected=d.corrected||null; uncertain=!!d.uncertain; } else results=[]; }
     catch(e){ results=null; }
     clearTyping();
     if(results===null){
@@ -1695,9 +1698,10 @@
       return;
     }
     addFailCount=0;
-    if(corrected){ pierreSay('Reading that as “'+corrected+'.”'); }
+    if(corrected){ pierreSay(uncertain ? 'That one is obscure — did you mean “'+corrected+'”?' : 'Reading that as “'+corrected+'.”'); }
     const cands=results.slice(0,4);
-    if(cands.length===1){ handoffMovie(cands[0]); return; }
+    // Auto-pick only a confident lone hit; an uncertain one waits for a tap.
+    if(cands.length===1 && !uncertain){ handoffMovie(cands[0]); return; }
     pierreSay("More than one of those. Which?",
       cands.map(m=>({label:m.title+(m.year?' ('+m.year+')':''), poster:m.poster||null, onClick:()=>handoffMovie(m)})));
   }

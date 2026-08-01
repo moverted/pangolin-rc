@@ -180,8 +180,21 @@ async function gateAllows(env: Env, ip: string): Promise<boolean> {
   }
 }
 
-async function llmCorrectTitle(env: Env, query: string): Promise<string | null> {
+// Ask Haiku what mainstream film the user most likely meant. Handles both a pure
+// miss (topTitle empty → "Gladeator" → "Gladiator") and the trap where TMDB's only
+// hit is an obscure real title that isn't what they meant ("The Odessey" → the
+// only hit is a 1968 Zombies album, but they meant "The Odyssey"). Returns null if
+// it can't improve on what we have (reply "NONE"), so we don't invent corrections.
+async function llmSuggestTitle(env: Env, query: string, topTitle: string): Promise<string | null> {
   if (!env.ANTHROPIC_API_KEY) return null;
+  const content = topTitle
+    ? `A user searched a movie database for "${query}". The only close match was "${topTitle}", ` +
+      `which may be an obscure title that is NOT what they meant. What well-known movie did they ` +
+      `most likely actually want? Reply with ONLY that movie's title — no quotes, year, or ` +
+      `explanation. If "${topTitle}" is almost certainly what they wanted, reply exactly: NONE`
+    : `A user searched a movie database for "${query}" and got no results — likely a misspelling ` +
+      `or a slightly mis-remembered title. Reply with ONLY the single most likely real movie ` +
+      `title they meant — no quotes, year, or explanation. If you truly cannot guess, reply exactly: NONE`;
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -193,30 +206,32 @@ async function llmCorrectTitle(env: Env, query: string): Promise<string | null> 
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 60,
-        messages: [{
-          role: 'user',
-          content:
-            'A user searched a movie database by title and got zero results. They likely ' +
-            'misspelled it or slightly misremembered it. Reply with the single most likely ' +
-            'real, canonical movie title they meant — nothing else. No quotes, no year, no ' +
-            'punctuation beyond what is in the title, no explanation. If you truly cannot ' +
-            'guess, reply with the exact input unchanged.\n\nSearch: ' + query,
-        }],
+        messages: [{ role: 'user', content }],
       }),
     });
     if (!res.ok) return null;
     const data = (await res.json()) as { content?: Array<{ type: string; text?: string }> };
     const text = (data.content || []).filter((b) => b.type === 'text').map((b) => b.text || '').join('').trim();
     const title = text.replace(/^["'\s]+|["'\s]+$/g, '').slice(0, 200);
-    return title || null;
+    if (!title || nrm(title) === 'none') return null;
+    return title;
   } catch {
     return null;
   }
 }
 
-// GET /tmdb/search?q=...  → { results: [movie card], corrected?: "canonical title" }
-// `corrected` is set when the raw query was a miss and we rescued it (fuzzy-ranked
-// from the catalogue, or LLM-corrected), so the client can show "Reading that as …".
+// Merge candidate lists, corrected/alternative first, de-duped by TMDB id.
+function mergeById(primary: any[], secondary: any[]): any[] {
+  const out = [...primary];
+  const seen = new Set(out.map((m) => m.id));
+  for (const m of secondary) if (!seen.has(m.id)) { seen.add(m.id); out.push(m); }
+  return out;
+}
+
+// GET /tmdb/search?q=...  → { results: [movie card], corrected?, uncertain? }
+// `corrected` = the canonical title we rescued to; `uncertain` = the raw hit was weak,
+// so the client should NOT auto-pick a lone result — show the lineup and let the user
+// choose (this is what stops an obscure album loading itself before they can react).
 tmdbRoutes.get('/search', async (c) => {
   if (!c.env.TMDB_API_KEY) return c.json({ error: 'movies not configured', results: [] }, 503);
   const q = clean(c.req.query('q'));
@@ -240,17 +255,27 @@ tmdbRoutes.get('/search', async (c) => {
     }
   }
 
-  // Stage 2 (LLM, rate-limited): a pure typo the catalogue can't rank up
-  // ("Gladeator" → "Gladiator"). Ask Haiku for the canonical title, search once more.
+  // Stage 2 (LLM, rate-limited): either a pure typo ("Gladeator" → "Gladiator"), or the
+  // only hit is an obscure real title that isn't what they meant ("The Odessey" → a 1968
+  // album, but they meant "The Odyssey"). Ask what they most likely meant; when it lands,
+  // put BOTH the suggestion and the raw hit in the lineup so the user picks.
   const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || '';
   if (await gateAllows(c.env, ip)) {
-    const corrected = await llmCorrectTitle(c.env, q);
-    if (corrected && nrm(corrected) !== nrm(q)) {
-      const rescued = await searchMovies(c.env, corrected);
-      if (rescued.length > 0) return c.json({ results: rescued, corrected });
+    const top = raw[0]?.title || '';
+    const suggest = await llmSuggestTitle(c.env, q, top);
+    if (suggest && nrm(suggest) !== nrm(q) && nrm(suggest) !== nrm(top)) {
+      const alt = await searchMovies(c.env, suggest);
+      if (alt.length > 0) {
+        const merged = mergeById(alt, raw).slice(0, 12);
+        // If we also kept an obscure raw hit alongside the suggestion, it's a genuine
+        // choice → uncertain, so the client shows both instead of auto-picking.
+        return c.json({ results: merged, corrected: suggest, uncertain: merged.length > 1 });
+      }
     }
   }
-  return c.json({ results: raw });   // nothing better — hand back whatever raw had
+  // Nothing better. If the lone raw hit is a weak match, flag it so the client makes the
+  // user tap rather than silently committing it.
+  return c.json({ results: raw, uncertain: raw.length > 0 && !confident(q, raw[0].title) });
 });
 
 // Server-side movie detail (card with runtime), for the catalog materializer. Returns

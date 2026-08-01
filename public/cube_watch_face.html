@@ -168,6 +168,11 @@
     font-family:var(--mono);font-weight:700;font-size:11px;letter-spacing:.05em;border-radius:999px;padding:7px 13px}
   .exc-again .ic{font-size:13px;line-height:1}
   .exc-again:active{transform:scale(.96)}
+  /* completed/stopped card → permanently remove the title from the log */
+  .exc-remove{display:inline-flex;align-items:center;gap:6px;margin:10px 0 2px;cursor:pointer;
+    border:1px solid rgba(224,80,72,.5);background:rgba(224,80,72,.1);color:#e5726a;
+    font-family:var(--mono);font-weight:700;font-size:10.5px;letter-spacing:.05em;border-radius:999px;padding:6px 12px}
+  .exc-remove:active{transform:scale(.96)}
   /* per-viewing list (one ticket = one viewing); newest open, older collapsed */
   .viewings{margin-top:11px;display:flex;flex-direction:column;gap:7px}
   .vw{border:1px solid var(--line);border-radius:11px;background:rgba(255,255,255,.02);overflow:hidden}
@@ -759,7 +764,9 @@ function expandedCard(s, mode){
         '<div class="exc-top"><div class="exc-poster" '+poster+'></div>'+
           '<div class="exc-info"><div class="exc-title">'+titleHTML(s.name)+'</div>'+
             '<div class="exc-meta done">'+metaTxt+'</div>'+
-            '<div class="exc-syn">'+syn+'</div></div></div>'+
+            '<div class="exc-syn">'+syn+'</div>'+
+            '<button class="exc-remove" data-act="remove" data-id="'+s.id+'"><span class="ic">&#128465;</span>'+
+              (s.stopped?'REMOVE FROM LOG':'DELETE')+'</button></div></div>'+
         '<div class="ep-arch" id="arch-'+s.id+'"><div class="vw-empty">loading episodes…</div></div>'+
         '</div>';
   }
@@ -1589,14 +1596,17 @@ function tryAgain(id){
   s.lastDate=new Date().toISOString().slice(0,10);
   selectedId=null; patchTitle(s,{op:'reset'}); switchTab("current"); renderPierre();
 }
-// COMPLETED → "remove permanently": the owner account gets a real delete (show +
-// all its data); everyone else just hides it locally for the session.
+// COMPLETED/STOPPED → "remove from log": a real, permanent delete of THIS member's
+// title + all its progress (the shared catalog row stays). The DELETE endpoint is
+// scoped to the caller's own email, so any signed-in member may delete their own —
+// not just the owner. Irreversible, so confirm first.
 function removePermanently(id){
   const s=LOG.find(x=>x.id===id); if(!s)return;
+  if(!confirm('Delete “'+(s.name||'this title')+'” from your log? This removes it and all its viewing history for good.')) return;
   const i=LOG.indexOf(s); if(i>=0) LOG.splice(i,1);
   selectedId=null;
   const email=acct();
-  if(email && email.toLowerCase()===OWNER_EMAIL && s.titleId)
+  if(email && s.titleId)
     fetch(API+"/profile/"+encodeURIComponent(email)+"/titles/"+encodeURIComponent(s.titleId),{method:"DELETE"}).catch(()=>{});
   render(); renderPierre();
 }

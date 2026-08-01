@@ -399,15 +399,27 @@ profileRoutes.patch('/:email/titles/:title_id', async (c) => {
   return c.json({ ok: true, status: recomputed?.status });
 });
 
-// Withdraw a title: drop the member's title + episode progress (catalog stays shared).
+// Withdraw a title: a FULL delete of this member's copy — title + episode progress,
+// plus any tickets (and their R2 images) and reflections filed against it. The shared
+// catalog row stays. Scoped to the caller's own email, so a member can only delete
+// their own. show_id is the title key on tickets/reflections (tmdb:/tvmaze:<id>).
 profileRoutes.delete('/:email/titles/:title_id', async (c) => {
   const email = c.req.param('email').toLowerCase();
   const titleId = c.req.param('title_id');
   const eps = await c.env.DB.prepare('SELECT episode_id FROM watch_episode WHERE user_email=? AND title_id=?').bind(email, titleId).all<{ episode_id: string }>();
+  // Ticket images live in R2 (tickets/<show_id>/<id>); grab keys before dropping rows.
+  const tks = await c.env.DB.prepare('SELECT ticket_r2_key FROM watch_ticket WHERE user_email=? AND show_id=?').bind(email, titleId).all<{ ticket_r2_key: string | null }>();
   await c.env.DB.batch([
     c.env.DB.prepare('DELETE FROM watch_episode WHERE user_email=? AND title_id=?').bind(email, titleId),
     c.env.DB.prepare('DELETE FROM watch_title WHERE user_email=? AND title_id=?').bind(email, titleId),
+    c.env.DB.prepare('DELETE FROM watch_ticket WHERE user_email=? AND show_id=?').bind(email, titleId),
+    c.env.DB.prepare('DELETE FROM reflection WHERE user_email=? AND show_id=?').bind(email, titleId),
   ]);
+  // Best-effort purge of the ticket images; a miss here just leaves an orphan blob.
+  await Promise.all((tks.results || [])
+    .map((t) => t.ticket_r2_key)
+    .filter((k): k is string => !!k)
+    .map((k) => c.env.RAW_BUCKET.delete(k).catch(() => {})));
   unmirror(c, 'watch_title', `${email}|${titleId}`);
   for (const r of eps.results || []) unmirror(c, 'watch_episode', `${email}|${r.episode_id}`);
   return c.json({ ok: true });
