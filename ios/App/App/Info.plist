@@ -26,6 +26,10 @@
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>PangolinRC uses the microphone when you tap to record a short voice comment. Clips are stored so friends can hear them after they finish the episode.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>PangolinRC uses the camera when you photograph a movie ticket to log a theater viewing.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>PangolinRC lets you pick a screenshot of your movie ticket from Photos to log a theater viewing.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>PangolinRC saves your share card (image or video) to Photos when you choose Save from the share sheet.</string>
 	<key>NSLocalNetworkUsageDescription</key>
