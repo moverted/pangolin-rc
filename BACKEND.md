@@ -84,6 +84,16 @@ configuration adds an entry here before the session ends (see CLAUDE.md,
   a BOUNCE scroll (snap to bottom, then glide up to the top pick once posters load).
   Composer restored on pick / add-flow entry / non-note rotate-in. www + cap copy synced.
 
+## 2026-07-31 (clickwheel picker) — Wheel-driven poster selection
+- Client only (Pages, deployment d720f950). Extends the existing wheel dialog-scrub
+  (clickwheel.js `activeDialog`) with a case for Pierre's add-flow poster picker: a
+  `.chips.pk-active` row (marked by presentPicker) is scrubbed by the ring — the
+  highlight steps chip→chip starting on the top pick (`.cur`), SELECT clicks the
+  highlighted candidate, and the trailing "↻ type another" chip is itself an item
+  (SELECT it, or long-press to cancel, and the composer/keyboard returns). Picking by
+  tap or wheel clears the mark. Works because Pierre is a `locked` face during chat.
+  No Worker/API change. www + cap copy synced for the iOS build.
+
 ## 2026-07-31 (later still) — Service picker options
 - Client only (Pages `pangolin-rc`, no Worker/D1 change). cube_log_face.html
   SERVICES: renamed "IRL Theater" → "Theaters" (THEATER_LABEL + a legacy remap

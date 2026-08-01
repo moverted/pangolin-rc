@@ -1445,12 +1445,28 @@
   // a "type another" escape that restores the composer. Then reveal the options with a
   // gentle scroll that RE-settles as the posters load (they arrive late and used to scroll
   // the top pick out of view before you could see it).
+  // Mark the freshest chips row as the wheel's active picker: `pk-active` (clickwheel's
+  // activeDialog scrubs it) and `.cur` on the top pick (where the highlight starts).
+  function markPicker(){
+    try{
+      log.querySelectorAll('.chips.pk-active').forEach(c=>c.classList.remove('pk-active'));
+      log.querySelectorAll('.chips .cur').forEach(b=>b.classList.remove('cur'));
+      const chipsEl=log.lastElementChild && log.lastElementChild.querySelector('.chips'); if(!chipsEl) return;
+      chipsEl.classList.add('pk-active');
+      const first=chipsEl.querySelector('button'); if(first) first.classList.add('cur');
+    }catch(_){}
+  }
+  function clearPickerMark(){ try{ log.querySelectorAll('.chips.pk-active').forEach(c=>c.classList.remove('pk-active')); }catch(_){} }
   function presentPicker(text, chips){
     flowChrome(false);
-    const withEscape = chips.concat([{ label:'↻ type another', onClick:()=>{
+    // Wrap every choice so picking (by tap OR by wheel SELECT) also releases the wheel picker.
+    const wrap = fn => function(){ clearPickerMark(); return fn ? fn.apply(this, arguments) : undefined; };
+    const decorated = chips.map(c => Object.assign({}, c, { onClick: wrap(c.onClick) }));
+    decorated.push({ label:'↻ type another', onClick: wrap(()=>{
       flowChrome(true); const inp=document.getElementById('input'); if(inp) inp.focus();
-    }}]);
-    pierreSay(text, withEscape);
+    }) });
+    pierreSay(text, decorated);
+    markPicker();
     revealChips();
   }
   // eased custom scroll (native 'smooth' is too quick / uncontrollable for the bounce)

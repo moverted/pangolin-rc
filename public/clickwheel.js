@@ -205,6 +205,19 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey, cubeNavSte
       return { type:'reel',
                confirm(){ try { doc.defaultView.__reelSet(); } catch(_){} },
                cancel(){ const c = doc.querySelector('#svcCancel'); if(c) c.click(); } };
+    // Pierre's add-flow poster picker: the ring highlights each candidate (the wheel-hl
+    // steps chip→chip, starting on the top pick marked .cur), SELECT picks the highlighted
+    // one, and the last chip ("↻ type another") is itself an item — highlight + SELECT it,
+    // or long-press to cancel, and the keyboard comes back. See presentPicker (pierre face).
+    const pk = doc.querySelector('.chips.pk-active');
+    if(pk)
+      return { type:'list',
+               items(){ return Array.prototype.slice.call(pk.querySelectorAll('button'))
+                          .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0 && !el.disabled); },
+               confirm(){ const b = doc._wheelHL;
+                          const el = (b && b._el) || pk.querySelector('button.cur') || pk.querySelector('button:not([disabled])');
+                          if(el) el.click(); },
+               cancel(){ const btns = pk.querySelectorAll('button'); const esc = btns[btns.length - 1]; if(esc) esc.click(); } };
     return null;
   }
   function dialogStep(doc, dlg, dir){
