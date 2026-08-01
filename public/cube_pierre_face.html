@@ -110,6 +110,11 @@
   .chip:hover{background:rgba(239,177,78,.14);}
   .chip:active{transform:translateY(1px);}
   .chip.on{background:rgba(224,50,44,.18);color:#ff9d5c;border-color:rgba(224,50,44,.6);}   /* spoiler toggle: armed */
+  /* poster-card chip: a title candidate rendered as a small poster + caption */
+  .chip.hasimg{display:flex;flex-direction:column;align-items:center;gap:6px;width:108px;padding:7px 7px 9px;
+    border-radius:12px;text-align:center;}
+  .chip.hasimg .chip-poster{width:94px;height:141px;object-fit:cover;border-radius:6px;background:rgba(239,177,78,.08);display:block;}
+  .chip.hasimg .chip-label{display:block;line-height:1.25;}   /* full title + year, no truncation */
 
   /* Context switcher + mic now live in the shell's off-cube band (see index.html
      / cube_shell.js). The face keeps only the switch/clear logic, driven same-origin. */
@@ -1418,7 +1423,13 @@
     wrap.querySelector('.bubble').textContent=text;
     if(chips && chips.length){
       const c=document.createElement('div'); c.className='chips';
-      chips.forEach(ch=>{ const b=document.createElement('button'); b.className='chip'+(ch.on?' on':''); b.textContent=ch.label;
+      chips.forEach(ch=>{ const b=document.createElement('button'); b.className='chip'+(ch.on?' on':'')+(ch.poster?' hasimg':'');
+        if(ch.poster){                                   // poster-card chip: art on top, title below
+          const im=document.createElement('img'); im.className='chip-poster'; im.loading='lazy'; im.alt=''; im.src=ch.poster;
+          im.onerror=()=>{ b.classList.remove('hasimg'); im.remove(); };  // broken art → fall back to a plain text chip
+          b.appendChild(im);
+          const t=document.createElement('span'); t.className='chip-label'; t.textContent=ch.label; b.appendChild(t);
+        } else { b.textContent=ch.label; }
         if(keepFocus) b.addEventListener('mousedown', e=>e.preventDefault());  // don't blur the input
         b.onclick=()=>{ c.querySelectorAll('button').forEach(x=>x.disabled=true); ch.onClick(); };
         c.appendChild(b); });
@@ -1490,10 +1501,12 @@
       return;
     }
     addFailCount=0;
+    // LLM gate rescued a mistyped/mis-remembered film title → tell them what it read as.
+    if(mR && mR.corrected && !shows.length){ pierreSay('Reading that as “'+mR.corrected+'.”'); }
     const sCands=shows.slice(0,3), mCands=movies.slice(0,4);
     const chips=[];
-    sCands.forEach(s=>chips.push({label:candLabel(s)+' · Series', onClick:()=>resolveShow(s)}));
-    mCands.forEach(m=>chips.push({label:m.title+(m.year?' ('+m.year+')':'')+' · Movie', onClick:()=>handoffMovie(m)}));
+    sCands.forEach(s=>chips.push({label:candLabel(s)+' · Series', poster:(s.image&&(s.image.medium||s.image.original))||null, onClick:()=>resolveShow(s)}));
+    mCands.forEach(m=>chips.push({label:m.title+(m.year?' ('+m.year+')':'')+' · Movie', poster:m.poster||null, onClick:()=>handoffMovie(m)}));
     if(chips.length===1){ sCands.length ? resolveShow(sCands[0]) : handoffMovie(mCands[0]); return; }
     // Stay in 'kind': typing another title re-runs the combined search until they tap.
     addFlow='kind';
@@ -1579,7 +1592,7 @@
     const cands=results.slice(0,4).map(x=>x.show);
     if(cands.length===1){ resolveShow(cands[0]); return; }
     addFlow='disambig';
-    pierreSay("More than one of those. Which?", cands.map(s=>({label:candLabel(s), onClick:()=>resolveShow(s)})));
+    pierreSay("More than one of those. Which?", cands.map(s=>({label:candLabel(s), poster:(s.image&&(s.image.medium||s.image.original))||null, onClick:()=>resolveShow(s)})));
   }
 
   function resolveShow(show){
@@ -1666,9 +1679,9 @@
         return;
       }
     }catch(_){ /* log unreachable → fall through to the world search */ }
-    let results=[];
+    let results=[], corrected=null;
     try{ const r=await fetch(`${API}/tmdb/search?q=`+encodeURIComponent(text));
-      results = r.ok ? ((await r.json()).results||[]) : []; }
+      if(r.ok){ const d=await r.json(); results=d.results||[]; corrected=d.corrected||null; } else results=[]; }
     catch(e){ results=null; }
     clearTyping();
     if(results===null){
@@ -1682,10 +1695,11 @@
       return;
     }
     addFailCount=0;
+    if(corrected){ pierreSay('Reading that as “'+corrected+'.”'); }
     const cands=results.slice(0,4);
     if(cands.length===1){ handoffMovie(cands[0]); return; }
     pierreSay("More than one of those. Which?",
-      cands.map(m=>({label:m.title+(m.year?' ('+m.year+')':''), onClick:()=>handoffMovie(m)})));
+      cands.map(m=>({label:m.title+(m.year?' ('+m.year+')':''), poster:m.poster||null, onClick:()=>handoffMovie(m)})));
   }
   function handoffMovie(m){
     addFlow=null;
@@ -1795,7 +1809,7 @@
     const chosen=new Set(joinPicks[joinStep].map(p=>p.id));
     const cands=results.map(x=>x.show).filter(s=>!chosen.has(s.id)).slice(0,4);
     if(!cands.length){ pierreSay("Already on your list. Another?", null, true); return; }
-    pierreSay("Which one?", cands.map(s=>({label:candLabel(s), onClick:()=>addJoinPick(s)})), true);
+    pierreSay("Which one?", cands.map(s=>({label:candLabel(s), poster:(s.image&&(s.image.medium||s.image.original))||null, onClick:()=>addJoinPick(s)})), true);
   }
   function addJoinPick(show){
     const cfg=JOIN_STEPS[joinStep];

@@ -703,6 +703,17 @@ function wowTag(s){
   const n = WoW.nextUp(wowEps(s));
   return n ? WoW.tag(n.airstamp) : '';
 }
+// Films have no weekly cadence, but they still get a day badge: the weekday the film
+// entered the system — its screening/watch anchor (started_at, e.g. a Tuesday ticket),
+// or failing that the day the row was logged. Mirrors the series weekly-release TAG.
+function filmDayTag(s){
+  if(!s || s.kind!=='movie') return '';
+  let d=null;
+  if(s.startedAt) d=new Date(Number(s.startedAt));
+  else if(s.lastDate) d=new Date(s.lastDate+'T12:00');   // midday: avoid a TZ midnight day-flip
+  if(!d || isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-US',{weekday:'long'}).toUpperCase();   // "TUESDAY"
+}
 function tileFor(s,asStopped){
   const b=bucketOf(s);
   const cls="tile"+(b==="completed"?" completed":"")+(s.failed?" failed":"")+(asStopped?" stopped":"");
@@ -713,7 +724,7 @@ function tileFor(s,asStopped){
   if(asStopped) footer='<button class="tryagain" data-act="resume" data-id="'+s.id+'">&#8635; try again</button>';
   else if(s.returnDate&&b!=="completed") footer=returnLine(s);
   else footer='<div class="meta">'+metaFor(s)+"</div>";
-  const tg = wowTag(s);
+  const tg = wowTag(s) || filmDayTag(s);
   return '<div class="'+cls+'" data-id="'+s.id+'">'+posterDiv(s)+'<div class="scrim"></div>'+
     (s.isNew?'<div class="newflag">NEW</div>':'')+
     (tg?'<div class="wowtag">'+tg+'</div>':'')+
@@ -728,9 +739,11 @@ function expandedCard(s, mode){
   const isMovie = s.kind==='movie';
   const pos = isMovie ? 'Film' : (s.lastWatched ? ('S'+s.lastWatched.season+' E'+s.lastWatched.number) : '');
   let metaTxt;
-  if(mode==='completed'){ metaTxt = isMovie ? '&#10003; watched &middot; film' : ('&#10003; done &middot; '+(s.total||0)+' episodes'); }
+  const dayTg = isMovie ? filmDayTag(s) : '';
+  const dayPill = dayTg ? '<span class="exc-tag">'+dayTg+'</span>' : '';
+  if(mode==='completed'){ metaTxt = isMovie ? ('&#10003; watched &middot; film'+dayPill) : ('&#10003; done &middot; '+(s.total||0)+' episodes'); }
   else if(isMovie){ const rt=s.runtime||0, mins=Math.max(0,s.lastMinute||0), left=Math.max(0,rt-mins);
-    metaTxt = '&#127909; film &middot; '+((mins>0&&rt>0)?(left+' min left'):(rt>0?(rt+' min'):(mins>0?'in progress':'not started'))); }
+    metaTxt = '&#127909; film &middot; '+((mins>0&&rt>0)?(left+' min left'):(rt>0?(rt+' min'):(mins>0?'in progress':'not started')))+dayPill; }
   else { const left=s.released-s.watched; metaTxt=(pos?pos+' &middot; ':'')+(left>0?left+' left':'caught up');
     const tg=wowTag(s); if(tg) metaTxt+='<span class="exc-tag">'+tg+'</span>'; }
   const poster = s.poster ? 'style="background-image:url('+s.poster+')"'

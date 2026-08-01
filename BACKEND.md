@@ -4,6 +4,44 @@ Append-only log. Any session that touches the Worker, D1, or deploy
 configuration adds an entry here before the session ends (see CLAUDE.md,
 "Backend and deploy rules").
 
+## 2026-07-31 — Title-correction gate on movie search (v2) + client polish
+- Worker: `GET /tmdb/search` (src/handlers/tmdb.ts) now rescues missed queries
+  in two stages when the raw TMDB top hit isn't a `confident()` match:
+  1. **No-LLM, catalogue-first:** `broadenSearch()` drops trailing words to the
+     franchise anchor ("Spider-Man Brave New Day" → "Spider-Man"), then
+     `simScore()` (token recall + Levenshtein) fuzzy-ranks TMDB's LIVE results
+     against the full query. This fixes brand-new films the LLM can't recall —
+     "Spider-Man Brave New Day" → "Spider-Man: Brand New Day" (2026). Verified.
+  2. **LLM fallback (Haiku, same ANTHROPIC_API_KEY as ticket OCR/Pierre):** for
+     a pure typo the catalogue can't rank up — "Gladeator" → "Gladiator",
+     "Intersteller" → "Interstellar", "The Odyssy" → "The Odyssey". Verified.
+  Response adds optional `corrected` (canonical title) → client shows
+  "Reading that as …". No new route.
+  - KNOWN EDGE: "The Odessey" is NOT corrected — "Odessey" is itself a real
+    title (Zombies' "Odessey & Oracle"), so TMDB returns a legit hit and Haiku
+    won't override a real word. Acceptable; tightening it risks over-correcting.
+- Token-burn guard: `gateAllows()` caps LLM corrections at 5 per client IP per
+  rolling hour via ACCESS_KV (`llmgate:<ip>:<hour>` counter, 1h TTL). Fail-open
+  on KV error. Stage 1 (fuzzy) costs no LLM and doesn't consume the quota.
+  Reads/writes ACCESS_KV only; no D1.
+- DEPLOYED 2026-07-31 via `npm run deploy` (wrangler deploy). Final Version ID
+  2c778019-be52-4269-8d52-eeb23a617f12 (v2; earlier v1 was 1ff33eed).
+- Client (Pages `pangolin-rc`, no build) DEPLOYED same day via
+  `wrangler pages deploy public` (deployment 06cb875a):
+  - cube_pierre_face.html surfaces `corrected` and renders poster-card
+    candidate chips (108px card / 94×141 poster, full title + year).
+  - cube_watch_face.html: films get a day-of-week badge (`filmDayTag`, e.g.
+    TUESDAY) on the tile + expanded card, mirroring the series release TAG.
+  - cube_log_face.html anchors theater-ticket viewings to the real showtime
+    (`parseScreening` → filmStart = showtime + 25 min trailers) instead of the
+    upload moment, and posts `pg:scheduleReflection` to the shell.
+  - cube_shell.js: reflection-notification bridge (schedules a native local
+    notification at the film's let-out; taps route back to the film).
+- iOS (needs Ted's clean archive/build): added `@capacitor/local-notifications`
+  8.2.1 (registered in ios/App/CapApp-SPM/Package.swift). `cap sync`/`cap copy`
+  done; www/ mirrored from public/. Native plugin + web bundle need a CLEAN
+  build to take effect.
+
 Entry format:
 
 ## YYYY-MM-DD — short title

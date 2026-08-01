@@ -73,24 +73,184 @@ const detailCard = (m: any) => {
   };
 };
 
-// GET /tmdb/search?q=...  → { results: [movie card] }
+// Run one TMDB movie search and shape the results. Returns [] on any upstream miss
+// so the caller can decide whether to try a corrected query.
+async function searchMovies(env: Env, query: string): Promise<any[]> {
+  let res: Response;
+  try {
+    res = await tmdbFetch(env, '/search/movie', { query, include_adult: 'false' });
+  } catch {
+    return [];
+  }
+  if (!res.ok) return [];
+  const data = (await res.json()) as { results?: any[] };
+  return (data.results || [])
+    .filter((m) => m && m.id && (m.title || m.name))
+    .slice(0, 12)
+    .map(card);
+}
+
+// ── Fuzzy matching (no LLM) ──────────────────────────────────────────────────
+// TMDB's keyword index has no spell/semantic tolerance, so the raw top hit can be
+// zero, or a literal-but-wrong title (e.g. "The Odessey" → a Zombies live album).
+// These let us judge "is the top hit actually what they asked for" and, when not,
+// rank TMDB's LIVE catalogue against the full query — which rescues brand-new
+// franchise films the LLM can't recall ("Brave New Day" → "Brand New Day").
+const nrm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+const toks = (s: string) => nrm(s).split(' ').filter(Boolean);
+
+// Levenshtein edit distance (small strings; iterative two-row DP).
+function lev(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  let prev: number[] = Array.from({ length: b.length + 1 }, (_, i) => i);
+  let curr: number[] = new Array(b.length + 1).fill(0);
+  for (let i = 1; i <= a.length; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min((curr[j - 1] ?? 0) + 1, (prev[j] ?? 0) + 1, (prev[j - 1] ?? 0) + cost);
+    }
+    [prev, curr] = [curr, prev];
+  }
+  return prev[b.length] ?? 0;
+}
+
+// Blend of token recall (how many query words land in the title) and whole-string
+// edit similarity. 0..1; higher = closer to what the user typed.
+function simScore(q: string, title: string): number {
+  const a = nrm(q), b = nrm(title);
+  if (!a || !b) return 0;
+  const qt = toks(q), tt = new Set(toks(title));
+  let hit = 0;
+  for (const t of qt) if (tt.has(t)) hit++;
+  const recall = qt.length ? hit / qt.length : 0;
+  const editSim = 1 - lev(a, b) / Math.max(a.length, b.length);
+  return 0.6 * recall + 0.4 * editSim;
+}
+
+// A confident hit = most query words present AND the title isn't padded with a pile
+// of unrelated words (which is how "The Odessey" wrongly matches the Zombies album).
+function confident(q: string, title: string): boolean {
+  const qt = toks(q), tt = new Set(toks(title));
+  if (!qt.length) return false;
+  let hit = 0;
+  for (const t of qt) if (tt.has(t)) hit++;
+  return hit / qt.length >= 0.8 && tt.size <= qt.length + 3;
+}
+
+// Broaden a missed query by dropping trailing words to pull the franchise/anchor
+// (e.g. "Spider-Man Brave New Day" → "Spider-Man"), accumulating real TMDB rows to
+// fuzzy-rank against the full query. No LLM. Seeded with the raw results.
+async function broadenSearch(env: Env, q: string, seed: any[]): Promise<any[]> {
+  const pool = [...seed];
+  const seen = new Set(pool.map((m) => m.id));
+  const qt = toks(q);
+  for (let cut = qt.length - 1; cut >= 1 && pool.length < 20; cut--) {
+    const sub = qt.slice(0, cut).join(' ');
+    if (sub.length < 2) break;
+    for (const m of await searchMovies(env, sub)) {
+      if (!seen.has(m.id)) { seen.add(m.id); pool.push(m); }
+    }
+  }
+  return pool;
+}
+
+// The LLM logic gate: for a pure misspelling that returns nothing AND can't be
+// rescued from the catalogue ("Gladeator" → "Gladiator"), ask Haiku for the single
+// most likely canonical title and let the caller re-run the search. Best-effort —
+// any failure returns null so search degrades to plain TMDB. Same key as the ticket
+// OCR / Pierre (SEAM:processing).
+// Token-burn guard: cap LLM corrections per client to LLM_GATE_MAX in a rolling
+// hourly window so a bored user can't spray obscure gibberish and rack up Haiku
+// calls. Keyed by client IP in ACCESS_KV. Fail-open (KV hiccup → allow) — the gate
+// is a courtesy, not a security boundary; TMDB itself is still the hard path.
+const LLM_GATE_MAX = 5;
+async function gateAllows(env: Env, ip: string): Promise<boolean> {
+  if (!ip) return true;
+  const key = `llmgate:${ip}:${Math.floor(Date.now() / 3_600_000)}`; // per-hour bucket
+  try {
+    const n = parseInt((await env.ACCESS_KV.get(key)) || '0', 10);
+    if (n >= LLM_GATE_MAX) return false;
+    await env.ACCESS_KV.put(key, String(n + 1), { expirationTtl: 3600 });
+    return true;
+  } catch {
+    return true;
+  }
+}
+
+async function llmCorrectTitle(env: Env, query: string): Promise<string | null> {
+  if (!env.ANTHROPIC_API_KEY) return null;
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 60,
+        messages: [{
+          role: 'user',
+          content:
+            'A user searched a movie database by title and got zero results. They likely ' +
+            'misspelled it or slightly misremembered it. Reply with the single most likely ' +
+            'real, canonical movie title they meant — nothing else. No quotes, no year, no ' +
+            'punctuation beyond what is in the title, no explanation. If you truly cannot ' +
+            'guess, reply with the exact input unchanged.\n\nSearch: ' + query,
+        }],
+      }),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { content?: Array<{ type: string; text?: string }> };
+    const text = (data.content || []).filter((b) => b.type === 'text').map((b) => b.text || '').join('').trim();
+    const title = text.replace(/^["'\s]+|["'\s]+$/g, '').slice(0, 200);
+    return title || null;
+  } catch {
+    return null;
+  }
+}
+
+// GET /tmdb/search?q=...  → { results: [movie card], corrected?: "canonical title" }
+// `corrected` is set when the raw query was a miss and we rescued it (fuzzy-ranked
+// from the catalogue, or LLM-corrected), so the client can show "Reading that as …".
 tmdbRoutes.get('/search', async (c) => {
   if (!c.env.TMDB_API_KEY) return c.json({ error: 'movies not configured', results: [] }, 503);
   const q = clean(c.req.query('q'));
   if (!q) return c.json({ results: [] });
-  let res: Response;
-  try {
-    res = await tmdbFetch(c.env, '/search/movie', { query: q, include_adult: 'false' });
-  } catch {
-    return c.json({ error: 'upstream unreachable', results: [] }, 502);
+
+  const raw = await searchMovies(c.env, q);
+  // A confident top hit is the common case — return immediately, no rescue cost.
+  if (raw.length && confident(q, raw[0].title)) return c.json({ results: raw });
+
+  // Stage 1 (no LLM): rescue from TMDB's LIVE catalogue. Broaden to the anchor and
+  // fuzzy-rank real candidates against the full query. Fixes new franchise films the
+  // LLM can't recall ("Spider-Man Brave New Day" → "Spider-Man: Brand New Day").
+  const pool = await broadenSearch(c.env, q, raw);
+  if (pool.length) {
+    const ranked = pool.map((m) => ({ m, s: simScore(q, m.title) })).sort((a, b) => b.s - a.s);
+    const best = ranked[0];
+    const rawTop = raw[0] ? nrm(raw[0].title) : '';
+    // Only claim a correction when we genuinely improved on the raw top hit.
+    if (best && best.s >= 0.6 && nrm(best.m.title) !== rawTop) {
+      return c.json({ results: ranked.slice(0, 12).map((r) => r.m), corrected: best.m.title });
+    }
   }
-  if (!res.ok) return c.json({ error: 'upstream error', results: [] }, 502);
-  const data = (await res.json()) as { results?: any[] };
-  const results = (data.results || [])
-    .filter((m) => m && m.id && (m.title || m.name))
-    .slice(0, 12)
-    .map(card);
-  return c.json({ results });
+
+  // Stage 2 (LLM, rate-limited): a pure typo the catalogue can't rank up
+  // ("Gladeator" → "Gladiator"). Ask Haiku for the canonical title, search once more.
+  const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || '';
+  if (await gateAllows(c.env, ip)) {
+    const corrected = await llmCorrectTitle(c.env, q);
+    if (corrected && nrm(corrected) !== nrm(q)) {
+      const rescued = await searchMovies(c.env, corrected);
+      if (rescued.length > 0) return c.json({ results: rescued, corrected });
+    }
+  }
+  return c.json({ results: raw });   // nothing better — hand back whatever raw had
 });
 
 // Server-side movie detail (card with runtime), for the catalog materializer. Returns

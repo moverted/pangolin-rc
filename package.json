@@ -14,6 +14,7 @@
     "@capacitor/core": "^8.4.1",
     "@capacitor/filesystem": "^8.1.2",
     "@capacitor/ios": "^8.4.1",
+    "@capacitor/local-notifications": "^8.2.1",
     "@capacitor/share": "^8.0.1",
     "capacitor-card-video": "file:capacitor-card-video",
     "hono": "^4.7.0"

@@ -1008,6 +1008,15 @@ function logSession(i, opts){
   const validated = opts.validated!==false, finished=!!opts.finished;
   const state = finished ? 'done' : 'paused';
   const last=arr[arr.length-1];
+  // 0) A theater ticket carries its own real in/out timestamps (showtime-anchored) and
+  //    must always land as its own viewing — never roll up into a live/partial session.
+  if(opts.forceAppend){
+    const at = opts.atTs || now;
+    arr.push({dk:dayKey(at), date:mdFmt(at), minutes:opts.minutes, finished, bp:!!opts.bp,
+              state, validated, startTs: opts.startTs!=null?opts.startTs:(startedAt[i]||null),
+              finishTs: opts.finishTs!=null?opts.finishTs:now});
+    return;
+  }
   // 1) Close the open live (watching) viewing in place.
   if(last && last.state==='watching'){
     last.minutes=opts.minutes; last.finishTs=now;
@@ -2063,13 +2072,21 @@ function reportRuntimeMismatch(i, watchedMin, rt){
 //    just finished something), there was no time for a real watch here → BP. A
 //    standalone finish with a full runtime of room stays a legitimate watch.
 // BP never counts toward a binge and renders grey with no date.
-function finishEpisode(){
+// `screening` (theater tickets only): {showtime, filmStart} in ms. When present the
+// viewing is anchored to the REAL screening — film starts 25 min after the printed
+// showtime (trailers/ads) and runs its full runtime — instead of the upload moment.
+function finishEpisode(screening){
   const rt=runtimeOf(focus), now=Date.now();
   // Capture the real live-watched span BEFORE the backdate branch overwrites startedAt,
   // so the runtime-mismatch check below sees true elapsed (not a synthesized full runtime).
   const liveElapsed = startedAt[focus]!=null ? (now-startedAt[focus])/60000 : null;
   let bp;
-  if(startedAt[focus]!=null){
+  const scrStart = screening && screening.filmStart;
+  if(scrStart){
+    // Anchor to the ticket's showtime. A ticketed screening is a genuine sitting, never a BP.
+    startedAt[focus]=scrStart;
+    bp=false;
+  } else if(startedAt[focus]!=null){
     bp = (now - startedAt[focus]) < 60000;
   } else {
     startedAt[focus]=Math.max(now-rt*60000, latestFinishBefore(now));
@@ -2081,7 +2098,9 @@ function finishEpisode(){
   epMin[focus]=rt; epDone[focus]=true; epBp[focus]=bp; epPreApp[focus]=bp; minPreview=null; awaitingLog=false; cooled=false; watchingLive[focus]=false;
   try{ localStorage.removeItem('pg_launch'); }catch(_){}
   markWatchedThrough(focus);
-  logSession(focus,{minutes:rt,finished:true,bp:bp});
+  logSession(focus, scrStart
+    ? {minutes:rt, finished:true, bp:false, forceAppend:true, atTs:scrStart, startTs:scrStart, finishTs:scrStart+rt*60000}
+    : {minutes:rt, finished:true, bp:bp});
   emitProgress(focus, true, bp, rt);
   // Completing after a genuine live watch that ran short of the stored runtime (watched
   // ≥ half, yet ≥ 5 min still "remaining") points at a too-long catalog runtime → warn admin.
@@ -2961,6 +2980,30 @@ function updateTheaterUI(){
 }
 
 // ----- ticket upload (camera or screengrab) -----
+// Turn a ticket's read-off date ("TUE, AUG 04") + time ("6:30 PM") into a real local
+// timestamp. Tickets never print a year, so infer the nearest plausible one; device-
+// local, since the phone is at the theater. Returns {showtime, filmStart} (filmStart =
+// showtime + 25 min of trailers/ads) or null when either field is unreadable.
+const TK_MONTHS={jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+function parseScreening(dateStr, timeStr){
+  if(!dateStr || !timeStr) return null;
+  const mo=String(dateStr).toLowerCase().match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/);
+  const dy=String(dateStr).match(/\b(\d{1,2})\b/);
+  const tm=String(timeStr).toLowerCase().match(/(\d{1,2}):(\d{2})\s*(am|pm)?/);
+  if(!mo || !dy || !tm) return null;
+  const month=TK_MONTHS[mo[1]], day=parseInt(dy[1],10);
+  let hh=parseInt(tm[1],10); const mm=parseInt(tm[2],10), ap=tm[3];
+  if(ap==='pm' && hh<12) hh+=12;
+  if(ap==='am' && hh===12) hh=0;
+  const now=Date.now(); let best=null, bestGap=Infinity;
+  for(let dyr=-1; dyr<=1; dyr++){
+    const cand=new Date(new Date().getFullYear()+dyr, month, day, hh, mm, 0, 0).getTime();
+    const gap=Math.abs(cand-now);
+    if(gap<bestGap){ bestGap=gap; best=cand; }
+  }
+  if(best==null) return null;
+  return { showtime:best, filmStart:best + 25*60000 };
+}
 function openTicket(){ if(!curShowId) return; $('ticketSheet').classList.add('show'); }
 function closeTicket(){ $('ticketSheet').classList.remove('show'); }
 async function uploadTicket(file){
@@ -2980,7 +3023,20 @@ async function uploadTicket(file){
     const r=await fetch(API_BASE+'/ticket', { method:'POST', body:fd, mode:'cors' });
     if(!r.ok){ const t=await r.text(); alert('Ticket upload failed: '+t.substring(0,80)); return; }
     const d=await r.json();
-    finishEpisode();       // submitting the ticket marks the film watched
+    // Anchor the viewing to the ticket's real showtime (film starts 25 min after, past
+    // the trailers) instead of the upload moment — best-effort; unreadable → plain finish.
+    const scr=parseScreening(d.date, d.time);
+    // Compute the film's let-out (filmStart + runtime) BEFORE finishEpisode advances focus.
+    const scrEnd = scr ? scr.filmStart + (runtimeOf(focus)||0)*60000 : 0;
+    const scrName = curShowName || 'that film';
+    finishEpisode(scr || undefined);   // submitting the ticket marks the film watched
+    // Theater = no live logging (you're in the dark). Instead ask the shell to fire a
+    // local notification when the movie lets out, nudging a reflection while it's fresh.
+    if(scr && scrEnd > Date.now()){
+      (window.parent||window).postMessage({ type:'pg:scheduleReflection', at:scrEnd,
+        titleId:curShowId||'', showName:curShowName||'',
+        title:'How was '+scrName+'?', body:'Tap to share a reflection while it is fresh.' }, '*');
+    }
     // The ticket told us the real theater → make that the "where", replacing the
     // generic IRL Theater label. Pinned for this viewer only (never posted as the
     // crowd guess — a specific cinema is personal, not a streamer for everyone).

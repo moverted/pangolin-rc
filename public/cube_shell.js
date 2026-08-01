@@ -1926,6 +1926,48 @@ export function getActiveDoc() {
   });
 })();
 
+// ── Post-movie reflection notification ──────────────────────────────────────
+// A theater viewing does NO live logging (you're in the dark). Instead the Log face
+// asks the SHELL — the top frame, where Capacitor's bridge lives — to schedule a
+// local notification for when the film lets out, nudging a reflection while it's
+// fresh. Native only: web/PWA can't fire a notification once the tab is gone, so it
+// no-ops there. Same delegation principle as the share bridge above.
+(function initReflectionNotify() {
+  async function schedule(o) {
+    const Cap = window.Capacitor;
+    if (!(Cap && Cap.isNativePlatform && Cap.isNativePlatform() && Cap.Plugins && Cap.Plugins.LocalNotifications)) return;
+    const LN = Cap.Plugins.LocalNotifications;
+    try {
+      const at = new Date(Number(o.at));
+      if (!(at.getTime() > Date.now())) return;   // only a future let-out is worth scheduling
+      let perm = await LN.checkPermissions();
+      if (perm.display !== 'granted') { perm = await LN.requestPermissions(); if (perm.display !== 'granted') return; }
+      await LN.schedule({ notifications: [{
+        id: Number(o.notifId) || (Math.floor(Date.now() / 1000) % 2000000000),
+        title: o.title || 'How was it?',
+        body:  o.body  || 'Share a thought while it is fresh.',
+        schedule: { at },
+        extra: { kind: 'reflection', titleId: o.titleId || '', showName: o.showName || '' },
+      }] });
+    } catch (_) { /* permission denied / unsupported → silently skip */ }
+  }
+  window.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'pg:scheduleReflection') schedule(e.data);
+  });
+  // Tapping the notification brings the app up → route to the film's reflection.
+  try {
+    const Cap = window.Capacitor;
+    if (Cap && Cap.Plugins && Cap.Plugins.LocalNotifications) {
+      Cap.Plugins.LocalNotifications.addListener('localNotificationActionPerformed', (ev) => {
+        const x = ev && ev.notification && ev.notification.extra;
+        if (x && x.kind === 'reflection') {
+          try { cubeRotateTo('log', { intent: 'reflect', titleId: x.titleId || '' }); } catch (_) {}
+        }
+      });
+    }
+  } catch (_) {}
+})();
+
 // ── Mic blink cue ───────────────────────────────────────────────────────────
 // Pierre posts pg:blinkMic when he invites a comment; pulse the mic button so the
 // member notices they can record. Web Animations API (no CSS edit to the frozen shell).
