@@ -2888,14 +2888,22 @@ const SERVICES = [
   {label:'FOX',         bg:'#16162a', fg:'#ffffff', wght:800, ls:'.04em',  aka:['fox'], logo:''},
   {label:'BBC',         bg:'#000000', fg:'#ffffff', wght:800, ls:'.06em',  aka:['bbc'], logo:'/jfXLhMzHHmBYrtE9ZaW7as2RA98.jpg'},
   {label:'PBS',         bg:'#2638C4', fg:'#ffffff', wght:800, ls:'.04em',  aka:['pbs'], logo:'/iLjStQKQwzyxXJb3jyNpvDmW9mx.jpg'},
-  // Not a streamer: "watched it at a real cinema". aka is a token that won't
-  // match any show's network, so it's only ever a manual pick, and selecting it
-  // turns the FINISH button into a ticket upload (see isTheater / openTicket).
-  {label:'IRL Theater', bg:'#3a0d12', fg:'#f3d9a0', wght:700, ls:'-.01em', aka:['irl theater'], name:'In-person theater', logo:''},
+  // Non-streamers ("where", not who). aka tokens never match a show's network, so
+  // these are manual-only picks; `_local` keeps them out of the crowd streamer guess
+  // (a cinema / your shelf is personal, not a recommendation for everyone).
+  //   Theaters → turns the FINISH button into a ticket upload (isTheater / openTicket).
+  //   Not Set  → clears the pin back to "no service" (see setFromWheel `_clear`).
+  {label:'Theaters',       bg:'#3a0d12', fg:'#f3d9a0', wght:700, ls:'.02em', aka:['theaters'],       name:'In a theater',                logo:'', mono:'THTR', _local:true},
+  // TODO(collector): a barcode reader could scan a disc's UPC to auto-log it — needs a
+  // camera-scan plugin + a UPC→title lookup (TMDB has no barcode index; e.g. UPCitemdb
+  // → match into TMDB). Feature-sized, deferred; Physical Media stays a manual pick for now.
+  {label:'Physical Media', bg:'#1b1b24', fg:'#cfd6e6', wght:700, ls:'.02em', aka:['physical media'], name:'Physical media (DVD / Blu-ray)', logo:'', mono:'DISC', _local:true},
+  {label:'Not Set',        bg:'#181410', fg:'#9d8c79', wght:700, ls:'.06em', aka:[],                 name:'No service set',              logo:'', mono:'N/S',  _local:true, _clear:true},
 ];
 const PROV_IMG = 'https://image.tmdb.org/t/p/w92';   // TMDB watch-provider logo base
-const THEATER_LABEL='IRL Theater';
-function isTheater(){ return !!(chosenSvc && chosenSvc.label===THEATER_LABEL); }
+const THEATER_LABEL='Theaters';
+// Accept the legacy 'IRL Theater' label so pins saved before the rename still count.
+function isTheater(){ return !!(chosenSvc && (chosenSvc.label===THEATER_LABEL || chosenSvc.label==='IRL Theater')); }
 function svcMatch(name){
   const n=(name||'').toLowerCase().trim(); if(!n) return null;
   for(const s of SERVICES){ for(const a of s.aka){ if(n.includes(a)) return s; } }
@@ -2917,6 +2925,7 @@ function svcLogoHTML(s){
 // else a neutral chip so any label still renders and is pickable.
 function svcByLabel(label){
   if(!label) return null;
+  if(label==='IRL Theater') label='Theaters';   // legacy pin → renamed entry
   const m=SERVICES.find(s=>s.label===label); if(m) return m;
   return {label, bg:'#26201a', fg:'#F0A93B', wght:700, ls:'.02em', aka:[label.toLowerCase()], _raw:true};
 }
@@ -3086,7 +3095,7 @@ function svcInitials(label){ const t=(label||'').replace(/[^A-Za-z0-9]/g,''); re
 function svcTileHTML(s,i){
   const inner = s.logo
     ? '<img src="'+PROV_IMG+s.logo+'" alt="" loading="lazy" onerror="svcTileFallback(this)">'
-    : '<span class="fallback">'+escHtml(svcInitials(s.label))+'</span>';
+    : '<span class="fallback">'+escHtml(s.mono || svcInitials(s.label))+'</span>';
   return '<button type="button" class="svctile'+(i===gridSel?' sel':'')+'" role="option"'+
     ' aria-selected="'+(i===gridSel?'true':'false')+'" aria-label="'+escHtml(svcName(s))+'" data-i="'+i+'">'+inner+'</button>';
 }
@@ -3121,10 +3130,18 @@ function closeWheel(){ $('svcWheel').classList.remove('show'); }
 // Commit the highlighted tile. Stores exactly what the reel did: chosenSvc.label
 // into the per-viewer pin and the crowd-guess POST — value + keys unchanged.
 function setFromWheel(){
-  chosenSvc=gridList[gridSel]; if(!chosenSvc){ closeWheel(); return; }
-  userPinned=true;
-  const k=svcKey(); if(k){ try{ localStorage.setItem(k, chosenSvc.label); }catch(_){} }   // stays for this viewer
-  if(curShowId){ try{ fetch(API_BASE+'/streamer/'+encodeURIComponent(curShowId),     // becomes the next viewer's guess
+  const pick=gridList[gridSel]; if(!pick){ closeWheel(); return; }
+  const k=svcKey();
+  if(pick._clear){                          // "Not Set" → unpin, back to no service set
+    chosenSvc=null; userPinned=false;
+    if(k){ try{ localStorage.removeItem(k); }catch(_){} }
+    renderSvcCorner(); reportCurrent(); closeWheel(); return;
+  }
+  chosenSvc=pick; userPinned=true;
+  if(k){ try{ localStorage.setItem(k, chosenSvc.label); }catch(_){} }   // stays for this viewer
+  // Real streamers become the next viewer's crowd guess; personal picks (theater,
+  // physical media) stay off the crowd signal.
+  if(curShowId && !chosenSvc._local){ try{ fetch(API_BASE+'/streamer/'+encodeURIComponent(curShowId),
     {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({service:chosenSvc.label})}); }catch(_){} }
   renderSvcCorner(); reportCurrent(); closeWheel();
 }

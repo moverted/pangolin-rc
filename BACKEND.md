@@ -66,6 +66,17 @@ configuration adds an entry here before the session ends (see CLAUDE.md,
     the search is `uncertain` — shows the poster lineup so the user chooses.
   - www/ re-mirrored + `cap copy ios` (still needs Ted's clean build for iOS).
 
+## 2026-07-31 (later still) — Service picker options
+- Client only (Pages `pangolin-rc`, no Worker/D1 change). cube_log_face.html
+  SERVICES: renamed "IRL Theater" → "Theaters" (THEATER_LABEL + a legacy remap
+  in svcByLabel/isTheater so old 'IRL Theater' pins still count), added
+  "Physical Media" and "Not Set". "Not Set" (`_clear`) unpins back to no service;
+  all three are `_local` so they never POST to the crowd streamer guess.
+  Barcode-reader idea for Physical Media noted as a TODO(collector) in-code,
+  deferred (needs a camera-scan plugin + UPC→title lookup; TMDB has no barcode).
+  DEPLOYED via `wrangler pages deploy public` (deployment 81fadc6f); www/ +
+  `cap copy ios` synced for the next iOS build. No API change.
+
 Entry format:
 
 ## YYYY-MM-DD — short title
