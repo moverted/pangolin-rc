@@ -2682,14 +2682,19 @@ async function logTicketedFilm(movie, ticket){
   if(ticket.theater){ chosenSvc=svcByLabel(ticket.theater); userPinned=true;
     const k=svcKey(); if(k){ try{ localStorage.setItem(k, ticket.theater); }catch(_){} } renderSvcCorner(); }
   const scr=parseScreening(ticket.date, ticket.time);
-  if(scr && scr.filmStart <= Date.now()){             // filmStart = showtime + 25 min of previews
-    finishEpisode(scr);                               // already started → watched, anchored to showtime
-  } else if(scr){                                     // upcoming → stay unwatched, nudge a reflection at let-out
-    const rt=runtimeOf(focus)||0, end=scr.filmStart + rt*60000;
-    (window.parent||window).postMessage({ type:'pg:scheduleReflection', at:end, titleId, showName:movie.title,
-      title:'How was '+movie.title+'?', body:'Tap to share a reflection while it is fresh.' }, '*');
+  const past = scr && scr.filmStart <= Date.now();     // filmStart = showtime + 25 min of previews
+  if(past){
+    finishEpisode(scr);                                // already started → watched (stays here on the LOG face)
+    loadTickets();
+  } else {
+    if(scr){                                           // upcoming → nudge a reflection at let-out
+      const rt=runtimeOf(focus)||0, end=scr.filmStart + rt*60000;
+      (window.parent||window).postMessage({ type:'pg:scheduleReflection', at:end, titleId, showName:movie.title,
+        title:'How was '+movie.title+'?', body:'Tap to share a reflection while it is fresh.' }, '*');
+    }
+    // Future screening → show it on the WATCH grid as an upcoming tile ('log' = WATCH face).
+    (window.parent||window).postMessage({ type:'cube:rotateTo', face:'log', payload:{} }, '*');
   }
-  loadTickets();
 }
 // Re-arm a live watch that was interrupted by a reload. The minute bar is recomputed
 // from wall-clock (liveMin), but its anchor (startedAt) lives only in memory — so a reload

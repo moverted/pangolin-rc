@@ -279,8 +279,12 @@ function focusPierre() {
   const cfg = FACE_OVERLAYS[PIERRE_FACE];
   if (!cfg || !cfg.frame) return;
   try {
-    const inp = cfg.frame.contentWindow.document.getElementById('input');
-    if (inp) inp.focus();
+    const w = cfg.frame.contentWindow;
+    // Voice-first: only raise the keyboard for a text flow (email/password). General
+    // chat rests on the mic instead of pre-focusing the input (which showed the arrow).
+    const wantKb = w.__pierreWantsKeyboard ? w.__pierreWantsKeyboard() : false;
+    if (wantKb) { const inp = w.document.getElementById('input'); if (inp) inp.focus(); }
+    else if (w.__pierreVoiceRest) w.__pierreVoiceRest();
   } catch (_) { /* iframe not ready yet */ }
 }
 
@@ -359,7 +363,7 @@ function rotateToFace(fi) {
 // (locked stays false). Order matches the idle drift's -Y direction, so a wheel nudge
 // reads as a hand on the same slow carousel. Base off the face currently facing the
 // camera (nearestFace) so it steps from what you actually see, not a stale snap.
-const CORE_RING = [1, 4, 0, 5];   // WATCH(-X), LOG(+Z), FEED(+X), JOIN/BROWSE(-Z)
+const CORE_RING = [1, 4, 2, 0, 5, 3];   // WATCH → LOG → PIERRE → FEED → BROWSE → PROFILE (snaps through the poles too)
 // SELECT from cube-nav → punch into the face most exposed (lock/enter it). No-op if
 // already locked. lock() itself snaps to nearestFace().
 export function lockFace() { if (!locked) lock(); }

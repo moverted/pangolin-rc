@@ -355,7 +355,7 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey, cubeNavSte
     let holdT = 0, held = false;
     center.addEventListener('pointerdown', e=>{
       primeAudio();                                      // unlock iOS audio inside the gesture
-      if(!getFocus().locked && !remoteActive()) return;  // remote mode works even in cube nav
+      // (cube-nav with no TV is allowed now — SELECT there punches into the exposed face)
       held = false;
       holdT = setTimeout(()=>{ held = true;              // long-press = cancel dialogue / exit select / TV home
         const dlg = getFocus().locked ? activeDialog(activeDoc()) : null;

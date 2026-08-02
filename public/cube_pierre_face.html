@@ -290,7 +290,7 @@
     wrap.innerHTML = '<div class="who">You</div><div class="bubble"></div>';
     wrap.querySelector('.bubble').textContent = text;
     log.appendChild(wrap);
-    log.scrollTop = log.scrollHeight;
+    scrollLogBottom();
   }
 
   // ── Share the conversation ───────────────────────────────────────────────
@@ -385,7 +385,7 @@
       }
     }
     log.appendChild(wrap);
-    log.scrollTop = log.scrollHeight;
+    scrollLogBottom();
     // NL switch: only for the four real lanes; unknown values render as plain text.
     if(ctx && SWITCHABLE.indexOf(ctx)>=0) switchTo(ctx, {viaUser:false});
     return clean;
@@ -397,7 +397,7 @@
     wrap.id = 'typing';
     wrap.innerHTML = '<div class="who">Pierre</div><div class="typing"><span></span><span></span><span></span></div>';
     log.appendChild(wrap);
-    log.scrollTop = log.scrollHeight;
+    scrollLogBottom();
   }
   function clearTyping(){ const t=document.getElementById('typing'); if(t) t.remove(); }
 
@@ -611,7 +611,7 @@
     spoil.onclick=()=>{ noteSpoiler=!noteSpoiler; spoil.classList.toggle('on', noteSpoiler);
       spoil.textContent = noteSpoiler ? '⚠ Spoiler' : 'Spoiler'; spoil.setAttribute('aria-pressed', String(noteSpoiler)); };
     chips.appendChild(skip); chips.appendChild(spoil);
-    wrap.appendChild(chips); log.appendChild(wrap); log.scrollTop=log.scrollHeight;
+    wrap.appendChild(chips); log.appendChild(wrap); scrollLogBottom();
   }
   // 5c: while a finished-episode reflection is open, route the Pierre voice mic to a
   // REAL co-view comment on this episode (audio + transcription) rather than a
@@ -1092,7 +1092,7 @@
       // Re-scroll once the image actually lays out: setting scrollTop before the img has
       // height leaves the following "Share it, or keep it?" prompt hidden below the fold.
       img.onload=()=>{ try{ log.scrollTop=log.scrollHeight; }catch(_){} };
-      wrap.appendChild(img); log.appendChild(wrap); log.scrollTop=log.scrollHeight;
+      wrap.appendChild(img); log.appendChild(wrap); scrollLogBottom();
     }catch(_){}
   }
   function _blobB64(blob){ return new Promise((res,rej)=>{ const fr=new FileReader();
@@ -1405,6 +1405,10 @@
   window.__pierreSwitch = function(ctx){ switchTo(ctx, {viaUser:true}); };
   window.__pierreClear  = function(){ clearChat(); };
   window.__pierreGetCtx = function(){ return currentCtx; };
+  // Voice-first entry: the shell asks whether to raise the keyboard (only text flows —
+  // email/password) or rest on the mic (general chat).
+  window.__pierreWantsKeyboard = function(){ return !!(joinFlow || acctFlow); };
+  window.__pierreVoiceRest = function(){ setSendMode('mic'); try{ input.blur(); }catch(_){} };
 
   // Tell the parent cube when the chat input is focused, so it can pin this
   // square above the soft keyboard instead of letting the page pan it off-screen.
@@ -1442,7 +1446,7 @@
         c.appendChild(b); });
       wrap.appendChild(c);
     }
-    log.appendChild(wrap); log.scrollTop=log.scrollHeight;
+    log.appendChild(wrap); scrollLogBottom();
   }
   const tedChip=()=>[{label:'Get Ted', onClick:getTed}];
   function getTed(){ pierreSay("Pinging Ted. He is the human in this operation, he can pick up what I cannot."); }
