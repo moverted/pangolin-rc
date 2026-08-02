@@ -671,9 +671,10 @@ async function readTicket(env: Env, buffer: ArrayBuffer, mediaType: string): Pro
               'Transcribe four fields EXACTLY as printed, reading carefully — do not infer or normalize: ' +
               '"title" = the movie title (e.g. "Spider-Man: Brand New Day" or "The Odyssey"); drop any ' +
               'trailing "(2026)" year in parentheses. ' +
-              '"date" = the date as shown, verbatim, including the weekday if present (e.g. "Wed, Jun 24" or ' +
-              '"Saturday, June 20"); if the only date shown is a relative phrase like "Next Thursday" or ' +
-              '"Tomorrow", return null (do NOT transcribe the phrase); never add or guess a year that is not printed. ' +
+              '"date" = the screening date as shown, verbatim, including the weekday if present (e.g. ' +
+              '"Wed, Jun 24", "Saturday, June 20", or "Aug 6"). It may sit after a label like "STARTS" or ' +
+              'inside a highlighted circle/badge — read the actual month + day there. ONLY return null if the ' +
+              'sole date is a purely relative phrase ("Next Thursday", "Tomorrow"). Never add or guess a year. ' +
               '"time" = the showtime as printed (e.g. "5:30 PM"). ' +
               '"theater" = the cinema/theater name (e.g. "AMC Burbank 16"). ' +
               'Return ONLY minified JSON with exactly these keys: title, date, time, theater. ' +

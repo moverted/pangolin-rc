@@ -351,6 +351,16 @@ async function dismissShare(email, id, card, wrap){
 }
 if ((isMember() || forcedMember()) && !DEMO) renderBrowse();
 
+// Login can happen in Pierre AFTER this face loaded, so re-check membership each time
+// the cube rotates in — otherwise the JOIN intake keeps obscuring the browse content.
+window.addEventListener('message', (e) => {
+  if (e.data && e.data.type === 'cube:focus'
+      && (isMember() || forcedMember()) && !DEMO
+      && !document.getElementById('browse').classList.contains('show')) {
+    renderBrowse();
+  }
+});
+
 document.getElementById("joinBtn").onclick = () => {
   // In the cube, hand the intake to the real Pierre face. Standalone, run the
   // in-face intake as before.

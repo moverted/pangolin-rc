@@ -1441,6 +1441,16 @@ window.addEventListener("message",(e)=>{
       const m=MARATHONS.find(x=>x.id===p.openMarathon);
       if(m) openMarathon(m);
     }
+    // A ticket just logged in Pierre → land on its tab (CURRENT = upcoming, COMPLETED =
+    // already screened) and select the tile once the log reloads.
+    if(p.focusTicket && p.focusTicket.titleId){
+      const tab=p.focusTicket.tab||'current', tid=p.focusTicket.titleId;
+      Promise.resolve(refreshLog()).then(()=>{
+        if(activeTab!==tab) switchTab(tab);
+        const s=LOG.find(x=>x.titleId===tid); if(s){ selectedId=s.id; }
+        render(); renderPierre();
+      });
+    }
     if(p.addShow && p.addShow.id) addToLog(p.addShow, p.pattern);
     if(p.progress && p.progress.tvmazeId) applyProgress(p.progress);   // Episode minute log
     // Episode finale tap (MVP): finish the matching show and land back on CURRENT.

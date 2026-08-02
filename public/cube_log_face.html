@@ -2685,19 +2685,17 @@ async function logTicketedFilm(movie, ticket){
   if(ticket.theater){ chosenSvc=svcByLabel(ticket.theater); userPinned=true;
     const k=svcKey(); if(k){ try{ localStorage.setItem(k, ticket.theater); }catch(_){} } renderSvcCorner(); }
   const scr=parseScreening(ticket.date, ticket.time);
-  const past = scr && scr.filmStart <= Date.now();     // filmStart = showtime + 25 min of previews
-  if(past){
-    finishEpisode(scr);                                // already started → watched (stays here on the LOG face)
-    loadTickets();
-  } else {
-    if(scr){                                           // upcoming → nudge a reflection at let-out
-      const rt=runtimeOf(focus)||0, end=scr.filmStart + rt*60000;
-      (window.parent||window).postMessage({ type:'pg:scheduleReflection', at:end, titleId, showName:movie.title,
-        title:'How was '+movie.title+'?', body:'Tap to share a reflection while it is fresh.' }, '*');
-    }
-    // Future screening → show it on the WATCH grid as an upcoming tile ('log' = WATCH face).
-    (window.parent||window).postMessage({ type:'cube:rotateTo', face:'log', payload:{} }, '*');
+  const past = !!(scr && scr.filmStart <= Date.now());   // filmStart = showtime + 25 min of previews
+  if(!past && scr){                                      // upcoming → nudge a reflection at let-out
+    const rt=runtimeOf(focus)||0, end=scr.filmStart + rt*60000;
+    (window.parent||window).postMessage({ type:'pg:scheduleReflection', at:end, titleId, showName:movie.title,
+      title:'How was '+movie.title+'?', body:'Tap to share a reflection while it is fresh.' }, '*');
   }
+  // Both land on the WATCH grid; the tab follows the ticket (past → COMPLETED via the
+  // ticketWatched auto-flip, future → CURRENT). No finishEpisode here — that would rotate
+  // to Pierre for a reflection; the bucket is derived from the screening time instead.
+  (window.parent||window).postMessage({ type:'cube:rotateTo', face:'log',
+    payload:{ focusTicket:{ titleId, tab: past?'completed':'current' } } }, '*');
 }
 // Re-arm a live watch that was interrupted by a reload. The minute bar is recomputed
 // from wall-clock (liveMin), but its anchor (startedAt) lives only in memory — so a reload
