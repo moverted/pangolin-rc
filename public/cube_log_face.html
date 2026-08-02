@@ -2580,7 +2580,10 @@ minBar.addEventListener('pointercancel',()=>{ minDragging=false; });
 // the click wheel calls this to nudge the mark minute-by-minute, so you can dial it in
 // with the wheel after grabbing the bar, then LOG. active() gates it to the ▶-◀ state.
 window.__logTune = {
-  active(){ return awaitingLog || minDragging; },
+  // Wheel connects while the mark is being tuned (dragged/staged) OR whenever a film is
+  // loaded but not actively playing — so you can scrub a film with the wheel directly,
+  // no touch-drag needed first. (Shows stay drag-first so the ring can still scroll them.)
+  active(){ return awaitingLog || minDragging || (isMovie && !epDone[focus] && !watchingLive[focus]); },
   step(dir){
     const rt=runtimeOf(focus);
     const base = (minPreview!=null ? minPreview : (epMin[focus]||0));
