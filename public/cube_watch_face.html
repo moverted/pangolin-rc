@@ -550,7 +550,21 @@ async function wowClassifyShow(s){
     const fin=(Array.isArray(e.sessions)?e.sessions:[]).filter(x=>x&&x.finishTs).pop(); const ts=fin?fin.finishTs:null; if(!ts) return;
     deltas.push((ts-new Date(air.airstamp).getTime())/3600000); tss.push(ts); });
   const st=WoW.store.stateNow()||{}; const killed=st.user&&st.user.globalKill; const manual=st.modes&&st.modes[showId];
-  _wowModes[showId]=WoW.classifyDeltas(deltas, tss, {manual, killed});
+  const now=Date.now(), WEEK=7*86400000;
+  const lastWatch = tss.length ? Math.max.apply(null, tss) : 0;
+  // Recency gate: nothing watched in the last week → DORMANT (no badge).
+  if(!lastWatch || (now-lastWatch) > WEEK){ _wowModes[showId]={mode:'DORMANT', src:'derived'}; return; }
+  // BINGE: 3+ episodes finished within a 3-day window in the last week.
+  const recent = tss.filter(t=>now-t<=WEEK).sort((a,b)=>a-b);
+  let binge=false;
+  for(let i=0;i<recent.length && !binge;i++){ let c=1;
+    for(let j=i+1;j<recent.length;j++){ if(recent[j]-recent[i]<=3*86400000) c++; }
+    if(c>=3) binge=true; }
+  if(binge){ _wowModes[showId]={mode:'MORE!', src:'derived'}; return; }
+  // Else: FRESH if you're keeping up with a weekly (watched close to air), else CASUAL.
+  const cls=WoW.classifyDeltas(deltas, tss, {manual, killed});
+  let mode = (cls.mode==='LIVE'||cls.mode==='FRESH') ? 'FRESH' : 'CASUAL';   // vocab: Fresh/Binge/Casual
+  _wowModes[showId]={mode, src:'derived'};
 }
 // Public-facing label: MORE! reads as BINGE everywhere the member sees it.
 function wowLabel(mode){ return mode==='MORE!' ? 'BINGE' : mode; }
@@ -563,9 +577,9 @@ function wowEffMode(showId){
   const manual=st.modes&&st.modes[showId];
   if(manual && manual!=='DECLINED') return {mode:manual, src:'set'};
   const d=_wowModes[showId];
-  if(d && d.mode!=='UNSAMPLED' && d.mode!=='DECLINED') return {mode:d.mode, src:'derived'};
-  const def=st.user&&st.user.defaultMode;
-  if(def) return {mode:def, src:'default'};
+  if(d && d.mode!=='UNSAMPLED' && d.mode!=='DECLINED' && d.mode!=='DORMANT') return {mode:d.mode, src:'derived'};
+  // No profile-default fallback: a show only earns a badge from its OWN recent activity
+  // (else every show got stamped with the default). Dormant (>1 week unwatched) → none.
   return null;
 }
 function wowStampFor(s){
@@ -720,17 +734,13 @@ function wowTag(s){
 // Films have no weekly cadence, but they still get a day badge: the weekday the film
 // entered the system — its screening/watch anchor (started_at, e.g. a Tuesday ticket),
 // or failing that the day the row was logged. Mirrors the series weekly-release TAG.
+// A film's day badge is ONLY the theater-ticket day (screening weekday); a movie with
+// no ticket gets no day badge (its freshness lives on the ticket, not a generic tag).
 function filmDayTag(s){
-  if(!s || s.kind!=='movie') return '';
-  let d=null;
-  // Prefer the ticket's real screening date (so the expanded card matches the tile badge),
-  // then the watch anchor, then the day the row was logged.
-  const scr = s.ticketAt ? parseTicketDate(s.ticketDate, s.ticketAt) : null;
-  if(scr) d=new Date(scr);
-  else if(s.startedAt) d=new Date(Number(s.startedAt));
-  else if(s.lastDate) d=new Date(s.lastDate+'T12:00');   // midday: avoid a TZ midnight day-flip
-  if(!d || isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('en-US',{weekday:'long'}).toUpperCase();   // "TUESDAY"
+  if(!s || s.kind!=='movie' || !s.ticketAt) return '';
+  const scr = parseTicketDate(s.ticketDate, s.ticketAt);
+  if(!scr) return '';
+  return new Date(scr).toLocaleDateString('en-US',{weekday:'long'}).toUpperCase();
 }
 
 // ── Theater ticket stub badge ────────────────────────────────────────────────
