@@ -1323,12 +1323,23 @@
     if(sendMode==='busy'){ return; }
     submit();
   });
-  // Tapping the text box during the Comment step is the "type it" choice — raise the
-  // keyboard and morph the resting mic into the send arrow.
-  input.addEventListener('focus', ()=>{ if(sendMode==='mic') setSendMode('send'); });
+  // The composer button tracks the text box: a MIC while it's empty (voice is a tap
+  // away), the send ARROW the moment there's something to send — and back to the mic if
+  // the box is cleared. Recording/transcribing own the button, so leave those alone. The
+  // typed-only flows (join / account / add-a-show) don't offer voice, so their empty box
+  // keeps the arrow rather than a mic that would start a recording.
+  function refreshComposerBtn(){
+    if(sendMode==='rec' || sendMode==='busy') return;
+    const hasText = input.value.trim().length > 0;
+    const voiceOk = !joinFlow && !acctFlow && !addFlow;
+    const target = hasText ? 'send' : (voiceOk ? 'mic' : 'send');
+    if(target !== sendMode) setSendMode(target);
+  }
+  // Focusing an empty box keeps the mic (tap to record, or type to reveal the arrow).
+  input.addEventListener('focus', refreshComposerBtn);
   // Enter sends; Shift+Enter makes a newline. Auto-grow the box as text wraps.
   input.addEventListener('keydown', e=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); submit(); } });
-  input.addEventListener('input', autoGrow);
+  input.addEventListener('input', ()=>{ autoGrow(); refreshComposerBtn(); });
   function autoGrow(){ input.style.height='auto'; input.style.height=Math.min(input.scrollHeight, 120)+'px'; }
   function inputSecret(on){ input.classList.toggle('secret', !!on); }
   setSendMode('mic');   // voice-first resting state on load (typing is a tap away)
