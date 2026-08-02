@@ -190,7 +190,7 @@
   .minhandle{ position:absolute; top:50%; left:0; transform:translate(-50%,-50%);
     width:17px; height:17px; border-radius:50%; background:var(--amber);
     border:2px solid #2a1c08; box-shadow:0 2px 6px rgba(0,0,0,.6), 0 0 10px rgba(240,169,59,.45);
-    cursor:grab; }
+    cursor:grab; touch-action:none; }
   .minhandle:active{ cursor:grabbing; }
   /* Icon-mode handle: drop the puck chrome, show the glyph (flame=BINGE, leaf=FRESH). */
   .minhandle.mk{ background:none; border:none; box-shadow:none; width:auto; height:auto; }
@@ -2576,14 +2576,48 @@ minBar.addEventListener('pointermove',ev=>{ if(!minDragging)return; minPreview=m
 minBar.addEventListener('pointerup',ev=>{ if(!minDragging)return; minDragging=false; awaitingLog=true; paint(); });
 minBar.addEventListener('pointercancel',()=>{ minDragging=false; });
 
+// Arm the scrubber: freeze any live watch at the current elapsed minute (a stopped
+// position the console ring then adjusts) and stage that minute as the preview. Shared
+// by the handle tap/drag below; mirrors the freeze the bar's pointerdown does inline.
+function armScrub(){
+  if(watchingLive[focus]){ epMin[focus]=liveMin(focus); sessionBase[focus]=epMin[focus]; watchingLive[focus]=false; startedAt[focus]=null; }
+  if(minPreview==null) minPreview=(epMin[focus]||0);
+}
+// Tapping the playhead TOGGLES scrub-arm: dot ⇄ ▶-◀. In the dot state the console ring
+// scrolls the page; armed (▶-◀) the ring scrubs the minute mark and the left button reads
+// "LOG <n> min". Dragging the handle scrubs directly, like the bar. stopPropagation keeps
+// the bar's own drag-arm from double-firing beneath the handle.
+const minHandle=$('minHandle');
+let hDown=false, hGrabX=0, hMoved=false;
+minHandle.addEventListener('pointerdown',ev=>{
+  ev.preventDefault(); ev.stopPropagation();
+  try{ minHandle.setPointerCapture(ev.pointerId); }catch(_){}
+  hDown=true; hGrabX=ev.clientX; hMoved=false;
+});
+minHandle.addEventListener('pointermove',ev=>{
+  if(!hDown) return;
+  if(!hMoved && Math.abs(ev.clientX-hGrabX)<4) return;          // ignore tap jitter
+  if(!hMoved){ hMoved=true; armScrub(); minDragging=true; }     // first real move → begin scrubbing
+  minPreview=minFromX(ev.clientX); awaitingLog=false; paintMinute();
+  const b=$('startEpBtn'); if(b && b.dataset.action==='log') b.textContent='LOG '+fmtMin(minPreview);
+});
+minHandle.addEventListener('pointerup',ev=>{
+  if(!hDown) return; hDown=false;
+  try{ minHandle.releasePointerCapture(ev.pointerId); }catch(_){}
+  if(hMoved){ minDragging=false; awaitingLog=true; paint(); return; }   // a drag → stage like the bar
+  if(awaitingLog || minDragging){ minDragging=false; awaitingLog=false; minPreview=null; paint(); }  // ▶-◀ → dot (ring scrolls)
+  else { armScrub(); awaitingLog=true; paint(); }                       // dot → ▶-◀ (ring scrubs)
+});
+minHandle.addEventListener('pointercancel',()=>{ hDown=false; minDragging=false; });
+
 // Console-ring fine-tune. While the playhead is paused (▶-◀ showing / awaiting a LOG),
 // the click wheel calls this to nudge the mark minute-by-minute, so you can dial it in
 // with the wheel after grabbing the bar, then LOG. active() gates it to the ▶-◀ state.
 window.__logTune = {
-  // Wheel connects while the mark is being tuned (dragged/staged) OR whenever a film is
-  // loaded but not actively playing — so you can scrub a film with the wheel directly,
-  // no touch-drag needed first. (Shows stay drag-first so the ring can still scroll them.)
-  active(){ return awaitingLog || minDragging || (isMovie && !epDone[focus] && !watchingLive[focus]); },
+  // Wheel connects ONLY while the playhead is armed (▶-◀ showing): mid-drag, staged for a
+  // LOG, or toggled on by tapping the handle. In the resting dot state active() is false,
+  // so the ring scrolls the page instead — tap the playhead to flip into scrub mode.
+  active(){ return awaitingLog || minDragging; },
   step(dir){
     const rt=runtimeOf(focus);
     const base = (minPreview!=null ? minPreview : (epMin[focus]||0));
