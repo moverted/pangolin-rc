@@ -224,8 +224,9 @@
     #pierre-mic .rec-ring { position: absolute; inset: -2px; width: calc(100% + 4px); height: calc(100% + 4px); pointer-events: none; }
     #pierre-mic .rec-seg { transition: opacity 0.25s ease; }
 
-    /* ── Pierre context picker: item 3 of 4 in the band ── */
-    #pierre-ctx-wrap { display: none; position: absolute; left: 63%; transform: translateX(-50%);
+    /* ── Pierre context picker: now CENTER of the band (mic retired), between the
+       device chip (left) and the floating cube (right). ── */
+    #pierre-ctx-wrap { display: none; position: absolute; left: 50%; transform: translateX(-50%);
       bottom: 352px; z-index: 31; }
     #pierre-ctx-wrap.show { display: block; }
     #pierre-ctx {
@@ -576,7 +577,9 @@
     </button>
     <div id="pierre-ctx-pop" role="menu" hidden>
       <button class="pc-opt" data-ctx="chat" role="menuitem">Chat / what to watch</button>
-      <button class="pc-opt" data-ctx="add" role="menuitem">Add a show</button>
+      <button class="pc-opt" data-ctx="series" role="menuitem">Add a series</button>
+      <button class="pc-opt" data-ctx="movie" role="menuitem">Add a movie</button>
+      <button class="pc-opt" data-ctx="ticket" role="menuitem">&#127903; Log a ticket</button>
       <button class="pc-opt" data-ctx="account" role="menuitem">Account</button>
       <button class="pc-opt" data-ctx="device" role="menuitem">Connect a device</button>
       <div class="pc-sep"></div>

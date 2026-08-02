@@ -599,6 +599,7 @@ function wowModePrefetch(){
   if(shows.length) Promise.all(shows.map(wowClassifyShow)).then(()=>{ try{ render(); }catch(_){} });
 }
 function bucketOf(s){
+  if(ticketWatched(s)) return "completed";   // theater ticket: auto-flips to watched once the film has started
   if(s.stopped) return "completed";
   if(s.forceCompleted) return "completed";
   if(s.failed) return "current";
@@ -781,6 +782,18 @@ function tbPath(w,h,n,rng){
   while(y>0){ y=Math.max(0, y-(1.6+rng()*2.6)); const x=(Math.pow(rng(),0.7)*jMax); p+='L '+x.toFixed(1)+' '+y.toFixed(1)+' '; }
   return p+'L 0 0 Z';
 }
+// The film's real start = printed showtime + 25 min of previews. Drives the auto-flip
+// from "upcoming" to watched once that moment has passed.
+function screeningStart(s){
+  if(!s || s.kind!=='movie' || !s.ticketAt) return null;
+  const dayMs=parseTicketDate(s.ticketDate, s.ticketAt); if(!dayMs) return null;   // midday of screening day
+  const d=new Date(dayMs);
+  const tm=String(s.ticketTime||'').toLowerCase().match(/(\d{1,2}):(\d{2})\s*(am|pm)?/);
+  if(tm){ let hh=+tm[1]; const mm=+tm[2], ap=tm[3];
+    if(ap==='pm'&&hh<12)hh+=12; if(ap==='am'&&hh===12)hh=0; d.setHours(hh,mm,0,0); }
+  return d.getTime() + 25*60000;
+}
+function ticketWatched(s){ const f=screeningStart(s); return f!=null && f<=Date.now(); }
 function ticketBadge(s){
   if(!s || s.kind!=='movie' || !s.ticketAt) return '';
   // Real screening date from the ticket (weekday-confirmed year); fall back to upload time.
@@ -1230,7 +1243,8 @@ function recordFromTitle(t){
     lastMinute: isMovie ? (t.minutes||0) : 0, startedAt:t.started_at||null, epDetail:{}, currentEpisodeId:t.current_episode_id||null,
     releaseDate: t.premiered||null,          // film's theatrical release (drives the ticket freshness class)
     ticketAt: t.ticket_at||null,             // when a theater ticket was logged (epoch ms) → shows the stub badge
-    ticketDate: t.ticket_date||null };       // the ticket's printed date ("TUE, AUG 04") → real screening day
+    ticketDate: t.ticket_date||null,         // the ticket's printed date ("TUE, AUG 04") → real screening day
+    ticketTime: t.ticket_time||null };       // the ticket's showtime ("6:30 PM") → auto-flip point (+25 min previews)
 }
 
 // Load the signed-in member's tracked titles from the catalog-backed endpoint.

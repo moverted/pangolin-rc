@@ -2682,8 +2682,8 @@ async function logTicketedFilm(movie, ticket){
   if(ticket.theater){ chosenSvc=svcByLabel(ticket.theater); userPinned=true;
     const k=svcKey(); if(k){ try{ localStorage.setItem(k, ticket.theater); }catch(_){} } renderSvcCorner(); }
   const scr=parseScreening(ticket.date, ticket.time);
-  if(scr && scr.showtime <= Date.now()){
-    finishEpisode(scr);                               // already happened → watched, anchored to showtime
+  if(scr && scr.filmStart <= Date.now()){             // filmStart = showtime + 25 min of previews
+    finishEpisode(scr);                               // already started → watched, anchored to showtime
   } else if(scr){                                     // upcoming → stay unwatched, nudge a reflection at let-out
     const rt=runtimeOf(focus)||0, end=scr.filmStart + rt*60000;
     (window.parent||window).postMessage({ type:'pg:scheduleReflection', at:end, titleId, showName:movie.title,
@@ -3059,9 +3059,9 @@ async function uploadTicket(file){
     const scr=parseScreening(d.date, d.time);
     const scrEnd = scr ? scr.filmStart + (runtimeOf(focus)||0)*60000 : 0;
     const scrName = curShowName || 'that film';
-    // Only mark watched if the screening already HAPPENED. A future ticket just logs —
-    // the film stays "upcoming" until the show lets out (then the reflection nudge fires).
-    if(!scr || scr.showtime <= Date.now()) finishEpisode(scr || undefined);
+    // Only mark watched once the film has actually started (showtime + 25 min of previews).
+    // A future ticket just logs — the film stays "upcoming" until then.
+    if(!scr || scr.filmStart <= Date.now()) finishEpisode(scr || undefined);
     // Theater = no live logging (you're in the dark). Fire a reflection nudge at let-out.
     if(scr && scrEnd > Date.now()){
       (window.parent||window).postMessage({ type:'pg:scheduleReflection', at:scrEnd,

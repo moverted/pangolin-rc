@@ -360,6 +360,10 @@ function rotateToFace(fi) {
 // reads as a hand on the same slow carousel. Base off the face currently facing the
 // camera (nearestFace) so it steps from what you actually see, not a stale snap.
 const CORE_RING = [1, 4, 0, 5];   // WATCH(-X), LOG(+Z), FEED(+X), JOIN/BROWSE(-Z)
+// SELECT from cube-nav → punch into the face most exposed (lock/enter it). No-op if
+// already locked. lock() itself snaps to nearestFace().
+export function lockFace() { if (!locked) lock(); }
+
 export function cubeNavStep(dir) {
   if (locked) return;
   const cur = nearestFace();
@@ -1316,7 +1320,7 @@ document.getElementById('device-chip').addEventListener('click', () => cubeRotat
   const pop   = document.getElementById('pierre-ctx-pop');
   const label = document.getElementById('pierre-ctx-label');
   if (!wrap || !pill || !pop) return;
-  const LABELS = { chat: 'Chat', add: 'Add a show', account: 'Account', device: 'Device', note: 'Note' };
+  const LABELS = { chat: 'Chat', add: 'Add', series: 'Series', movie: 'Movie', ticket: 'Ticket', account: 'Account', device: 'Device', note: 'Note' };
   function pierreWin(){ try { return FACE_OVERLAYS[PIERRE_FACE].frame.contentWindow; } catch (_) { return null; } }
   function setLabel(id){ if (label) label.textContent = LABELS[id] || 'Chat'; }
   // Share the current chat: pull the plain transcript out of the Pierre face and

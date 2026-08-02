@@ -1377,10 +1377,13 @@
       inputSecret(false); input.placeholder = "Ask Pierre what to watch..."; refreshKb();
       setCtxIndicator('chat');
       if(opts.viaUser) addPierre("Back to it. What are you after?");
-      try{ input.focus(); }catch(_){}
+      setSendMode('mic'); try{ input.blur(); }catch(_){}   // voice-first: rest on the mic, not the keyboard
       return;
     }
     if(ctx === 'add')     return enterAddFlow([]);
+    if(ctx === 'series')  return enterAddFlow([], 'show');
+    if(ctx === 'movie')   return enterAddFlow([], 'movie');
+    if(ctx === 'ticket')  return enterAddFlow([], 'ticket');
     if(ctx === 'account') return enterJoinFlow();
     if(ctx === 'device')  return enterDeviceFlow();
   }
@@ -1394,7 +1397,7 @@
     inputSecret(false); input.placeholder = "Ask Pierre what to watch...";
     setCtxIndicator('chat');
     addPierre("Fresh start. What are you in the mood for?");
-    try{ input.focus(); }catch(_){}
+    setSendMode('mic'); try{ input.blur(); }catch(_){}   // voice-first: rest on the mic
   }
 
   // The shell's off-cube band drives the lane switch (same-origin). The mic there
@@ -1502,12 +1505,16 @@
     setTimeout(run, 1400);   // fallback if a poster stalls
   }
 
-  function enterAddFlow(vlog){
+  // startKind (from the band picker's granular options) jumps straight past the
+  // "series/movie/ticket?" prompt into that specific flow.
+  function enterAddFlow(vlog, startKind){
     flowChrome(true);                 // ensure the composer is back if a prior picker hid it
     addHistory=Array.isArray(vlog)?vlog:[];
     addFlow='kind'; addKind='show'; addFailCount=0; joinFlow=null; acctFlow=null; noteCtx=null;
     setCtxIndicator('add');           // keep the chat; switching no longer wipes history
-    // First thing: series or movie. The pick routes the name lookup (TVmaze vs TMDB).
+    if(startKind==='ticket'){ startTicketFlow(); return; }
+    if(startKind==='show' || startKind==='movie'){ chooseAddKind(startKind); return; }
+    // No specific kind → offer the spread.
     pierreSay(tod()+". A series, a movie, or a theater ticket?", [
       {label:'Series', onClick:()=>chooseAddKind('show')},
       {label:'Movie',  onClick:()=>chooseAddKind('movie')},

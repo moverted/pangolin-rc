@@ -3,7 +3,7 @@
 // cube directly: it reads focus + reaches the open face's document through the
 // CubeShell interface it imports below, then drives that face's own content
 // (scroll + the SELECT highlight/dialog). See the cube map in CLAUDE.md.
-import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey, cubeNavStep } from './cube_shell.js';
+import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey, cubeNavStep, lockFace } from './cube_shell.js';
 
 // ─── iPod-style click wheel: the ring scrolls the open face; the four card actions
 // (WATCH top / SHARE left / STOP right / SELECT center) drive the open show by
@@ -375,7 +375,8 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey, cubeNavSte
         const dlg = getFocus().locked ? activeDialog(activeDoc()) : null;
         if(dlg){ dlg.confirm(); tick(18); hideHL(activeDoc()); }
         else if(getFocus().locked){ selectMode ? exitSelect(true) : enterSelect(); }  // open face keeps its wheel
-        else if(remoteActive()){ remoteKey('select'); tick(18); }                     // cube view → TV OK
+        else if(remoteActive() && axisMode !== 'off'){ remoteKey('select'); tick(18); } // TV D-pad mode → OK
+        else { lockFace(); tick(18); }                                                // cube-spin → punch into the exposed face
       } } };
     center.addEventListener('pointerup', stop);
     center.addEventListener('pointercancel', ()=>{ if(holdT){ clearTimeout(holdT); holdT = 0; } });
