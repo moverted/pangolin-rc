@@ -723,7 +723,11 @@ function wowTag(s){
 function filmDayTag(s){
   if(!s || s.kind!=='movie') return '';
   let d=null;
-  if(s.startedAt) d=new Date(Number(s.startedAt));
+  // Prefer the ticket's real screening date (so the expanded card matches the tile badge),
+  // then the watch anchor, then the day the row was logged.
+  const scr = s.ticketAt ? parseTicketDate(s.ticketDate, s.ticketAt) : null;
+  if(scr) d=new Date(scr);
+  else if(s.startedAt) d=new Date(Number(s.startedAt));
   else if(s.lastDate) d=new Date(s.lastDate+'T12:00');   // midday: avoid a TZ midnight day-flip
   if(!d || isNaN(d.getTime())) return '';
   return d.toLocaleDateString('en-US',{weekday:'long'}).toUpperCase();   // "TUESDAY"
@@ -1582,7 +1586,12 @@ function renderEpisodeArchive(host, s, data, includeBp){
     const k = e._all ? (Object.keys(ticketsByEp)[0] ?? Object.keys(commentsByEp)[0] ?? Object.keys(coviewByEp)[0] ?? '') : key(e);
     const sessions=e.sessions||[];
     const fin=sessions.filter(x=>x.finished).pop();
-    const when = e._all ? (s.lastDate?relDate(s.lastDate):'') : (fin?fin.date:'');
+    // Ticketed film → the viewing header shows the real screening date, not the upload day.
+    const tScreen = (isMovie && s.ticketAt) ? parseTicketDate(s.ticketDate, s.ticketAt) : null;
+    const when = e._all
+      ? (tScreen ? new Date(tScreen).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})
+                 : (s.lastDate?relDate(s.lastDate):''))
+      : (fin?fin.date:'');
     const head = e._all ? (isMovie?'Film':'Viewing') : ('<b>'+key(e)+'</b>'+(e.name?' '+esc(e.name):''));
     const refl = (reflByEp[k]||[]).concat(i===0?orphanRefs:[]);
     const body = archiveBody(s, k, sessions, ticketsByEp[k]||[], commentsByEp[k]||[], coviewByEp[k]||[], refl, includeBp);
