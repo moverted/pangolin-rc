@@ -2219,6 +2219,12 @@ function paint(){
       stBtn.textContent = 'CONTINUE';
       stBtn.classList.add('continue');
       stBtn.dataset.action = 'continue';
+    } else if(epDone[focus]) {
+      // Finished → offer a rewatch. Archives THIS season as a pass (server) and reloads
+      // fresh, so a new pass starts from the beginning with the playhead back on the dot.
+      stBtn.textContent = 'WATCH AGAIN';
+      stBtn.classList.add('continue');
+      stBtn.dataset.action = 'rewatch';
     } else if((epMin[focus]||0) > 0) {
       stBtn.textContent = 'CONTINUE';
       stBtn.classList.add('continue');
@@ -2407,8 +2413,27 @@ $('startEpBtn').onclick=()=>{
   const a=btn.dataset.action;
   if(a==='notify'){ swingToNotify(); return; }   // greyed START on an unaired episode → Pierre notify
   if(a==='log') logIt();
+  else if(a==='rewatch') rewatchEpisode();
   else startEpisode();   // 'start' and 'continue' both (re-)arm the live timer
 };
+// WATCH AGAIN → archive THIS season as a pass on the server, then reload the title fresh:
+// the season's progress + pattern are reset, so we return at episode 1, minute 0, with the
+// playhead on the default circle. Standalone (no account) does the reset locally.
+async function rewatchEpisode(){
+  const email = acctEmail();
+  const season = isMovie ? 1 : (eps[focus] ? sNum(eps[focus]) : 1);
+  const btn=$('startEpBtn');
+  if(email && curShowId && window.parent!==window){
+    if(btn){ btn.disabled=true; btn.textContent='STARTING OVER…'; }
+    try{ await fetch(`${API_BASE}/profile/${encodeURIComponent(email)}/titles/${encodeURIComponent(curShowId)}/seasons/${season}/rewatch`, {method:'POST'}); }catch(_){}
+    try{ await loadTitle(curShowId, {kind:'resume', season, number:1, on:true}); }catch(_){}
+    if(btn) btn.disabled=false;
+  } else {
+    eps.forEach((e,i)=>{ if(sNum(e)===season){ epMin[i]=0; epDone[i]=false; epBp[i]=false; epSessions[i]=[]; sessionBase[i]=0; watchingLive[i]=false; startedAt[i]=null; } });
+    watched=0; focus=eps.findIndex(e=>sNum(e)===season); if(focus<0) focus=0;
+    minPreview=null; awaitingLog=false; paint();
+  }
+}
 $('finishEpBtn').onclick=()=>{ clearFinishCallout(); flashBtn($('finishEpBtn')); if(isTheater()) openTicket(); else finishEpisode(); };
 
 // Call the FINISH button out (green glow-pulse) when the member returns from a watch
