@@ -167,8 +167,86 @@
   .signout{margin-top:auto;padding-top:14px;font-family:var(--mono);font-size:10px;
     letter-spacing:.06em;color:#7d7060;text-align:center;flex:0 0 auto}
   .signout button{background:none;border:0;color:var(--amber-soft);cursor:pointer;font:inherit;text-decoration:underline}
+
+  /* ---- IRL tab bar (Suggestions / Tickets / Physical media) ---- */
+  .tabs{display:flex;gap:6px;padding:0 16px 10px;flex-shrink:0}
+  .tab{flex:1;font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--muted);background:var(--panel-2);border:1px solid var(--line);border-radius:9px;
+    padding:8px 4px;cursor:pointer;transition:color .15s,border-color .15s,background .15s;white-space:nowrap}
+  .tab:hover{color:var(--text)}
+  .tab.on{color:#1a130b;background:var(--amber);border-color:var(--amber)}
+
+  /* ---- Tickets: a shelf of theater ticket stubs ---- */
+  .tixgrid{display:flex;flex-direction:column;gap:11px;margin-top:14px}
+  .tix{position:relative;display:flex;align-items:stretch;background:var(--panel-2);
+    border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .tix .poster{flex:0 0 58px;width:58px;background:#000 center/cover;border-right:1px dashed var(--line)}
+  .tix .noposter{flex:0 0 58px;width:58px;background:repeating-linear-gradient(45deg,#241c13,#241c13 6px,#2b2218 6px,#2b2218 12px)}
+  .tix .body{flex:1 1 auto;min-width:0;padding:9px 11px;display:flex;flex-direction:column;justify-content:center;gap:3px}
+  .tix .film{font-family:var(--display);font-weight:700;font-size:13.5px;line-height:1.15;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tix .where{font-family:var(--mono);font-size:10px;color:var(--amber-soft);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tix .when{font-family:var(--mono);font-size:9.5px;color:var(--muted);letter-spacing:.04em}
+  /* torn stub end: date block + two punch notches on the perforation */
+  .tix .stub{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:1px;padding:0 12px;border-left:1px dashed var(--line);background:rgba(0,0,0,.16)}
+  .tix .stub .d{font-family:var(--display);font-weight:700;font-size:16px;line-height:1;color:var(--amber)}
+  .tix .stub .mo{font-family:var(--mono);font-size:8px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+  .tix .notch{position:absolute;width:9px;height:9px;border-radius:50%;background:var(--panel);border:1px solid var(--line)}
+  .tix .notch.t{top:-5px}
+  .tix .notch.b{bottom:-5px}
+
+  /* ---- Physical media: scanner viewport + the collected shelf ---- */
+  .cam{position:relative;flex:0 0 auto;border:1px solid var(--line);border-radius:12px;overflow:hidden;
+    background:#0a0806;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center}
+  .addpanel{margin-top:14px;animation:rise .28s ease both}
+  .camclose{position:absolute;top:8px;right:8px;z-index:4;width:26px;height:26px;border-radius:50%;
+    border:0;background:rgba(8,6,4,.82);color:#fff;font-size:13px;line-height:1;cursor:pointer;
+    display:flex;align-items:center;justify-content:center}
+  .cam img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  .cam .placeholder{font-family:var(--mono);font-size:10.5px;color:#6d6152;text-align:center;line-height:1.6;padding:0 24px;z-index:1}
+  .cam .reticle{position:absolute;left:14%;right:14%;top:38%;bottom:38%;border:2px solid rgba(232,159,61,.85);
+    border-radius:8px;box-shadow:0 0 0 100vmax rgba(6,4,2,.32);z-index:2}
+  .cam .laser{position:absolute;left:16%;right:16%;top:50%;height:2px;background:rgba(232,159,61,.9);
+    box-shadow:0 0 8px rgba(232,159,61,.8);z-index:3;animation:scan 2.2s ease-in-out infinite}
+  @keyframes scan{0%,100%{top:40%}50%{top:60%}}
+  @media (prefers-reduced-motion:reduce){.cam .laser{animation:none}}
+  .camrow{display:flex;gap:8px;margin-top:10px}
+  .camrow button{flex:1;font-family:var(--display);font-weight:700;font-size:12.5px;letter-spacing:.03em;
+    border:0;border-radius:10px;padding:11px;cursor:pointer}
+  .camrow .scan{color:#1a130b;background:var(--amber)}
+  .camrow .manual{color:var(--text);background:var(--panel-2);border:1px solid var(--line)}
+  .camrow button:active{transform:translateY(1px)}
+  .shelfhead{display:flex;justify-content:space-between;align-items:center;margin:18px 0 8px;flex:0 0 auto}
+  .shelfhead h2{font-family:var(--display);font-size:14px;font-weight:700;margin:0}
+  .shelfright{display:flex;align-items:center;gap:10px}
+  .shelfright em{font-family:var(--mono);font-style:normal;font-size:9px;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--muted)}
+  .addbtn{width:27px;height:27px;border-radius:50%;border:0;background:var(--amber);color:#1a130b;
+    font-size:19px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;
+    box-shadow:0 6px 16px -8px rgba(232,159,61,.85)}
+  .addbtn.on{background:var(--panel-2);color:var(--amber);border:1px solid var(--line)}
+  .addbtn:active{transform:translateY(1px)}
+  .shelf{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+  .mcard{position:relative;aspect-ratio:2/3;border-radius:8px;overflow:hidden;border:1px solid var(--line);
+    background:#000 center/cover;cursor:pointer}
+  .mcard .spine{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:flex-end;
+    padding:6px;background:linear-gradient(180deg,rgba(0,0,0,0) 40%,rgba(6,4,2,.88))}
+  .mcard .mtitle{font-size:10px;font-weight:600;line-height:1.15;color:var(--text);
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .mcard .fmt{position:absolute;top:5px;left:5px;font-family:var(--mono);font-size:7.5px;letter-spacing:.08em;
+    padding:2px 5px;border-radius:5px;background:rgba(6,4,2,.78);color:var(--amber)}
+  .mcard .x{position:absolute;top:4px;right:4px;width:19px;height:19px;border:none;border-radius:50%;
+    background:rgba(8,6,4,.8);color:#fff;font-size:11px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .camstatus{font-family:var(--mono);font-size:10px;letter-spacing:.03em;color:var(--muted);
+    text-align:center;margin-top:9px;min-height:14px;line-height:1.35}
+  .camstatus.ok{color:var(--green)}
+  .camstatus.bad{color:var(--amber-soft)}
+
   /* Floating cube — back to cube navigation (shared across trunk sides) */
 </style>
+<script src="zxing.min.js"></script>
 </head>
 <body>
 <div class="face">
@@ -277,42 +355,336 @@ const API_BASE = (location.protocol === 'http:' && location.hostname === 'localh
   ? 'http://localhost:8787'
   : 'https://pangolin-rc.edward-m-willett.workers.dev';
 
-// A film opens single-unit on the Watch face (and lands in the Log), same handoff
-// shape Pierre uses for a movie.
-async function renderBrowse(){
+// ── IRL face: three tabs on the member view ──────────────────────────────────
+//   SUGGESTIONS — the old Browse rails (Pierre's picks + friends' shares)
+//   TICKETS     — the theater ticket stubs the member has logged (watch_ticket)
+//   MEDIA       — scan/log the physical discs the member owns ("the shelf")
+// The JOIN intake above is untouched; this only renders once the device is a member.
+const IRL_TABS = [
+  { key:'suggestions', label:'Suggest', badge:'DISCOVER' },
+  { key:'tickets',     label:'Tickets', badge:'THE STUBS' },
+  { key:'media',       label:'Shelf',   badge:'PHYSICAL' },
+];
+let irlTab = 'suggestions';
+// Dev/layout preview only: ?seed populates sample stubs + discs so the layout can be
+// screenshotted before real data exists. Never on for a real member (no query flag).
+const SEED = (()=>{ try{ return new URLSearchParams(location.search).has('seed'); }catch(_){ return false; } })();
+
+function renderBrowse(){
   document.querySelector('.track').style.display = 'none';
   const b = document.getElementById('browse'); b.classList.add('show');
-  const name = memberName();
+  const active = IRL_TABS.find(t=>t.key===irlTab) || IRL_TABS[0];
   b.innerHTML = `
-    <div class="head"><span class="label">BROWSE</span><span class="badge">DISCOVER</span></div>
-    <div class="bscroll">
-      <div class="rail">
-        <h2>Pierre's picks <em>live</em></h2>
-        <div class="why">shows worth your night</div>
-        <div class="cards" id="cardsPierre"><div class="why">loading…</div></div>
-      </div>
-      <div class="rail" id="railFriends">
-        <h2>From friends</h2>
-        <div class="cards" id="cardsFriends"><div class="why">loading…</div></div>
-      </div>
-      <div class="rail">
-        <h2>People you follow <em>soon</em></h2>
-        <div class="bempty"><b>Follow a few TV voices and their picks land here.</b><br>No one followed yet. Nothing faked.</div>
-      </div>
-      <div class="signout">signed in${name?(' as '+esc(name)):''} &middot; <button id="signout">not you?</button></div>
-    </div>`;
+    <div class="head"><span class="label">IRL</span><span class="badge" id="irlBadge">${active.badge}</span></div>
+    <div class="tabs" id="irlTabs">${IRL_TABS.map(t=>
+      `<button class="tab ${t.key===irlTab?'on':''}" data-tab="${t.key}">${t.label}</button>`).join('')}</div>
+    <div class="bscroll" id="irlPane"></div>`;
+  b.querySelectorAll('#irlTabs .tab').forEach(el => el.onclick = () => switchTab(el.dataset.tab));
+  switchTab(irlTab);
+}
+
+function switchTab(key){
+  irlTab = key;
+  const active = IRL_TABS.find(t=>t.key===key) || IRL_TABS[0];
+  document.querySelectorAll('#irlTabs .tab').forEach(el => el.classList.toggle('on', el.dataset.tab===key));
+  const badge = document.getElementById('irlBadge'); if(badge) badge.textContent = active.badge;
+  const pane = document.getElementById('irlPane'); if(!pane) return;
+  pane.scrollTop = 0;
+  if(key==='tickets')      renderTickets(pane);
+  else if(key==='media')   renderMedia(pane);
+  else                     renderSuggestions(pane);
+}
+
+// A film opens single-unit on the Watch face (and lands in the Log), same handoff
+// shape Pierre uses for a movie.
+async function renderSuggestions(pane){
+  const name = memberName();
+  pane.innerHTML = `
+    <div class="rail">
+      <h2>Pierre's picks <em>live</em></h2>
+      <div class="why">shows worth your night</div>
+      <div class="cards" id="cardsPierre"><div class="why">loading…</div></div>
+    </div>
+    <div class="rail" id="railFriends">
+      <h2>From friends</h2>
+      <div class="cards" id="cardsFriends"><div class="why">loading…</div></div>
+    </div>
+    <div class="rail">
+      <h2>People you follow <em>soon</em></h2>
+      <div class="bempty"><b>Follow a few TV voices and their picks land here.</b><br>No one followed yet. Nothing faked.</div>
+    </div>
+    <div class="signout">signed in${name?(' as '+esc(name)):''} &middot; <button id="signout">not you?</button></div>`;
   document.getElementById('signout').onclick = () => {
     try{ localStorage.removeItem('pg_user'); localStorage.removeItem('pg_username'); }catch(_){}
-    b.classList.remove('show'); document.querySelector('.track').style.display = '';
+    document.getElementById('browse').classList.remove('show'); document.querySelector('.track').style.display = '';
   };
   loadFriendShares();
   const wrap = document.getElementById('cardsPierre');
   const shows = (await Promise.all(PICKS_SEED.map(fetchShow))).filter(Boolean);
+  if (!wrap) return;   // tab switched away mid-fetch
   if (!shows.length){ wrap.innerHTML = `<div class="why">couldn't reach the guide just now</div>`; return; }
   wrap.innerHTML = shows.map(s => `<div class="bcard" data-id="${s.id}" data-name="${esc(s.name)}">
     <div class="pi" style="${s.img?`background-image:url('${s.img}')`:''}"></div>
     <div class="nm">${esc(s.name)}</div></div>`).join('');
   wrap.querySelectorAll('.bcard').forEach(el => el.onclick = () => openShow(+el.dataset.id, el.dataset.name));
+}
+
+// ── TICKETS: the member's logged theater stubs. Real data lives in watch_ticket
+//    (POST /ticket → OCR of date/time/theater); a user-wide list endpoint is still
+//    to come, so for now we render whatever loadTickets returns and fall back to an
+//    honest empty. Each stub shows film · theater · time, with the torn date end.
+const MONTHS = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+function ticketDateBits(dateStr){
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateStr||'');
+  if(!m) return { d:'—', mo:'' };
+  return { d:String(+m[3]), mo:MONTHS[(+m[2]-1)%12]||'' };
+}
+function sampleTickets(){
+  return [
+    { id:'s1', film:'Dune: Part Two',  theater:'Alamo Drafthouse',  date:'2026-03-14', time:'7:40 PM', poster:'' },
+    { id:'s2', film:'The Brutalist',   theater:'IFC Center',        date:'2026-01-22', time:'6:15 PM', poster:'' },
+    { id:'s3', film:'Anora',           theater:'Metrograph',        date:'2025-11-08', time:'9:00 PM', poster:'' },
+  ];
+}
+async function loadTickets(){
+  if(SEED) return sampleTickets();
+  // Real fetch goes here once a user-wide /tickets list exists. Until then: honest empty.
+  return [];
+}
+async function renderTickets(pane){
+  pane.innerHTML = `<div class="tixgrid" id="tixGrid"><div class="why" style="margin-top:14px">loading…</div></div>`;
+  const tickets = await loadTickets();
+  const grid = document.getElementById('tixGrid'); if(!grid) return;
+  if(!tickets.length){
+    grid.innerHTML = `<div class="bempty" style="margin-top:14px"><b>Your ticket stubs live here.</b><br>
+      Log a theater watch with a photo of the ticket (LOG → Finish → IRL Theater, or ask Pierre) and it lands on this shelf.</div>`;
+    return;
+  }
+  grid.innerHTML = tickets.map(t=>{
+    const {d,mo} = ticketDateBits(t.date);
+    const where = [t.theater, t.time].filter(Boolean).join(' · ');
+    return `<div class="tix">
+      <span class="notch t"></span><span class="notch b"></span>
+      <div class="${t.poster?'poster':'noposter'}" style="${t.poster?`background-image:url('${esc(t.poster)}')`:''}"></div>
+      <div class="body">
+        <div class="film">${esc(t.film||'Untitled')}</div>
+        <div class="where">${esc(t.theater||'')}</div>
+        <div class="when">${esc(t.time||'')}</div>
+      </div>
+      <div class="stub"><div class="d">${esc(d)}</div><div class="mo">${esc(mo)}</div></div>
+    </div>`;
+  }).join('');
+}
+
+// ── MEDIA (the shelf): scan a barcode (camera) or type it in, and the disc joins
+//    the member's collection. Camera is simulated locally from a screengrab the user
+//    supplies; the collection persists in localStorage until the backend exists.
+const MEDIA_KEY = 'pg_irl_media';
+function loadMedia(){
+  try{ const m = JSON.parse(localStorage.getItem(MEDIA_KEY)||'[]'); if(Array.isArray(m)) return m; }catch(_){}
+  return [];
+}
+function saveMedia(list){ try{ localStorage.setItem(MEDIA_KEY, JSON.stringify(list)); }catch(_){} }
+// Unique per call — Date.now() alone collides when two shelve back-to-back, which cross-
+// wired their async title/poster updates onto the same card.
+function mediaId(){ return 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+function addMedia(item){ const list = loadMedia(); list.unshift({ id:mediaId(), ...item }); saveMedia(list); }
+// ?seed preview shelf — real physical-edition box art (Amazon product images) so the
+// layout reads true without a live scan. Never shown to a real member (needs ?seed).
+function sampleMedia(){
+  return [
+    { id:'d1', title:'Homicide: Life on the Street', fmt:'DVD',     barcode:'', poster:'https://m.media-amazon.com/images/I/91adBKeJ4bL._SY679_.jpg' },
+    { id:'d2', title:'Mr. Robot',                    fmt:'BLU-RAY', barcode:'', poster:'https://m.media-amazon.com/images/I/81MzYDozu0L._SX522_.jpg' },
+    { id:'d3', title:'V for Vendetta',               fmt:'DVD',     barcode:'', poster:'https://m.media-amazon.com/images/I/915bUmAaOJL._SY679_.jpg' },
+  ];
+}
+// The camera/scan module is collapsed by default — the shelf shows first, and a (+)
+// opens the scanner only when the member wants to add a disc.
+let mediaAdding = false;
+function renderMedia(pane){
+  const addPanel = mediaAdding ? `
+    <div class="addpanel">
+      <div class="cam" id="cam">
+        <div class="placeholder" id="camPlaceholder">camera preview<br>tap to use your camera · or drop a screengrab</div>
+        <div class="reticle"></div><div class="laser"></div>
+        <button class="camclose" id="camClose" aria-label="Close">✕</button>
+      </div>
+      <div class="camrow">
+        <button class="scan" id="scanBtn">Scan barcode</button>
+        <button class="manual" id="manualBtn">Enter by hand</button>
+      </div>
+      <div class="camstatus" id="camStatus">point the camera at the barcode on the case</div>
+    </div>` : '';
+  pane.innerHTML = `
+    ${addPanel}
+    <div class="shelfhead"><h2>My shelf</h2>
+      <div class="shelfright"><em id="shelfCount"></em>
+        <button class="addbtn ${mediaAdding?'on':''}" id="addBtn" aria-label="Add a disc">${mediaAdding?'✕':'+'}</button></div>
+    </div>
+    <div class="shelf" id="shelf"></div>`;
+  document.getElementById('addBtn').onclick = () => { mediaAdding = !mediaAdding; renderMedia(pane); };
+
+  if(mediaAdding){
+    // Take a photo (or drop a screengrab) → ZXing decodes the barcode from the still and
+    // shelves it. Live camera streaming needs a secure origin (blocked on http-over-LAN
+    // on iOS), so this snap-and-decode path is what works for local testing; the iOS app
+    // swaps in a native scanner. ?cam=<url> preset feeds an image straight in.
+    const cam = document.getElementById('cam');
+    function setStatus(msg, cls){ const st = document.getElementById('camStatus');
+      if(st){ st.textContent = msg; st.classList.remove('ok','bad'); if(cls) st.classList.add(cls); } }
+    function loadImg(src){ return new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=()=>rej(new Error('load')); i.src=src; }); }
+    // A rotated + downscaled copy of the photo. Phone shots arrive sideways, and decoding
+    // at full 4K resolution over-reads into false positives, so every attempt runs on a
+    // reduced, re-oriented copy.
+    function variantCanvas(img, rot, scale){
+      const w=Math.round(img.naturalWidth*scale), h=Math.round(img.naturalHeight*scale);
+      const c=document.createElement('canvas');
+      if(rot===90||rot===270){ c.width=h; c.height=w; } else { c.width=w; c.height=h; }
+      const ctx=c.getContext('2d'); ctx.imageSmoothingQuality='high';
+      ctx.translate(c.width/2,c.height/2); ctx.rotate(rot*Math.PI/180); ctx.drawImage(img,-w/2,-h/2,w,h); return c;
+    }
+    async function readOnce(cv){
+      try{ const r=await new ZXing.BrowserMultiFormatReader(new Map([[ZXing.DecodeHintType.TRY_HARDER,true]]))
+                          .decodeFromImageUrl(cv.toDataURL('image/jpeg',0.92)); return (r.getText()||'').trim(); }
+      catch(_){ return null; }
+    }
+    // Consensus decode: a real barcode reads identically across orientations/scales, while
+    // a misread is a one-off. Accept the first code seen TWICE (which beats singleton
+    // garbage); never shelve an unconfirmed guess. Early-exit keeps a clean frame near
+    // instant (~2 reads); the sideways/glare case still lands, just a beat slower.
+    async function decodeBarcode(src){
+      if(!window.ZXing){ setStatus('scanner unavailable — use Enter by hand','bad'); return; }
+      setStatus('scanning…');
+      let img; try{ img=await loadImg(src); }catch(_){ setStatus('could not open that image — retake','bad'); return; }
+      const tally={}; let best=null, bestN=0;
+      for(const scale of [0.6,0.5]) for(const rot of [0,90,270,180]){
+        const code=await readOnce(variantCanvas(img,rot,scale));
+        if(!code) continue;
+        tally[code]=(tally[code]||0)+1;
+        if(tally[code]>bestN){ best=code; bestN=tally[code]; }
+        if(bestN>=2){ shelveBarcode(best); setStatus('found '+best+' · added to shelf','ok'); return; }
+      }
+      setStatus('no clear read — fill the frame, hold steady, and retake','bad');
+    }
+    function showCam(src){
+      let img = cam.querySelector('img');
+      if(!img){ img = document.createElement('img'); cam.insertBefore(img, cam.firstChild); }
+      img.src = src;
+      const ph = document.getElementById('camPlaceholder'); if(ph) ph.style.display='none';
+      decodeBarcode(src);
+    }
+    function openCapture(){
+      const inp = document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.capture='environment';
+      inp.onchange = () => { const f = inp.files && inp.files[0]; if(f) showCam(URL.createObjectURL(f)); };
+      inp.click();
+    }
+    cam.onclick = openCapture;
+    cam.addEventListener('dragover', e => e.preventDefault());
+    cam.addEventListener('drop', e => { e.preventDefault();
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if(f && /^image\//.test(f.type)) showCam(URL.createObjectURL(f)); });
+    try{ const preset = new URLSearchParams(location.search).get('cam'); if(preset) showCam(preset); }catch(_){}
+    document.getElementById('camClose').onclick = () => { mediaAdding = false; renderMedia(pane); };
+    document.getElementById('scanBtn').onclick = openCapture;
+    document.getElementById('manualBtn').onclick = () => {
+      const title = prompt('Title on the disc');
+      if(!title || !title.trim()) return;
+      const fmt = (prompt('Format (DVD / BLU-RAY / 4K UHD / VHS)','BLU-RAY')||'').trim().toUpperCase() || 'DISC';
+      addMedia({ title:title.trim(), fmt, barcode:'', poster:'' });
+      paintShelf();
+    };
+  }
+  paintShelf();
+}
+// ── Barcode → title + cover art ──────────────────────────────────────────────
+// UPC → product title comes from UPCitemdb; its title → movie poster reuses the
+// app's existing TMDB proxy. UPCitemdb has no CORS header, so for this LOCAL build we
+// tunnel it through a public CORS proxy — a real deployment moves this into the Worker
+// (a /upc route, key-held + cached), same place /tmdb/search already lives.
+const IRL_UPC_PROXY = u => 'https://corsproxy.io/?url=' + encodeURIComponent(u);
+// TMDB art always via the public Worker (localhost has no local API), so posters resolve
+// on the desktop preview too; the phone would reach the same host through API_BASE.
+const ART_API = API_BASE.includes('localhost') ? 'https://pangolin-rc.edward-m-willett.workers.dev' : API_BASE;
+
+function detectFormat(s){ s=(s||'').toLowerCase();
+  if(/\b4k\b|uhd|ultra\s*hd/.test(s)) return '4K UHD';
+  if(/blu-?\s*ray/.test(s)) return 'BLU-RAY';
+  if(/\bdvd\b/.test(s)) return 'DVD';
+  if(/\bvhs\b/.test(s)) return 'VHS';
+  if(/\bvinyl\b|\blp\b/.test(s)) return 'VINYL';
+  return 'DISC';
+}
+// Strip the edition/format noise UPC titles carry ("[Blu-ray]", "The Complete Series")
+// but KEEP subtitles (colons) — "Mission: Impossible" must not become "Mission".
+function cleanDiscTitle(raw){
+  let t = (raw||'').replace(/\[[^\]]*\]|\([^)]*\)/g,' ');
+  t = t.replace(/\b(4k|uhd|ultra hd|blu-?ray|dvd|vhs|digital|combo pack|combo|steelbook|widescreen|full ?screen|collector'?s|anniversary|unrated|director'?s cut|extended cut|extended|remastered|special edition|the complete series|complete series|complete season|the complete|two-disc|\d+-disc|multi-format|region \d+|import|edition)\b/gi,' ');
+  t = t.replace(/\s{2,}/g,' ').replace(/\s*[-–—:]\s*$/,'').trim();
+  return t || (raw||'').trim();
+}
+function _normTitle(s){ return (s||'').toLowerCase().replace(/&/g,'and').replace(/[^a-z0-9]+/g,' ').trim(); }
+// Guard against movie-search grabbing the wrong film for a TV/box set: only trust a TMDB
+// hit whose title actually lines up with the UPC title (equal, or one a prefix of the other).
+function titlesMatch(a,b){ const x=_normTitle(a), y=_normTitle(b); if(!x||!y) return false;
+  if(x===y) return true;
+  const short = x.length<=y.length ? x : y, long = x.length<=y.length ? y : x;
+  return short.length>=4 && long.startsWith(short);
+}
+async function lookupUPC(code){
+  try{
+    const r = await fetch(IRL_UPC_PROXY('https://api.upcitemdb.com/prod/trial/lookup?upc='+encodeURIComponent(code)));
+    if(!r.ok) return null;
+    const d = await r.json(); const it = (d.items||[])[0];
+    if(!it || !it.title) return null;
+    return { title: it.title, image: (it.images||[])[0] || '' };
+  }catch(_){ return null; }
+}
+// Resolve a scanned code to { title, fmt, poster }. UPC gives the product title (+ a
+// stock image); a matching TMDB movie upgrades to a proper poster + canonical title.
+async function resolveDiscArt(code){
+  const upc = await lookupUPC(code);
+  if(!upc) return null;
+  const fmt = detectFormat(upc.title);
+  const core = cleanDiscTitle(upc.title);
+  let title = core || upc.title, poster = upc.image || '';
+  try{
+    const r = await fetch(ART_API + '/tmdb/search?q=' + encodeURIComponent(core));
+    if(r.ok){ const d = await r.json(); const m = (d.results||[])[0];
+      if(m && titlesMatch(core, m.title)){ title = m.title; if(m.poster) poster = m.poster; } }
+  }catch(_){}
+  return { title, fmt, poster };
+}
+function updateMedia(id, patch){ saveMedia(loadMedia().map(m => m.id===id ? {...m, ...patch} : m)); paintShelf(); }
+// Shelve a decoded/typed barcode: drop a card in immediately ("Looking up…"), then fill
+// in the real title/poster/format async. If nothing resolves, keep the bare code.
+function shelveBarcode(code){
+  const id = mediaId();
+  const list = loadMedia(); list.unshift({ id, title:'Looking up…', fmt:'DISC', barcode:code, poster:'' });
+  saveMedia(list); paintShelf();
+  resolveDiscArt(code)
+    .then(res => updateMedia(id, res ? { title:res.title, fmt:res.fmt, poster:res.poster } : { title:'Barcode '+code }))
+    .catch(() => updateMedia(id, { title:'Barcode '+code }));
+}
+function addByBarcode(code){ shelveBarcode(code); }
+function paintShelf(){
+  const shelf = document.getElementById('shelf'); if(!shelf) return;
+  let list = loadMedia();
+  if(SEED && !list.length) list = sampleMedia();
+  const count = document.getElementById('shelfCount'); if(count) count.textContent = list.length ? list.length+' titles' : '';
+  if(!list.length){
+    // Keep #shelf in the DOM (message spans the grid) so later scans can repaint it.
+    shelf.innerHTML = `<div class="bempty" style="grid-column:1/-1"><b>Nothing on the shelf yet.</b><br>Tap <b>+</b> to scan a disc's barcode or add one by hand.</div>`;
+    return;
+  }
+  shelf.innerHTML = list.map(m=>`<div class="mcard" data-id="${esc(m.id)}" style="${m.poster?`background-image:url('${esc(m.poster)}')`:''}">
+    <span class="fmt">${esc(m.fmt||'DISC')}</span>
+    <button class="x" data-x="${esc(m.id)}" aria-label="Remove">✕</button>
+    <div class="spine"><div class="mtitle">${esc(m.title||'Untitled')}</div></div></div>`).join('');
+  shelf.querySelectorAll('[data-x]').forEach(x => x.onclick = (ev)=>{
+    ev.stopPropagation();
+    saveMedia(loadMedia().filter(m=>m.id!==x.dataset.x));
+    paintShelf();
+  });
 }
 
 // "From friends": real shares pushed to me by friends (see /profile/:email/share).
