@@ -2110,10 +2110,14 @@ function finishEpisode(screening){
   const _noteIdx=focus;
   _routedToPierre=false;
   finaleCheck(); advanceFocus(); paint();
+  // A ticket capture logs the watch here but sends you to the IRL Tickets tab (below),
+  // not the Pierre reflection — so suppress that route for this finish.
+  if(_suppressFinishRoute){ _suppressFinishRoute=false; return; }
   // Pierre catches the reaction while the credits roll — unless the finale or
   // season-wrap handoff already rotated the cube (they run their own Pierre flows).
   if(!_routedToPierre) pierreFinishedNote(_noteIdx);
 }
+let _suppressFinishRoute=false;
 
 // Every finished watch routes to Pierre: he hosts the thought (and the share
 // offer) on his own face — no in-face entry overlay.
@@ -3126,7 +3130,7 @@ async function uploadTicket(file){
     const scrName = curShowName || 'that film';
     // Only mark watched once the film has actually started (showtime + 25 min of previews).
     // A future ticket just logs — the film stays "upcoming" until then.
-    if(!scr || scr.filmStart <= Date.now()) finishEpisode(scr || undefined);
+    if(!scr || scr.filmStart <= Date.now()){ _suppressFinishRoute=true; finishEpisode(scr || undefined); }
     // Theater = no live logging (you're in the dark). Fire a reflection nudge at let-out.
     if(scr && scrEnd > Date.now()){
       (window.parent||window).postMessage({ type:'pg:scheduleReflection', at:scrEnd,
@@ -3142,6 +3146,8 @@ async function uploadTicket(file){
       renderSvcCorner();
     }
     loadTickets();         // pull it back so it shows on the watched row
+    // Swing to the IRL Tickets tab — the captured stub lands on the shelf there.
+    if(window.parent!==window) window.parent.postMessage({type:'cube:rotateTo', face:'join', payload:{tab:'tickets'}}, '*');
   }catch(err){ alert('Ticket upload error: '+err.message); }
 }
 $('tkCam').onclick=()=>$('tkCamInput').click();

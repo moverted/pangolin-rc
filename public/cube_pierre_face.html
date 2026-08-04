@@ -1832,14 +1832,16 @@
   function handoffMovie(m){
     flowChrome(true);                 // picked one → restore the composer
     addFlow=null;
-    // Ticket mode: log the film + attach the ticket, do NOT start a watch.
+    // Ticket mode: the stub is already saved; bind it to the film (so it carries the
+    // poster/show link), then swing to the IRL Tickets tab — not the Log face.
     if(_ticketMode && _pendingTicket){
       const tk=_pendingTicket; _pendingTicket=null; _ticketMode=false;
-      pierreSay("Logging your “"+m.title+"” ticket.");
+      pierreSay("Logged your “"+m.title+"” ticket — it's on your stubs.");
+      const titleId = 'tmdb:'+String(m.id).replace(/^tmdb:/,'');
+      try{ fetch(`${API}/ticket/${encodeURIComponent(tk.id)}/attach`, {method:'PATCH',
+        headers:{'Content-Type':'application/json'}, body:JSON.stringify({ showId:titleId, showName:m.title })}).catch(()=>{}); }catch(_){}
       if(window.parent!==window)
-        window.parent.postMessage({type:'cube:rotateTo', face:'episodes',
-          payload:{movie:{id:m.id,title:m.title,year:m.year,poster:m.poster,overview:m.overview,runtime:m.runtime},
-                   ticket:tk, pattern:{kind:'beginning'}}}, '*');
+        window.parent.postMessage({type:'cube:rotateTo', face:'join', payload:{tab:'tickets'}}, '*');
       return;
     }
     pierreSay("Putting on "+m.title+". Over to the screen.");

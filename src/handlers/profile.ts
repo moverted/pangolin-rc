@@ -422,6 +422,23 @@ profileRoutes.get('/:email/passes', async (c) => {
   return c.json({ passes: rows });
 });
 
+// Every theater ticket a member has logged, newest first — feeds the IRL Tickets tab.
+// Poster comes from the linked title when it exists; `ticketUrl` is the stored stub image.
+profileRoutes.get('/:email/tickets', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  const origin = new URL(c.req.url).origin;
+  const rows = (await c.env.DB.prepare(
+    `SELECT wt.id, wt.show_id, wt.show_name, wt.theater, wt.ticket_date, wt.ticket_time, wt.created_at, t.poster
+       FROM watch_ticket wt LEFT JOIN titles t ON t.title_id = wt.show_id
+      WHERE wt.user_email = ? ORDER BY wt.created_at DESC`
+  ).bind(email).all()).results || [];
+  const tickets = (rows as any[]).map((r) => ({
+    id: r.id, film: r.show_name, theater: r.theater, date: r.ticket_date, time: r.ticket_time,
+    poster: r.poster || null, ticketUrl: `${origin}/ticket/${r.id}/image`, createdAt: r.created_at,
+  }));
+  return c.json({ tickets });
+});
+
 // Upsert one episode's progress, then recompute the title's bucket + resume pointer.
 profileRoutes.post('/:email/episodes/:episode_id', async (c) => {
   const email = c.req.param('email').toLowerCase();
