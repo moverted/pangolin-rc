@@ -303,6 +303,18 @@
 
   .tile.completed .poster{filter:saturate(.6) brightness(.74)}
   .tile.stopped{opacity:.62} .tile.stopped .poster{filter:grayscale(.85) brightness(.6)}
+  /* Rewatch passes: archived watch-throughs (a per-season view), each stamped with its
+     locked pattern (complete) or the highlighter marker (a partial, restarted pass). */
+  .passhead{grid-column:1/-1;font-family:var(--mono);font-size:9px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--muted);margin:10px 2px 0;display:flex;align-items:center;gap:7px}
+  .passhead::after{content:"";flex:1;height:1px;background:var(--line)}
+  .passtile .poster{filter:saturate(.55) brightness(.7)}
+  .passbadge{position:absolute;top:8px;right:8px;z-index:3;display:inline-flex;align-items:center;gap:3px;
+    font-family:var(--mono);font-weight:700;font-size:8px;letter-spacing:.08em;padding:3px 6px;border-radius:6px;
+    background:rgba(26,18,6,.86);color:var(--amber);border:1px solid rgba(233,162,60,.4)}
+  .passbadge.highlights{color:#ffd24a;border-color:rgba(255,210,74,.5)}
+  .passbadge svg{width:12px;height:12px}
+  .passtile .ord{color:var(--amber)}
   .tryagain{align-self:flex-start;background:transparent;border:none;color:var(--muted);font-family:var(--mono);font-size:8.5px;letter-spacing:.04em;cursor:pointer;padding:0;opacity:.85}
   .tryagain:hover{color:var(--amber)}
   .divider{grid-column:1/-1;font-family:var(--mono);font-size:9px;letter-spacing:.14em;color:var(--muted);margin:6px 0 2px;display:flex;align-items:center;gap:8px}
@@ -467,6 +479,10 @@ const TOTAL_SAVED=SUBS.reduce((a,s)=>a+(s.full-s.paid)*s.months,0);
 
 const NOW=new Date();
 let LOG=[], activeTab="current", addSeq=0, selectedId=null;
+// Archived rewatch passes (GET /profile/:email/passes) — null until first loaded.
+let PASSES=null;
+// Highlighter marker: stamps a partial-then-restarted ("highlights") pass in the Completed tab.
+const HILITE_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l3-1L17.5 8.5a2.1 2.1 0 0 0-3-3L4 16z"/><path d="M13.5 6.5l4 4"/><path d="M3 21h6"/></svg>';
 // VIEWING LOG open-state, persisted across re-renders so a refresh/rotate-in can't wipe
 // it (that was the "closes randomly"). Keyed by show: opening a different show resets to
 // all-closed. `open` = the master toggle; `eps` = the episode keys whose block is open.
@@ -955,6 +971,29 @@ function closeMarathon(){
   const fr=document.getElementById("marFrame"); if(fr) fr.removeAttribute("src");   // stop it; reopen loads fresh
 }
 
+// Load the member's archived rewatch passes once (sets PASSES to an array, even []).
+async function loadPasses(){
+  const email=acct(); if(!email){ PASSES=[]; return; }
+  try{ const r=await fetch(API+"/profile/"+encodeURIComponent(email)+"/passes"); PASSES=r.ok?((await r.json()).passes||[]):[]; }
+  catch(_){ PASSES=[]; }
+}
+// A pass tile: poster + "S{n} · view {ordinal}", stamped with the locked pattern
+// (complete) or the highlighter marker (a partial pass restarted from the beginning).
+function passTile(p){
+  const poster=p.poster?"background-image:url('"+esc(p.poster)+"')":"";
+  const isHi=p.pass_kind==='highlights';
+  const badge=isHi
+    ? '<span class="passbadge highlights">'+HILITE_SVG+'highlights</span>'
+    : '<span class="passbadge">'+esc(p.pattern||'✓ complete')+'</span>';
+  const where=(p.title_kind==='movie')?'film':('S'+p.season);
+  const count=isHi?(p.watched_ct+' of '+p.season_ct):(p.season_ct+' eps');
+  return '<div class="tile passtile" data-passid="'+esc(p.pass_id)+'">'+
+    '<div class="poster" style="'+poster+'"></div><div class="scrim"></div>'+badge+
+    '<div class="body"><div class="title">'+titleHTML(p.name||'Untitled')+'</div>'+
+    '<div class="meta"><span>'+esc(where)+' &middot; <span class="ord">view '+p.ordinal+'</span></span>'+
+    '<span>'+esc(count)+'</span></div></div></div>';
+}
+
 function render(){
   counts();
   wowPrefetch();       // one-shot per account load: pull airstamps, then re-render
@@ -975,7 +1014,10 @@ function render(){
   grid.classList.remove("list");
   if(activeTab==="completed"){
     const list=LOG.filter(s=>bucketOf(s)==="completed");
-    grid.innerHTML=list.length?gridWithSelection(list,"completed"):'<div class="state">nothing finished yet</div>';
+    let html = list.length ? gridWithSelection(list,"completed") : '';
+    if(PASSES===null) loadPasses().then(()=>{ if(activeTab==='completed') render(); });   // one-shot
+    else if(PASSES.length) html += '<div class="passhead">Rewatch passes</div>' + PASSES.map(passTile).join('');
+    grid.innerHTML = html || '<div class="state">nothing finished yet</div>';
   }else{
     const list=LOG.filter(s=>bucketOf(s)===activeTab);
     list.sort((a,b)=>{
