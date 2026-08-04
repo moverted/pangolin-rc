@@ -317,6 +317,55 @@ tmdbRoutes.get('/search', async (c) => {
   return c.json({ results: raw, uncertain: raw.length > 0 && !confident(q, raw[0].title) });
 });
 
+// ── Physical-media resolve (IRL shelf) ───────────────────────────────────────
+// GET /tmdb/resolve?upc=<code> → { upc, title, fmt, poster }. UPC → product title
+// (UPCitemdb, server-side so no client CORS proxy), cleaned of edition/format noise, then
+// a matching TMDB movie for a real poster (guarded so a TV box set can't grab a wrong
+// film). Falls back to the UPC's own product image. Fails soft to {title:null}.
+function discFormat(s: string): string {
+  s = (s || '').toLowerCase();
+  if (/\b4k\b|uhd|ultra\s*hd/.test(s)) return '4K UHD';
+  if (/blu-?\s*ray/.test(s)) return 'BLU-RAY';
+  if (/\bdvd\b/.test(s)) return 'DVD';
+  if (/\bvhs\b/.test(s)) return 'VHS';
+  if (/\bvinyl\b|\blp\b/.test(s)) return 'VINYL';
+  return 'DISC';
+}
+function cleanDiscTitle(raw: string): string {
+  let t = (raw || '').replace(/\[[^\]]*\]|\([^)]*\)/g, ' ');
+  t = t.replace(/\b(4k|uhd|ultra hd|blu-?ray|dvd|vhs|digital|combo pack|combo|steelbook|widescreen|full ?screen|collector'?s|anniversary|unrated|director'?s cut|extended cut|extended|remastered|special edition|the complete series|complete series|complete season|the complete|two-disc|\d+-disc|multi-format|region \d+|import|edition)\b/gi, ' ');
+  t = t.replace(/\s{2,}/g, ' ').replace(/\s*[-–—:]\s*$/, '').trim();
+  return t || (raw || '').trim();
+}
+function normDiscTitle(s: string): string { return (s || '').toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, ' ').trim(); }
+function discTitlesMatch(a: string, b: string): boolean {
+  const x = normDiscTitle(a), y = normDiscTitle(b); if (!x || !y) return false;
+  if (x === y) return true;
+  const short = x.length <= y.length ? x : y, long = x.length <= y.length ? y : x;
+  return short.length >= 4 && long.startsWith(short);
+}
+tmdbRoutes.get('/resolve', async (c) => {
+  const upc = (c.req.query('upc') || '').trim();
+  if (!/^\d{6,14}$/.test(upc)) return c.json({ error: 'bad upc' }, 400);
+  let rawTitle = '', upcImage = '';
+  try {
+    const r = await fetch('https://api.upcitemdb.com/prod/trial/lookup?upc=' + encodeURIComponent(upc), { headers: { Accept: 'application/json' } });
+    if (r.ok) { const d: any = await r.json(); const it = (d.items || [])[0]; if (it) { rawTitle = it.title || ''; upcImage = (it.images || [])[0] || ''; } }
+  } catch { /* fail soft */ }
+  if (!rawTitle) return c.json({ upc, title: null });
+  const fmt = discFormat(rawTitle);
+  const core = cleanDiscTitle(rawTitle);
+  let title = core || rawTitle, poster = upcImage;
+  if (c.env.TMDB_API_KEY) {
+    try {
+      const results = await searchAll(c.env, core);
+      const m = results[0];
+      if (m && discTitlesMatch(core, m.title)) { title = m.title; if (m.poster) poster = m.poster; }
+    } catch { /* keep the UPC product data */ }
+  }
+  return c.json({ upc, title, fmt, poster: poster || null });
+});
+
 // Server-side movie detail (card with runtime), for the catalog materializer. Returns
 // null on any failure so the caller can fail soft. id must be the bare TMDB numeric id.
 export async function fetchTmdbMovie(env: Env, id: string) {

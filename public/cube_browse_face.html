@@ -597,62 +597,20 @@ function renderMedia(pane){
   paintShelf();
 }
 // ── Barcode → title + cover art ──────────────────────────────────────────────
-// UPC → product title comes from UPCitemdb; its title → movie poster reuses the
-// app's existing TMDB proxy. UPCitemdb has no CORS header, so for this LOCAL build we
-// tunnel it through a public CORS proxy — a real deployment moves this into the Worker
-// (a /upc route, key-held + cached), same place /tmdb/search already lives.
-const IRL_UPC_PROXY = u => 'https://corsproxy.io/?url=' + encodeURIComponent(u);
-// TMDB art always via the public Worker (localhost has no local API), so posters resolve
-// on the desktop preview too; the phone would reach the same host through API_BASE.
+// A scanned UPC resolves through the Worker: GET /tmdb/resolve does the UPCitemdb
+// lookup + title cleanup + guarded TMDB poster match server-side (keys held there, no
+// CORS proxy). Localhost has no local API, so resolve always hits the public Worker.
 const ART_API = API_BASE.includes('localhost') ? 'https://pangolin-rc.edward-m-willett.workers.dev' : API_BASE;
 
-function detectFormat(s){ s=(s||'').toLowerCase();
-  if(/\b4k\b|uhd|ultra\s*hd/.test(s)) return '4K UHD';
-  if(/blu-?\s*ray/.test(s)) return 'BLU-RAY';
-  if(/\bdvd\b/.test(s)) return 'DVD';
-  if(/\bvhs\b/.test(s)) return 'VHS';
-  if(/\bvinyl\b|\blp\b/.test(s)) return 'VINYL';
-  return 'DISC';
-}
-// Strip the edition/format noise UPC titles carry ("[Blu-ray]", "The Complete Series")
-// but KEEP subtitles (colons) — "Mission: Impossible" must not become "Mission".
-function cleanDiscTitle(raw){
-  let t = (raw||'').replace(/\[[^\]]*\]|\([^)]*\)/g,' ');
-  t = t.replace(/\b(4k|uhd|ultra hd|blu-?ray|dvd|vhs|digital|combo pack|combo|steelbook|widescreen|full ?screen|collector'?s|anniversary|unrated|director'?s cut|extended cut|extended|remastered|special edition|the complete series|complete series|complete season|the complete|two-disc|\d+-disc|multi-format|region \d+|import|edition)\b/gi,' ');
-  t = t.replace(/\s{2,}/g,' ').replace(/\s*[-–—:]\s*$/,'').trim();
-  return t || (raw||'').trim();
-}
-function _normTitle(s){ return (s||'').toLowerCase().replace(/&/g,'and').replace(/[^a-z0-9]+/g,' ').trim(); }
-// Guard against movie-search grabbing the wrong film for a TV/box set: only trust a TMDB
-// hit whose title actually lines up with the UPC title (equal, or one a prefix of the other).
-function titlesMatch(a,b){ const x=_normTitle(a), y=_normTitle(b); if(!x||!y) return false;
-  if(x===y) return true;
-  const short = x.length<=y.length ? x : y, long = x.length<=y.length ? y : x;
-  return short.length>=4 && long.startsWith(short);
-}
-async function lookupUPC(code){
-  try{
-    const r = await fetch(IRL_UPC_PROXY('https://api.upcitemdb.com/prod/trial/lookup?upc='+encodeURIComponent(code)));
-    if(!r.ok) return null;
-    const d = await r.json(); const it = (d.items||[])[0];
-    if(!it || !it.title) return null;
-    return { title: it.title, image: (it.images||[])[0] || '' };
-  }catch(_){ return null; }
-}
-// Resolve a scanned code to { title, fmt, poster }. UPC gives the product title (+ a
-// stock image); a matching TMDB movie upgrades to a proper poster + canonical title.
+// Resolve a scanned code to { title, fmt, poster } via the Worker. Null on no match.
 async function resolveDiscArt(code){
-  const upc = await lookupUPC(code);
-  if(!upc) return null;
-  const fmt = detectFormat(upc.title);
-  const core = cleanDiscTitle(upc.title);
-  let title = core || upc.title, poster = upc.image || '';
   try{
-    const r = await fetch(ART_API + '/tmdb/search?q=' + encodeURIComponent(core));
-    if(r.ok){ const d = await r.json(); const m = (d.results||[])[0];
-      if(m && titlesMatch(core, m.title)){ title = m.title; if(m.poster) poster = m.poster; } }
-  }catch(_){}
-  return { title, fmt, poster };
+    const r = await fetch(ART_API + '/tmdb/resolve?upc=' + encodeURIComponent(code));
+    if(!r.ok) return null;
+    const d = await r.json();
+    if(!d || !d.title) return null;
+    return { title:d.title, fmt:d.fmt || 'DISC', poster:d.poster || '' };
+  }catch(_){ return null; }
 }
 function updateMedia(id, patch){ saveMedia(loadMedia().map(m => m.id===id ? {...m, ...patch} : m)); paintShelf(); }
 // Shelve a decoded/typed barcode: drop a card in immediately ("Looking up…"), then fill
