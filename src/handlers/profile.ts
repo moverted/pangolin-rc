@@ -324,6 +324,104 @@ profileRoutes.get('/:email/titles/:title_id/path', async (c) => {
   return c.json({ path });
 });
 
+// ── Rewatch passes ───────────────────────────────────────────────────────────
+// Archive one SEASON's watch-through as a pass, then reset its live rows so a fresh
+// pass starts from the beginning. The original completion + viewing history are never
+// clobbered — they live on in watch_pass. `ordinal` = 1-based view number for the season
+// (a partial restart is 'highlights' and still consumes its number). Returns the pass.
+async function archiveAndResetSeason(env: Env, email: string, titleId: string, season: number, now: number) {
+  const seasonEps = ((await env.DB.prepare(
+    'SELECT episode_id FROM episodes WHERE title_id=? AND season=? ORDER BY number'
+  ).bind(titleId, season).all()).results || []) as any[];
+  const seasonCt = seasonEps.length;
+  if (!seasonCt) return null;                                   // unknown season
+  const ids = seasonEps.map((e) => e.episode_id);
+  const ph = ids.map(() => '?').join(',');
+  const prog = ((await env.DB.prepare(
+    `SELECT episode_id, done, minute, bp, sessions FROM watch_episode
+      WHERE user_email=? AND title_id=? AND episode_id IN (${ph})`
+  ).bind(email, titleId, ...ids).all()).results || []) as any[];
+  if (!prog.length) return null;                               // nothing watched to archive
+  const watchedCt = prog.filter((r) => r.done).length;
+  const kind = watchedCt >= seasonCt ? 'complete' : 'highlights';
+  let startedAt: number | null = null;
+  const snap: Record<string, any> = {};
+  for (const r of prog) {
+    const sessions = r.sessions ? safeParse(r.sessions) : [];
+    snap[r.episode_id] = { done: !!r.done, minute: r.minute || 0, bp: !!r.bp, sessions };
+    if (Array.isArray(sessions)) for (const s of sessions) {
+      const t = s && typeof s.startTs === 'number' ? s.startTs : (s && typeof s.finishTs === 'number' ? s.finishTs : 0);
+      if (t && (startedAt === null || t < startedAt)) startedAt = t;
+    }
+  }
+  const modeRow = await env.SCHED_DB.prepare(
+    'SELECT mode FROM sched_mode_choice WHERE user_email=? AND show_id=?'
+  ).bind(email, titleId).first<{ mode: string | null }>().catch(() => null);
+  const pattern = modeRow?.mode ?? null;
+  const ord = ((await env.DB.prepare(
+    'SELECT COALESCE(MAX(ordinal),0) AS m FROM watch_pass WHERE user_email=? AND title_id=? AND season=?'
+  ).bind(email, titleId, season).first<{ m: number }>())?.m ?? 0) + 1;
+  const passId = crypto.randomUUID();
+  await env.DB.prepare(
+    `INSERT INTO watch_pass (pass_id, user_email, title_id, season, ordinal, kind, pattern, episodes, watched_ct, season_ct, started_at, archived_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+  ).bind(passId, email, titleId, season, ord, kind, pattern, JSON.stringify(snap), watchedCt, seasonCt, startedAt, now).run();
+  await env.DB.prepare(
+    `DELETE FROM watch_episode WHERE user_email=? AND title_id=? AND episode_id IN (${ph})`
+  ).bind(email, titleId, ...ids).run();
+  return { pass_id: passId, season, ordinal: ord, kind, pattern, watched_ct: watchedCt, season_ct: seasonCt, started_at: startedAt, archived_at: now };
+}
+
+// season != null → that one season; null → every season with progress (whole-series restart).
+async function doRewatch(c: any, seasonParam: number | null) {
+  const email = c.req.param('email').toLowerCase();
+  const titleId = c.req.param('title_id');
+  const exists = await c.env.DB.prepare('SELECT email FROM users WHERE email=?').bind(email).first();
+  if (!exists) return c.json({ error: 'unknown user' }, 404);
+  const now = Date.now();
+  let seasons: number[];
+  if (seasonParam != null && !Number.isNaN(seasonParam)) seasons = [seasonParam];
+  else {
+    const rows = ((await c.env.DB.prepare(
+      `SELECT DISTINCT e.season AS season FROM episodes e
+         JOIN watch_episode we ON we.episode_id=e.episode_id
+        WHERE we.user_email=? AND we.title_id=? AND (we.done=1 OR we.minute>0)
+        ORDER BY e.season`).bind(email, titleId).all()).results || []) as any[];
+    seasons = rows.map((r) => r.season).filter((s) => s != null);
+  }
+  const passes: any[] = [];
+  for (const s of seasons) { const p = await archiveAndResetSeason(c.env, email, titleId, s, now); if (p) passes.push(p); }
+  // Reset the manual watch pattern so it re-derives from the fresh (empty) log.
+  await c.env.SCHED_DB.prepare('DELETE FROM sched_mode_choice WHERE user_email=? AND show_id=?').bind(email, titleId).run().catch(() => {});
+  await recomputeTitle(c.env, email, titleId).catch(() => null);
+  return c.json({ ok: true, passes });
+}
+profileRoutes.post('/:email/titles/:title_id/seasons/:season/rewatch', (c) => doRewatch(c, parseInt(c.req.param('season'), 10)));
+profileRoutes.post('/:email/titles/:title_id/rewatch', (c) => doRewatch(c, null));
+
+// Archived passes for one title (season, then newest ordinal first).
+profileRoutes.get('/:email/titles/:title_id/passes', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  const titleId = c.req.param('title_id');
+  const rows = (await c.env.DB.prepare(
+    `SELECT pass_id, season, ordinal, kind, pattern, watched_ct, season_ct, started_at, archived_at
+       FROM watch_pass WHERE user_email=? AND title_id=? ORDER BY season, ordinal DESC`
+  ).bind(email, titleId).all()).results || [];
+  return c.json({ passes: rows });
+});
+
+// Every archived pass joined to its title — feeds the WATCH Completed tab.
+profileRoutes.get('/:email/passes', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  const rows = (await c.env.DB.prepare(
+    `SELECT p.pass_id, p.title_id, t.name, t.poster, t.kind AS title_kind, p.season, p.ordinal,
+            p.kind AS pass_kind, p.pattern, p.watched_ct, p.season_ct, p.started_at, p.archived_at
+       FROM watch_pass p JOIN titles t ON t.title_id=p.title_id
+      WHERE p.user_email=? ORDER BY p.archived_at DESC`
+  ).bind(email).all()).results || [];
+  return c.json({ passes: rows });
+});
+
 // Upsert one episode's progress, then recompute the title's bucket + resume pointer.
 profileRoutes.post('/:email/episodes/:episode_id', async (c) => {
   const email = c.req.param('email').toLowerCase();

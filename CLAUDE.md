@@ -211,10 +211,13 @@ These are intentionally unbuilt. Fill them per-instance; do not let any of them 
 - **BACKEND.md same-session rule.** Any session that touches the Worker, D1,
   or deploy configuration adds its entry to BACKEND.md before the session
   ends. No deferred logging.
-- **Legacy database is off-limits.** The D1 database `pangolin-rc`
-  (ID 4bd25737-94c1-4da3-b54a-b28d467ef505) is legacy, unknown schema,
-  25 tables. Never read from it, write to it, migrate it, or delete it
-  without Ted's explicit instruction.
+- **Primary app database.** The D1 database `pangolin-rc`
+  (ID 4bd25737-94c1-4da3-b54a-b28d467ef505) is the **active app store** bound
+  as `DB` — it holds `users`, `watch_title`, `watch_episode`, `watch_ticket`,
+  catalog, comments, etc., managed by `migrations/`. (Historical note: this ID
+  was once flagged "legacy/off-limits" before the app schema was layered onto
+  it; that note was stale and was corrected 2026-08-03.) Migrate it via
+  `migrations/` with `wrangler d1 migrations apply pangolin-rc`.
 - **Events database identity.** The production events store is
   `pangolinrc-events` (ID 25b069be-d44f-4d2b-89ae-c968bc97968b, region WNAM).
   All events work targets this database only.
