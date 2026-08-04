@@ -463,6 +463,54 @@ app.get('/img', async (c) => {
   });
 });
 
+// GET /img/focal?u=<image.tmdb.org poster> → { x, y } in 0..1 for the focal point of the
+// poster's main subject (face/eyes, or the single most iconic element), so a wide banner
+// crop centers on the hero (Spider-Man's eye, Odysseus's head). Vision call cached in KV.
+app.get('/img/focal', async (c) => {
+  const u = c.req.query('u') || '';
+  let url: URL;
+  try { url = new URL(u); } catch { return c.json({ error: 'bad url' }, 400); }
+  if (url.hostname !== 'image.tmdb.org') return c.json({ error: 'host not allowed' }, 403);
+  const CORS = { 'access-control-allow-origin': '*' };
+  const fallback = { x: 0.5, y: 0.32 };                 // faces usually sit upper-middle
+  const key = 'focal:' + url.pathname;
+  const cached = await c.env.ACCESS_KV.get(key).catch(() => null);
+  if (cached) { try { return c.json(JSON.parse(cached), 200, CORS); } catch { /* re-derive */ } }
+  if (!c.env.ANTHROPIC_API_KEY) return c.json(fallback, 200, CORS);
+  try {
+    const up = await fetch(url.toString(), { cf: { cacheTtl: 86400, cacheEverything: true } } as any);
+    if (!up.ok) return c.json(fallback, 200, CORS);
+    const mtRaw = up.headers.get('content-type') || 'image/jpeg';
+    const mt = /^image\/(jpeg|png|gif|webp)$/.test(mtRaw) ? mtRaw : 'image/jpeg';
+    const bytes = new Uint8Array(await up.arrayBuffer());
+    let bin = ''; for (const b of bytes) bin += String.fromCharCode(b);
+    const b64 = btoa(bin);
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': c.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001', max_tokens: 60,
+        messages: [{ role: 'user', content: [
+          { type: 'image', source: { type: 'base64', media_type: mt, data: b64 } },
+          { type: 'text', text:
+            'This is a movie poster. Return ONLY compact JSON {"x":0.NN,"y":0.NN} for the point a wide ' +
+            'horizontal banner crop should center on — the center of the main character\'s face/eyes, or the ' +
+            'single most iconic element. x and y are fractions 0..1 from the top-left. No prose.' },
+        ] }],
+      }),
+    });
+    if (!res.ok) return c.json(fallback, 200, CORS);
+    const d: any = await res.json();
+    const txt = (d?.content?.[0]?.text || '').trim();
+    const m = txt.match(/\{[^}]*\}/);
+    let pt = fallback;
+    if (m) { try { const j = JSON.parse(m[0]); if (typeof j.x === 'number' && typeof j.y === 'number')
+      pt = { x: Math.min(1, Math.max(0, j.x)), y: Math.min(1, Math.max(0, j.y)) }; } catch { /* keep fallback */ } }
+    await c.env.ACCESS_KV.put(key, JSON.stringify(pt), { expirationTtl: 60 * 60 * 24 * 90 }).catch(() => {});
+    return c.json(pt, 200, CORS);
+  } catch { return c.json(fallback, 200, CORS); }
+});
+
 // Co-viewing: friends' audio comments for a show (or one episode), ordered by
 // timestamp_ms so the caption player can fire each clip as the wall-clock cursor
 // passes it, and the Episode face can render a spoiler-gated timeline. This is

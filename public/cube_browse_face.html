@@ -219,9 +219,15 @@
   .tixmic .rec-num{font-family:var(--mono);font-weight:700;font-size:18px}
   .tixhint{font-family:var(--mono);font-size:9.5px;letter-spacing:.04em;color:var(--muted)}
   .tixhint.ok{color:var(--green)} .tixhint.bad{color:var(--amber-soft)}
-  /* After a take: editable transcript + trash / journal / share card / share audio. */
+  /* After a take: a replay button + editable transcript, then the 4 actions. */
   .tixtx{width:100%;display:flex;flex-direction:column;gap:9px}
-  .tixtx textarea{width:100%;box-sizing:border-box;min-height:64px;resize:vertical;font-family:var(--body);
+  .tixtxrow{display:flex;gap:8px;align-items:stretch}
+  .tixplay{flex:0 0 auto;width:40px;align-self:stretch;border:1px solid var(--line);border-radius:9px;
+    background:var(--panel-2);color:var(--amber);cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .tixplay:hover{border-color:var(--amber-soft)} .tixplay:active{transform:scale(.96)}
+  .tixplay svg{width:18px;height:18px;fill:currentColor}
+  .tixplay.playing{color:#e0554e;border-color:rgba(224,85,78,.55)}
+  .tixtx textarea{flex:1 1 auto;width:100%;box-sizing:border-box;min-height:64px;resize:vertical;font-family:var(--body);
     font-size:13px;line-height:1.35;color:var(--text);background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:9px 10px}
   .tixtx textarea:focus{outline:none;border-color:var(--amber-soft)}
   .tixacts{display:flex;gap:6px}
@@ -564,6 +570,14 @@ async function renderTickets(pane){
       if(wasOpen) stopTixRec(tx, true);
     });
     tx.querySelector('.tixmic').addEventListener('click', () => toggleTixRec(tx));
+    // AI banner focus: center the wide crop on the poster's hero (face/eye), not dead center.
+    const poster = tx.dataset.poster;
+    if(poster && /^https:\/\/image\.tmdb\.org\//.test(poster)){
+      fetch(ART_API + '/img/focal?u=' + encodeURIComponent(poster)).then(r=>r.ok?r.json():null).then(p=>{
+        if(p && typeof p.x==='number'){ const row=tx.querySelector('.tix-row');
+          if(row) row.style.backgroundPosition = Math.round(p.x*100)+'% '+Math.round(p.y*100)+'%'; }
+      }).catch(()=>{});
+    }
   });
 }
 const MIC_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>';
@@ -632,11 +646,16 @@ function stopTixRec(tx, discard){
 // After a take: the mic becomes an editable transcript + trash / journal / share card /
 // share audio. The reflection is already saved (private); journal keeps it (saving any
 // edit), trash removes it, and the shares hand off through the shell's native/web sheet.
+const IC_PLAY='<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
+const IC_PAUSE='<svg viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>';
 function showTranscript(tx, text, blob, id){
   tx._audioBlob = blob; tx._reflId = id;
   const rec = tx.querySelector('.tix-rec');
   rec.innerHTML = `<div class="tixtx">
-    <textarea class="tixtxt" placeholder="your reflection…">${esc(text||'')}</textarea>
+    <div class="tixtxrow">
+      <button class="tixplay" aria-label="Replay reflection">${IC_PLAY}</button>
+      <textarea class="tixtxt" placeholder="your reflection…">${esc(text||'')}</textarea>
+    </div>
     <div class="tixacts">
       <button class="a-trash">${IC_TRASH}Trash</button>
       <button class="a-journal">${IC_BOOK}Journal</button>
@@ -645,10 +664,23 @@ function showTranscript(tx, text, blob, id){
     </div>
     <div class="tixhint"></div>
   </div>`;
+  rec.querySelector('.tixplay').onclick   = ()=> tixPlay(tx);
   rec.querySelector('.a-trash').onclick   = ()=> tixTrash(tx);
   rec.querySelector('.a-journal').onclick = ()=> tixJournal(tx);
   rec.querySelector('.a-card').onclick    = ()=> tixShareCard(tx);
   rec.querySelector('.a-audio').onclick   = ()=> tixShareAudio(tx);
+}
+// Replay the captured take through one reused <audio> element per card.
+function tixPlay(tx){
+  const btn = tx.querySelector('.tixplay'), blob = tx._audioBlob; if(!blob || !btn) return;
+  if(tx._audioEl && !tx._audioEl.paused){ tx._audioEl.pause(); return; }
+  if(!tx._audioEl){
+    tx._audioEl = new Audio(URL.createObjectURL(blob));
+    tx._audioEl.onplay  = ()=>{ btn.classList.add('playing'); btn.innerHTML=IC_PAUSE; };
+    tx._audioEl.onpause = ()=>{ btn.classList.remove('playing'); btn.innerHTML=IC_PLAY; };
+    tx._audioEl.onended = ()=>{ btn.classList.remove('playing'); btn.innerHTML=IC_PLAY; };
+  }
+  tx._audioEl.currentTime = 0; tx._audioEl.play().catch(()=>{});
 }
 function _txHint(tx, msg, cls){ const h=tx.querySelector('.tix-rec .tixhint'); if(h){ h.textContent=msg; h.className='tixhint'+(cls?' '+cls:''); } }
 async function tixTrash(tx){
@@ -665,17 +697,36 @@ async function tixJournal(tx){
   _txHint(tx, 'journaled ✓', 'ok');
   setTimeout(()=>{ if(tx.classList.contains('open')) resetTixRec(tx); }, 1100);
 }
+// Share audio = the same card + the audio, composed into a video. Native muxes the
+// card image + audio into an mp4 (CardVideo, the path Pierre uses); web falls back to
+// sharing the audio (+ card image) files.
 async function tixShareAudio(tx){
   const blob = tx._audioBlob; if(!blob){ _txHint(tx,'no audio to share','bad'); return; }
+  _txHint(tx,'building video…');
+  const text = (tx.querySelector('.tixtxt')||{}).value || '';
+  const caption = (text?('“'+text+'” — '):'')+(tx.dataset.film||'');
+  let cardBlob=null; try{ cardBlob = await buildTicketCard({ film:tx.dataset.film||'', theater:tx.dataset.theater||'',
+    date:tx.dataset.date||'', poster:tx.dataset.poster||'', text }); }catch(_){}
   const type = blob.type||'audio/webm';
-  const ext = type.includes('mp4')||type.includes('m4a')?'m4a':(type.includes('webm')?'webm':(type.includes('ogg')?'ogg':'audio'));
-  const caption = 'My reflection on '+(tx.dataset.film||'the film');
+  const ext = (type.includes('mp4')||type.includes('m4a')||type.includes('aac'))?'m4a'
+            : type.includes('wav')?'wav' : type.includes('mpeg')?'mp3' : type.includes('webm')?'webm':'m4a';
+  const Cap = window.Capacitor || (window.top && window.top.Capacitor);
+  if(cardBlob && Cap && Cap.isNativePlatform && Cap.isNativePlatform() && Cap.Plugins && Cap.Plugins.CardVideo){
+    try{
+      const res = await Cap.Plugins.CardVideo.compose({ image: await blobB64(cardBlob), audio: await blobB64(blob), audioExt: ext });
+      if(res && res.uri){ (window.top||window).postMessage({type:'pg:shareFile', name:'ticket-'+Date.now()+'.mp4', caption, fileUri:res.uri}, '*'); _txHint(tx,'opening share…'); return; }
+    }catch(_){}
+  }
+  // Web fallback: the audio (+ card image) through the share sheet.
   try{
-    const file = new File([blob], 'reflection.'+ext, {type});
-    if(navigator.canShare && navigator.canShare({files:[file]})){ await navigator.share({files:[file], text:caption}); return; }
+    const files=[new File([blob],'reflection.'+ext,{type})];
+    if(cardBlob) files.unshift(new File([cardBlob],'ticket-card.png',{type:'image/png'}));
+    if(navigator.canShare && navigator.canShare({files})){ await navigator.share({files, text:caption}); _txHint(tx,''); return; }
+    const one=[files[files.length-1]];
+    if(navigator.canShare && navigator.canShare({files:one})){ await navigator.share({files:one, text:caption}); _txHint(tx,''); return; }
   }catch(_){}
   try{ const b64 = await blobB64(blob); (window.top||window).postMessage({type:'pg:shareFile', dataB64:b64, name:'reflection.'+ext, caption}, '*'); _txHint(tx,'opening share…'); }
-  catch(_){ _txHint(tx,"couldn't share the audio",'bad'); }
+  catch(_){ _txHint(tx,"couldn't share",'bad'); }
 }
 async function tixShareCard(tx){
   _txHint(tx,'building card…');
