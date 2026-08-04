@@ -917,3 +917,24 @@ Entry format:
 - MEMBER_CAP raised 10 → 20 (profile.ts join handler) in the same change.
 - DEPLOYED 2026-07-30 via `npm run deploy` (wrangler deploy). Version ID
   cd8ab320-4977-4f72-9964-fcf0b3de2624. Live: movie runtime field + cap=20.
+
+## 2026-08-03 — Rewatch passes (watch_pass table + endpoints)
+
+- **New table** `watch_pass` (migration `migrations/0027_watch_pass.sql`) on the
+  `DB` binding (pangolin-rc, 4bd25737 — the ACTIVE app DB; the old "legacy
+  off-limits" note in CLAUDE.md was stale and was corrected). Additive only.
+  Columns: pass_id, user_email, title_id, season, ordinal (1-based view #),
+  kind ('complete'|'highlights'), pattern (locked WoW mode), episodes (JSON
+  snapshot), watched_ct, season_ct, started_at, archived_at.
+- **New endpoints** (profile.ts):
+  - `POST /profile/:email/titles/:id/seasons/:n/rewatch` — archive that season's
+    watch-through as a pass, then reset its watch_episode rows (fresh pass from 0).
+  - `POST /profile/:email/titles/:id/rewatch` — same for every season with progress.
+  - `GET /profile/:email/titles/:id/passes` and `GET /profile/:email/passes`.
+  - Reset also clears the show's `sched_mode_choice` (SCHED_DB) so the pattern
+    re-derives, and recomputes watch_title bucket + resume pointer.
+- Client: LOG face WATCH AGAIN button → rewatch endpoint + reload; WATCH
+  Completed tab renders passes (locked-pattern stamp / highlighter marker).
+- Deploy message used: "rewatch passes: /rewatch + /passes endpoints (watch_pass)".
+- DEPLOYED 2026-08-03: remote migration applied; `wrangler deploy` Version ID
+  54fbec11-8f6a-4f78-b3ce-219872471202; Pages deploy 54833579. Live.
