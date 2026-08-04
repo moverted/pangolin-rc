@@ -428,12 +428,13 @@ profileRoutes.get('/:email/tickets', async (c) => {
   const email = c.req.param('email').toLowerCase();
   const origin = new URL(c.req.url).origin;
   const rows = (await c.env.DB.prepare(
-    `SELECT wt.id, wt.show_id, wt.show_name, wt.theater, wt.ticket_date, wt.ticket_time, wt.created_at, t.poster
+    `SELECT wt.id, wt.show_id, wt.episode_id, wt.show_name, wt.theater, wt.ticket_date, wt.ticket_time, wt.created_at, t.poster
        FROM watch_ticket wt LEFT JOIN titles t ON t.title_id = wt.show_id
       WHERE wt.user_email = ? ORDER BY wt.created_at DESC`
   ).bind(email).all()).results || [];
   const tickets = (rows as any[]).map((r) => ({
     id: r.id, film: r.show_name, theater: r.theater, date: r.ticket_date, time: r.ticket_time,
+    showId: r.show_id || null, episodeId: r.episode_id || null,
     poster: r.poster || null, ticketUrl: `${origin}/ticket/${r.id}/image`, createdAt: r.created_at,
   }));
   return c.json({ tickets });

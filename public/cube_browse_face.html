@@ -178,8 +178,10 @@
 
   /* ---- Tickets: a shelf of theater ticket stubs ---- */
   .tixgrid{display:flex;flex-direction:column;gap:11px;margin-top:14px}
-  .tix{position:relative;display:flex;align-items:stretch;background:var(--panel-2);
-    border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .tix{position:relative;display:flex;flex-direction:column;background:var(--panel-2);
+    border:1px solid var(--line);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .15s}
+  .tix.open{border-color:rgba(232,159,61,.5)}
+  .tix-row{position:relative;display:flex;align-items:stretch}
   .tix .poster{flex:0 0 58px;width:58px;background:#000 center/cover;border-right:1px dashed var(--line)}
   .tix .noposter{flex:0 0 58px;width:58px;background:repeating-linear-gradient(45deg,#241c13,#241c13 6px,#2b2218 6px,#2b2218 12px)}
   .tix .body{flex:1 1 auto;min-width:0;padding:9px 11px;display:flex;flex-direction:column;justify-content:center;gap:3px}
@@ -196,6 +198,22 @@
   .tix .notch{position:absolute;width:9px;height:9px;border-radius:50%;background:var(--panel);border:1px solid var(--line)}
   .tix .notch.t{top:-5px}
   .tix .notch.b{bottom:-5px}
+  /* Popped-open reflection recorder: a large mic with a 10s countdown ring. */
+  .tix-rec{display:none;flex-direction:column;align-items:center;gap:9px;padding:15px 0 17px;
+    border-top:1px dashed var(--line);background:rgba(0,0,0,.14)}
+  .tix.open .tix-rec{display:flex}
+  .tixmic{position:relative;width:64px;height:64px;border-radius:50%;border:1px solid var(--line);
+    background:var(--panel);color:var(--amber);cursor:pointer;display:flex;align-items:center;justify-content:center;
+    box-shadow:0 6px 18px -10px rgba(232,159,61,.6)}
+  .tixmic:active{transform:scale(.96)}
+  .tixmic svg{width:28px;height:28px}
+  .tixmic.rec{color:#e0554e;border-color:rgba(224,85,78,.65)}
+  .tixmic.busy{color:var(--muted)}
+  .tixmic .rec-ring{position:absolute;inset:-1px;width:calc(100% + 2px);height:calc(100% + 2px)}
+  .tixmic .rec-seg{transition:opacity .15s}
+  .tixmic .rec-num{font-family:var(--mono);font-weight:700;font-size:18px}
+  .tixhint{font-family:var(--mono);font-size:9.5px;letter-spacing:.04em;color:var(--muted)}
+  .tixhint.ok{color:var(--green)} .tixhint.bad{color:var(--amber-soft)}
 
   /* ---- Physical media: scanner viewport + the collected shelf ---- */
   .cam{position:relative;flex:0 0 auto;border:1px solid var(--line);border-radius:12px;overflow:hidden;
@@ -478,17 +496,84 @@ async function renderTickets(pane){
     const {d,mo} = ticketDateBits(t.date);
     // Film poster if the title's in the catalog, else the real ticket-stub photo.
     const img = t.poster || t.ticketUrl || '';
-    return `<div class="tix">
-      <span class="notch t"></span><span class="notch b"></span>
-      <div class="${img?'poster':'noposter'}" style="${img?`background-image:url('${esc(img)}')`:''}"></div>
-      <div class="body">
-        <div class="film">${esc(t.film||'Untitled')}</div>
-        <div class="where">${esc(t.theater||'')}</div>
-        <div class="when">${esc(t.time||'')}</div>
+    return `<div class="tix" data-id="${esc(t.id)}" data-show="${esc(t.showId||'')}" data-ep="${esc(t.episodeId||'')}" data-film="${esc(t.film||'')}">
+      <div class="tix-row">
+        <span class="notch t"></span><span class="notch b"></span>
+        <div class="${img?'poster':'noposter'}" style="${img?`background-image:url('${esc(img)}')`:''}"></div>
+        <div class="body">
+          <div class="film">${esc(t.film||'Untitled')}</div>
+          <div class="where">${esc(t.theater||'')}</div>
+          <div class="when">${esc(t.time||'')}</div>
+        </div>
+        <div class="stub"><div class="d">${esc(d)}</div><div class="mo">${esc(mo)}</div></div>
       </div>
-      <div class="stub"><div class="d">${esc(d)}</div><div class="mo">${esc(mo)}</div></div>
+      <div class="tix-rec">
+        <button class="tixmic" aria-label="Record a reflection">${MIC_SVG}</button>
+        <div class="tixhint">tap the mic · 10s reflection on ${esc(t.film||'this film')}</div>
+      </div>
     </div>`;
   }).join('');
+  // Tap a stub to pop it open (only one at a time); the mic runs its own recorder.
+  grid.querySelectorAll('.tix').forEach(tx => {
+    tx.addEventListener('click', e => {
+      if(e.target.closest('.tixmic')) return;          // mic handles its own tap
+      const wasOpen = tx.classList.contains('open');
+      grid.querySelectorAll('.tix.open').forEach(o => { if(o!==tx){ o.classList.remove('open'); stopTixRec(o, true); } });
+      tx.classList.toggle('open', !wasOpen);
+      if(wasOpen) stopTixRec(tx, true);
+    });
+    tx.querySelector('.tixmic').addEventListener('click', () => toggleTixRec(tx));
+  });
+}
+const MIC_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>';
+// 10-segment countdown ring (matches the composer/LOG REC indicators).
+function tixRecRing(total){
+  const C=289.03, step=C/total, seg=Math.max(6, step-11); let s='';
+  for(let i=0;i<total;i++){ s+='<circle class="rec-seg" data-i="'+i+'" cx="50" cy="50" r="46" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" stroke-dasharray="'+seg.toFixed(2)+' '+(C-seg).toFixed(2)+'" stroke-dashoffset="'+(-step*i).toFixed(2)+'" transform="rotate(-90 50 50)"/>'; }
+  return '<svg class="rec-ring" viewBox="0 0 100 100" aria-hidden="true">'+s+'</svg>';
+}
+let _tixRec=null, _tixChunks=[], _tixTimer=null, _tixLeft=0, _tixEl=null;
+function toggleTixRec(tx){ if(_tixTimer && _tixEl===tx) stopTixRec(tx); else startTixRec(tx); }
+async function startTixRec(tx){
+  if(_tixTimer) stopTixRec(_tixEl, true);
+  const mic = tx.querySelector('.tixmic'), hint = tx.querySelector('.tixhint');
+  let stream; try{ stream = await navigator.mediaDevices.getUserMedia({audio:true}); }
+  catch(_){ if(hint){ hint.textContent='mic blocked — allow microphone access'; hint.className='tixhint bad'; } return; }
+  _tixEl = tx; _tixChunks = []; _tixRec = new MediaRecorder(stream); _tixRec.ondataavailable = e=>_tixChunks.push(e.data); _tixRec.start();
+  _tixLeft = 10;
+  mic.classList.add('rec'); mic.innerHTML = tixRecRing(10) + '<span class="rec-num">10</span>';
+  if(hint){ hint.textContent='recording… tap to stop'; hint.className='tixhint'; }
+  const sync=()=>{ mic.querySelectorAll('.rec-seg').forEach(s=>{ s.style.opacity=(+s.getAttribute('data-i')<_tixLeft)?'1':'0'; });
+    const n=mic.querySelector('.rec-num'); if(n) n.textContent=Math.max(_tixLeft,0); };
+  sync();
+  _tixTimer = setInterval(()=>{ _tixLeft--; sync(); if(_tixLeft<=0) stopTixRec(tx); }, 1000);
+}
+function stopTixRec(tx, discard){
+  if(!tx || _tixEl!==tx){ return; }
+  if(_tixTimer){ clearInterval(_tixTimer); _tixTimer=null; }
+  const mic = tx.querySelector('.tixmic'), hint = tx.querySelector('.tixhint');
+  const restore=()=>{ if(mic){ mic.classList.remove('rec','busy'); mic.innerHTML=MIC_SVG; } };
+  if(!_tixRec || _tixRec.state==='inactive'){ restore(); return; }
+  _tixRec.onstop = async()=>{
+    try{ _tixRec.stream.getTracks().forEach(t=>t.stop()); }catch(_){}
+    if(discard || !_tixChunks.length){ restore(); if(hint && discard){ hint.textContent='tap the mic · 10s reflection'; hint.className='tixhint'; } return; }
+    if(mic){ mic.classList.remove('rec'); mic.classList.add('busy'); mic.innerHTML='…'; }
+    if(hint){ hint.textContent='saving…'; hint.className='tixhint'; }
+    const email = memberEmail();
+    try{
+      const blob = new Blob(_tixChunks, { type:(_tixChunks[0]&&_tixChunks[0].type)||'audio/webm' });
+      const fd = new FormData(); fd.append('audio', blob);
+      fd.append('episodeId', tx.dataset.ep || 'pierre-note');
+      if(tx.dataset.show) fd.append('showId', tx.dataset.show);
+      fd.append('timestampMs','0'); fd.append('reflection','1'); fd.append('private','1');
+      fd.append('userEmail', email||'');
+      const res = await fetch(ART_API + '/transcribe', { method:'POST', body:fd, mode:'cors' });
+      restore();
+      if(hint){ if(res.ok){ hint.textContent='saved ✓ tap to record another'; hint.className='tixhint ok'; }
+                else { hint.textContent="didn't save — try again"; hint.className='tixhint bad'; } }
+    }catch(_){ restore(); if(hint){ hint.textContent="didn't save — try again"; hint.className='tixhint bad'; } }
+  };
+  try{ _tixRec.stop(); }catch(_){ restore(); }
 }
 
 // ── MEDIA (the shelf): scan a barcode (camera) or type it in, and the disc joins
