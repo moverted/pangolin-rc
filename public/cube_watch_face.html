@@ -235,6 +235,12 @@
     color:var(--amber,#f0a93b);border-radius:12px;padding:2px 9px;font-family:var(--mono);font-size:9px;
     letter-spacing:.06em;cursor:pointer;font-style:normal;vertical-align:1px}
   .ep-cmt .rf-share{align-self:center}
+  /* Delete your own comment / thought from the viewing log. */
+  .rf-del{flex:none;margin-left:5px;width:22px;height:22px;border-radius:50%;background:transparent;
+    border:1px solid rgba(157,74,63,.6);color:#c99;font-size:11px;line-height:1;cursor:pointer;
+    display:inline-flex;align-items:center;justify-content:center;font-style:normal;vertical-align:1px}
+  .rf-del:hover{background:rgba(157,74,63,.28);color:#fff;border-color:var(--red,#9d4a3f)}
+  .ep-cmt .rf-del{align-self:center}
   .ep-actions{margin-top:3px}
   .ep-share{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:6px 12px;cursor:pointer;
     font-family:var(--mono);font-weight:700;font-size:10.5px;letter-spacing:.05em;
@@ -1673,6 +1679,7 @@ function renderEpisodeArchive(host, s, data, includeBp){
   host.querySelectorAll('.ep-play').forEach(b=>b.addEventListener('click',()=>playAudio(b.dataset.audio)));
   host.querySelectorAll('.ep-share').forEach(b=>b.addEventListener('click',()=>viewingShare(s, b.dataset.tid||null, includeBp)));
   host.querySelectorAll('.rf-share').forEach(b=>b.addEventListener('click',()=>reshareFromLog(s, b.dataset)));
+  host.querySelectorAll('.rf-del').forEach(b=>b.addEventListener('click',()=>deleteLogEntry(b)));
 }
 // Stage 3 — share a past reflection from the logs. Hands the existing text (+ audio URL /
 // comment id for a recorded one) to Pierre, who rebuilds the card and offers the share.
@@ -1708,7 +1715,8 @@ function archiveBody(s, k, sessions, tickets, comments, coview, refl, includeBp)
   coview.filter(c=>!c.replyTo).forEach(c=>{ h+=coviewLine(c,false); (repliesByParent[c.id]||[]).forEach(r=>h+=coviewLine(r,true)); });
   // 5) reflections
   refl.forEach(r=>{ h+='<div class="ep-refl">&ldquo;'+esc(r.text)+'&rdquo; <span class="rq">'+relDate(new Date(r.createdAt).toISOString())+'</span>'+
-    '<button class="rf-share" data-txt="'+esc(r.text)+'" data-key="'+esc(k||'')+'">Share</button></div>'; });
+    '<button class="rf-share" data-txt="'+esc(r.text)+'" data-key="'+esc(k||'')+'">Share</button>'+
+    '<button class="rf-del" data-rid="'+esc(r.id||'')+'" title="Delete">&#10005;</button></div>'; });
   // 6) share a thought (lands as a reflection on this episode's first ticket, if any)
   h+='<div class="ep-actions"><button class="ep-share" data-tid="'+((tickets[0]&&tickets[0].id)||'')+'">&#8599; share a thought</button></div>';
   return h;
@@ -1716,8 +1724,9 @@ function archiveBody(s, k, sessions, tickets, comments, coview, refl, includeBp)
 function myCommentLine(c){
   const play=c.audioUrl?'<button class="ep-play" data-audio="'+esc(c.audioUrl)+'">&#9654;</button>':'';
   const share='<button class="rf-share" data-txt="'+esc(c.transcription||'')+'" data-audio="'+esc(c.audioUrl||'')+'" data-id="'+esc(c.id||'')+'" data-key="'+esc(c.episodeId||'')+'">Share</button>';
+  const del='<button class="rf-del" data-cid="'+esc(c.id||'')+'" title="Delete">&#10005;</button>';
   return '<div class="ep-cmt mine">'+play+'<span class="ep-mark">'+markAt(c.timestampMs)+'</span>'+
-    '<span class="ep-txt">'+esc(c.transcription||'Audio')+'</span>'+share+'</div>';
+    '<span class="ep-txt">'+esc(c.transcription||'Audio')+'</span>'+share+del+'</div>';
 }
 function coviewLine(c, nested){
   const play=c.audioUrl?'<button class="ep-play" data-audio="'+esc(c.audioUrl)+'">&#9654;</button>':'';
@@ -1725,6 +1734,22 @@ function coviewLine(c, nested){
     '<span class="ep-who">'+esc(c.author||'friend')+(nested?' &#8617;':'')+'</span>'+
     '<span class="ep-mark">'+markAt(c.timestampMs)+'</span>'+
     '<span class="ep-txt">'+esc(c.transcription||'Audio')+'</span></div>';
+}
+
+// Delete one of my own viewing-log entries — a reflection (data-rid) or an audio comment
+// (data-cid) — via the scoped DELETE endpoints, then drop the row from view.
+async function deleteLogEntry(btn){
+  const email=acct(); if(!email) return;
+  const rid=btn.dataset.rid, cid=btn.dataset.cid;
+  if(!rid && !cid) return;
+  if(!confirm('Delete this? This can’t be undone.')) return;
+  const url = rid ? (API+'/reflection/'+encodeURIComponent(rid)) : (API+'/transcribe/'+encodeURIComponent(cid));
+  btn.disabled=true;
+  try{
+    const r = await fetch(url, { method:'DELETE', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email }) });
+    if(r.ok || r.status===404){ const row=btn.closest('.ep-refl, .ep-cmt'); if(row) row.remove(); }
+    else { btn.disabled=false; alert('Could not delete that.'); }
+  }catch(_){ btn.disabled=false; alert('Could not delete that.'); }
 }
 
 // Share a thought → Pierre hosts the entry (and the share offer) on his face;

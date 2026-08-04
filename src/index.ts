@@ -825,6 +825,19 @@ app.post('/reflection', async (c) => {
   return c.json({ id, showId, ticketId, text, createdAt: now });
 });
 
+// Delete one of the caller's own reflections (share-a-thought). Scoped to the email in
+// the body so a member can only remove their own. 404 if nothing matched.
+app.delete('/reflection/:id', async (c) => {
+  const id = c.req.param('id');
+  let body: any = {};
+  try { body = await c.req.json(); } catch { /* email may also come as a query */ }
+  const email = ((body.email as string) || c.req.query('email') || '').trim();
+  if (!email) return c.json({ error: 'email required' }, 400);
+  const res = await c.env.DB.prepare('DELETE FROM reflection WHERE id = ? AND user_email = ?').bind(id, email).run();
+  if (!res.meta.changes) return c.json({ error: 'not found' }, 404);
+  return c.json({ id, deleted: true });
+});
+
 // List a member's reflections for one show, newest first.
 app.get('/reflections', async (c) => {
   const showId = c.req.query('showId') ?? '';
