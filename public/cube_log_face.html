@@ -668,16 +668,16 @@ const released=e=>e.airdate && new Date(e.airdate+'T23:59:59')<=NOW;
 // avoid a tz day-slip), the next not-yet-aired episode, and the "swing to Pierre" when a
 // member taps START on an episode that has not dropped yet (offer a notify instead).
 function wowTagFor(e){ return (window.WoW && e && e.airdate) ? WoW.tag(e.airdate+'T12:00:00') : ''; }
-// The show's effective watch-mode from the shared WoW store (manual pick, else the
-// account default). Drives the playhead glyph: flame = BINGE, leaf = FRESH.
+// The show's effective watch-mode for the playhead glyph (flame = BINGE, leaf = FRESH).
+// Uses ONLY this show's own manual pick — never the account default, so a global default
+// (e.g. FRESH) doesn't paint the same glyph on every show. No per-show pick → puck.
 function wowShowModeLog(){
   try{
     if(isMovie) return null;   // BINGE/FRESH are series-only — a movie has no watch cadence
     const st = window.WoW && WoW.store && WoW.store.stateNow();
     if(!st) return null;
     const m = st.modes && curShowId && st.modes[curShowId];
-    if(m && m!=='DECLINED') return m;
-    return (st.user && st.user.defaultMode) || null;
+    return (m && m!=='DECLINED') ? m : null;
   }catch(_){ return null; }
 }
 // The next drop across the whole show (air order), not just the loaded season -- a
