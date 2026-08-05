@@ -184,8 +184,8 @@
   .tixtoday::before,.tixtoday::after{content:"";flex:1;height:1px;background:rgba(232,159,61,.35)}
   /* Ticket card — the poster fills the background; text rides over a left-to-right scrim. */
   .tix{position:relative;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:11px;
-    overflow:hidden;cursor:pointer;transition:border-color .15s;background:var(--panel-2)}
-  .tix.open{border-color:rgba(232,159,61,.55)}
+    overflow:hidden;cursor:pointer;transition:border-color .15s,transform .1s;background:var(--panel-2)}
+  .tix:active{transform:scale(.99)}
   .tix-row{position:relative;display:flex;align-items:stretch;min-height:104px;background:#000 center/cover}
   .tix-row::before{content:"";position:absolute;inset:0;pointer-events:none;
     background:linear-gradient(90deg,rgba(9,6,4,.94) 0%,rgba(9,6,4,.8) 42%,rgba(9,6,4,.34) 78%,rgba(9,6,4,.12) 100%)}
@@ -196,6 +196,7 @@
   .tix .where{font-family:var(--mono);font-size:10px;color:var(--amber-soft);text-shadow:0 1px 4px rgba(0,0,0,.8);
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .tix .when{font-family:var(--mono);font-size:9.5px;color:#cbb89a;letter-spacing:.04em;text-shadow:0 1px 4px rgba(0,0,0,.8)}
+  .tix-hasrefl{margin-left:6px;font-size:11px;color:var(--amber);vertical-align:1px;text-shadow:0 1px 4px rgba(0,0,0,.8)}
   .tix .stub{position:relative;z-index:1;flex:0 0 auto;display:flex;flex-direction:column;align-items:center;
     justify-content:center;gap:1px;padding:0 13px;border-left:1px dashed rgba(255,255,255,.18);background:rgba(0,0,0,.34)}
   .tix .stub .d{font-family:var(--display);font-weight:700;font-size:19px;line-height:1;color:var(--amber);text-shadow:0 1px 5px rgba(0,0,0,.8)}
@@ -203,10 +204,9 @@
   .tix .notch{position:absolute;z-index:1;width:9px;height:9px;border-radius:50%;background:var(--panel);border:1px solid var(--line)}
   .tix .notch.t{top:-5px}
   .tix .notch.b{bottom:-5px}
-  /* Popped-open recorder: mic + 10s countdown ring, then the transcript editor. */
-  .tix-rec{display:none;flex-direction:column;align-items:center;gap:10px;padding:15px 12px 16px;
+  /* Recorder (inside the full-face view): mic + 10s countdown ring, then the editor. */
+  .tix-rec{display:flex;flex-direction:column;align-items:center;gap:10px;padding:15px 12px 16px;
     border-top:1px dashed var(--line);background:rgba(0,0,0,.3)}
-  .tix.open .tix-rec{display:flex}
   .tixmic{position:relative;width:64px;height:64px;border-radius:50%;border:1px solid var(--line);
     background:var(--panel);color:var(--amber);cursor:pointer;display:flex;align-items:center;justify-content:center;
     box-shadow:0 6px 18px -10px rgba(232,159,61,.6)}
@@ -221,10 +221,12 @@
   .tixhint.ok{color:var(--green)} .tixhint.bad{color:var(--amber-soft)}
   /* After a take: a replay button + editable transcript, then the 4 actions. */
   .tixtx{width:100%;display:flex;flex-direction:column;gap:9px}
-  .tixtxrow{display:flex;gap:8px;align-items:stretch}
-  .tixplay{flex:0 0 auto;width:40px;align-self:stretch;border:1px solid var(--line);border-radius:9px;
-    background:var(--panel-2);color:var(--amber);cursor:pointer;display:flex;align-items:center;justify-content:center}
-  .tixplay:hover{border-color:var(--amber-soft)} .tixplay:active{transform:scale(.96)}
+  /* Reflection clip — a round play button + the transcript, matching the app's clips. */
+  .tixtxrow{display:flex;gap:10px;align-items:center}
+  .tixplay{flex:0 0 auto;width:44px;height:44px;border-radius:50%;border:1px solid var(--line);
+    background:var(--panel-2);color:var(--amber);cursor:pointer;display:flex;align-items:center;justify-content:center;
+    box-shadow:0 4px 12px -8px rgba(232,159,61,.7)}
+  .tixplay:hover{border-color:var(--amber-soft)} .tixplay:active{transform:scale(.94)}
   .tixplay svg{width:18px;height:18px;fill:currentColor}
   .tixplay.playing{color:#e0554e;border-color:rgba(224,85,78,.55)}
   .tixtx textarea{flex:1 1 auto;width:100%;box-sizing:border-box;min-height:64px;resize:vertical;font-family:var(--body);
@@ -240,6 +242,26 @@
   .tixacts .a-journal{color:var(--amber);border-color:rgba(232,159,61,.45)}
   .tixacts .a-journal:hover{background:rgba(232,159,61,.12)}
   .tixacts .a-card:hover,.tixacts .a-audio:hover{color:var(--text);border-color:var(--amber-soft)}
+
+  /* ---- Open ticket = full-face detail: poster fills the cube, torn bottom edge ---- */
+  .tixfull{position:absolute;inset:0;z-index:20;display:flex;flex-direction:column;justify-content:flex-end;
+    background:#000 center/cover;overflow:hidden;animation:tfin .26s ease both}
+  @keyframes tfin{from{opacity:0;transform:scale(1.02)}to{opacity:1;transform:none}}
+  .tixfull::before{content:"";position:absolute;inset:0;pointer-events:none;
+    background:linear-gradient(180deg,rgba(9,6,4,.28) 0%,rgba(9,6,4,.12) 34%,rgba(9,6,4,.72) 66%,rgba(9,6,4,.96) 100%)}
+  /* torn bottom edge (scalloped, like a ticket tear) */
+  .tixfull{-webkit-mask:radial-gradient(circle 9px at 18px 0,#0000 8.5px,#000 9px) -18px 100%/36px 16px repeat-x,
+    linear-gradient(#000,#000) top/100% calc(100% - 15px) no-repeat;
+    mask:radial-gradient(circle 9px at 18px 0,#0000 8.5px,#000 9px) -18px 100%/36px 16px repeat-x,
+    linear-gradient(#000,#000) top/100% calc(100% - 15px) no-repeat}
+  .tf-close{position:absolute;top:14px;right:14px;z-index:3;width:34px;height:34px;border-radius:50%;
+    border:none;background:rgba(8,6,4,.6);color:#fff;font-size:16px;line-height:1;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+  .tf-body{position:relative;z-index:2;padding:16px 16px 26px;display:flex;flex-direction:column;gap:11px}
+  .tf-date{font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--amber);text-shadow:0 1px 5px rgba(0,0,0,.8)}
+  .tf-film{font-family:var(--display);font-weight:700;font-size:26px;line-height:1.05;color:var(--text);text-shadow:0 2px 10px rgba(0,0,0,.85)}
+  .tf-meta{font-family:var(--mono);font-size:11px;color:#e0cfb0;text-shadow:0 1px 5px rgba(0,0,0,.85)}
+  .tixfull .tix-rec{border-top:none;background:rgba(9,6,4,.4);border:1px solid rgba(255,255,255,.12);border-radius:12px;margin-top:4px;backdrop-filter:blur(3px)}
 
   /* ---- Physical media: scanner viewport + the collected shelf ---- */
   .cam{position:relative;flex:0 0 auto;border:1px solid var(--line);border-radius:12px;overflow:hidden;
@@ -347,6 +369,11 @@ if (DEMO) { const jb = document.getElementById('joinBtn'); if (jb) jb.style.disp
 function isMember(){ try{ return !!localStorage.getItem('pg_user'); }catch(_){ return false; } }
 function memberName(){ try{ return localStorage.getItem('pg_username') || ''; }catch(_){ return ''; } }
 function memberEmail(){ try{ return localStorage.getItem('pg_user') || ''; }catch(_){ return ''; } }
+// Dev convenience (localhost ONLY): ?as=<email> signs in as that member so the real
+// tickets/shelf load without a full login. Guarded to localhost so it can't be used to
+// view another member's data in production.
+try{ if(location.hostname==='localhost' || location.hostname==='127.0.0.1'){
+  const _as=new URLSearchParams(location.search).get('as'); if(_as) localStorage.setItem('pg_user', _as); } }catch(_){}
 // Preview/testing convenience: ?member=1 on the shell forces BROWSE without a real
 // signup. The iframe reads the parent's query (same-origin); falls back to its own.
 function forcedMember(){
@@ -525,23 +552,20 @@ function ticketDateValue(dateStr, createdAt){
 function tixCardHTML(t){
   const {d,mo} = ticketDateBits(t.date);
   const img = t.poster || t.ticketUrl || '';   // catalog poster, else the real stub photo
-  return `<div class="tix" data-id="${esc(t.id)}" data-show="${esc(t.showId||'')}" data-ep="${esc(t.episodeId||'')}"
-      data-film="${esc(t.film||'')}" data-poster="${esc(t.poster||'')}" data-theater="${esc(t.theater||'')}" data-date="${esc(t.date||'')}">
-    <div class="tix-row" style="${img?`background-image:url('${esc(img)}')`:''}">
+  const refl = (t.reflection && t.reflection.text) ? '<span class="tix-hasrefl" title="reflection saved">&#9835;</span>' : '';
+  return `<div class="tix" data-id="${esc(t.id)}">
+    <div class="tix-row" style="${img?`background-image:url('${esc(img)}')`:''}" data-poster="${esc(t.poster||'')}">
       <span class="notch t"></span><span class="notch b"></span>
       <div class="body">
-        <div class="film">${esc(t.film||'Untitled')}</div>
+        <div class="film">${esc(t.film||'Untitled')}${refl}</div>
         <div class="where">${esc(t.theater||'')}</div>
         <div class="when">${esc(t.time||'')}</div>
       </div>
       <div class="stub"><div class="d">${esc(d)}</div><div class="mo">${esc(mo)}</div></div>
     </div>
-    <div class="tix-rec">
-      <button class="tixmic" aria-label="Record a reflection">${MIC_SVG}</button>
-      <div class="tixhint">tap the mic · 10s reflection on ${esc(t.film||'this film')}</div>
-    </div>
   </div>`;
 }
+let _tixData = {};
 async function renderTickets(pane){
   pane.innerHTML = `<div class="tixgrid" id="tixGrid"><div class="why" style="margin-top:14px">loading…</div></div>`;
   const tickets = await loadTickets();
@@ -555,23 +579,16 @@ async function renderTickets(pane){
   const startToday = new Date(); startToday.setHours(0,0,0,0); const todayMs = startToday.getTime();
   tickets.forEach(t => t._dv = ticketDateValue(t.date, t.createdAt));
   tickets.sort((a,b) => b._dv - a._dv);                       // furthest-future → oldest
+  _tixData = {}; tickets.forEach(t => _tixData[t.id] = t);
   let firstPast = tickets.findIndex(t => t._dv < todayMs);
   let html = '';
   tickets.forEach((t,i) => { if(i===firstPast) html += `<div class="tixtoday">Today</div>`; html += tixCardHTML(t); });
   if(firstPast === -1) html += `<div class="tixtoday">Today</div>`;   // all upcoming → bar at the bottom
   grid.innerHTML = html;
-  // Tap a stub to pop it open (one at a time); the mic runs its own recorder.
+  // Tap a stub → it fills the cube as a full-face detail view.
   grid.querySelectorAll('.tix').forEach(tx => {
-    tx.addEventListener('click', e => {
-      if(e.target.closest('.tix-rec')) return;              // the recorder owns its own taps
-      const wasOpen = tx.classList.contains('open');
-      grid.querySelectorAll('.tix.open').forEach(o => { if(o!==tx){ o.classList.remove('open'); stopTixRec(o, true); } });
-      tx.classList.toggle('open', !wasOpen);
-      if(wasOpen) stopTixRec(tx, true);
-    });
-    tx.querySelector('.tixmic').addEventListener('click', () => toggleTixRec(tx));
-    // AI banner focus: center the wide crop on the poster's hero (face/eye), not dead center.
-    const poster = tx.dataset.poster;
+    tx.addEventListener('click', () => openTicketFull(_tixData[tx.dataset.id]));
+    const poster = (tx.querySelector('.tix-row')||{}).dataset ? tx.querySelector('.tix-row').dataset.poster : '';
     if(poster && /^https:\/\/image\.tmdb\.org\//.test(poster)){
       fetch(ART_API + '/img/focal?u=' + encodeURIComponent(poster)).then(r=>r.ok?r.json():null).then(p=>{
         if(p && typeof p.x==='number'){ const row=tx.querySelector('.tix-row');
@@ -579,6 +596,49 @@ async function renderTickets(pane){
       }).catch(()=>{});
     }
   });
+}
+// Open a ticket as a full-face view: the poster fills the cube, the reflection recorder /
+// clip sits at the bottom over the poster, and the bottom edge is torn.
+async function openTicketFull(t){
+  if(!t) return;
+  closeTicketFull();
+  const browse = document.getElementById('browse'); if(!browse) return;
+  const {d,mo} = ticketDateBits(t.date);
+  const img = t.poster || t.ticketUrl || '';
+  const el = document.createElement('div');
+  el.className = 'tixfull';
+  el.dataset.id=t.id; el.dataset.show=t.showId||''; el.dataset.ep=t.episodeId||'';
+  el.dataset.film=t.film||''; el.dataset.poster=t.poster||''; el.dataset.theater=t.theater||''; el.dataset.date=t.date||'';
+  if(img) el.style.backgroundImage = `url('${img}')`;
+  el.innerHTML = `<button class="tf-close" aria-label="Close">&#10005;</button>
+    <div class="tf-body">
+      <div class="tf-date">${esc(mo)} ${esc(d)} &middot; ${esc(t.time||'')}</div>
+      <div class="tf-film">${esc(t.film||'Untitled')}</div>
+      <div class="tf-meta">${esc(t.theater||'')}</div>
+      <div class="tix-rec">
+        <button class="tixmic" aria-label="Record a reflection">${MIC_SVG}</button>
+        <div class="tixhint">tap the mic &middot; 10s reflection on ${esc(t.film||'this film')}</div>
+      </div>
+    </div>`;
+  browse.appendChild(el);
+  el.querySelector('.tf-close').onclick = closeTicketFull;
+  el.querySelector('.tixmic').addEventListener('click', ()=> toggleTixRec(el));
+  if(t.poster && /^https:\/\/image\.tmdb\.org\//.test(t.poster)){
+    fetch(ART_API + '/img/focal?u=' + encodeURIComponent(t.poster)).then(r=>r.ok?r.json():null).then(p=>{
+      if(p && typeof p.x==='number') el.style.backgroundPosition = Math.round(p.x*100)+'% '+Math.round(p.y*100)+'%';
+    }).catch(()=>{});
+  }
+  // A saved reflection loads as the current clip (quote + speaker + actions).
+  if(t.reflection && (t.reflection.text || t.reflection.audioUrl)){
+    let blob=null; try{ if(t.reflection.audioUrl){ const r=await fetch(t.reflection.audioUrl); if(r.ok) blob=await r.blob(); } }catch(_){}
+    showTranscript(el, t.reflection.text||'', blob, t.reflection.id||null);
+  }
+}
+function closeTicketFull(){
+  const el = document.querySelector('.tixfull'); if(!el) return;
+  try{ if(el._audioEl) el._audioEl.pause(); }catch(_){}
+  stopTixRec(el, true);
+  el.remove();
 }
 const MIC_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>';
 const IC_TRASH='<svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
@@ -694,8 +754,36 @@ async function tixJournal(tx){
   // The reflection is already a private journal entry; save any transcript edit (one-time).
   if(id && text.trim()){ try{ await fetch(ART_API+'/transcribe/'+encodeURIComponent(id), {method:'PATCH',
     headers:{'Content-Type':'application/json'}, body:JSON.stringify({email, text:text.trim()})}); }catch(_){} }
-  _txHint(tx, 'journaled ✓', 'ok');
-  setTimeout(()=>{ if(tx.classList.contains('open')) resetTixRec(tx); }, 1100);
+  _txHint(tx, 'journaled ✓', 'ok');   // stays with the card — no reset
+}
+// Web: compose the card image + audio into a video WITH audio (a still image posts silent
+// to Stories — the share must be a video). Repaints each frame so captureStream keeps
+// emitting. Native uses CardVideo; this is the web/PWA path.
+async function buildTicketVideo(cardBlob, audioBlob){
+  if(!window.MediaRecorder) return null;
+  const W=1080,H=1920, cv=document.createElement('canvas'); cv.width=W; cv.height=H; const g=cv.getContext('2d');
+  const card = await new Promise(res=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=()=>res(null); i.src=URL.createObjectURL(cardBlob); });
+  const drawFrame=()=>{ g.fillStyle='#0f0b08'; g.fillRect(0,0,W,H);
+    if(card){ const s=Math.min(W/card.width,H/card.height), cw=card.width*s, ch=card.height*s; g.drawImage(card,(W-cw)/2,(H-ch)/2,cw,ch); } };
+  drawFrame();
+  const audio=new Audio(); audio.src=URL.createObjectURL(audioBlob); audio.preload='auto';
+  await new Promise(res=>{ audio.onloadedmetadata=res; audio.onerror=res; setTimeout(res,3000); });
+  let actx,dest,src; try{ actx=new (window.AudioContext||window.webkitAudioContext)();
+    dest=actx.createMediaStreamDestination(); src=actx.createMediaElementSource(audio); src.connect(dest); }catch(_){}
+  const vStream=cv.captureStream(30);
+  const tracks=[...vStream.getVideoTracks(), ...(dest?dest.stream.getAudioTracks():[])];
+  const mime = MediaRecorder.isTypeSupported('video/mp4')?'video/mp4'
+             : MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')?'video/webm;codecs=vp8,opus':'video/webm';
+  let rec; try{ rec=new MediaRecorder(new MediaStream(tracks),{mimeType:mime}); }catch(_){ return null; }
+  const parts=[]; rec.ondataavailable=e=>{ if(e.data&&e.data.size) parts.push(e.data); };
+  const stopped=new Promise(res=> rec.onstop=res);
+  try{ if(actx) await actx.resume(); }catch(_){}
+  let raf=null; const loop=()=>{ drawFrame(); raf=requestAnimationFrame(loop); }; raf=requestAnimationFrame(loop);
+  rec.start(100);
+  try{ await audio.play(); }catch(_){}
+  await new Promise(res=>{ audio.onended=res; setTimeout(res, ((audio.duration&&isFinite(audio.duration)?audio.duration:11)*1000)+800); });
+  try{ rec.stop(); }catch(_){} await stopped; if(raf) cancelAnimationFrame(raf); try{ if(actx) actx.close(); }catch(_){}
+  return parts.length ? new Blob(parts,{type:mime.split(';')[0]}) : null;
 }
 // Share audio = the same card + the audio, composed into a video. Native muxes the
 // card image + audio into an mp4 (CardVideo, the path Pierre uses); web falls back to
@@ -717,14 +805,17 @@ async function tixShareAudio(tx){
       if(res && res.uri){ (window.top||window).postMessage({type:'pg:shareFile', name:'ticket-'+Date.now()+'.mp4', caption, fileUri:res.uri}, '*'); _txHint(tx,'opening share…'); return; }
     }catch(_){}
   }
-  // Web fallback: the audio (+ card image) through the share sheet.
+  // Web fallback: compose a video (card + audio) so the Story actually has sound.
   try{
-    const files=[new File([blob],'reflection.'+ext,{type})];
-    if(cardBlob) files.unshift(new File([cardBlob],'ticket-card.png',{type:'image/png'}));
-    if(navigator.canShare && navigator.canShare({files})){ await navigator.share({files, text:caption}); _txHint(tx,''); return; }
-    const one=[files[files.length-1]];
-    if(navigator.canShare && navigator.canShare({files:one})){ await navigator.share({files:one, text:caption}); _txHint(tx,''); return; }
+    const vid = cardBlob ? await buildTicketVideo(cardBlob, blob).catch(()=>null) : null;
+    if(vid){
+      const vext = vid.type.indexOf('mp4')>=0 ? 'mp4' : 'webm';
+      const vfile = new File([vid], 'ticket-'+Date.now()+'.'+vext, {type:vid.type});
+      if(navigator.canShare && navigator.canShare({files:[vfile]})){ await navigator.share({files:[vfile], text:caption}); _txHint(tx,''); return; }
+      const b64 = await blobB64(vid); (window.top||window).postMessage({type:'pg:shareFile', dataB64:b64, name:vfile.name, caption}, '*'); _txHint(tx,'opening share…'); return;
+    }
   }catch(_){}
+  // Last resort: share the raw audio file.
   try{ const b64 = await blobB64(blob); (window.top||window).postMessage({type:'pg:shareFile', dataB64:b64, name:'reflection.'+ext, caption}, '*'); _txHint(tx,'opening share…'); }
   catch(_){ _txHint(tx,"couldn't share",'bad'); }
 }

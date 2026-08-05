@@ -427,8 +427,14 @@ profileRoutes.get('/:email/passes', async (c) => {
 profileRoutes.get('/:email/tickets', async (c) => {
   const email = c.req.param('email').toLowerCase();
   const origin = new URL(c.req.url).origin;
+  // Each ticket also carries its latest reflection for that title (the mic take, matched
+  // on show_id since a ticket's episode is often null), so the card can show it as a clip.
   const rows = (await c.env.DB.prepare(
-    `SELECT wt.id, wt.show_id, wt.episode_id, wt.show_name, wt.theater, wt.ticket_date, wt.ticket_time, wt.created_at, t.poster
+    `SELECT wt.id, wt.show_id, wt.episode_id, wt.show_name, wt.theater, wt.ticket_date, wt.ticket_time, wt.created_at, t.poster,
+            (SELECT wc.id FROM watch_comment wc WHERE wc.user_email=wt.user_email AND wc.show_id=wt.show_id
+               AND wc.is_reflection=1 AND wc.reply_to IS NULL AND COALESCE(wc.transcription,'')<>'' ORDER BY wc.created_at DESC LIMIT 1) AS refl_id,
+            (SELECT wc.transcription FROM watch_comment wc WHERE wc.user_email=wt.user_email AND wc.show_id=wt.show_id
+               AND wc.is_reflection=1 AND wc.reply_to IS NULL AND COALESCE(wc.transcription,'')<>'' ORDER BY wc.created_at DESC LIMIT 1) AS refl_text
        FROM watch_ticket wt LEFT JOIN titles t ON t.title_id = wt.show_id
       WHERE wt.user_email = ? ORDER BY wt.created_at DESC`
   ).bind(email).all()).results || [];
@@ -436,6 +442,7 @@ profileRoutes.get('/:email/tickets', async (c) => {
     id: r.id, film: r.show_name, theater: r.theater, date: r.ticket_date, time: r.ticket_time,
     showId: r.show_id || null, episodeId: r.episode_id || null,
     poster: r.poster || null, ticketUrl: `${origin}/ticket/${r.id}/image`, createdAt: r.created_at,
+    reflection: r.refl_id ? { id: r.refl_id, text: r.refl_text || '', audioUrl: `${origin}/transcribe/audio/${r.refl_id}` } : null,
   }));
   return c.json({ tickets });
 });
