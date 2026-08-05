@@ -751,10 +751,16 @@ async function tixTrash(tx){
 async function tixJournal(tx){
   const id = tx._reflId, email = memberEmail();
   const text = (tx.querySelector('.tixtxt')||{}).value || '';
-  // The reflection is already a private journal entry; save any transcript edit (one-time).
-  if(id && text.trim()){ try{ await fetch(ART_API+'/transcribe/'+encodeURIComponent(id), {method:'PATCH',
-    headers:{'Content-Type':'application/json'}, body:JSON.stringify({email, text:text.trim()})}); }catch(_){} }
-  _txHint(tx, 'journaled ✓', 'ok');   // stays with the card — no reset
+  if(!id || !text.trim()){ _txHint(tx, 'nothing to save', 'bad'); return; }
+  try{
+    const r = await fetch(ART_API+'/transcribe/'+encodeURIComponent(id), {method:'PATCH',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify({email, text:text.trim()})});
+    if(r.ok){
+      _txHint(tx, 'journaled ✓', 'ok');   // stays with the card — no reset
+      // Keep the cached ticket in sync so a reopen shows the edited text.
+      if(_tixData){ for(const k in _tixData){ const rf=_tixData[k].reflection; if(rf && rf.id===id) rf.text = text.trim(); } }
+    } else _txHint(tx, "couldn't save the edit", 'bad');
+  }catch(_){ _txHint(tx, "couldn't save the edit", 'bad'); }
 }
 // Web: compose the card image + audio into a video WITH audio (a still image posts silent
 // to Stories — the share must be a video). Repaints each frame so captureStream keeps

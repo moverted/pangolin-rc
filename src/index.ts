@@ -265,12 +265,15 @@ app.patch('/transcribe/:id', async (c) => {
   if (text.length > 2000) return c.json({ error: 'transcription too long' }, 400);
 
   const row: any = await c.env.DB
-    .prepare('SELECT user_email, transcript_edited FROM watch_comment WHERE id = ?')
+    .prepare('SELECT user_email, transcript_edited, COALESCE(private,0) AS private FROM watch_comment WHERE id = ?')
     .bind(id)
     .first();
   if (!row) return c.json({ error: 'not found' }, 404);
   if (row.user_email !== email) return c.json({ error: 'not your comment' }, 403);
-  if (row.transcript_edited) return c.json({ error: 'already corrected once' }, 409);
+  // The one-time-edit limit only guards SHARED co-view comments (so a transcript can't be
+  // gamed after others have seen it). A private journal reflection is the member's own —
+  // freely editable.
+  if (row.transcript_edited && !row.private) return c.json({ error: 'already corrected once' }, 409);
 
   const now = Date.now();
   await c.env.DB
