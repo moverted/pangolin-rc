@@ -708,8 +708,14 @@ function stopTixRec(tx, discard){
 // edit), trash removes it, and the shares hand off through the shell's native/web sheet.
 const IC_PLAY='<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
 const IC_PAUSE='<svg viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>';
+// Keep the cached ticket's reflection in step with edits/re-records so a reopen is right.
+function syncTicketReflection(tx, id, text){
+  const tid = tx && tx.dataset && tx.dataset.id; if(!tid || !_tixData || !_tixData[tid]) return;
+  _tixData[tid].reflection = id ? { id, text:text||'', audioUrl: ART_API+'/transcribe/audio/'+id } : null;
+}
 function showTranscript(tx, text, blob, id){
-  tx._audioBlob = blob; tx._reflId = id;
+  tx._audioBlob = blob; tx._reflId = id; tx._savedText = (text||'').trim(); tx._audioEl = null;
+  syncTicketReflection(tx, id, text);
   const rec = tx.querySelector('.tix-rec');
   rec.innerHTML = `<div class="tixtx">
     <div class="tixtxrow">
@@ -717,18 +723,32 @@ function showTranscript(tx, text, blob, id){
       <textarea class="tixtxt" placeholder="your reflection…">${esc(text||'')}</textarea>
     </div>
     <div class="tixacts">
-      <button class="a-trash">${IC_TRASH}Trash</button>
+      <button class="a-trash">${IC_TRASH}Start over</button>
       <button class="a-journal">${IC_BOOK}Journal</button>
       <button class="a-card">${IC_CARD}Share card</button>
       <button class="a-audio">${IC_AUDIO}Share audio</button>
     </div>
-    <div class="tixhint"></div>
+    <div class="tixhint">edits save when you click out</div>
   </div>`;
   rec.querySelector('.tixplay').onclick   = ()=> tixPlay(tx);
   rec.querySelector('.a-trash').onclick   = ()=> tixTrash(tx);
   rec.querySelector('.a-journal').onclick = ()=> tixJournal(tx);
   rec.querySelector('.a-card').onclick    = ()=> tixShareCard(tx);
   rec.querySelector('.a-audio').onclick   = ()=> tixShareAudio(tx);
+  // Seamless: clicking out of the transcript saves the edit.
+  rec.querySelector('.tixtxt').addEventListener('blur', ()=> tixAutoSave(tx));
+}
+// Save the transcript on blur if it changed (private reflections edit freely).
+async function tixAutoSave(tx){
+  const id = tx._reflId, ta = tx.querySelector('.tixtxt'); if(!id || !ta) return;
+  const text = ta.value.trim();
+  if(!text || text === tx._savedText) return;
+  try{
+    const r = await fetch(ART_API+'/transcribe/'+encodeURIComponent(id), {method:'PATCH',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify({email:memberEmail(), text})});
+    if(r.ok){ tx._savedText = text; syncTicketReflection(tx, id, text); _txHint(tx,'saved ✓','ok'); }
+    else _txHint(tx,"couldn't save the edit",'bad');
+  }catch(_){ _txHint(tx,"couldn't save the edit",'bad'); }
 }
 // Replay the captured take through one reused <audio> element per card.
 function tixPlay(tx){
@@ -743,9 +763,13 @@ function tixPlay(tx){
   tx._audioEl.currentTime = 0; tx._audioEl.play().catch(()=>{});
 }
 function _txHint(tx, msg, cls){ const h=tx.querySelector('.tix-rec .tixhint'); if(h){ h.textContent=msg; h.className='tixhint'+(cls?' '+cls:''); } }
+// Start over: delete this reflection (audio + transcript) and drop back to the mic.
 async function tixTrash(tx){
   const id = tx._reflId, email = memberEmail();
+  try{ if(tx._audioEl) tx._audioEl.pause(); }catch(_){}
   if(id){ try{ await fetch(ART_API+'/transcribe/'+encodeURIComponent(id), {method:'DELETE', headers:{'Content-Type':'application/json'}, body:JSON.stringify({email})}); }catch(_){} }
+  syncTicketReflection(tx, null);           // clear the cached reflection so a reopen shows the mic
+  tx._audioBlob=null; tx._reflId=null; tx._audioEl=null; tx._savedText='';
   resetTixRec(tx);
 }
 async function tixJournal(tx){
