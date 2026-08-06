@@ -1649,7 +1649,12 @@ async function loadEpisodeArchive(s, includeBp){
 function renderEpisodeArchive(host, s, data, includeBp){
   const isMovie = s.kind==='movie';
   // Completed episodes only; drop force-advanced (BP) unless this is COMPLETED.
-  let eps=(data.episodes||[]).filter(e=>e.done && (includeBp || !e.bp));
+  // An episode with a real (non-BP) finished session is a genuine watch and always
+  // shows on CURRENT — even if its episode-level `bp` flag was clobbered by a repeat
+  // finish (see finishEpisode's idempotency guard). This recovers such rows without
+  // a data migration.
+  const hasRealWatch=e=>Array.isArray(e.sessions)&&e.sessions.some(x=>x&&x.finished&&!x.bp);
+  let eps=(data.episodes||[]).filter(e=>e.done && (includeBp || !e.bp || hasRealWatch(e)));
   // A film has no real episode rows — fold its whole record into one block.
   if(isMovie || !eps.length){
     if(isMovie || data.tickets.length || data.comments.length || data.refs.length || data.coview.length)

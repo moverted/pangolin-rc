@@ -2076,6 +2076,17 @@ function reportRuntimeMismatch(i, watchedMin, rt){
 // viewing is anchored to the REAL screening — film starts 25 min after the printed
 // showtime (trailers/ads) and runs its full runtime — instead of the upload moment.
 function finishEpisode(screening){
+  // Idempotency guard: this episode already has a real (non-BP) finished session
+  // (a double-tap, the away-timer finishing while the manual FINISH confirm also
+  // fires, or an autoFinish relaunch after a live watch). A repeat FINISH must NOT
+  // re-run the back-date/BP branch below — with a real watch just logged seconds ago,
+  // latestFinishBefore() clamps startedAt to it, room computes ≈0, and the genuine
+  // watch gets demoted to BP, which then hides it from the CURRENT VIEWING LOG.
+  // Re-assert the real completion and bail.
+  if(!screening && epDone[focus] && (epSessions[focus]||[]).some(x=>x&&x.finished&&!x.bp)){
+    emitProgress(focus, true, false, Math.round(epMin[focus]||runtimeOf(focus)));
+    return;
+  }
   const rt=runtimeOf(focus), now=Date.now();
   // Capture the real live-watched span BEFORE the backdate branch overwrites startedAt,
   // so the runtime-mismatch check below sees true elapsed (not a synthesized full runtime).

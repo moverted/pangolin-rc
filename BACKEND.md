@@ -4,6 +4,32 @@ Append-only log. Any session that touches the Worker, D1, or deploy
 configuration adds an entry here before the session ends (see CLAUDE.md,
 "Backend and deploy rules").
 
+## 2026-08-06 — VIEWING LOG BP-demotion fix (frontend) + queue add (D1 data)
+- **Bug:** a just-watched episode (SNW S04E03) was missing from the CURRENT-tab
+  VIEWING LOG. Root cause: a repeat `finishEpisode` (double-tap / away-timer +
+  manual confirm / autoFinish relaunch) re-ran the back-date branch, which
+  clamped `startedAt` to the real finish logged seconds earlier, computed ~0
+  room, and demoted a genuine watch to `bp=1`. The archive hides `bp` on CURRENT
+  (`e.done && !e.bp`), so the watch vanished.
+- **Frontend (`public/cube_log_face.html`):** `finishEpisode` now bails early
+  (idempotency guard) if the episode already has a real (non-BP) finished session
+  — no second BP session, no row demotion. **Frontend (`public/cube_watch_face.html`):**
+  `renderEpisodeArchive` also shows any episode with a real non-BP finished session
+  even if the episode-level `bp` flag was clobbered (`hasRealWatch`), recovering
+  already-broken rows with no migration.
+- **D1 data (no schema change):** the new Aug-14 Hulu/Disney+ "Vrach
+  Frankenshteyn" director's cut isn't in TMDB yet (so Pierre's `search_title`
+  correctly returned no match — not a worker bug). First added the underlying
+  2008 film `tmdb:8836` to edward.m.willett@gmail.com's queue via
+  `POST /catalog/initiate`; then, per Ted's relabel request, created a distinct
+  **manual** catalog title `manual:xfiles-vrach-frankenshteyn` (movie, premiered
+  2026-08-14, platform "Disney+ / Hulu", reusing the 2008 TMDB poster until real
+  key art lands) + its single unit, swapped it into Ted's queue, and removed the
+  `tmdb:8836` rows from his queue (shared `tmdb:8836` catalog row left intact).
+  Script: `scripts/xfiles-vrach-relabel.sql`.
+- Pages deploy message: "Fix VIEWING LOG: idempotent finish (no BP demotion of a
+  real watch) + show genuine watches even if bp flag clobbered". Worker untouched.
+
 ## 2026-08-06 — Retire RETURNING bucket + return-month badge (frontend)
 - **Worker (`profile.ts` `recomputeTitle`):** the server bucket derivation no
   longer emits `'returning'` — a caught-up still-running show now recomputes to
