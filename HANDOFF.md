@@ -1,46 +1,65 @@
-# Handoff — 2026-08-05
+# Handoff — 2026-08-06
 
 Snapshot for picking work back up after a context clear. Delete/replace when stale.
 
 ## Current state
 
-- **Branch `endnote-one-reply-flow`** — two new commits this session on top of the
-  IRL Tickets stream:
+- **Branch `endnote-one-reply-flow`** (pushed). Session commit stack, newest last:
   - `cddd952` IRL Tickets: typed reflections, focal v2, poster self-heal, old-ticket
-    year confirmation (client + Worker; the backend was already deployed 2026-08-05,
-    this commit just brings the tree into git).
+    year confirmation (client + Worker; backend was already live, commit just synced git).
   - `28e1b1c` WATCH: watch-aware next-drop badge + ranking, fresh-watch leaf, hide
     theater-ticket movies.
-- **Worker: deployed** — Version `f2740671-ad10-49e3-9c17-603a9867c1a8`.
-- **Web: deployed** — Pages `0bb0dc24`, live on `remote.pangolinrc.com`
-  (verified `wow-scheduler.js` line 123 = "Next <Weekday>", `cube_watch_face`
-  has `isTheaterMovie`/`wowNext`).
-- **iOS bundle: re-synced** — `www/` mirrored + `cap copy ios`; `ios/App/App/public`
-  verified identical to `public/`. **Archive + TestFlight distribute still pending
-  in Xcode** (see below).
+  - `21c7b3a` docs.
+  - `35df8fa` WATCH: fresh-now override lights the FRESH text badge when catching the newest drop.
+  - `941f8c5` Tabs: WATCH → 3 pill tabs on top (CURRENT/COMFORT/COMPLETED), retire
+    RETURNING; Browse tabs bold + counts.
+  - `07562de` Retire RETURNING bucket (backend); add return-month badge + Yellowjackets SEED.
+- **Worker: deployed** — Version `5ab7c0e7` (latest). **Web: deployed** — Pages
+  `f7b890c5`, live on `remote.pangolinrc.com`.
+- **iOS: archived + distributed to TestFlight this session.** Bundle synced via
+  `cap copy ios` and byte-verified against `public/` before archiving.
 - Web and native run the same source; `public/` is canonical → `www/` → `ios/App/App/public`.
+- `BACKEND.md` is current (entries dated 2026-08-05 and 2026-08-06).
 
-## WATCH-face changes (this session) — what to verify on the live app
+## What shipped this session (WATCH + Browse)
 
-Needs the real signed-in account (the demo `SEED` doesn't include these shows):
+1. **Watch-aware next drop.** `WoW.nextUp/sortKey/inSeason` take an optional `after`
+   (last-watched ep) so a caught-up show references its NEXT unwatched drop for the
+   day-badge and the CURRENT ranking. Day-badge reads "Next <Weekday>" at 7-13d.
+2. **Leaf / fire.** Playhead leaf lights from the LIVE/FRESH air-window (ep ≤48h, via
+   `WoW.phase`); fire needs the binge burst. **FRESH text badge** now honors the same
+   fresh-now signal (`wowFreshNow`) so it doesn't read CASUAL after a fresh watch.
+3. **Theater-ticket movies hidden** from WATCH (`isTheaterMovie` = movie + `ticketAt`);
+   streamed/physical movies stay.
+4. **Tabs restyled.** WATCH = 3 Browse-style pill tabs on TOP (CURRENT / 🍿 COMFORT /
+   COMPLETED), bold, counts kept. **RETURNING retired** front + back: `recomputeTitle`
+   (`profile.ts`) now returns `current` not `returning`, and a caught-up on-hiatus show
+   folds into CURRENT with its return-countdown tile. Browse tabs bold; TICKETS + SHELF
+   gained counts (`refreshIrlCounts`). Loaded 700 mono weight on both faces.
+5. **Return-month badge.** `returnTag(s)`: caught-up show returning >30d out shows the
+   month ("OCTOBER") or month+year ("MARCH 2027"); ≤30d falls through to the weekly tag.
 
-1. **CURRENT-tab order:** Strange New Worlds → Silo → Ted Lasso → Lanterns. A show you
-   are caught up on (Ted Lasso, watched today's S04E01) drops to its next-drop slot
-   instead of floating to the top.
-2. **Day-badge** references the next *unwatched* episode: Ted Lasso reads "Next Wednesday"
-   today, "Wednesday" tomorrow (≤6d); Lanterns "Next Sunday". (`nextUp`/`sortKey`/
-   `inSeason` now take an `after` = last-watched ep.)
-3. **Leaf** on the playhead lights from the LIVE/FRESH air-window (episode ≤48h old, via
-   `WoW.phase`) — a first fresh watch shows it before the classifier has 2 samples. Fire
-   still requires the binge burst (3rd episode).
-4. **No theater-ticket movie tiles** in any WATCH tab (they live in IRL/Tickets); streamed
-   / physical-media movies (no `ticketAt`) still appear. `isTheaterMovie()` gates it.
+## Open / deferred
 
-## iOS Archive + Distribute (pending — do in Xcode)
+- **`return_date` is demo/SEED-only.** Accounts hardcode `returnDate:null`
+  (`recordFromTitle`), so Yellowjackets + its OCTOBER badge show only in demo mode
+  (`?demo` / demo domain), NOT on a real device account. **Deferred follow-up:** wire it
+  from TMDB `/tv/{id}` (`status:"Returning Series"` + `next_episode_to_air.air_date`)
+  into a new `titles.return_date` column → `/titles` → `recordFromTitle`. We already have
+  `TMDB_API_KEY` + `tmdbFetch('/tv/{id}')` (`src/handlers/tmdb.ts`), so it's a small
+  migration + read; the `returnTag` badge lights up automatically once a real date flows.
 
-Per the bundle-freshness workflow (web-only changes reuse the stale bundle on a plain Run):
-1. Delete the app from the simulator/device.
-2. Product → **Clean Build Folder** (⇧⌘K).
-3. **Product → Archive** (build number auto-stamps via the "Stamp build number" run phase).
-4. Organizer → Distribute App → App Store Connect. On Distribute, **uncheck
-   "Automatically manage version and build number"** so Xcode doesn't fight the stamp.
+## On-device testing checklist (TestFlight build)
+
+Real account: (1) 3 pill tabs on top, no RETURNING, caught-up shows in CURRENT;
+(2) Ted Lasso = Wednesday badge + FRESH badge + leaf (give the face a beat/tab-switch —
+the mode badge settles after the classifier prefetch); (3) order SNW → Silo → Ted Lasso →
+Lanterns; (4) no theater-ticket movie tiles; (5) Browse tabs bold with TICKETS/SHELF counts.
+Yellowjackets/OCTOBER is demo-only — verify it via `?demo`, not the account.
+
+## iOS bundle rebuild reminder
+
+Web-only changes reuse the stale bundle on a plain Run. To ship native: mirror changed
+files `public/ → www/`, `npx cap copy ios`, verify the marker landed in
+`ios/App/App/public`, then delete app → Clean Build Folder (⇧⌘K) → Archive → Distribute
+(uncheck "Automatically manage version and build number"). Build number auto-stamps.
