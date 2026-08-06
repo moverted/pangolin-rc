@@ -466,6 +466,7 @@ const SEED=[
   {id:"silo",      q:"Silo",           watchedAll:true, lastDate:"2026-05-30", returnDate:"2026-06-19"},
   {id:"thebear",   q:"The Bear",       watchedAll:true, lastDate:"2026-06-02", returnDate:"2026-07-15"},
   {id:"tlou",      q:"The Last of Us", watchedAll:true, lastDate:"2026-05-20", returnDate:"2026-09-01"},
+  {id:"yellowjackets", q:"Yellowjackets", watchedAll:true, lastDate:"2026-07-20", returnDate:"2026-10-15"},
   {id:"mrrobot",   q:"Mr. Robot",      watchedAll:true, lastDate:"2026-04-30"},
   {id:"andor",     q:"Andor",          watchedAll:true, lastDate:"2026-04-14"},
   {id:"goodplace", q:"The Good Place", watchedAll:true, lastDate:"2026-02-02"},
@@ -784,6 +785,16 @@ function wowTag(s){
   const n = wowNext(s);
   return n ? WoW.tag(n.airstamp) : '';
 }
+// Between-seasons badge: a caught-up show returning far out (>30 days) shows the return
+// MONTH rather than a weekday/date. Same year → "OCTOBER"; a later year → "MARCH 2027".
+// Near returns (<=30 days) fall through to the weekly TAG / countdown line.
+function returnTag(s){
+  if(!s || !s.returnDate) return '';
+  if(daysTo(s.returnDate) <= 30) return '';
+  const rd=new Date(s.returnDate+'T12:00'); if(isNaN(rd)) return '';
+  const mon=rd.toLocaleDateString('en-US',{month:'long'}).toUpperCase();
+  return rd.getFullYear() > NOW.getFullYear() ? (mon+' '+rd.getFullYear()) : mon;
+}
 // Films have no weekly cadence, but they still get a day badge: the weekday the film
 // entered the system — its screening/watch anchor (started_at, e.g. a Tuesday ticket),
 // or failing that the day the row was logged. Mirrors the series weekly-release TAG.
@@ -883,7 +894,7 @@ function tileFor(s,asStopped){
   else if(s.returnDate&&b!=="completed") footer=returnLine(s);
   else footer='<div class="meta">'+metaFor(s)+"</div>";
   const tb = ticketBadge(s);                         // theater films: torn-ticket stub
-  const tg = tb ? '' : (wowTag(s) || filmDayTag(s)); // others: plain day / airdate tag
+  const tg = tb ? '' : (returnTag(s) || wowTag(s) || filmDayTag(s)); // return-month / day / airdate tag
   return '<div class="'+cls+'" data-id="'+s.id+'">'+posterDiv(s)+'<div class="scrim"></div>'+
     (s.isNew?'<div class="newflag">NEW</div>':'')+
     (tb || (tg?'<div class="wowtag">'+tg+'</div>':''))+

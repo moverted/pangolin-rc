@@ -248,7 +248,8 @@ async function recomputeTitle(env: Env, email: string, titleId: string): Promise
     const ended = t.status === 'Ended' || t.status === 'Canceled' || t.status === 'Film';
     if (watched >= total && total > 0) status = 'completed';
     else if (watched < released) status = 'current';
-    else status = ended ? 'completed' : 'returning';
+    // RETURNING was retired: a caught-up still-running show stays CURRENT (mirrors bucketOf).
+    else status = ended ? 'completed' : 'current';
   }
   const now = Date.now();
   await env.DB.prepare('UPDATE watch_title SET status=?, current_episode_id=?, updated_at=? WHERE user_email=? AND title_id=?')

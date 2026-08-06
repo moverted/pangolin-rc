@@ -4,6 +4,22 @@ Append-only log. Any session that touches the Worker, D1, or deploy
 configuration adds an entry here before the session ends (see CLAUDE.md,
 "Backend and deploy rules").
 
+## 2026-08-06 — Retire RETURNING bucket + return-month badge (frontend)
+- **Worker (`profile.ts` `recomputeTitle`):** the server bucket derivation no
+  longer emits `'returning'` — a caught-up still-running show now recomputes to
+  `'current'` (mirrors the client `bucketOf`, matching the WATCH face which
+  dropped the RETURNING tab). No schema/migration change; existing rows already
+  stored as `returning` recompute to `current` on their next episode write.
+- **Frontend (`cube_watch_face.html`):** new `returnTag(s)` day-badge for a
+  caught-up show returning >30 days out — same-year → month ("OCTOBER"), later
+  year → month+year ("MARCH 2027"); <=30 days falls through to the weekly TAG.
+  Added a Yellowjackets demo-SEED row (watchedAll + returnDate 2026-10-15) to
+  exercise it. NOTE: `return_date` is still demo/SEED-only — accounts hardcode
+  `returnDate:null`; wiring it from TMDB `/tv/{id}` (`status:"Returning Series"`
+  + `next_episode_to_air.air_date`) into `titles.return_date` is deferred.
+- Deploy message: "Retire RETURNING bucket (recomputeTitle -> current); add
+  return-month badge + Yellowjackets SEED".
+
 ## 2026-08-05 — WATCH-face logic ship (frontend) + Worker/Pages redeploy
 - **No Worker code change this session.** WATCH-face fixes are frontend-only
   (`public/wow-scheduler.js`, `public/cube_watch_face.html`): watch-aware
