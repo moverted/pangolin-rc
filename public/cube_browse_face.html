@@ -456,7 +456,7 @@ const API_BASE = (location.protocol === 'http:' && location.hostname === 'localh
 // The JOIN intake above is untouched; this only renders once the device is a member.
 const IRL_TABS = [
   { key:'suggestions', label:'Suggest', badge:'DISCOVER' },
-  { key:'tickets',     label:'Tickets', badge:'THE STUBS' },
+  { key:'tickets',     label:'Tickets', badge:'+ Stubs' },
   { key:'media',       label:'Shelf',   badge:'PHYSICAL' },
 ];
 let irlTab = 'suggestions';
@@ -464,7 +464,7 @@ let irlTab = 'suggestions';
 // screenshotted before real data exists. Never on for a real member (no query flag).
 const SEED = (()=>{ try{ return new URLSearchParams(location.search).has('seed'); }catch(_){ return false; } })();
 
-function renderBrowse(){
+function renderBrowse(opts){
   document.querySelector('.track').style.display = 'none';
   const b = document.getElementById('browse'); b.classList.add('show');
   const active = IRL_TABS.find(t=>t.key===irlTab) || IRL_TABS[0];
@@ -475,7 +475,7 @@ function renderBrowse(){
         (t.key==='tickets'||t.key==='media') ? `<span class="ct" id="irlct-${t.key}"></span>` : ''}</button>`).join('')}</div>
     <div class="bscroll" id="irlPane"></div>`;
   b.querySelectorAll('#irlTabs .tab').forEach(el => el.onclick = () => switchTab(el.dataset.tab));
-  switchTab(irlTab);
+  switchTab(irlTab, opts);
   refreshIrlCounts();
 }
 
@@ -493,14 +493,14 @@ async function refreshIrlCounts(){
   }catch(_){}
 }
 
-function switchTab(key){
+function switchTab(key, opts){
   irlTab = key;
   const active = IRL_TABS.find(t=>t.key===key) || IRL_TABS[0];
   document.querySelectorAll('#irlTabs .tab').forEach(el => el.classList.toggle('on', el.dataset.tab===key));
   const badge = document.getElementById('irlBadge'); if(badge) badge.textContent = active.badge;
   const pane = document.getElementById('irlPane'); if(!pane) return;
   pane.scrollTop = 0;
-  if(key==='tickets')      renderTickets(pane);
+  if(key==='tickets')      renderTickets(pane, opts);
   else if(key==='media')   renderMedia(pane);
   else                     renderSuggestions(pane);
 }
@@ -619,13 +619,26 @@ function tixCardHTML(t){
 }
 let _tixData = {};
 const _todayLabel = 'Today, ' + new Date().toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
-async function renderTickets(pane){
-  pane.innerHTML = `<div class="tixgrid" id="tixGrid"><div class="why" style="margin-top:14px">loading…</div></div>`;
+async function renderTickets(pane, opts){
+  opts = opts || {};
+  const awaitId = opts.awaitId || null, tries = opts.tries || 0;
+  if(!tries) pane.innerHTML = `<div class="tixgrid" id="tixGrid"><div class="why" style="margin-top:14px">loading…</div></div>`;
   const tickets = await loadTickets();
   const grid = document.getElementById('tixGrid'); if(!grid) return;
+  // A just-captured stub can beat its own write to the read replica — the row (and its
+  // healed poster) may not be visible on the immediate read. When we arrived from a fresh
+  // capture (awaitId), re-fetch a few times until that stub lands with its poster, so it
+  // fills in on its own instead of needing a manual out-and-back on the cube.
+  const scheduleHeal = () => {
+    if(!awaitId || tries>=5) return;
+    const t = tickets.find(x=>x.id===awaitId);
+    if(t && t.poster) return;                          // row landed + poster resolved → done
+    setTimeout(()=>{ if(irlTab==='tickets') renderTickets(pane, {awaitId, tries:tries+1}); }, 1000);
+  };
   if(!tickets.length){
     grid.innerHTML = `<div class="bempty" style="margin-top:14px"><b>Your ticket stubs live here.</b><br>
       Log a theater watch with a photo of the ticket (LOG → Finish → IRL Theater, or ask Pierre) and it lands on this shelf.</div>`;
+    scheduleHeal();
     return;
   }
   // Date order: upcoming/today above, past below, split by a Today bar.
@@ -655,6 +668,7 @@ async function renderTickets(pane){
       }).catch(()=>{});
     }
   });
+  scheduleHeal();
 }
 // Turn the AI focal y into a pixel-aligned background-position shared by the stub and the opened
 // card: same image size (cover, width-driven) + same top offset → no shift on open. The offset
@@ -1274,8 +1288,9 @@ window.addEventListener('message', (e) => {
   if (e.data.type === 'cube:payload' && e.data.face === 'join' && e.data.payload && e.data.payload.tab
       && (isMember() || forcedMember()) && !DEMO) {
     irlTab = e.data.payload.tab;
-    if (document.getElementById('browse').classList.contains('show')) switchTab(irlTab);
-    else renderBrowse();
+    const opts = e.data.payload.addedTicketId ? { awaitId: e.data.payload.addedTicketId } : undefined;
+    if (document.getElementById('browse').classList.contains('show')) switchTab(irlTab, opts);
+    else renderBrowse(opts);
     return;
   }
   if (e.data.type === 'cube:focus'

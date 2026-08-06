@@ -3164,7 +3164,9 @@ async function uploadTicket(file){
     }
     loadTickets();         // pull it back so it shows on the watched row
     // Swing to the IRL Tickets tab — the captured stub lands on the shelf there.
-    if(window.parent!==window) window.parent.postMessage({type:'cube:rotateTo', face:'join', payload:{tab:'tickets'}}, '*');
+    // Pass the new ticket id so Tickets can self-heal it in (poster/date can lag the
+    // write on the immediate read) instead of needing a manual out-and-back.
+    if(window.parent!==window) window.parent.postMessage({type:'cube:rotateTo', face:'join', payload:{tab:'tickets', addedTicketId:d.id}}, '*');
   }catch(err){ alert('Ticket upload error: '+err.message); }
 }
 $('tkCam').onclick=()=>$('tkCamInput').click();
