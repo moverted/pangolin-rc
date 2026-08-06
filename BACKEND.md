@@ -4,6 +4,23 @@ Append-only log. Any session that touches the Worker, D1, or deploy
 configuration adds an entry here before the session ends (see CLAUDE.md,
 "Backend and deploy rules").
 
+## 2026-08-05 — WATCH-face logic ship (frontend) + Worker/Pages redeploy
+- **No Worker code change this session.** WATCH-face fixes are frontend-only
+  (`public/wow-scheduler.js`, `public/cube_watch_face.html`): watch-aware
+  next-drop badge + ranking (`nextUp`/`sortKey`/`inSeason` gain an optional
+  `after` = last-watched ep), `tag()` 7-13d window reads "Next <Weekday>",
+  fresh-watch leaf from the LIVE/FRESH air-window, and theater-ticket movies
+  hidden from the WATCH grid + counts.
+- Redeployed the Worker to sync the tree with the earlier same-day tickets
+  backend work (already-live code; idempotent). Deploy message:
+  "WATCH: watch-aware next-drop badge + ranking, fresh-watch leaf, hide
+  theater-ticket movie tiles".
+- DEPLOYED 2026-08-05: `wrangler deploy` Version ID
+  f2740671-ad10-49e3-9c17-603a9867c1a8; Pages deploy 0bb0dc24 (live on
+  remote.pangolinrc.com, verified wow-scheduler.js line 123 + isTheaterMovie).
+  iOS bundle re-synced (`cap copy ios`, verified matches public); archive +
+  TestFlight distribute pending in Xcode.
+
 ## 2026-07-31 — Title-correction gate on movie search (v2) + client polish
 - Worker: `GET /tmdb/search` (src/handlers/tmdb.ts) now rescues missed queries
   in two stages when the raw TMDB top hit isn't a `confident()` match:
