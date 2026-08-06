@@ -120,23 +120,31 @@
     if (days === 0) return 'Today';
     if (days === 1) return 'Tomorrow';
     if (days <= 6) return new Date(airstamp).toLocaleDateString('en-US', { weekday: 'long' });
-    if (days <= 13) return 'Next Week';
+    if (days <= 13) return 'Next ' + new Date(airstamp).toLocaleDateString('en-US', { weekday: 'long' });
     if (days <= 41) return WEEKS[Math.floor(days / 7)] || ('in ' + Math.floor(days / 7) + ' weeks');
     return new Date(airstamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   }
 
+  // Keep only episodes strictly AFTER a given {season, number} (the last watched one),
+  // so "next up" skips episodes you've already seen. Passthrough when `after` is null.
+  function afterFilter(eps, after) {
+    if (!after || after.season == null || after.number == null) return eps;
+    return eps.filter(e => e.season > after.season || (e.season === after.season && e.number > after.number));
+  }
   // The next episode "coming up": soonest airstamp that is today or later. Drives the
   // TAG and the timely sort. Returns null when nothing is upcoming (dormant/wrapped).
-  function nextUp(eps, now) {
+  // Optional `after` = the last watched {season, number}; passing it makes the result
+  // watch-aware (a caught-up show points at its NEXT unwatched drop, not today's).
+  function nextUp(eps, now, after) {
     now = now || Date.now();
     const floor = startOfDay(now);
-    const up = eps.filter(e => e.airstamp && new Date(e.airstamp).getTime() >= floor)
+    const up = afterFilter(eps, after).filter(e => e.airstamp && new Date(e.airstamp).getTime() >= floor)
       .sort((a, b) => new Date(a.airstamp) - new Date(b.airstamp));
     return up[0] || null;
   }
   // Sort key for the WATCH face: soonest upcoming airstamp first; no-upcoming sorts last.
-  function sortKey(eps, now) { const n = nextUp(eps, now); return n ? new Date(n.airstamp).getTime() : Infinity; }
-  function inSeason(eps, now) { const n = nextUp(eps, now); return !!n && (new Date(n.airstamp).getTime() - (now || Date.now())) <= CFG.INSEASON_D * DAY; }
+  function sortKey(eps, now, after) { const n = nextUp(eps, now, after); return n ? new Date(n.airstamp).getTime() : Infinity; }
+  function inSeason(eps, now, after) { const n = nextUp(eps, now, after); return !!n && (new Date(n.airstamp).getTime() - (now || Date.now())) <= CFG.INSEASON_D * DAY; }
 
   function fmtDay(iso) { return new Date(iso).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }); }
 

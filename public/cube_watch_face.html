@@ -545,6 +545,11 @@ async function hydrate(seed){
 // so read from the scheduler's prefetched TVMaze cache (airstamps). [] until wowPrefetch fills it.
 function wowShowId(s){ return s && (s.titleId||s.tvmazeId||s.id); }
 function wowEps(s){ return (window.WoW && s) ? WoW.epsCached(wowShowId(s)) : []; }
+// Watch-aware next-drop helpers: pass the show's last watched episode so a caught-up
+// show references its NEXT unwatched episode (not one that aired today) for both the
+// day-badge TAG and the timely sort.
+function wowNext(s){ return (window.WoW && s) ? WoW.nextUp(wowEps(s), Date.now(), s.lastWatched) : null; }
+function wowSortKey(s){ return (window.WoW && s) ? WoW.sortKey(wowEps(s), Date.now(), s.lastWatched) : Infinity; }
 // Account shows carry no episode list. Fetch airstamps for the tvmaze series once per
 // account load, then re-render so TAGs, in-season bucketing, and timely sort light up.
 let _wowPrefetched=false;
@@ -634,6 +639,10 @@ function wowModePrefetch(){
   const shows=LOG.filter(s=>s && /^tvmaze:\d+$/.test(String(wowShowId(s)||'')) && (s.watched||0)>=2);
   if(shows.length) Promise.all(shows.map(wowClassifyShow)).then(()=>{ try{ render(); }catch(_){} });
 }
+// A film watched in a theater (a ticket is on file). These belong to the IRL/tickets
+// space, not the WATCH show list -- hidden from the grid + tab counts. Streamed and
+// physical-media movies have no ticketAt and stay.
+function isTheaterMovie(s){ return !!(s && s.kind==='movie' && s.ticketAt); }
 function bucketOf(s){
   if(ticketWatched(s)) return "completed";   // theater ticket: auto-flips to watched once the film has started
   if(s.stopped) return "completed";
@@ -647,7 +656,7 @@ function bucketOf(s){
   // waiting on next week's drop) → still CURRENT, not "returning". Without this a
   // running show you're caught up on falls into the under-construction returning tab
   // and vanishes from the list. Uses the scheduler's live airstamps.
-  if(window.WoW && WoW.inSeason(wowEps(s))) return "current";
+  if(window.WoW && WoW.inSeason(wowEps(s), Date.now(), s.lastWatched)) return "current";
   if(s.returnDate) return daysTo(s.returnDate)<=7 ? "current" : "returning";
   return ended ? "completed" : "returning";
 }
@@ -692,15 +701,20 @@ function renderPierre(){
   el.innerHTML='<span class="q">Last:</span> <b>'+esc(s.name)+"</b>"+where+mid+' <span class="q">&middot; '+relDate(e.at)+"</span>";
 }
 
-// Playhead marker: popcorn by default; flame when the show's watch-mode is BINGE,
-// leaf when FRESH (movies have no watch-mode, so they always get the popcorn).
+// Playhead marker: popcorn by default; flame when bingeing (3rd episode of a burst),
+// leaf when the show is FRESH -- watching an episode within ~48h of its air. The leaf
+// reads the phase engine directly (LIVE/FRESH air-window) so a first fresh watch lights
+// it immediately, before the derived classifier has 2 samples. Movies always get popcorn.
 function playheadMarkerHTML(s, leftPct){
-  // flame/leaf are series-only; movies always get the default popcorn box.
-  const m=(s.kind!=='movie' && typeof wowStampFor==='function')?wowStampFor(s):null;
+  const popcorn='<div class="pop" style="left:'+leftPct+'%">&#127871;</div>';
+  if(s.kind==='movie') return popcorn;   // movies have no weekly cadence
+  const m=(typeof wowStampFor==='function')?wowStampFor(s):null;
   const mode=(m && !m.off)?m.mode:null;
   if(mode==='MORE!'||mode==='BINGE') return '<div class="pop mk flame" style="left:'+leftPct+'%"><svg viewBox="0 0 24 24"><use href="#mkFlame"/></svg></div>';
-  if(mode==='FRESH') return '<div class="pop mk leaf" style="left:'+leftPct+'%"><svg viewBox="0 0 24 24"><use href="#mkLeaf"/></svg></div>';
-  return '<div class="pop" style="left:'+leftPct+'%">&#127871;</div>';
+  const ph=window.WoW ? WoW.phase(wowEps(s)) : null;
+  const fresh = mode==='FRESH' || (ph && (ph.name==='LIVE' || ph.name==='FRESH'));
+  if(fresh) return '<div class="pop mk leaf" style="left:'+leftPct+'%"><svg viewBox="0 0 24 24"><use href="#mkLeaf"/></svg></div>';
+  return popcorn;
 }
 function episodeBar(s){
   if(s.failed)return '<div class="bar"></div>';
@@ -750,7 +764,7 @@ function posterDiv(s){return s.poster?'<div class="poster" style="background-ima
 // Derived client-side from the episode airstamps already loaded per show. Series only.
 function wowTag(s){
   if(!window.WoW || !s || s.kind==='movie') return '';
-  const n = WoW.nextUp(wowEps(s));
+  const n = wowNext(s);
   return n ? WoW.tag(n.airstamp) : '';
 }
 // Films have no weekly cadence, but they still get a day badge: the weekday the film
@@ -935,7 +949,7 @@ function crowFor(s){
 
 function counts(){
   const c={current:0,returning:0,comfort:0,completed:0};
-  LOG.forEach(s=>{c[bucketOf(s)]++;});
+  LOG.forEach(s=>{ if(isTheaterMovie(s)) return; c[bucketOf(s)]++;});
   for(const k in c)document.getElementById("n-"+k).textContent=c[k];
 }
 
@@ -1019,20 +1033,20 @@ function render(){
   if(activeTab==="comfort"){ renderComfort(grid); return; }   // curated marathons (pre-beta)
   grid.classList.remove("list");
   if(activeTab==="completed"){
-    const list=LOG.filter(s=>bucketOf(s)==="completed");
+    const list=LOG.filter(s=>bucketOf(s)==="completed"&&!isTheaterMovie(s));
     let html = list.length ? gridWithSelection(list,"completed") : '';
     if(PASSES===null) loadPasses().then(()=>{ if(activeTab==='completed') render(); });   // one-shot
     else if(PASSES.length) html += '<div class="passhead">Rewatch passes</div>' + PASSES.map(passTile).join('');
     grid.innerHTML = html || '<div class="state">nothing finished yet</div>';
   }else{
-    const list=LOG.filter(s=>bucketOf(s)===activeTab);
+    const list=LOG.filter(s=>bucketOf(s)===activeTab&&!isTheaterMovie(s));
     list.sort((a,b)=>{
       const an=a.isNew?0:1, bn=b.isNew?0:1;
       if(an!==bn) return an-bn;                                 // NEW shows first
       if(an===0) return (a.addedSeq||0)-(b.addedSeq||0);        // NEW: order requested
       // Timely: in-season shows sort by soonest upcoming drop; those with nothing
       // upcoming (sortKey Infinity) fall through to recently-active order.
-      const ak=(window.WoW?WoW.sortKey(wowEps(a)):Infinity), bk=(window.WoW?WoW.sortKey(wowEps(b)):Infinity);
+      const ak=wowSortKey(a), bk=wowSortKey(b);
       if(ak!==bk) return ak-bk;
       return new Date(b.lastDate)-new Date(a.lastDate);         // rest: recently active
     });
