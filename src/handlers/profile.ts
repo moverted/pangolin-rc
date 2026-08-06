@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { Env } from '../types';
 import { pushRow, pushRows, deleteRow } from './airtable';
 import { ensureTitleSummary, ensureReleaseDate } from './catalog';
+import { fetchTmdbMovie } from './tmdb';
 
 // Account + device API. SEAM:identity — email is the key, no auth in this build.
 export const profileRoutes = new Hono<{ Bindings: Env }>();
@@ -444,6 +445,25 @@ profileRoutes.get('/:email/tickets', async (c) => {
     poster: r.poster || null, ticketUrl: `${origin}/ticket/${r.id}/image`, createdAt: r.created_at,
     reflection: r.refl_id ? { id: r.refl_id, text: r.refl_text || '', audioUrl: `${origin}/transcribe/audio/${r.refl_id}` } : null,
   }));
+  // Self-heal: a linked TMDB title whose catalog row was created without a poster (a transient
+  // TMDB miss, or a lighter creation path — materializeTitle never refetches an existing row) →
+  // fetch the poster now and backfill titles.poster so it sticks for every future read.
+  const heal = tickets.filter((t) => !t.poster && typeof t.showId === 'string' && /^tmdb:\d+$/.test(t.showId));
+  if (heal.length) {
+    const seen = new Map<string, string | null>();
+    await Promise.all(heal.map(async (t) => {
+      const tmdbId = String(t.showId).slice(5);
+      if (!seen.has(tmdbId)) {
+        let poster: string | null = null;
+        try { const m = await fetchTmdbMovie(c.env, tmdbId); poster = (m && m.poster) || null; } catch { /* fail-soft */ }
+        seen.set(tmdbId, poster);
+        if (poster) {
+          try { await c.env.DB.prepare(`UPDATE titles SET poster = ? WHERE title_id = ? AND (poster IS NULL OR poster = '')`).bind(poster, t.showId).run(); } catch { /* best effort */ }
+        }
+      }
+      const p = seen.get(tmdbId); if (p) t.poster = p;
+    }));
+  }
   return c.json({ tickets });
 });
 

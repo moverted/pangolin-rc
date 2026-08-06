@@ -1829,19 +1829,65 @@
     presentPicker(cands.length===1 ? "Is it this one?" : "More than one of those. Which?",
       cands.map(m=>({label:m.title+(m.year?' ('+m.year+')':''), poster:m.poster||null, onClick:()=>handoffMovie(m)})));
   }
+  // --- Old-ticket year inference -------------------------------------------------
+  // OCR gives a weekday + month + day but never a year. The right year is the one where
+  // that weekday/day actually lands, on or after the film's release — closest first.
+  const _TWD={SUN:0,MON:1,TUE:2,WED:3,THU:4,FRI:5,SAT:6};
+  const _TMO={JAN:1,FEB:2,MAR:3,APR:4,MAY:5,JUN:6,JUL:7,AUG:8,SEP:9,SEPT:9,OCT:10,NOV:11,DEC:12,
+    JANUARY:1,FEBRUARY:2,MARCH:3,APRIL:4,JUNE:6,JULY:7,AUGUST:8,SEPTEMBER:9,OCTOBER:10,NOVEMBER:11,DECEMBER:12};
+  function parseTicketDate(s){
+    s=String(s||''); const out={wd:null,mm:null,dd:null};
+    const w=/\b(SUN|MON|TUE|WED|THU|FRI|SAT)[A-Za-z]*/i.exec(s); if(w){ out.wd=_TWD[w[1].toUpperCase()]; }
+    let m=/(\d{4})-(\d{2})-(\d{2})/.exec(s); if(m){ out.mm=+m[2]; out.dd=+m[3]; return out; }
+    m=/([A-Za-z]{3,9})\.?\s+(\d{1,2})/.exec(s); if(m){ const mm=_TMO[m[1].toUpperCase()]; if(mm){ out.mm=mm; out.dd=+m[2]; return out; } }
+    m=/\b(\d{1,2})\s+([A-Za-z]{3,9})/.exec(s); if(m){ const mm=_TMO[m[2].toUpperCase()]; if(mm){ out.mm=mm; out.dd=+m[1]; return out; } }
+    return out;
+  }
+  function inferTicketYears(wd, mm, dd, releaseISO){
+    const rel = releaseISO ? new Date(releaseISO+'T12:00:00') : null;
+    const startY = rel ? rel.getFullYear() : (new Date().getFullYear()-30);
+    const nowY = new Date().getFullYear();
+    const years=[];
+    for(let y=startY; y<=nowY; y++){
+      const dt=new Date(y, mm-1, dd, 12);
+      if(rel && dt < rel) continue;                 // only ON/AFTER the release date
+      if(wd!=null && dt.getDay()!==wd) continue;     // weekday must match what the ticket printed
+      years.push(y);
+    }
+    return years;                                    // ascending → [0] is closest after release
+  }
   function handoffMovie(m){
     flowChrome(true);                 // picked one → restore the composer
     addFlow=null;
     // Ticket mode: the stub is already saved; bind it to the film (so it carries the
-    // poster/show link), then swing to the IRL Tickets tab — not the Log face.
+    // poster/show link). For old tickets, confirm the YEAR (chips) before swinging to IRL.
     if(_ticketMode && _pendingTicket){
       const tk=_pendingTicket; _pendingTicket=null; _ticketMode=false;
-      pierreSay("Logged your “"+m.title+"” ticket — it's on your stubs.");
       const titleId = 'tmdb:'+String(m.id).replace(/^tmdb:/,'');
-      try{ fetch(`${API}/ticket/${encodeURIComponent(tk.id)}/attach`, {method:'PATCH',
-        headers:{'Content-Type':'application/json'}, body:JSON.stringify({ showId:titleId, showName:m.title })}).catch(()=>{}); }catch(_){}
-      if(window.parent!==window)
-        window.parent.postMessage({type:'cube:rotateTo', face:'join', payload:{tab:'tickets'}}, '*');
+      const relISO = m.release_date || (m.year ? String(m.year)+'-01-01' : null);
+      const relY = parseInt(String(m.year||(relISO||'').slice(0,4)),10) || null;
+      const pd = parseTicketDate(tk.date);
+      const finalize = (year)=>{
+        const body = { showId:titleId, showName:m.title };
+        if(pd.mm && pd.dd && year) body.ticketDate = year+'-'+String(pd.mm).padStart(2,'0')+'-'+String(pd.dd).padStart(2,'0');
+        try{ fetch(`${API}/ticket/${encodeURIComponent(tk.id)}/attach`, {method:'PATCH',
+          headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)}).catch(()=>{}); }catch(_){}
+        if(window.parent!==window)
+          window.parent.postMessage({type:'cube:rotateTo', face:'join', payload:{tab:'tickets'}}, '*');
+      };
+      if(pd.mm && pd.dd){
+        let years = inferTicketYears(pd.wd, pd.mm, pd.dd, relISO);
+        if(!years.length) years = inferTicketYears(null, pd.mm, pd.dd, relISO);   // weekday matched nothing → drop it
+        const nowY = new Date().getFullYear();
+        if(!years.length) years = [relY, nowY].filter((v,i,a)=>v && a.indexOf(v)===i);
+        years = years.slice(0,4);
+        const wdName = ((tk.date.match(/\b(SUN|MON|TUE|WED|THU|FRI|SAT)[A-Za-z]*/i)||[])[0]||'').trim();
+        pierreSay("Logged your “"+m.title+"” ticket."+(wdName?" That "+wdName+" points to "+years[0]+".":"")+" Which year did you catch it?");
+        presentPicker("Which year?", years.map((y,i)=>({ label:String(y)+(i===0?' · likely':(y===relY?' · release':'')), onClick:()=>finalize(y) })));
+        return;
+      }
+      pierreSay("Logged your “"+m.title+"” ticket — it's on your stubs.");
+      finalize(relY);
       return;
     }
     pierreSay("Putting on "+m.title+". Over to the screen.");

@@ -938,3 +938,58 @@ Entry format:
 - Deploy message used: "rewatch passes: /rewatch + /passes endpoints (watch_pass)".
 - DEPLOYED 2026-08-03: remote migration applied; `wrangler deploy` Version ID
   54fbec11-8f6a-4f78-b3ce-219872471202; Pages deploy 54833579. Live.
+
+## 2026-08-05 — IRL tickets: typed reflections + focal v2
+
+- **`/transcribe` (POST)** now accepts a **typed, audio-less reflection**: when
+  `text` is present and there's no `audio`, it inserts a `watch_comment` row
+  (transcription = the text, audio_url NULL, is_reflection/private per flags)
+  and returns `{id, transcription, audioUrl:null}`. Powers "type your reflection"
+  in the IRL ticket composer. Additive; the audio path is unchanged.
+- **`/img/focal` v2 prompt.** Rewrote the vision prompt to hunt for the main
+  face/subject and explicitly account for posters placing people in the LOWER
+  half (ignore title text/logos). Bumped the KV cache key `focal:` → `focal2:`
+  so old weak points re-derive; fallback moved to `{x:0.5,y:0.45}`. Verified:
+  Ford v Ferrari went `y:0.35` (sky) → `y:0.75` (car/drivers).
+- No schema/migration changes. Deploy message: "transcribe: accept typed
+  text-only reflections (no audio); img/focal v2 prompt targets subjects in
+  lower half of posters + cache re-derive (focal2 key)".
+- DEPLOYED 2026-08-05: `wrangler deploy` Version ID
+  288ab5b6-efbd-447f-9a24-f5de9913e61f; Pages deploy 0428ddad. Live on
+  remote.pangolinrc.com. iOS bundle re-synced (`cap copy ios`).
+
+## 2026-08-05 — Tickets: self-heal NULL catalog posters
+
+- **Bug:** an uploaded theater ticket linked to a real TMDB title (e.g. The
+  Favourite → tmdb:375262) rendered the raw Wallet screenshot instead of the
+  poster. Cause: the `titles` catalog row existed with `poster = NULL`
+  (transient TMDB miss / lighter creation path), and `materializeTitle`
+  (catalog.ts) returns early for an existing row so it never refetches — the
+  NULL stuck. The IRL tickets card then fell back to `poster || ticketUrl`.
+- **Fix (profile.ts `GET /:email/tickets`):** after building the ticket list,
+  any row with a null poster and a `tmdb:<id>` show_id → `fetchTmdbMovie` the
+  poster, `UPDATE titles SET poster` (backfill so it sticks), and return it.
+  Deduped per title, fail-soft, best-effort write. Self-heals on the next read.
+- No schema change. Deploy message: "tickets: self-heal a linked TMDB title
+  with a NULL catalog poster — fetch + backfill titles.poster on read …".
+- DEPLOYED 2026-08-05: `wrangler deploy` Version ID
+  f4e67d20-b669-430c-ac89-1c65b995d842. Verified: The Favourite now returns
+  .../cwBq0onfmeilU5xgqNNjJAMPfpw.jpg and renders in the IRL Tickets card.
+
+## 2026-08-05 — Old-ticket year confirmation
+
+- **Client (Pierre):** after a ticket's film resolves, if the OCR date has a
+  month+day, Pierre infers the year by finding years where that weekday+day
+  land ON/AFTER the film's release date (closest first), and offers them as
+  chips ("2018 · likely"). The weekday match usually pins a single year (e.g.
+  The Favourite: "Tue, Dec 11" + release 2018-11-23 → only 2018). Picking a
+  chip PATCHes the ticket with a full ISO date.
+- **Worker (`PATCH /ticket/:id/attach`):** now accepts an optional
+  `ticketDate` (validated `YYYY-MM-DD`) and `COALESCE`s it into
+  `watch_ticket.ticket_date` — only overwrites when provided/valid.
+- **Client (browse face):** `ticketDateBits` now captures a year (ISO,
+  "DEC 11, 2018", "12/11/2018"); `ticketDateValue` uses an explicit year
+  directly (no createdAt inference); the meta shows ", YYYY" when the year
+  isn't the current one. Year-less OCR dates behave exactly as before.
+- No schema change. Deploy: worker Version ID
+  26dadccd-4569-402f-84b6-c82ae5d6b39f; Pages 849b10f4.

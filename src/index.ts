@@ -75,11 +75,26 @@ app.post('/transcribe', async (c) => {
     // until the member taps Share (which flips it public via /publish). Reflections only.
     const isPrivate = ((formData.get('private') as string) || '') === '1';
 
+    const email = userEmail.trim();
+    // Typed reflection (no audio): store the typed text as the comment's transcription so
+    // it behaves like a recorded reflection everywhere (editable, trashable, on the ticket).
+    const typedText = ((formData.get('text') as string) || '').trim().slice(0, 2000);
+    if (!audio && typedText && episodeId) {
+      if (!email || email === 'anonymous') return c.json({ error: 'sign in required' }, 401);
+      const known = await c.env.DB.prepare('SELECT 1 FROM users WHERE email = ?').bind(email).first();
+      if (!known) return c.json({ error: 'unknown user' }, 401);
+      const id = crypto.randomUUID(); const now = Date.now();
+      await c.env.DB.prepare(
+        `INSERT INTO watch_comment (id, user_email, episode_id, show_id, timestamp_ms, transcription, audio_r2_key, reply_to, is_reflection, is_endnote, spoiler, reveal_on, private, created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      ).bind(id, email, episodeId, showId || null, 0, typedText, null, null, isReflection ? 1 : 0, 0, 0, null, isPrivate ? 1 : 0, now).run();
+      return c.json({ id, transcription: typedText, audioUrl: null });
+    }
+
     if (!audio || !episodeId) {
       return c.json({ error: 'missing audio or episodeId' }, 400);
     }
 
-    const email = userEmail.trim();
     const contentType = audio.type || 'audio/webm';
     console.log('Audio upload for', episodeId, 'email:', email, 'size:', audio.size);
 
@@ -475,8 +490,8 @@ app.get('/img/focal', async (c) => {
   try { url = new URL(u); } catch { return c.json({ error: 'bad url' }, 400); }
   if (url.hostname !== 'image.tmdb.org') return c.json({ error: 'host not allowed' }, 403);
   const CORS = { 'access-control-allow-origin': '*' };
-  const fallback = { x: 0.5, y: 0.32 };                 // faces usually sit upper-middle
-  const key = 'focal:' + url.pathname;
+  const fallback = { x: 0.5, y: 0.45 };
+  const key = 'focal2:' + url.pathname;                 // v2 prompt — invalidates old cached points
   const cached = await c.env.ACCESS_KV.get(key).catch(() => null);
   if (cached) { try { return c.json(JSON.parse(cached), 200, CORS); } catch { /* re-derive */ } }
   if (!c.env.ANTHROPIC_API_KEY) return c.json(fallback, 200, CORS);
@@ -496,9 +511,12 @@ app.get('/img/focal', async (c) => {
         messages: [{ role: 'user', content: [
           { type: 'image', source: { type: 'base64', media_type: mt, data: b64 } },
           { type: 'text', text:
-            'This is a movie poster. Return ONLY compact JSON {"x":0.NN,"y":0.NN} for the point a wide ' +
-            'horizontal banner crop should center on — the center of the main character\'s face/eyes, or the ' +
-            'single most iconic element. x and y are fractions 0..1 from the top-left. No prose.' },
+            'This is a movie poster. Find the main human face(s), or the single most iconic subject if no ' +
+            'face. IMPORTANT: posters often place the people in the LOWER half of the frame, below the title ' +
+            'text and empty sky/background — report where the face/subject ACTUALLY is, even if it sits low ' +
+            'in the frame. Ignore title text and logos. Return ONLY compact JSON {"x":0.NN,"y":0.NN} for the ' +
+            'center of that face/subject, as fractions 0..1 from the top-left (y near 0 = top, y near 1 = ' +
+            'bottom). No prose.' },
         ] }],
       }),
     });
@@ -805,10 +823,14 @@ app.patch('/ticket/:id/attach', async (c) => {
   const showId = ((body.showId as string) || '').trim();
   const showName = ((body.showName as string) || '').trim() || null;
   const episodeId = ((body.episodeId as string) || '').trim() || null;
+  // Optional full ISO date (YYYY-MM-DD) — the year-confirmed date for an old ticket, so it
+  // sorts and reads correctly instead of the year-less OCR string. Ignored if malformed.
+  const rawDate = ((body.ticketDate as string) || '').trim();
+  const ticketDate = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : null;
   if (!showId) return c.json({ error: 'showId required' }, 400);
   const res = await c.env.DB
-    .prepare('UPDATE watch_ticket SET show_id = ?, show_name = COALESCE(?, show_name), episode_id = COALESCE(?, episode_id) WHERE id = ?')
-    .bind(showId, showName, episodeId, id).run();
+    .prepare('UPDATE watch_ticket SET show_id = ?, show_name = COALESCE(?, show_name), episode_id = COALESCE(?, episode_id), ticket_date = COALESCE(?, ticket_date) WHERE id = ?')
+    .bind(showId, showName, episodeId, ticketDate, id).run();
   if (!res.meta.changes) return c.json({ error: 'not found' }, 404);
   return c.json({ ok: true, id, showId });
 });

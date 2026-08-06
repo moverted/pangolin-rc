@@ -2652,7 +2652,13 @@ window.__logTune = {
     const base = (minPreview!=null ? minPreview : (epMin[focus]||0));
     minPreview = Math.max(0, Math.min(rt, Math.round(base) + (dir>0?1:-1)));
     awaitingLog = true;   // keep it staged for LOG
-    paint();
+    if(watchingLive[focus]){ watchingLive[focus]=false; startedAt[focus]=null; }  // wheel-scrub also freezes a live watch
+    // Light repaint: move the handle + relabel the LOG button ONLY (no full paint → no jank),
+    // matching the drag path so a fast wheel spin stays smooth instead of thrashing the DOM.
+    paintMinute();
+    const b=$('startEpBtn');
+    if(b){ if(b.dataset.action!=='log'){ paint(); }             // first step from a non-log state → sync button state once
+           else b.textContent='LOG '+fmtMin(minPreview); }
   }
 };
 

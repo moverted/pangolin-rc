@@ -332,14 +332,16 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey, cubeNavSte
       stepAccum += d;
       while(stepAccum >=  STEP_NOTCH){ moveSelect(+1); stepAccum -= STEP_NOTCH; }   // clockwise → next/down
       while(stepAccum <= -STEP_NOTCH){ moveSelect(-1); stepAccum += STEP_NOTCH; }   // ccw → prev/up
+    } else if(logTuneActive()){                           // LOG playhead armed (▶-◀) → ring tunes the mark.
+      // Checked BEFORE cube-nav so an armed playhead scrubs whether or not the face is locked —
+      // if you armed it, you want the ring to move the minute, not roll the cube.
+      stepAccum += d;
+      while(stepAccum >=  STEP_NOTCH){ logTuneStep(+1); tick(6); stepAccum -= STEP_NOTCH; }   // clockwise → forward
+      while(stepAccum <= -STEP_NOTCH){ logTuneStep(-1); tick(6); stepAccum += STEP_NOTCH; }   // ccw → back
     } else if(!getFocus().locked){                        // cube view → ring rolls the 4 core faces
       stepAccum += d;
       while(stepAccum >=  STEP_NOTCH){ cubeNavStep(+1); tick(8); stepAccum -= STEP_NOTCH; }   // clockwise → WATCH→LOG→FEED→BROWSE
       while(stepAccum <= -STEP_NOTCH){ cubeNavStep(-1); tick(8); stepAccum += STEP_NOTCH; }   // ccw → reverse
-    } else if(logTuneActive()){                           // LOG playhead paused (▶-◀) → ring tunes the mark
-      stepAccum += d;
-      while(stepAccum >=  STEP_NOTCH){ logTuneStep(+1); tick(6); stepAccum -= STEP_NOTCH; }   // clockwise → forward
-      while(stepAccum <= -STEP_NOTCH){ logTuneStep(-1); tick(6); stepAccum += STEP_NOTCH; }   // ccw → back
     } else {
       wheelScroll((d / (2*Math.PI)) * SCROLL_PER_REV);   // clockwise → scroll down
     }
