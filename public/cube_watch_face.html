@@ -599,12 +599,27 @@ function wowLabel(mode){ return mode==='MORE!' ? 'BINGE' : mode; }
 // else the derived classification, else the member's profile default (their general
 // aspiration). Specific types are never picked per show here -- that is the Profile
 // default's job; the show face only accepts (on) or declines (off) this pattern.
-function wowEffMode(showId){
+// Caught up on every aired episode AND inside the latest drop's fresh air-window
+// (LIVE/FRESH, <=48h). This is the "fresh right now" signal that lights the leaf.
+function wowFreshNow(s){
+  if(!window.WoW || !s) return false;
+  if((s.watched||0) < (s.released||0)) return false;   // still behind on aired episodes
+  const ph=WoW.phase(wowEps(s));
+  return !!ph && (ph.name==='LIVE' || ph.name==='FRESH');
+}
+function wowEffMode(showId, s){
   const st=WoW.store.stateNow()||{};
   const manual=st.modes&&st.modes[showId];
   if(manual && manual!=='DECLINED') return {mode:manual, src:'set'};
   const d=_wowModes[showId];
-  if(d && d.mode!=='UNSAMPLED' && d.mode!=='DECLINED' && d.mode!=='DORMANT') return {mode:d.mode, src:'derived'};
+  const derived=(d && d.mode!=='UNSAMPLED' && d.mode!=='DECLINED' && d.mode!=='DORMANT') ? d.mode : null;
+  // Binge wins (matches the fire playhead marker).
+  if(derived==='MORE!') return {mode:'MORE!', src:'derived'};
+  // Fresh override: catching the newest episode inside its fresh window reads as FRESH
+  // now, even if the long-run median (diluted by old binges) classified this CASUAL.
+  // Keeps the text badge in step with the leaf.
+  if(wowFreshNow(s)) return {mode:'FRESH', src:'derived'};
+  if(derived) return {mode:derived, src:'derived'};
   // No profile-default fallback: a show only earns a badge from its OWN recent activity
   // (else every show got stamped with the default). Dormant (>1 week unwatched) → none.
   return null;
@@ -617,7 +632,7 @@ function wowStampFor(s){
   const showId=wowShowId(s), st=WoW.store.stateNow()||{};
   if(st.user&&st.user.globalKill) return null;
   const declined=(st.modes&&st.modes[showId])==='DECLINED';   // toggled off for this show
-  const eff=wowEffMode(showId);
+  const eff=wowEffMode(showId, s);
   if(eff) return {mode:eff.mode, src:eff.src, off:declined};
   // Declined with no derivable/default pattern still shows a generic OFF stamp so the
   // toggle is always recoverable (tap it to switch back on).
