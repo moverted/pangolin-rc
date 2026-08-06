@@ -23,7 +23,7 @@
 <title>Log</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
   :root{
     --base:#181210; --base-2:#211915; --line:#352a23;
@@ -368,14 +368,17 @@
   .marback:active{transform:scale(.96)}
   .marov iframe{flex:1 1 auto;width:100%;min-height:0;border:0;background:var(--base)}
 
-  .tabbar{flex-shrink:0;display:flex;border-top:1px solid var(--line);background:var(--base-2)}
-  .tab{flex:1;background:transparent;border:none;border-right:1px solid var(--line);color:var(--muted);font-family:var(--mono);
-    font-size:8.5px;letter-spacing:.04em;padding:9px 3px;cursor:pointer;transition:background .15s ease,color .15s ease;display:flex;align-items:center;justify-content:center;gap:4px}
-  .tab:last-child{border-right:none}
-  .tab .ct{opacity:.6;font-size:8px}
-  .tab.on{background:rgba(233,162,60,.16);color:var(--amber)} .tab.on .ct{opacity:.9}
+  /* Tab bar: pill buttons matching the Browse (IRL) face, at the TOP of the grid. */
+  .tabbar{flex-shrink:0;display:flex;gap:6px;padding:9px 15px 8px}
+  .tab{flex:1;font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;font-weight:700;
+    color:var(--muted);background:var(--base-2);border:1px solid var(--line);border-radius:9px;padding:8px 4px;cursor:pointer;
+    transition:color .15s ease,border-color .15s ease,background .15s ease;white-space:nowrap;
+    display:flex;align-items:center;justify-content:center;gap:5px}
+  .tab:hover{color:var(--text)}
+  .tab .ct{font-weight:700;opacity:.55;font-size:8.5px}
+  .tab.on{color:#1a130b;background:var(--amber);border-color:var(--amber)} .tab.on .ct{opacity:.75}
   .tab.pulse{animation:tabpulse .7s ease}
-  @keyframes tabpulse{0%,100%{background:rgba(233,162,60,.16)}45%{background:rgba(233,162,60,.42)}}
+  @keyframes tabpulse{0%,100%{background:var(--amber)}45%{background:#f6cd82}}
 
   .fx{position:absolute;inset:0;pointer-events:none;z-index:40;overflow:hidden}
   .particle{position:absolute;transform:translate(-50%,-50%);animation:fly var(--dur) ease-out forwards;will-change:transform,opacity}
@@ -435,14 +438,13 @@
     </div>
   </div>
 
-  <div class="scroll"><div class="grid" id="grid"><div class="state">loading your log...</div></div></div>
-
   <div class="tabbar">
     <button class="tab on" data-tab="current">CURRENT<span class="ct" id="n-current"></span></button>
-    <button class="tab" data-tab="returning">RETURNING<span class="ct" id="n-returning"></span></button>
     <button class="tab" data-tab="comfort">&#127871; COMFORT<span class="ct" id="n-comfort"></span></button>
     <button class="tab" data-tab="completed">COMPLETED<span class="ct" id="n-completed"></span></button>
   </div>
+
+  <div class="scroll"><div class="grid" id="grid"><div class="state">loading your log...</div></div></div>
 
   <div class="fx" id="fx"></div>
   <div class="flash" id="flash"><div class="flabel">&#8594; EPISODES</div><div class="fsub"></div><div class="fnote"></div></div>
@@ -668,12 +670,12 @@ function bucketOf(s){
   if(ended && s.watched>=s.total && s.total>0) return "completed";
   if(s.watched < s.released) return "current";
   // Caught up but a new episode drops soon (in-season, e.g. a weekly mid-season show
-  // waiting on next week's drop) → still CURRENT, not "returning". Without this a
-  // running show you're caught up on falls into the under-construction returning tab
-  // and vanishes from the list. Uses the scheduler's live airstamps.
+  // waiting on next week's drop) → still CURRENT. Uses the scheduler's live airstamps.
   if(window.WoW && WoW.inSeason(wowEps(s), Date.now(), s.lastWatched)) return "current";
-  if(s.returnDate) return daysTo(s.returnDate)<=7 ? "current" : "returning";
-  return ended ? "completed" : "returning";
+  // The RETURNING tab was retired -- a followed show on hiatus (caught up, next season
+  // still out) stays in CURRENT with its return-countdown tile, rather than vanishing.
+  if(s.returnDate) return "current";
+  return ended ? "completed" : "current";
 }
 
 /* Which episodes a rewatch plan includes. Demo subsets. */
@@ -963,7 +965,7 @@ function crowFor(s){
 }
 
 function counts(){
-  const c={current:0,returning:0,comfort:0,completed:0};
+  const c={current:0,comfort:0,completed:0};
   LOG.forEach(s=>{ if(isTheaterMovie(s)) return; c[bucketOf(s)]++;});
   for(const k in c)document.getElementById("n-"+k).textContent=c[k];
 }
@@ -1039,12 +1041,6 @@ function render(){
   const pierreEl=document.querySelector('.pierre');
   if(pierreEl) pierreEl.style.display = (activeTab==='completed' || selectedId) ? 'none' : '';
   const grid=document.getElementById("grid");
-  if(activeTab==="returning"){
-    // Returning is being reworked: under-construction notice for now.
-    grid.classList.remove("list");
-    grid.innerHTML='<div class="state">&#128679; under construction</div>';
-    return;
-  }
   if(activeTab==="comfort"){ renderComfort(grid); return; }   // curated marathons (pre-beta)
   grid.classList.remove("list");
   if(activeTab==="completed"){
