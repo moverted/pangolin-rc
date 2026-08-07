@@ -4,6 +4,16 @@ Append-only log. Any session that touches the Worker, D1, or deploy
 configuration adds an entry here before the session ends (see CLAUDE.md,
 "Backend and deploy rules").
 
+## 2026-08-07 — Two more frontend Pages deploys (no Worker/D1/config change)
+- **Tickets `+ Stubs` + stub self-heal** (`cube_browse_face.html`, `cube_log_face.html`).
+  Pages deploy `6855137d`, message: "Tickets: rename tab badge to '+ Stubs'; self-heal
+  a just-captured stub (poster/date) so it fills in without a manual out-and-back".
+- **Reel-safe 9:16 share card + reflection notification → ticket** (`cube_browse_face.html`,
+  `cube_log_face.html`, `cube_shell.js`). Pages deploy `956ae89c`, message: "Reel-safe
+  9:16 share card (no side crop); reflection notification opens the referenced ticket".
+- Both frontend-only; Worker + D1 untouched. Branch `endnote-one-reply-flow` pushed to
+  origin (`ff97b0a`). iOS bundle re-synced + verified (Ted to Archive).
+
 ## 2026-08-06 — VIEWING LOG BP-demotion fix (frontend) + queue add (D1 data)
 - **Bug:** a just-watched episode (SNW S04E03) was missing from the CURRENT-tab
   VIEWING LOG. Root cause: a repeat `finishEpisode` (double-tap / away-timer +

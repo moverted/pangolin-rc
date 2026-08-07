@@ -1,65 +1,74 @@
-# Handoff — 2026-08-06
+# Handoff — 2026-08-07
 
 Snapshot for picking work back up after a context clear. Delete/replace when stale.
 
 ## Current state
 
-- **Branch `endnote-one-reply-flow`** (pushed). Session commit stack, newest last:
-  - `cddd952` IRL Tickets: typed reflections, focal v2, poster self-heal, old-ticket
-    year confirmation (client + Worker; backend was already live, commit just synced git).
-  - `28e1b1c` WATCH: watch-aware next-drop badge + ranking, fresh-watch leaf, hide
-    theater-ticket movies.
-  - `21c7b3a` docs.
-  - `35df8fa` WATCH: fresh-now override lights the FRESH text badge when catching the newest drop.
-  - `941f8c5` Tabs: WATCH → 3 pill tabs on top (CURRENT/COMFORT/COMPLETED), retire
-    RETURNING; Browse tabs bold + counts.
-  - `07562de` Retire RETURNING bucket (backend); add return-month badge + Yellowjackets SEED.
-- **Worker: deployed** — Version `5ab7c0e7` (latest). **Web: deployed** — Pages
-  `f7b890c5`, live on `remote.pangolinrc.com`.
-- **iOS: archived + distributed to TestFlight this session.** Bundle synced via
-  `cap copy ios` and byte-verified against `public/` before archiving.
-- Web and native run the same source; `public/` is canonical → `www/` → `ios/App/App/public`.
-- `BACKEND.md` is current (entries dated 2026-08-05 and 2026-08-06).
+- **Branch `endnote-one-reply-flow`** — pushed to origin (`ff97b0a`), tracking set.
+  This session's commits, newest last:
+  - `6fe9710` VIEWING LOG BP-demotion fix.
+  - `b65d712` Tickets: `+ Stubs` badge + stub self-heal.
+  - `ff97b0a` Reel-safe 9:16 share card + reflection notification → ticket.
+- **Web: deployed** — Pages `956ae89c` (latest), live on `remote.pangolinrc.com`.
+- **iOS: bundle synced + verified, NOT yet archived.** `public/ → www/ → cap copy ios`
+  done and byte-verified; Xcode is open. Ted still owes the manual delete-app →
+  Clean Build Folder (⇧⌘K) → Archive → Distribute (uncheck auto-manage version).
+  One archive ships all three commits above.
+- `BACKEND.md` current (three 2026-08-07 entries: the fixes/deploys + the D1 queue add).
 
-## What shipped this session (WATCH + Browse)
+## What shipped this session
 
-1. **Watch-aware next drop.** `WoW.nextUp/sortKey/inSeason` take an optional `after`
-   (last-watched ep) so a caught-up show references its NEXT unwatched drop for the
-   day-badge and the CURRENT ranking. Day-badge reads "Next <Weekday>" at 7-13d.
-2. **Leaf / fire.** Playhead leaf lights from the LIVE/FRESH air-window (ep ≤48h, via
-   `WoW.phase`); fire needs the binge burst. **FRESH text badge** now honors the same
-   fresh-now signal (`wowFreshNow`) so it doesn't read CASUAL after a fresh watch.
-3. **Theater-ticket movies hidden** from WATCH (`isTheaterMovie` = movie + `ticketAt`);
-   streamed/physical movies stay.
-4. **Tabs restyled.** WATCH = 3 Browse-style pill tabs on TOP (CURRENT / 🍿 COMFORT /
-   COMPLETED), bold, counts kept. **RETURNING retired** front + back: `recomputeTitle`
-   (`profile.ts`) now returns `current` not `returning`, and a caught-up on-hiatus show
-   folds into CURRENT with its return-countdown tile. Browse tabs bold; TICKETS + SHELF
-   gained counts (`refreshIrlCounts`). Loaded 700 mono weight on both faces.
-5. **Return-month badge.** `returnTag(s)`: caught-up show returning >30d out shows the
-   month ("OCTOBER") or month+year ("MARCH 2027"); ≤30d falls through to the weekly tag.
+1. **VIEWING LOG BP-demotion fix.** A repeat `finishEpisode` (double-tap / away-timer +
+   manual confirm / autoFinish relaunch) re-ran the back-date branch, clamped `startedAt`
+   to the finish logged seconds earlier, computed ~0 room, and demoted a real watch to
+   `bp=1` — which the CURRENT-tab archive hides (`e.done && !e.bp`), so the watch + comment
+   vanished. Fix: `finishEpisode` bails early if the episode already has a real non-BP
+   finished session (`cube_log_face.html`); `renderEpisodeArchive` also shows any episode
+   with a real non-BP session even if the `bp` flag was clobbered (`hasRealWatch`,
+   `cube_watch_face.html`) — recovers already-broken rows with no migration.
+2. **Tickets `+ Stubs` + self-heal.** IRL Tickets tab badge "THE STUBS" → "+ Stubs". A
+   just-captured stub's row (and its healed poster) can lag the immediate read; the capture
+   now passes the ticket id when swinging to Tickets, and `renderTickets` re-fetches up to
+   5× (1s apart) until the stub lands with its poster — no manual out-and-back.
+3. **Reel-safe 9:16 share card.** `buildTicketCard` now renders true 9:16 (1080×1920) so
+   Reels/Stories fill edge-to-edge, no side crop; all copy sits in a reel title-safe box
+   (left inset PAD=96, text column TW=724 clearing the right rail, bottom anchor B=1560
+   above the caption zone). Video paths (native CardVideo + web `buildTicketVideo`, already
+   9:16) now match. Post (4:5) center-crops the 9:16 by design — one shared asset, accepted.
+4. **Reflection notification → ticket.** The nudge + local notification carry `ticketId`;
+   tapping opens the Tickets tab and that stub's detail (comment/reflection composer) via
+   `openTicketId`. A note without a ticket still falls back to LOG reflection. **Native-only
+   — only testable from a fresh TestFlight build.**
+5. **X-Files queue add.** Added the confirmed Aug-14 Hulu/Disney+ *Vrach Frankenshteyn*
+   director's cut as a manual catalog title `manual:xfiles-vrach-frankenshteyn` (TMDB has
+   no entry yet — Pierre's `search_title` correctly returned no match, not a worker bug) and
+   swapped it into Ted's queue in place of the 2008 `tmdb:8836` row. Script:
+   `scripts/xfiles-vrach-relabel.sql`.
 
 ## Open / deferred
 
-- **`return_date` is demo/SEED-only.** Accounts hardcode `returnDate:null`
-  (`recordFromTitle`), so Yellowjackets + its OCTOBER badge show only in demo mode
-  (`?demo` / demo domain), NOT on a real device account. **Deferred follow-up:** wire it
-  from TMDB `/tv/{id}` (`status:"Returning Series"` + `next_episode_to_air.air_date`)
-  into a new `titles.return_date` column → `/titles` → `recordFromTitle`. We already have
-  `TMDB_API_KEY` + `tmdbFetch('/tv/{id}')` (`src/handlers/tmdb.ts`), so it's a small
-  migration + read; the `returnTag` badge lights up automatically once a real date flows.
+- **X-Files manual title uses placeholders:** 2008 TMDB poster + runtime 104. Swap in the
+  real key art (from the DET "Download Key Art" link) and the cut's runtime when known —
+  update `titles.poster` / `episodes.runtime` for `manual:xfiles-vrach-frankenshteyn`.
+- **Post (4:5) share** center-crops the 9:16 card (trims perf/tear on that surface only).
+  Ted chose one shared asset; a dedicated 4:5 Post variant is the only fix if he changes
+  his mind.
+- **No PR opened** for `endnote-one-reply-flow` (pushed branch only).
+- Carried over from before: `return_date` is still demo/SEED-only (wire from TMDB
+  `/tv/{id}` → `titles.return_date`); `recordFromTitle` hardcodes `returnDate:null`.
 
-## On-device testing checklist (TestFlight build)
+## On-device testing checklist (next TestFlight build)
 
-Real account: (1) 3 pill tabs on top, no RETURNING, caught-up shows in CURRENT;
-(2) Ted Lasso = Wednesday badge + FRESH badge + leaf (give the face a beat/tab-switch —
-the mode badge settles after the classifier prefetch); (3) order SNW → Silo → Ted Lasso →
-Lanterns; (4) no theater-ticket movie tiles; (5) Browse tabs bold with TICKETS/SHELF counts.
-Yellowjackets/OCTOBER is demo-only — verify it via `?demo`, not the account.
+(1) Just-watched episode stays in the CURRENT VIEWING LOG (don't need Completed tab).
+(2) Tickets tab badge reads "+ Stubs" (freshness check — old bundle shows "THE STUBS").
+(3) Capture a theater ticket → Tickets tab: the stub fills in poster + date without an
+    out-and-back. (4) Share a stub → Reel: fills 9:16, no side crop, copy inside safe box.
+(5) Tap a reflection notification → opens straight to that ticket's detail with the composer.
 
 ## iOS bundle rebuild reminder
 
 Web-only changes reuse the stale bundle on a plain Run. To ship native: mirror changed
-files `public/ → www/`, `npx cap copy ios`, verify the marker landed in
+`public/ → www/`, `npx cap copy ios`, verify markers landed / byte-match in
 `ios/App/App/public`, then delete app → Clean Build Folder (⇧⌘K) → Archive → Distribute
-(uncheck "Automatically manage version and build number"). Build number auto-stamps.
+(uncheck "Automatically manage version and build number"; build number auto-stamps).
+This Capacitor setup uses SPM → open `ios/App/App.xcodeproj` (no `.xcworkspace`).
