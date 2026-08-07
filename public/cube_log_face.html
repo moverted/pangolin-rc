@@ -3151,7 +3151,7 @@ async function uploadTicket(file){
     // Theater = no live logging (you're in the dark). Fire a reflection nudge at let-out.
     if(scr && scrEnd > Date.now()){
       (window.parent||window).postMessage({ type:'pg:scheduleReflection', at:scrEnd,
-        titleId:curShowId||'', showName:curShowName||'',
+        titleId:curShowId||'', showName:curShowName||'', ticketId:d.id||'',
         title:'How was '+scrName+'?', body:'Tap to share a reflection while it is fresh.' }, '*');
     }
     // The ticket told us the real theater → make that the "where", replacing the

@@ -1956,21 +1956,26 @@ export function getActiveDoc() {
         title: o.title || 'How was it?',
         body:  o.body  || 'Share a thought while it is fresh.',
         schedule: { at },
-        extra: { kind: 'reflection', titleId: o.titleId || '', showName: o.showName || '' },
+        extra: { kind: 'reflection', titleId: o.titleId || '', showName: o.showName || '', ticketId: o.ticketId || '' },
       }] });
     } catch (_) { /* permission denied / unsupported → silently skip */ }
   }
   window.addEventListener('message', (e) => {
     if (e.data && e.data.type === 'pg:scheduleReflection') schedule(e.data);
   });
-  // Tapping the notification brings the app up → route to the film's reflection.
+  // Tapping the notification brings the app up → open the exact ticket it references
+  // (Tickets tab, that stub's detail with the reflection composer). A reflection nudge
+  // without a ticket (a streamed-movie note) falls back to the film's LOG reflection.
   try {
     const Cap = window.Capacitor;
     if (Cap && Cap.Plugins && Cap.Plugins.LocalNotifications) {
       Cap.Plugins.LocalNotifications.addListener('localNotificationActionPerformed', (ev) => {
         const x = ev && ev.notification && ev.notification.extra;
         if (x && x.kind === 'reflection') {
-          try { cubeRotateTo('log', { intent: 'reflect', titleId: x.titleId || '' }); } catch (_) {}
+          try {
+            if (x.ticketId) cubeRotateTo('join', { tab: 'tickets', openTicketId: x.ticketId });
+            else cubeRotateTo('log', { intent: 'reflect', titleId: x.titleId || '' });
+          } catch (_) {}
         }
       });
     }

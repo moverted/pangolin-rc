@@ -621,24 +621,26 @@ let _tixData = {};
 const _todayLabel = 'Today, ' + new Date().toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
 async function renderTickets(pane, opts){
   opts = opts || {};
-  const awaitId = opts.awaitId || null, tries = opts.tries || 0;
+  const awaitId = opts.awaitId || null, openId = opts.openTicketId || null, tries = opts.tries || 0;
   if(!tries) pane.innerHTML = `<div class="tixgrid" id="tixGrid"><div class="why" style="margin-top:14px">loading…</div></div>`;
   const tickets = await loadTickets();
   const grid = document.getElementById('tixGrid'); if(!grid) return;
   // A just-captured stub can beat its own write to the read replica — the row (and its
   // healed poster) may not be visible on the immediate read. When we arrived from a fresh
-  // capture (awaitId), re-fetch a few times until that stub lands with its poster, so it
-  // fills in on its own instead of needing a manual out-and-back on the cube.
-  const scheduleHeal = () => {
-    if(!awaitId || tries>=5) return;
-    const t = tickets.find(x=>x.id===awaitId);
-    if(t && t.poster) return;                          // row landed + poster resolved → done
-    setTimeout(()=>{ if(irlTab==='tickets') renderTickets(pane, {awaitId, tries:tries+1}); }, 1000);
+  // capture (awaitId) or a reflection-notification tap (openId), re-fetch a few times until
+  // that stub lands, so it fills in / opens on its own instead of needing a manual out-and-back.
+  const scheduleRetry = () => {
+    if(tries>=5) return;
+    const at = awaitId ? tickets.find(x=>x.id===awaitId) : null;
+    const aOk = !awaitId || (at && at.poster);
+    const oOk = !openId || !!_tixData[openId];
+    if(aOk && oOk) return;
+    setTimeout(()=>{ if(irlTab==='tickets') renderTickets(pane, {awaitId, openTicketId:openId, tries:tries+1}); }, 1000);
   };
   if(!tickets.length){
     grid.innerHTML = `<div class="bempty" style="margin-top:14px"><b>Your ticket stubs live here.</b><br>
       Log a theater watch with a photo of the ticket (LOG → Finish → IRL Theater, or ask Pierre) and it lands on this shelf.</div>`;
-    scheduleHeal();
+    scheduleRetry();
     return;
   }
   // Date order: upcoming/today above, past below, split by a Today bar.
@@ -668,7 +670,9 @@ async function renderTickets(pane, opts){
       }).catch(()=>{});
     }
   });
-  scheduleHeal();
+  // Reflection-notification tap → open that stub's detail (with the comment composer).
+  if(openId && _tixData[openId]) openTicketFull(_tixData[openId]);
+  scheduleRetry();
 }
 // Turn the AI focal y into a pixel-aligned background-position shared by the stub and the opened
 // card: same image size (cover, width-driven) + same top offset → no shift on open. The offset
@@ -1032,7 +1036,12 @@ function tearPolyPx(id, W, H){
 }
 function buildTicketCard(o){
   return new Promise((resolve,reject)=>{
-    const W=1080, H=1350, c=document.createElement('canvas'); c.width=W; c.height=H;
+    // Full-screen 9:16 (Reels/Stories) so nothing is cropped — the poster fills, the perf
+    // rides the very top and the tear the very bottom. All COPY lives inside the Reel
+    // title-safe box: left inset PAD, a text column TW wide that clears the right action
+    // rail, and a bottom anchor B that keeps text above the caption/audio/CTA zone.
+    const W=1080, H=1920, c=document.createElement('canvas'); c.width=W; c.height=H;
+    const PAD=96, TW=724, B=1560;
     const ctx=c.getContext('2d');
     const draw=(posterImg)=>{
       ctx.fillStyle='#0f0b08'; ctx.fillRect(0,0,W,H);
@@ -1042,20 +1051,20 @@ function buildTicketCard(o){
       ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
       ctx.textAlign='left';
       ctx.fillStyle='#e89f3d'; ctx.font='600 30px "IBM Plex Mono", monospace';
-      ctx.fillText('PANGOLINRC · IRL', 70, 90);
+      ctx.fillText('PANGOLINRC · IRL', PAD, 230);
       // film title (wrap up to 2 lines)
       ctx.fillStyle='#f3ebe0'; ctx.font='700 76px "Space Grotesk", system-ui, sans-serif';
-      const words=(o.film||'').split(' '); let line='', y=H-430; const lines=[];
-      for(const w of words){ const test=line?line+' '+w:w; if(ctx.measureText(test).width>W-140 && line){ lines.push(line); line=w; } else line=test; }
-      if(line) lines.push(line); lines.slice(0,2).forEach((ln,i)=>ctx.fillText(ln, 70, y+i*84));
+      const words=(o.film||'').split(' '); let line='', y=B-430; const lines=[];
+      for(const w of words){ const test=line?line+' '+w:w; if(ctx.measureText(test).width>TW && line){ lines.push(line); line=w; } else line=test; }
+      if(line) lines.push(line); lines.slice(0,2).forEach((ln,i)=>ctx.fillText(ln, PAD, y+i*84));
       // quote
       if(o.text){ ctx.fillStyle='#e7dccb'; ctx.font='italic 40px "Inter", system-ui, sans-serif';
-        const qw=(o.text||'').split(' '); let ql='', qy=H-250; const qlines=[];
-        for(const w of qw){ const test=ql?ql+' '+w:w; if(ctx.measureText('“'+test+'”').width>W-140 && ql){ qlines.push(ql); ql=w; } else ql=test; }
-        if(ql) qlines.push(ql); qlines.slice(0,3).forEach((ln,i)=>ctx.fillText((i===0?'“':'')+ln+(i===Math.min(qlines.length,3)-1?'”':''), 70, qy+i*52)); }
+        const qw=(o.text||'').split(' '); let ql='', qy=B-250; const qlines=[];
+        for(const w of qw){ const test=ql?ql+' '+w:w; if(ctx.measureText('“'+test+'”').width>TW && ql){ qlines.push(ql); ql=w; } else ql=test; }
+        if(ql) qlines.push(ql); qlines.slice(0,3).forEach((ln,i)=>ctx.fillText((i===0?'“':'')+ln+(i===Math.min(qlines.length,3)-1?'”':''), PAD, qy+i*52)); }
       // footer
       ctx.fillStyle='#c9a44f'; ctx.font='500 32px "IBM Plex Mono", monospace';
-      ctx.fillText([o.theater,o.date].filter(Boolean).join('  ·  '), 70, H-100);
+      ctx.fillText([o.theater,o.date].filter(Boolean).join('  ·  '), PAD, B-100);
       // Mirror the ticket's edges: scalloped perforation across the top, seeded torn bottom.
       ctx.globalCompositeOperation='destination-out';
       const scR=24, step=68;
@@ -1288,7 +1297,9 @@ window.addEventListener('message', (e) => {
   if (e.data.type === 'cube:payload' && e.data.face === 'join' && e.data.payload && e.data.payload.tab
       && (isMember() || forcedMember()) && !DEMO) {
     irlTab = e.data.payload.tab;
-    const opts = e.data.payload.addedTicketId ? { awaitId: e.data.payload.addedTicketId } : undefined;
+    const p = e.data.payload;
+    const opts = (p.addedTicketId || p.openTicketId)
+      ? { awaitId: p.addedTicketId || null, openTicketId: p.openTicketId || null } : undefined;
     if (document.getElementById('browse').classList.contains('show')) switchTab(irlTab, opts);
     else renderBrowse(opts);
     return;
