@@ -428,10 +428,23 @@ export async function fetchTmdbTvRuntime(
 }
 
 // GET /tmdb/movie/:id  → { movie: detail card (runtime + cast/crew/production) }
+//
+// Edge-cached. A movie's poster/cast/runtime is effectively immutable, and this is
+// the endpoint every FEED movie-ticket poster falls back to — so without a cache the
+// same theater ticket costs a fresh client→worker→TMDB round-trip on every feed open.
+// We serve repeats from the Cloudflare edge cache (24h): first hit warms it, the rest
+// are edge-local. Keyed by the bare numeric id so it's shared across users/origins.
+const MOVIE_TTL = 86400; // 24h — TMDB movie detail barely changes
 tmdbRoutes.get('/movie/:id', async (c) => {
   if (!c.env.TMDB_API_KEY) return c.json({ error: 'movies not configured' }, 503);
   const id = clean(c.req.param('id'));
   if (!/^\d+$/.test(id)) return c.json({ error: 'numeric id required' }, 400);
+
+  const cache = caches.default;
+  const cacheKey = new Request(new URL(`/tmdb/movie/${id}`, c.req.url).toString());
+  const cached = await cache.match(cacheKey);
+  if (cached) return new Response(cached.body, cached); // fresh copy so CORS can re-apply
+
   let res: Response;
   try {
     res = await tmdbFetch(c.env, `/movie/${id}`, { append_to_response: 'credits' });
@@ -441,5 +454,8 @@ tmdbRoutes.get('/movie/:id', async (c) => {
   if (res.status === 404) return c.json({ error: 'not found' }, 404);
   if (!res.ok) return c.json({ error: 'upstream error' }, 502);
   const movie = detailCard(await res.json());
-  return c.json({ movie });
+  const out = c.json({ movie });
+  out.headers.set('Cache-Control', `public, max-age=${MOVIE_TTL}`);
+  c.executionCtx.waitUntil(cache.put(cacheKey, out.clone())); // store the good result
+  return out;
 });

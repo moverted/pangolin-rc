@@ -693,6 +693,19 @@ function swingToNotify(){
   }
 }
 const sNum=e=>e.season||1;
+// Deep-link (from the FEED "WATCH WITH COMMENTS" chip): land on a specific episode
+// code (e.g. "S05E09") — switch to its season, focus it, repaint, and pull its
+// co-view comments so they're in view. No-op if the code doesn't parse or match.
+function focusEpisode(code){
+  const m=/S(\d+)E(\d+)/i.exec(code||''); if(!m) return;
+  const season=+m[1], number=+m[2];
+  const seasonEps=allEps.filter(e=>sNum(e)===season);
+  if(seasonEps.length) eps=seasonEps;
+  const idx=eps.findIndex(e=>((e.number|0)===number));
+  if(idx>=0) focus=idx;
+  try{ paint(); }catch(_){}
+  try{ if(typeof loadCoview==='function') loadCoview(); }catch(_){}
+}
 
 // In-season drop label (WoW scheduler): from two weeks out the big badge names when
 // the next episode drops and tightens as it nears --
@@ -2867,7 +2880,7 @@ window.addEventListener('message',(e)=>{
     // The Log hands off a title_id; the Watch face loads episodes + the member's
     // progress from the catalog. (Legacy movie/show payloads still resolve.)
     if(p.movie && p.movie.id!=null && p.ticket){ logTicketedFilm(p.movie, p.ticket); }
-    else if(p.titleId){ loadTitle(p.titleId, p.pattern); }
+    else if(p.titleId){ loadTitle(p.titleId, p.pattern).then(()=>{ if(p.episode) focusEpisode(p.episode); }); }
     else if(p.movie && p.movie.id!=null){ loadTitle('tmdb:'+String(p.movie.id).replace(/^tmdb:/,''), p.pattern); }
     else if(p.show && p.show.id){ loadTitle(String(p.show.id).startsWith('tvmaze:')?p.show.id:'tvmaze:'+p.show.id, p.pattern); }
   }

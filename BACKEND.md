@@ -1062,3 +1062,125 @@ Entry format:
   isn't the current one. Year-less OCR dates behave exactly as before.
 - No schema change. Deploy: worker Version ID
   26dadccd-4569-402f-84b6-c82ae5d6b39f; Pages 849b10f4.
+
+## 2026-08-07 — FEED: tickets + notes in the stream, and movie-ticket perf edge
+
+- **Worker (`GET /profile/:email/feed`):** the feed now merges `watch_ticket`
+  rows (theater visits — previously dropped, since the query only read
+  `watch_title`) into the activity stream, tagged `kind:'ticket'` with the
+  theater as the "where". Every card (watch + ticket) also carries `poster`,
+  the actor's public `comment_ct`, and their latest end-note (`endnote_text` +
+  `endnote_spoiler`). Both sub-queries are `private=0` only. No schema change.
+- **Worker (`GET /tmdb/movie/:id`):** now edge-cached via `caches.default`
+  (24h, `Cache-Control: public, max-age=86400`, keyed by bare numeric id).
+  This is the endpoint every FEED movie-ticket poster falls back to; without a
+  cache each feed open re-hit TMDB. Local dev confirmed: cold 92ms → warm 2ms.
+  CORS still applied by the global `app.use('*', cors())` on both fresh and
+  cache-hit responses. Fail-soft (cache miss just re-fetches).
+- **Client (feed face):** big poster-backed cards; comment-count + ticket
+  pills; spoiler end-notes gated behind tap-to-reveal, non-spoiler shown
+  inline. Feed now SKIPS the `/tmdb/movie` (showMeta) round-trip for movie
+  tickets/films that already have a poster + where from the API. Dev-only
+  `?user=&name=` URL override (localhost only) for testing.
+- Deployed 2026-08-07: Worker Version ID
+  76d82c44-b72a-4782-8188-879bb78f52fb; Pages deployment 642b5423 (branch
+  main). Prod-verified: `/profile/:email/feed` returns 200 with `kind:'ticket'`
+  rows + the new fields; `/tmdb/movie/:id` sends `Cache-Control: public,
+  max-age=86400`; feed face live on remote.pangolinrc.com. (Note:
+  remote.demo.pangolinrc.com currently does not resolve in DNS — pre-existing,
+  unrelated to this deploy.)
+
+## 2026-08-10 — FEED redesign v2 (sentence/blurry-block cards) + audio Range
+
+- **Worker (`GET /profile/:email/feed`):** added `last_name` (last-watched
+  episode title, for the "<ep>" episode of SHOW phrasing) and `premiered`
+  (titles.premiered, for the film PREMIERES block) to both watch + ticket rows.
+  Earlier same-day additions (synced_ct, endnote_id/text/spoiler/audio,
+  follower relationship + followers included in the actor set) also live.
+  No schema change — all from existing columns.
+- **Worker (`GET /transcribe/audio/:id`):** now honors HTTP `Range` (206 +
+  Accept-Ranges/Content-Range, 416 on unsatisfiable) via R2 head()+ranged get();
+  full 200 fallback. Needed for reliable media seeking/streaming in-app.
+- **Client (feed face):** 1×1 poster-fill cards; centered top sentence block
+  (LINE1 activity sentence + LINE2 chip/episode/date); small blurry bottom block
+  (comment pips + WATCH + heart like) with the episode note + audio inside;
+  SVG glyph controls (speaker/play/pause/heart/comment, no emoji); follow chip
+  states FRIEND / FOLLOWING / FOLLOW BACK / FOLLOW+ with in-place transitions;
+  film "bought a ticket for" + PREMIERES block, no future personal dates.
+  Heart "like" is client-side (localStorage) — no likes backend yet.
+- **Deployed:** Worker Version 33ba1897-f08f-49bb-b069-faacea3b0717; Pages
+  deployment 6bfdaab1 (branch main); live on remote.pangolinrc.com. Prod feed
+  verified returning last_name + premiered.
+- **iOS:** synced public/ → www/ (sync-www) + `cap copy ios`; bundle confirmed
+  to contain the new build; opened Xcode for archive/distribute (build number
+  auto-stamped — leave Xcode auto-increment off).
+
+## 2026-08-10 (later) — Likes backend + follow structure + feed copy fixes
+
+- **D1 migration 0027... → 0028_likes.sql (NEW):** `likes(user_email,
+  subject_email, title_id, kind, created_at)` PK(all four) + idx on
+  (subject_email,title_id,kind). Applied LOCAL only so far — NOT yet applied to
+  remote D1. Must run `wrangler d1 migrations apply pangolin-rc --remote`
+  BEFORE deploying the Worker (the feed's like subqueries reference this table).
+- **Worker (`GET /profile/:email/feed`):** each row now returns `like_ct`
+  (total likes on that activity) + `liked` (viewer's own), for watch (kind from
+  titles) and ticket (kind='ticket') rows. Bind order changed to (email,
+  ...actors) for the viewer subquery. `synced_ct` is now EPISODE-scoped: it
+  matches watch_comment.episode_id to the current episode's code
+  ('S'||printf('%02d',season)||'E'||printf('%02d',number)) so a show-level pile
+  of comments no longer reads "92 of 5". Also returns `ticket_date`.
+- **Worker (`POST /profile/:email/like`):** body {subject, title_id, kind,
+  liked} → INSERT OR IGNORE / DELETE; returns {liked, count}. Follow/unfollow
+  endpoints unchanged (feed chips now drive both).
+- **Client (feed face):** SVG kind glyphs (TV/film/DVD/ticket) below the
+  sentence; film activity drops the "…episode of" phrasing; self reads "You are
+  watching"; weighted-random "bailed on/gave up on/abandoned/quit" rotation;
+  past tickets read "saw … at THEATER on <Mon D, YYYY>", upcoming stay "bought a
+  ticket for" + PREMIERES; heart is now server-backed with a live count; all
+  four follow chips are a two-way follow/unfollow toggle; WATCH → shell
+  cubeRotateTo('episodes') deep-link (loads the title in the LOG face),
+  "WATCH WITH COMMENTS" when the actor left synced comments.
+- **Deployed 2026-08-10 (web):** remote migration 0028_likes applied FIRST,
+  then Worker Version c7157551-db8c-4f9d-a961-6d80f3b89530; Pages deployment
+  37cb5130 (branch main); live on remote.pangolinrc.com. Prod-verified: feed
+  returns like_ct/liked (no 500), POST /like returns {ok,liked,count}. iOS not
+  rebuilt this round.
+- Known open items: WATCH episode-scroll + auto-open comments (show-level
+  works); a corrected transcription not propagating to a finalized end-note;
+  feed date = server record time, not the action's local date.
+
+## 2026-08-11 — Binge cycler + note episode-stamp (feed)
+
+- **Worker (`GET /profile/:email/feed`):** each show row now returns `endnote_ep`
+  (the episode the end-note is from, so the card can stamp "EPISODE NOTE · S03E10")
+  and an `episodes` array — one grouped pass over watch_comment
+  (GROUP BY user_email, show_id, episode_id; HAVING synced>0 OR has-endnote) giving
+  {ep, synced, endnote_id/text/spoiler/audio} per content-bearing episode, ordered by
+  code. Powers the binge cycler. Query-only additions — NO schema change.
+- **Client (feed face):** binge cycler — a card for a binged show shows a ◀ EP ▶
+  stepper that walks each consecutively-watched episode, swapping its synced pips,
+  end-note, and WATCH target in place (prev/next disable at the ends; defaults to the
+  newest episode that has a note). Kind glyphs now 32px + borderless; ticket line-2
+  "at THEATER on <date>" fits one line; end-note stamped with its episode.
+- **NOT deployed** (build/feedback turn). No new migration needed to ship (likes
+  table already remote). Deploy = wrangler deploy + pages deploy when ready.
+
+## 2026-08-11 (later) — deploy binge/glyph/deeplink; WATCH episode focus; demo-seed handoff
+
+- **Deployed:** Worker Version cccaae4c-ac62-4ed0-a488-22503906b29d; Pages 734f3dcd
+  (branch main); live on remote.pangolinrc.com. Ships last round's endnote_ep +
+  episodes[] (binge cycler) backend — no schema change, no migration.
+- **Client:** WATCH "…WITH COMMENTS" now deep-links the LOG face to the exact episode
+  (cube_log_face `focusEpisode(code)` switches season, sets focus, reloads co-view
+  comments; wired in the cube:payload handler). Follow-back now surfaces "slots full"
+  instead of silently reverting when the friend-slot cap (basic=1) blocks completing
+  the pair. Kind glyphs 2× + borderless; ticket meta one line; note episode-stamp.
+- **iOS:** sync-www + cap copy done; Xcode opened for archive.
+- **Prod demo cards (APPLIED 2026-08-11, user-authorized):**
+  scripts/prod-demo-seed.sql — two ADDITIVE demo accounts: Alex
+  (alex.demo@pangolinrc.app, friend, watching Hacks S05E09 + a co-view comment
+  @3:00) and Sam (sam.demo@pangolinrc.app, follower → FOLLOW BACK, saw The
+  Flash) — plus removal of the earlier `__smoketest__` like and a user-approved
+  tier bump edward.m.willett@gmail.com → elite_pro (friend-slot headroom so the
+  Sam FOLLOW BACK completes → friend). Edward's real data left intact. Verified
+  in prod feed.

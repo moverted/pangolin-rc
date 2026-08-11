@@ -259,13 +259,39 @@ app.get('/transcribe/audio/:id', async (c) => {
     .first<{ audio_r2_key: string | null }>();
   if (!row?.audio_r2_key) return c.json({ error: 'not found' }, 404);
 
-  const object = await c.env.RAW_BUCKET.get(row.audio_r2_key);
-  if (!object) return c.json({ error: 'audio not in storage' }, 404);
+  // Range support: media elements (esp. MP4/m4a, whose moov atom may sit at the end)
+  // request `Range: bytes=…` and expect a 206 with Content-Range. Without it the
+  // browser can stall on load / can't seek. Honor it; fall back to a full 200.
+  const head = await c.env.RAW_BUCKET.head(row.audio_r2_key);
+  if (!head) return c.json({ error: 'audio not in storage' }, 404);
+  const total = head.size;
+  const rangeHeader = c.req.header('range') || '';
+  const m = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim());
 
   const headers = new Headers();
-  object.writeHttpMetadata(headers);
+  head.writeHttpMetadata(headers);
   if (!headers.has('Content-Type')) headers.set('Content-Type', 'audio/webm');
   headers.set('Cache-Control', 'private, max-age=86400');
+  headers.set('Accept-Ranges', 'bytes');
+
+  if (m && (m[1] || m[2])) {
+    const g1 = m[1] || '', g2 = m[2] || '';
+    const start = g1 ? parseInt(g1, 10) : Math.max(0, total - parseInt(g2, 10));
+    const end = g1 ? (g2 ? Math.min(parseInt(g2, 10), total - 1) : total - 1) : total - 1;
+    if (Number.isNaN(start) || start > end || start >= total) {
+      headers.set('Content-Range', `bytes */${total}`);
+      return new Response(null, { status: 416, headers });
+    }
+    const object = await c.env.RAW_BUCKET.get(row.audio_r2_key, { range: { offset: start, length: end - start + 1 } });
+    if (!object) return c.json({ error: 'audio not in storage' }, 404);
+    headers.set('Content-Range', `bytes ${start}-${end}/${total}`);
+    headers.set('Content-Length', String(end - start + 1));
+    return new Response(object.body, { status: 206, headers });
+  }
+
+  const object = await c.env.RAW_BUCKET.get(row.audio_r2_key);
+  if (!object) return c.json({ error: 'audio not in storage' }, 404);
+  headers.set('Content-Length', String(total));
   return new Response(object.body, { headers });
 });
 

@@ -714,6 +714,33 @@ profileRoutes.delete('/:email/follow/:target', async (c) => {
   return c.json({ ok: true });
 });
 
+// ─── Likes: react to a member's activity card ────────────────────────────────
+// Set (not toggle) the caller's like on one activity, identified by (subject
+// member + title + kind). Idempotent: liking twice is one row, unliking removes
+// it. Returns the fresh total so the card can update its counter in place.
+profileRoutes.post('/:email/like', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  let body: any; try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const subject = String(body.subject || '').toLowerCase().trim();
+  const titleId = String(body.title_id || '').trim();
+  const kind = String(body.kind || 'show').trim() || 'show';
+  const liked = body.liked === true || body.liked === 1 || body.liked === '1';
+  if (!subject || !titleId) return c.json({ error: 'subject and title_id required' }, 400);
+  if (liked) {
+    await c.env.DB.prepare(
+      'INSERT OR IGNORE INTO likes (user_email, subject_email, title_id, kind, created_at) VALUES (?, ?, ?, ?, ?)')
+      .bind(email, subject, titleId, kind, Date.now()).run();
+  } else {
+    await c.env.DB.prepare(
+      'DELETE FROM likes WHERE user_email = ? AND subject_email = ? AND title_id = ? AND kind = ?')
+      .bind(email, subject, titleId, kind).run();
+  }
+  const row = await c.env.DB.prepare(
+    'SELECT COUNT(*) AS c FROM likes WHERE subject_email = ? AND title_id = ? AND kind = ?')
+    .bind(subject, titleId, kind).first<any>();
+  return c.json({ ok: true, liked, count: Number(row?.c) || 0 });
+});
+
 // ─── Shares: a member pushes a title to specific friends ─────────────────────
 // Distinct from the passive feed — a share is a deliberate recommendation that
 // lands on each recipient's BROWSE "From friends" rail until they open/dismiss it.
@@ -804,25 +831,119 @@ profileRoutes.get('/:email/feed', async (c) => {
     .prepare('SELECT followee_email AS e FROM follows WHERE follower_email = ?').bind(email).all();
   const followers = await c.env.DB
     .prepare('SELECT follower_email AS e FROM follows WHERE followee_email = ?').bind(email).all();
-  const followees = (following.results || []).map((r: any) => r.e);
-  const back = new Set((followers.results || []).map((r: any) => r.e));
-  const actors = [email, ...followees];
+  const iFollow = new Set((following.results || []).map((r: any) => r.e));
+  const followsMe = new Set((followers.results || []).map((r: any) => r.e));
+  // Feed = me + everyone I follow + everyone who follows me. Including inbound
+  // followers I haven't reciprocated is what surfaces a "Follow +" card (mutual
+  // pair = friend, one-way outbound = following, one-way inbound = follower).
+  const actors = [email, ...new Set([...iFollow, ...followsMe])];
   const placeholders = actors.map(() => '?').join(',');
+  const rel = (who: string) => {
+    if (who === email) return 'self';
+    const out = iFollow.has(who), inc = followsMe.has(who);
+    if (out && inc) return 'friend';
+    if (out) return 'following';
+    return 'follower';           // they follow me, I don't follow back → Follow +
+  };
+  // A card is more than "who watched what": it carries the poster (for the big
+  // background art), the actor's public comment count on that title, and their
+  // latest end-of-episode note + its spoiler flag so the card can show or gate it.
   const rows = await c.env.DB.prepare(
-    `SELECT wt.user_email, wt.title_id AS show_id, t.name AS show_name, t.kind, wt.status, wt.updated_at, u.username,
+    `SELECT wt.user_email, wt.title_id AS show_id, t.name AS show_name, t.kind, t.poster, t.premiered, wt.status, wt.updated_at, u.username,
             (SELECT e.season FROM episodes e JOIN watch_episode we ON we.episode_id=e.episode_id AND we.user_email=wt.user_email WHERE e.title_id=wt.title_id AND (we.done=1 OR we.minute>0) ORDER BY e.season DESC, e.number DESC LIMIT 1) AS last_season,
-            (SELECT e.number FROM episodes e JOIN watch_episode we ON we.episode_id=e.episode_id AND we.user_email=wt.user_email WHERE e.title_id=wt.title_id AND (we.done=1 OR we.minute>0) ORDER BY e.season DESC, e.number DESC LIMIT 1) AS last_number
+            (SELECT e.number FROM episodes e JOIN watch_episode we ON we.episode_id=e.episode_id AND we.user_email=wt.user_email WHERE e.title_id=wt.title_id AND (we.done=1 OR we.minute>0) ORDER BY e.season DESC, e.number DESC LIMIT 1) AS last_number,
+            (SELECT e.name FROM episodes e JOIN watch_episode we ON we.episode_id=e.episode_id AND we.user_email=wt.user_email WHERE e.title_id=wt.title_id AND (we.done=1 OR we.minute>0) ORDER BY e.season DESC, e.number DESC LIMIT 1) AS last_name,
+            (SELECT COUNT(*) FROM watch_comment wc WHERE wc.user_email=wt.user_email AND wc.show_id=wt.title_id AND wc.reply_to IS NULL AND wc.private=0 AND COALESCE(wc.transcription,'')<>'') AS comment_ct,
+            (SELECT COUNT(*) FROM watch_comment wc WHERE wc.user_email=wt.user_email AND wc.show_id=wt.title_id AND wc.reply_to IS NULL AND wc.is_endnote=0 AND wc.is_reflection=0 AND wc.private=0 AND COALESCE(wc.transcription,'')<>''
+               AND wc.episode_id = (SELECT 'S'||printf('%02d',e.season)||'E'||printf('%02d',e.number) FROM episodes e JOIN watch_episode we ON we.episode_id=e.episode_id AND we.user_email=wt.user_email WHERE e.title_id=wt.title_id AND (we.done=1 OR we.minute>0) ORDER BY e.season DESC, e.number DESC LIMIT 1)) AS synced_ct,
+            (SELECT wc.id FROM watch_comment wc WHERE wc.user_email=wt.user_email AND wc.show_id=wt.title_id AND wc.is_endnote=1 AND wc.private=0 AND COALESCE(wc.transcription,'')<>'' ORDER BY wc.created_at DESC, wc.id DESC LIMIT 1) AS endnote_id,
+            (SELECT wc.episode_id FROM watch_comment wc WHERE wc.user_email=wt.user_email AND wc.show_id=wt.title_id AND wc.is_endnote=1 AND wc.private=0 AND COALESCE(wc.transcription,'')<>'' ORDER BY wc.created_at DESC, wc.id DESC LIMIT 1) AS endnote_ep,
+            (SELECT wc.transcription FROM watch_comment wc WHERE wc.user_email=wt.user_email AND wc.show_id=wt.title_id AND wc.is_endnote=1 AND wc.private=0 AND COALESCE(wc.transcription,'')<>'' ORDER BY wc.created_at DESC, wc.id DESC LIMIT 1) AS endnote_text,
+            (SELECT wc.spoiler FROM watch_comment wc WHERE wc.user_email=wt.user_email AND wc.show_id=wt.title_id AND wc.is_endnote=1 AND wc.private=0 AND COALESCE(wc.transcription,'')<>'' ORDER BY wc.created_at DESC, wc.id DESC LIMIT 1) AS endnote_spoiler,
+            (SELECT CASE WHEN wc.audio_r2_key IS NOT NULL AND wc.audio_r2_key<>'' THEN 1 ELSE 0 END FROM watch_comment wc WHERE wc.user_email=wt.user_email AND wc.show_id=wt.title_id AND wc.is_endnote=1 AND wc.private=0 AND COALESCE(wc.transcription,'')<>'' ORDER BY wc.created_at DESC, wc.id DESC LIMIT 1) AS endnote_audio,
+            (SELECT COUNT(*) FROM likes lk WHERE lk.subject_email=wt.user_email AND lk.title_id=wt.title_id AND lk.kind=COALESCE(t.kind,'show')) AS like_ct,
+            (SELECT COUNT(*) FROM likes lk WHERE lk.user_email=? AND lk.subject_email=wt.user_email AND lk.title_id=wt.title_id AND lk.kind=COALESCE(t.kind,'show')) AS liked
        FROM watch_title wt
        JOIN titles t ON t.title_id = wt.title_id
        LEFT JOIN users u ON u.email = wt.user_email
       WHERE wt.user_email IN (${placeholders})
-      ORDER BY wt.updated_at DESC LIMIT 40`).bind(...actors).all();
-  const feed = (rows.results || []).map((r: any) => ({
+      ORDER BY wt.updated_at DESC LIMIT 40`).bind(email, ...actors).all();
+  const watchFeed = (rows.results || []).map((r: any) => ({
     actor_email: r.user_email,
     actor: r.username || null,
-    relationship: r.user_email === email ? 'self' : (back.has(r.user_email) ? 'friend' : 'following'),
+    relationship: rel(r.user_email),
     show_id: r.show_id, show_name: r.show_name, kind: r.kind || 'show', status: r.status,
-    last_season: r.last_season, last_number: r.last_number, updated_at: r.updated_at,
+    poster: r.poster || null, premiered: r.premiered || null,
+    comment_ct: Number(r.comment_ct) || 0, synced_ct: Number(r.synced_ct) || 0,
+    like_ct: Number(r.like_ct) || 0, liked: !!Number(r.liked),
+    endnote_id: r.endnote_id || null, endnote_ep: r.endnote_ep || null, endnote_text: r.endnote_text || null,
+    endnote_spoiler: !!r.endnote_spoiler, endnote_audio: !!r.endnote_audio,
+    last_season: r.last_season, last_number: r.last_number, last_name: r.last_name || null,
+    episodes: [] as any[],   // per-episode content for the binge cycler (filled below)
+    updated_at: r.updated_at,
   }));
+  // Theater tickets are real activity too — a night out at the cinema — but they
+  // live in watch_ticket, never watch_title, so the old query dropped them. Pull
+  // them, tag kind='ticket' (theater is the "where"), and merge into the stream.
+  const tick = await c.env.DB.prepare(
+    `SELECT wt.user_email, wt.show_id, wt.show_name, wt.theater, wt.ticket_date, wt.created_at, t.poster, t.premiered, u.username,
+            (SELECT COUNT(*) FROM watch_comment wc WHERE wc.user_email=wt.user_email AND wc.show_id=wt.show_id AND wc.reply_to IS NULL AND wc.private=0 AND COALESCE(wc.transcription,'')<>'') AS comment_ct,
+            (SELECT COUNT(*) FROM watch_comment wc WHERE wc.user_email=wt.user_email AND wc.show_id=wt.show_id AND wc.reply_to IS NULL AND wc.is_endnote=0 AND wc.is_reflection=0 AND wc.private=0 AND COALESCE(wc.transcription,'')<>'') AS synced_ct,
+            (SELECT wc.id FROM watch_comment wc WHERE wc.user_email=wt.user_email AND wc.show_id=wt.show_id AND wc.is_endnote=1 AND wc.private=0 AND COALESCE(wc.transcription,'')<>'' ORDER BY wc.created_at DESC, wc.id DESC LIMIT 1) AS endnote_id,
+            (SELECT wc.episode_id FROM watch_comment wc WHERE wc.user_email=wt.user_email AND wc.show_id=wt.show_id AND wc.is_endnote=1 AND wc.private=0 AND COALESCE(wc.transcription,'')<>'' ORDER BY wc.created_at DESC, wc.id DESC LIMIT 1) AS endnote_ep,
+            (SELECT wc.transcription FROM watch_comment wc WHERE wc.user_email=wt.user_email AND wc.show_id=wt.show_id AND wc.is_endnote=1 AND wc.private=0 AND COALESCE(wc.transcription,'')<>'' ORDER BY wc.created_at DESC, wc.id DESC LIMIT 1) AS endnote_text,
+            (SELECT wc.spoiler FROM watch_comment wc WHERE wc.user_email=wt.user_email AND wc.show_id=wt.show_id AND wc.is_endnote=1 AND wc.private=0 AND COALESCE(wc.transcription,'')<>'' ORDER BY wc.created_at DESC, wc.id DESC LIMIT 1) AS endnote_spoiler,
+            (SELECT CASE WHEN wc.audio_r2_key IS NOT NULL AND wc.audio_r2_key<>'' THEN 1 ELSE 0 END FROM watch_comment wc WHERE wc.user_email=wt.user_email AND wc.show_id=wt.show_id AND wc.is_endnote=1 AND wc.private=0 AND COALESCE(wc.transcription,'')<>'' ORDER BY wc.created_at DESC, wc.id DESC LIMIT 1) AS endnote_audio,
+            (SELECT COUNT(*) FROM likes lk WHERE lk.subject_email=wt.user_email AND lk.title_id=wt.show_id AND lk.kind='ticket') AS like_ct,
+            (SELECT COUNT(*) FROM likes lk WHERE lk.user_email=? AND lk.subject_email=wt.user_email AND lk.title_id=wt.show_id AND lk.kind='ticket') AS liked
+       FROM watch_ticket wt
+       LEFT JOIN titles t ON t.title_id = wt.show_id
+       LEFT JOIN users u ON u.email = wt.user_email
+      WHERE wt.user_email IN (${placeholders})
+      ORDER BY wt.created_at DESC LIMIT 40`).bind(email, ...actors).all();
+  const ticketFeed = (tick.results || []).map((r: any) => ({
+    actor_email: r.user_email,
+    actor: r.username || null,
+    relationship: rel(r.user_email),
+    show_id: r.show_id, show_name: r.show_name, kind: 'ticket', status: 'ticket',
+    theater: r.theater || null, poster: r.poster || null, premiered: r.premiered || null,
+    ticket_date: r.ticket_date || null,
+    comment_ct: Number(r.comment_ct) || 0, synced_ct: Number(r.synced_ct) || 0,
+    like_ct: Number(r.like_ct) || 0, liked: !!Number(r.liked),
+    endnote_id: r.endnote_id || null, endnote_ep: r.endnote_ep || null, endnote_text: r.endnote_text || null,
+    endnote_spoiler: !!r.endnote_spoiler, endnote_audio: !!r.endnote_audio,
+    last_season: null, last_number: null, last_name: null, updated_at: r.created_at,
+  }));
+  // Per-episode content for the BINGE CYCLER: every episode (of every actor's shows)
+  // that carries synced comments or an end-note, so a card that binged a run can step
+  // through each consecutively-watched episode's notes/comments. One grouped pass.
+  const epRows = await c.env.DB.prepare(
+    `SELECT wc.user_email, wc.show_id, wc.episode_id,
+            SUM(CASE WHEN wc.reply_to IS NULL AND wc.is_endnote=0 AND wc.is_reflection=0 AND wc.private=0 AND COALESCE(wc.transcription,'')<>'' THEN 1 ELSE 0 END) AS synced,
+            MAX(CASE WHEN wc.is_endnote=1 AND wc.private=0 AND COALESCE(wc.transcription,'')<>'' THEN wc.id END) AS endnote_id,
+            MAX(CASE WHEN wc.is_endnote=1 AND wc.private=0 AND COALESCE(wc.transcription,'')<>'' THEN wc.transcription END) AS endnote_text,
+            MAX(CASE WHEN wc.is_endnote=1 AND wc.private=0 AND COALESCE(wc.transcription,'')<>'' THEN wc.spoiler END) AS endnote_spoiler,
+            MAX(CASE WHEN wc.is_endnote=1 AND wc.private=0 AND COALESCE(wc.transcription,'')<>'' AND wc.audio_r2_key IS NOT NULL AND wc.audio_r2_key<>'' THEN 1 ELSE 0 END) AS endnote_audio
+       FROM watch_comment wc
+      WHERE wc.user_email IN (${placeholders}) AND wc.show_id IS NOT NULL AND wc.episode_id <> '🎬'
+      GROUP BY wc.user_email, wc.show_id, wc.episode_id
+      HAVING synced > 0 OR endnote_id IS NOT NULL
+      ORDER BY wc.episode_id ASC`).bind(...actors).all();
+  const epByKey: Record<string, any[]> = {};
+  for (const r of (epRows.results || []) as any[]) {
+    const k = r.user_email + '|' + r.show_id;
+    (epByKey[k] = epByKey[k] || []).push({
+      ep: r.episode_id, synced: Number(r.synced) || 0,
+      endnote_id: r.endnote_id || null, endnote_text: r.endnote_text || null,
+      endnote_spoiler: !!r.endnote_spoiler, endnote_audio: !!r.endnote_audio,
+    });
+  }
+  for (const row of watchFeed) {
+    const arr = epByKey[row.actor_email + '|' + row.show_id];
+    if (arr && arr.length) row.episodes = arr;
+  }
+  const feed = [...watchFeed, ...ticketFeed]
+    .sort((a, b) => (b.updated_at || 0) - (a.updated_at || 0))
+    .slice(0, 40);
   return c.json({ feed });
 });
