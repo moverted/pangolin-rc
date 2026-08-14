@@ -730,3 +730,39 @@ Entry format:
 ## 2026-07-03 — Log created
 - Created BACKEND.md and added "Backend and deploy rules" section to CLAUDE.md.
 - No Worker, D1, or deploy-config changes this session.
+
+## 2026-08-12 — Ted Lasso S4 runtime fix + TMDB nominal-fallback guard
+
+- **Bug:** `fetchTmdbTvRuntime` (src/handlers/tmdb.ts) fell back to a show's global
+  `episode_run_time` slot (Ted Lasso's nominal 30 min) when TMDB had no per-episode
+  runtime yet — the normal case for a just-aired season. `POST /catalog/runtime-check`
+  treated that nominal as a valid second opinion and could auto-correct an episode's
+  stored runtime down to it (30 sits "closer" to a ~43-min live watch than a too-long
+  slot did), overshooting the true length.
+- **Code fix (NOT deployed — no Worker deploy this session):**
+  - `fetchTmdbTvRuntime` now returns `{ minutes, precise }`; `precise:true` only for a
+    specific episode-level runtime, `precise:false` for the show-wide nominal fallback.
+  - `runtime-check` auto-corrects ONLY on `precise` values; the nominal fallback can no
+    longer overwrite an episode. Mismatch bug note distinguishes "no per-episode runtime
+    yet — nominal slot ignored (would overshoot)".
+- **D1 data fix (APPLIED, remote pangolin-rc):** Ted Lasso (title tvmaze:44458) S4
+  episodes were materialized with `runtime=null` (future eps had no TVmaze runtime at
+  ingest), so the frontend fell back to the show avg derived from S1E1=31 → displayed
+  ~30. TVmaze now has real runtimes; backfilled S4E1=42, S4E2=47, S4E3=46
+  (updated_at bumped). Remaining S4 eps still null upstream — will need the same
+  backfill as they air.
+- **D1 name refresh (APPLIED 2026-08-14, remote pangolin-rc):** S4E1-E5 names were
+  stale "Episode N" placeholders (ingested before TVmaze titled them); updated to the
+  real titles — E1 "Home", E2 "Curiouser and Curiouser!", E3 "Richmond's Got Talent",
+  E4 "Greyhound's Day Off", E5 "Riches of Embarrassment" (via --file; wrangler d1
+  execute has no --param). E6-E10 still placeholders upstream; E4/E5 runtimes still
+  null (unaired) — both need the same backfill as episodes air.
+
+## 2026-08-14 (later) — deploy runtime-check TMDB precise-only fix
+
+- **Deployed:** Worker Version 23c8dc38-ed64-4403-a176-63e2581c6061 (wrangler 4.100.0),
+  --message "runtime-check: only auto-correct on precise TMDB episode-level runtime;
+  nominal show-average fallback no longer overwrites (Ted Lasso S4 30-min bug)". Ships
+  the tmdb.ts `{minutes,precise}` change + catalog.ts runtime-check precise-only guard
+  from the 2026-08-12 entry (previously "NOT deployed"). No schema change, no migration.
+- **Pages:** not redeployed — change is Worker-only.
