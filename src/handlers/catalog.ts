@@ -82,6 +82,11 @@ async function materializeTitle(env: Env, source: string, ref: string, titleId: 
       poster: (show.image && (show.image.original || show.image.medium)) || null,
       platform: (show.webChannel && show.webChannel.name) || (show.network && show.network.name) || '',
       total_episodes: eps.length, summary: cleanSummary(show.summary), premiered: show.premiered || null, updated_at: now };
+    // NOTE: a title is materialized ONCE, so episodes not yet aired at ingest carry
+    // whatever TVmaze had then — commonly runtime:null (and placeholder "Episode N"
+    // names). Those don't self-heal; they need a per-episode backfill from TVmaze once
+    // the episode airs. See BACKEND.md (Ted Lasso S4 runtime fix, 2026-08-14): E1-E3
+    // were backfilled by hand; a scheduled cloud routine backfills E4/E5 as they air.
     epInputs = eps.map((e: any) => ({ season: e.season, number: e.number, name: e.name || '',
       runtime: e.runtime || null, airdate: e.airdate || null, summary: cleanSummary(e.summary) }));
   }
@@ -275,11 +280,16 @@ catalogRoutes.post('/runtime-check', async (c) => {
       ext = { imdb: s?.externals?.imdb || null, tvdb: s?.externals?.thetvdb != null ? String(s.externals.thetvdb) : null };
     }
   } catch { /* fail soft — TMDB lookup just won't resolve */ }
-  const tmdbRt = await fetchTmdbTvRuntime(c.env, ext, season, number);
+  const tmdb = await fetchTmdbTvRuntime(c.env, ext, season, number);
+  const tmdbRt = tmdb?.minutes ?? null;
 
   // TMDB "confirms" the member when it lands closer to the logged time than the stored
-  // value did, and differs from stored by a meaningful margin (≥3 min).
-  const tmdbCloser = tmdbRt != null && Math.abs(tmdbRt - watched) < storedGap && Math.abs(tmdbRt - stored) >= 3;
+  // value did, and differs from stored by a meaningful margin (≥3 min). Only a PRECISE
+  // episode-level runtime may auto-correct: the show-wide nominal fallback (e.g. Ted
+  // Lasso's marketed 30 min) can sit numerically "closer" to a short live watch than a
+  // too-long slot did, and would overshoot the true length — so we never overwrite from it.
+  const tmdbCloser = tmdb != null && tmdb.precise &&
+    Math.abs(tmdb.minutes - watched) < storedGap && Math.abs(tmdb.minutes - stored) >= 3;
 
   let corrected = false;
   if (tmdbCloser && tmdbRt != null) {
@@ -301,7 +311,9 @@ catalogRoutes.post('/runtime-check', async (c) => {
     const note = corrected
       ? `Runtime auto-corrected via TMDB (${episodeId}): "${title.name}" S${season}E${number} — TVmaze had ${stored} min, member logged ~${w} min, TMDB says ${tmdbRt} min. Episode runtime updated to ${tmdbRt}. Review whether the rest of the title needs the same fix.`
       : `Runtime mismatch (${episodeId}): "${title.name}" S${season}E${number} — TVmaze ${stored} min vs member-logged ~${w} min` +
-        (tmdbRt != null ? `; TMDB ${tmdbRt} min (not closer — no auto-correction).` : `; TMDB lookup failed.`) + ' Manual review.';
+        (tmdbRt == null ? `; TMDB lookup failed.`
+          : tmdb!.precise ? `; TMDB ${tmdbRt} min (not closer — no auto-correction).`
+          : `; TMDB has no per-episode runtime yet — only the show's nominal ${tmdbRt} min slot (ignored, would overshoot).`) + ' Manual review.';
     c.executionCtx.waitUntil(fileSystemBug(c.env, note, 'episodes · runtime-check', email).catch((e) => console.warn('runtime bug file failed:', String(e).substring(0, 200))));
   }
 
