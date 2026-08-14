@@ -1220,3 +1220,24 @@ Entry format:
   the tmdb.ts `{minutes,precise}` change + catalog.ts runtime-check precise-only guard
   from the 2026-08-12 entry (previously "NOT deployed"). No schema change, no migration.
 - **Pages:** not redeployed — change is Worker-only.
+
+## 2026-08-14 (later still) — public waitlist form at join.pangolinrc.com
+
+- **Migration (APPLIED, remote pangolin-rc):** `0029_waitlist_fields.sql` widens the
+  `waitlist` table (was `email, created_at` from 0006) with `first_name, last_name,
+  fav_show, buddy_email, source` (all additive `ADD COLUMN`, nullable). email stays PK.
+- **Worker (DEPLOYED, Version a4cda0df-cfdf-4768-ab58-a68ffd04a475):** new
+  `POST /waitlist` (`src/handlers/waitlist.ts`, mounted `/waitlist` in index.ts).
+  Turnstile-gated (reuses the Pierre sitekey `0x4AAAAAADk1FhcGAkmQohVa` +
+  `TURNSTILE_SECRET_KEY`; fails open only while secret unset), validates first/last/
+  valid-email (400), drops malformed buddy email rather than rejecting, upserts on
+  email conflict, mirrors `{email, created_at}` to Airtable `waitlist`. Returns
+  `{status:'waitlist', ok:true}`. Live prod returns 403 to tokenless curl (bot gate
+  working as intended).
+- **New Pages project `pangolinrc-join`** (direct-upload) serves `join/index.html` —
+  a standalone form (First/Last/Email required; Favorite show + TV-buddy email
+  optional) POSTing to the Worker. Custom domain `join.pangolinrc.com` attached (new
+  CNAME → pangolinrc-join.pages.dev; nothing replaced). Separate from the app
+  (`pangolin-rc`) and the splash (`pangolinrc-splash`).
+- **Turnstile:** added `join.pangolinrc.com` to the `pangolin-rc Pierre (Spin)` widget's
+  allowed hostnames (now 4/10) so the invisible widget mints tokens on the join page.

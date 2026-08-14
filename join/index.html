@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Join PangolinRC</title>
+<meta name="description" content="Join the PangolinRC waitlist.">
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onloadTurnstileCallback&render=explicit" async defer></script>
+<style>
+  :root {
+    --teal: #0d5c5c;
+    --teal-dark: #093f3f;
+    --mustard: #c8962c;
+    --cream: #faf6ec;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    min-height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--cream);
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 40px 24px 64px;
+    background: radial-gradient(circle at 50% 12%, var(--teal) 0%, var(--teal-dark) 100%);
+  }
+  .wordmark {
+    font-size: clamp(2rem, 6vw, 3rem);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    margin-bottom: 8px;
+  }
+  .tagline {
+    font-size: clamp(0.95rem, 2.6vw, 1.15rem);
+    color: var(--mustard);
+    font-weight: 500;
+    margin-bottom: 28px;
+    text-align: center;
+    max-width: 440px;
+  }
+  form {
+    width: 100%;
+    max-width: 460px;
+    background: rgba(0,0,0,0.16);
+    border-radius: 16px;
+    padding: 28px 24px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+  }
+  label {
+    display: block;
+    font-size: 0.82rem;
+    font-weight: 600;
+    margin: 16px 0 6px;
+    color: rgba(250,246,236,0.9);
+  }
+  label:first-of-type { margin-top: 0; }
+  .hint { font-weight: 400; color: rgba(250,246,236,0.55); }
+  input[type="text"],
+  input[type="email"] {
+    width: 100%;
+    padding: 12px 14px;
+    border-radius: 9px;
+    border: 1px solid rgba(250,246,236,0.18);
+    background: rgba(250,246,236,0.06);
+    color: var(--cream);
+    font-size: 1rem;
+    outline: none;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+  input::placeholder { color: rgba(250,246,236,0.4); }
+  input:focus {
+    border-color: var(--mustard);
+    background: rgba(250,246,236,0.1);
+  }
+  .row { display: flex; gap: 12px; }
+  .row > div { flex: 1; }
+  .cf { margin-top: 20px; min-height: 0; }
+  button {
+    width: 100%;
+    margin-top: 22px;
+    background: var(--mustard);
+    color: var(--teal-dark);
+    font-weight: 700;
+    font-size: 1rem;
+    padding: 14px;
+    border: 0;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+  }
+  button:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,0.3); }
+  button:disabled { opacity: 0.55; cursor: default; }
+  .msg { margin-top: 16px; font-size: 0.9rem; text-align: center; min-height: 1.2em; }
+  .msg.err { color: #ffcf8f; }
+  .success {
+    text-align: center;
+    max-width: 460px;
+    background: rgba(0,0,0,0.16);
+    border-radius: 16px;
+    padding: 40px 28px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+  }
+  .success h2 { font-size: 1.5rem; margin-bottom: 10px; }
+  .success p { color: rgba(250,246,236,0.8); line-height: 1.5; }
+  .footer { margin-top: 32px; font-size: 0.72rem; color: rgba(250,246,236,0.45); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+  <div class="wordmark">PangolinRC</div>
+  <div class="tagline">Join the waitlist. Private beta, opening slowly.</div>
+
+  <form id="waitlist-form" novalidate>
+    <div class="row">
+      <div>
+        <label for="first">First name</label>
+        <input type="text" id="first" name="first_name" autocomplete="given-name" required>
+      </div>
+      <div>
+        <label for="last">Last name</label>
+        <input type="text" id="last" name="last_name" autocomplete="family-name" required>
+      </div>
+    </div>
+
+    <label for="email">Email</label>
+    <input type="email" id="email" name="email" autocomplete="email" placeholder="you@example.com" required>
+
+    <label for="show">Favorite TV show <span class="hint">(and where you stream it — optional)</span></label>
+    <input type="text" id="show" name="fav_show" placeholder="e.g. Ted Lasso — Apple TV+">
+
+    <label for="buddy">Your TV watching buddy's email <span class="hint">(PangolinRC is better with a friend)</span></label>
+    <input type="email" id="buddy" name="buddy_email" placeholder="a friend to watch alongside">
+
+    <div class="cf" id="ts-widget"></div>
+
+    <button type="submit" id="submit-btn">Join the waitlist</button>
+    <div class="msg" id="msg"></div>
+  </form>
+
+  <div class="success" id="success" hidden>
+    <h2>You're on the list. 🦔</h2>
+    <p>Thanks — we'll be in touch as spots open. Keep an eye on your inbox.</p>
+  </div>
+
+  <div class="footer">&copy; 2026 PangolinRC</div>
+
+<script>
+  const API_BASE = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+    ? '' // local preview: no backend, submit is simulated
+    : 'https://pangolin-rc.edward-m-willett.workers.dev';
+  const IS_LOCAL = API_BASE === '';
+
+  // Reuse the existing PangolinRC Turnstile sitekey (same one the Pierre face uses).
+  const TURNSTILE_SITEKEY = '0x4AAAAAADk1FhcGAkmQohVa';
+  let tsWidgetId = null, tsToken = '';
+
+  // Only render Turnstile in production (the sitekey isn't provisioned for localhost).
+  window.onloadTurnstileCallback = function () {
+    if (IS_LOCAL || !window.turnstile) return;
+    tsWidgetId = turnstile.render('#ts-widget', {
+      sitekey: TURNSTILE_SITEKEY,
+      theme: 'dark',
+      callback: t => { tsToken = t; },
+      'error-callback': () => { tsToken = ''; },
+      'expired-callback': () => { tsToken = ''; },
+    });
+  };
+  // api.js may load before this script; try to render on DOM ready too.
+  document.addEventListener('DOMContentLoaded', () => {
+    if (!IS_LOCAL && window.turnstile && tsWidgetId === null) window.onloadTurnstileCallback();
+  });
+
+  const form = document.getElementById('waitlist-form');
+  const msg = document.getElementById('msg');
+  const btn = document.getElementById('submit-btn');
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    msg.className = 'msg';
+    msg.textContent = '';
+
+    const data = Object.fromEntries(new FormData(form).entries());
+    if (!data.first_name || !data.last_name || !data.email) {
+      msg.className = 'msg err';
+      msg.textContent = 'First name, last name, and email are required.';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Joining…';
+
+    try {
+      if (IS_LOCAL) {
+        await new Promise(r => setTimeout(r, 500)); // simulate the round-trip locally
+      } else {
+        const res = await fetch(API_BASE + '/waitlist', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...data, turnstileToken: tsToken }),
+        });
+        if (!res.ok) throw new Error('bad status ' + res.status);
+      }
+      form.hidden = true;
+      document.getElementById('success').hidden = false;
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = 'Join the waitlist';
+      if (tsWidgetId !== null && window.turnstile) { tsToken = ''; turnstile.reset(tsWidgetId); }
+      msg.className = 'msg err';
+      msg.textContent = "Something went wrong — please try again, or email waitlist@pangolinrc.com.";
+    }
+  });
+</script>
+</body>
+</html>
