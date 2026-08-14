@@ -380,13 +380,21 @@ export async function fetchTmdbMovie(env: Env, id: string) {
 // but its per-episode runtime is sometimes a rounded slot (e.g. "Ghosts" at 30 when
 // episodes run ~22). Given a TVmaze show's external ids we resolve the matching TMDB
 // tv id (via /find), then read the episode-level runtime — falling back to the show's
-// episode_run_time average. Returns minutes, or null on any miss (fail-soft, no throw).
+// episode_run_time average.
+//
+// The two signals are NOT interchangeable. `precise` is a specific episode's runtime
+// and is safe to auto-correct a stored value with. The fallback is the show's single
+// nominal slot (`episode_run_time`) — a "global" number that lies badly for shows whose
+// episodes drift from the marketed length (Ted Lasso is a nominal 30-min comedy whose
+// later episodes run 42–60). For a just-aired season TMDB has no per-episode runtime
+// yet, so only the misleading nominal survives — callers must treat it as a weak hint,
+// never as authority to overwrite. Returns `{ minutes, precise }`, or null on any miss.
 export async function fetchTmdbTvRuntime(
   env: Env,
   ext: { imdb?: string | null; tvdb?: string | null },
   season: number,
   number: number,
-): Promise<number | null> {
+): Promise<{ minutes: number; precise: boolean } | null> {
   if (!env.TMDB_API_KEY) return null;
   // 1) Map an external id → TMDB tv id. IMDB first (most reliable), then TheTVDB.
   const find = async (id: string, source: string): Promise<number | null> => {
@@ -409,19 +417,20 @@ export async function fetchTmdbTvRuntime(
       const res = await tmdbFetch(env, `/tv/${tvId}/season/${season}/episode/${number}`);
       if (res.ok) {
         const e = (await res.json()) as { runtime?: number };
-        if (typeof e.runtime === 'number' && e.runtime > 0) return e.runtime;
+        if (typeof e.runtime === 'number' && e.runtime > 0) return { minutes: e.runtime, precise: true };
       }
     } catch { /* fall through to the show average */ }
   }
 
   // 3) Fallback: the show's typical episode runtime. Multiple values can be listed
-  //    (specials etc.); the smallest is the regular-episode length most often.
+  //    (specials etc.); the smallest is the regular-episode length most often. This is
+  //    a nominal show-wide slot, flagged `precise: false` — a hint only, never authority.
   try {
     const res = await tmdbFetch(env, `/tv/${tvId}`);
     if (res.ok) {
       const s = (await res.json()) as { episode_run_time?: number[] };
       const rts = (s.episode_run_time || []).filter((n) => typeof n === 'number' && n > 0);
-      if (rts.length) return Math.min(...rts);
+      if (rts.length) return { minutes: Math.min(...rts), precise: false };
     }
   } catch { /* nothing more to try */ }
   return null;
