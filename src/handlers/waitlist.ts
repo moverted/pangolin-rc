@@ -23,6 +23,39 @@ async function verifyTurnstile(secret: string, token: string, ip?: string): Prom
   }
 }
 
+// Notify the team of a new signup via SendGrid v3 (domain is SendGrid-authenticated
+// on pangolinrc.com). Best-effort: no-ops until SENDGRID_API_KEY is set, and never
+// throws into the request path (called via waitUntil). reply_to is the signup's own
+// address, so hitting Reply in the inbox writes straight back to the new person.
+async function notifySignup(env: Env, s: { email: string; first_name: string; last_name: string; fav_show: string | null; buddy_email: string | null }): Promise<void> {
+  if (!env.SENDGRID_API_KEY) return;
+  const to = (env.WAITLIST_NOTIFY_TO || 'waitlist@pangolinrc.com').trim();
+  const from = (env.WAITLIST_NOTIFY_FROM || 'waitlist@pangolinrc.com').trim();
+  const name = `${s.first_name} ${s.last_name}`.trim();
+  const lines = [
+    `New PangolinRC waitlist signup:`,
+    ``,
+    `Name:   ${name}`,
+    `Email:  ${s.email}`,
+    `Show:   ${s.fav_show || '—'}`,
+    `Buddy:  ${s.buddy_email || '—'}`,
+    ``,
+    `Source: join.pangolinrc.com`,
+  ];
+  const r = await fetch('https://api.sendgrid.com/v3/mail/send', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${env.SENDGRID_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      personalizations: [{ to: [{ email: to }] }],
+      from: { email: from, name: 'PangolinRC Waitlist' },
+      reply_to: { email: s.email, name: name || undefined },
+      subject: `New waitlist signup: ${name || s.email}`,
+      content: [{ type: 'text/plain', value: lines.join('\n') }],
+    }),
+  });
+  if (!r.ok) throw new Error(`sendgrid ${r.status}: ${await r.text().catch(() => '')}`.slice(0, 300));
+}
+
 // Public waitlist signup from join.pangolinrc.com. No auth (SEAM:identity) — the
 // Turnstile gate is the only bot defense. email is the PK, so a re-submit updates
 // the captured details rather than erroring.
@@ -65,6 +98,12 @@ waitlistRoutes.post('/', async (c) => {
   // Fire-and-forget mirror to Airtable (email is the only mapped column today).
   c.executionCtx.waitUntil(
     pushRow(c.env, 'waitlist', { email, created_at: now }).catch((e: unknown) => console.error('airtable waitlist mirror', e))
+  );
+
+  // Fire-and-forget signup notification email (SendGrid). Best-effort; never blocks
+  // or fails the signup.
+  c.executionCtx.waitUntil(
+    notifySignup(c.env, { email, first_name, last_name, fav_show, buddy_email }).catch((e: unknown) => console.error('sendgrid signup notify', e))
   );
 
   return c.json({ status: 'waitlist', ok: true });

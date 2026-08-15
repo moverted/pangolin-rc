@@ -99,4 +99,7 @@ export interface Env {
   BUG_EMAIL?:     SendEmail;  // Email Routing send binding — bug-report notifications (best-effort)
   BUG_NOTIFY_TO?: string;     // var — recipient for bug emails (default edward.m.willett@gmail.com)
   BUG_FROM?:      string;     // var — from address on pangolinrc.com (default bugs@pangolinrc.com)
+  SENDGRID_API_KEY?: string;  // secret — enables the waitlist-signup notification email (optional until set)
+  WAITLIST_NOTIFY_TO?: string;   // var — recipient for signup notifications (default waitlist@pangolinrc.com)
+  WAITLIST_NOTIFY_FROM?: string; // var — from address, must be on the SendGrid-authenticated pangolinrc.com domain (default waitlist@pangolinrc.com)
 }

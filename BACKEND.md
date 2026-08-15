@@ -1241,3 +1241,17 @@ Entry format:
   (`pangolin-rc`) and the splash (`pangolinrc-splash`).
 - **Turnstile:** added `join.pangolinrc.com` to the `pangolin-rc Pierre (Spin)` widget's
   allowed hostnames (now 4/10) so the invisible widget mints tokens on the join page.
+
+## 2026-08-14 (later) — SendGrid signup-notification email
+
+- **Worker (DEPLOYED, Version 0173e1f3-1f74-43b2-9b01-54149a541d73):** `/waitlist`
+  (`src/handlers/waitlist.ts`) now fires a best-effort SendGrid v3 email on each
+  signup via `notifySignup()` — `c.executionCtx.waitUntil`, never blocks/fails the
+  signup. To `WAITLIST_NOTIFY_TO` (default `waitlist@pangolinrc.com`), from
+  `WAITLIST_NOTIFY_FROM` (default `waitlist@pangolinrc.com`, on the SendGrid-
+  authenticated domain), `reply_to` = the signup's own email. **No-ops until the
+  secret `SENDGRID_API_KEY` is set** (fails open, like the Turnstile gate).
+- **Env (`src/types.ts`):** added `SENDGRID_API_KEY?` (secret), `WAITLIST_NOTIFY_TO?`,
+  `WAITLIST_NOTIFY_FROM?` (vars).
+- **Manual step outstanding:** set `SENDGRID_API_KEY` (Mail Send scope) as a Worker
+  secret — not yet configured at time of this deploy.
