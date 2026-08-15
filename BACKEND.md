@@ -1255,3 +1255,22 @@ Entry format:
   `WAITLIST_NOTIFY_FROM?` (vars).
 - **Manual step outstanding:** set `SENDGRID_API_KEY` (Mail Send scope) as a Worker
   secret — not yet configured at time of this deploy.
+
+## 2026-08-14 (later) — waitlist admin page (users.pangolinrc.com)
+
+- **Migration (APPLIED, remote pangolin-rc):** `0030_waitlist_status.sql` — additive
+  `ALTER TABLE waitlist ADD COLUMN status TEXT NOT NULL DEFAULT 'new'`. Existing rows → 'new'.
+- **Worker (DEPLOYED, Version 41bc4636-23d8-4592-baa6-debf49a318db):** two new
+  password-gated routes in `src/handlers/waitlist.ts` — `GET /waitlist/admin/list`
+  and `POST /waitlist/admin/status` ({email,status}). Shared-password gate
+  (`adminGate`, constant-time compare) against secret `USERS_ADMIN_PASSWORD`.
+  **Fail-CLOSED: 503 until the secret is set**, 401 on wrong/no password. Status
+  values validated against new|invited|active|declined. Verified live: both routes
+  503 while the secret is unset.
+- **New Pages project `pangolinrc-users`** serves `users/index.html` (password gate →
+  waitlist table → per-row status dropdown; `noindex`). Custom domain
+  `users.pangolinrc.com` attached (new CNAME → pangolinrc-users.pages.dev; nothing
+  replaced). API base = the Worker on workers.dev; CORS is `*`.
+- **Env (`src/types.ts`):** added `USERS_ADMIN_PASSWORD?` (secret).
+- **Manual step outstanding:** set `USERS_ADMIN_PASSWORD` as a Worker secret — until
+  then the page shows "Admin isn't configured yet" and the endpoints return 503.

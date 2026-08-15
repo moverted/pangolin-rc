@@ -108,3 +108,58 @@ waitlistRoutes.post('/', async (c) => {
 
   return c.json({ status: 'waitlist', ok: true });
 });
+
+// ─── Admin (users.pangolinrc.com) ───────────────────────────────────────────
+// Shared-password gate for the waitlist admin page. Fail-CLOSED: if the secret
+// is unset, admin routes deny everything (unlike the signup bot-gate, which
+// fails open). Password arrives as `Authorization: Bearer <password>`.
+const WAITLIST_STATUSES = ['new', 'invited', 'active', 'declined'] as const;
+type WaitlistStatus = (typeof WAITLIST_STATUSES)[number];
+
+// Length-independent constant-time-ish compare, to avoid leaking the password
+// length/prefix via timing.
+function safeEqual(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const ba = enc.encode(a), bb = enc.encode(b);
+  if (ba.length !== bb.length) return false;
+  let diff = 0;
+  for (let i = 0; i < ba.length; i++) diff |= ba[i]! ^ bb[i]!;
+  return diff === 0;
+}
+
+// Returns null when authorized, or a Response to short-circuit with.
+function adminGate(c: any): Response | null {
+  const secret = c.env.USERS_ADMIN_PASSWORD;
+  if (!secret) return c.json({ error: 'admin not configured' }, 503);
+  const auth = c.req.header('Authorization') || '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  if (!token || !safeEqual(token, secret)) return c.json({ error: 'unauthorized' }, 401);
+  return null;
+}
+
+// GET /waitlist/admin/list — full list for the admin page.
+waitlistRoutes.get('/admin/list', async (c) => {
+  const denied = adminGate(c);
+  if (denied) return denied;
+  const { results } = await c.env.DB.prepare(
+    `SELECT email, first_name, last_name, fav_show, buddy_email, source, status, created_at
+       FROM waitlist ORDER BY created_at DESC`
+  ).all();
+  return c.json({ ok: true, statuses: WAITLIST_STATUSES, entries: results ?? [] });
+});
+
+// POST /waitlist/admin/status — { email, status } -> update one row's status.
+waitlistRoutes.post('/admin/status', async (c) => {
+  const denied = adminGate(c);
+  if (denied) return denied;
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const email = str(body.email, 200).toLowerCase();
+  const status = str(body.status, 40);
+  if (!email) return c.json({ error: 'email required' }, 400);
+  if (!WAITLIST_STATUSES.includes(status as WaitlistStatus))
+    return c.json({ error: 'invalid status', allowed: WAITLIST_STATUSES }, 400);
+  const res = await c.env.DB.prepare('UPDATE waitlist SET status = ? WHERE email = ?').bind(status, email).run();
+  if (!res.meta.changes) return c.json({ error: 'not found' }, 404);
+  return c.json({ ok: true, email, status });
+});
