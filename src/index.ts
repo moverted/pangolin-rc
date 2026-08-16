@@ -13,6 +13,7 @@ import { captionRoutes }    from './handlers/captions';
 import { pierreRoutes }     from './handlers/pierre';
 import { profileRoutes }    from './handlers/profile';
 import { waitlistRoutes }   from './handlers/waitlist';
+import { adminRoutes }      from './handlers/admin';
 import { streamerRoutes }   from './handlers/streamer';
 import { tmdbRoutes }       from './handlers/tmdb';
 import { schedulerRoutes }  from './handlers/scheduler';
@@ -294,6 +295,38 @@ app.get('/transcribe/audio/:id', async (c) => {
   if (!object) return c.json({ error: 'audio not in storage' }, 404);
   headers.set('Content-Length', String(total));
   return new Response(object.body, { headers });
+});
+
+// Log a completed EXTERNAL share of a comment/reflection clip. Fire-and-forget from
+// the shell's share bridge after the native Share sheet resolves; never on the app's
+// critical path. Best-effort moderation trail — see migration 0031. Auth follows the
+// same SEAM:identity posture as /transcribe (no gate): the share already happened on
+// the device; we're just recording it. user_email is derived from the comment, not
+// trusted from the client. Unknown commentId → 404 (nothing to anchor the share to).
+app.post('/transcribe/share', async (c) => {
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const commentId = (typeof body.commentId === 'string' ? body.commentId : '').trim();
+  if (!commentId) return c.json({ error: 'commentId required' }, 400);
+
+  const clip = await c.env.DB.prepare('SELECT user_email FROM watch_comment WHERE id = ?')
+    .bind(commentId).first<{ user_email: string | null }>();
+  if (!clip) return c.json({ error: 'unknown comment' }, 404);
+
+  const pick = (v: unknown, allowed: readonly string[], fallback: string) =>
+    (typeof v === 'string' && allowed.includes(v)) ? v : fallback;
+  const platform = pick(body.platform, ['instagram', 'photos', 'messages', 'whatsapp', 'other', 'unknown'], 'unknown');
+  const method   = pick(body.method,   ['reel', 'story', 'file'], 'file');
+  const activityType = (typeof body.activityType === 'string' ? body.activityType : '').slice(0, 200);
+
+  const id = crypto.randomUUID();
+  const now = Date.now();
+  await c.env.DB.prepare(
+    `INSERT INTO comment_share (id, comment_id, user_email, platform, method, activity_type, shared_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).bind(id, commentId, clip.user_email, platform, method, activityType || null, now).run();
+
+  return c.json({ ok: true, id, shared_at: now });
 });
 
 // One-time transcription fix. The author corrects Whisper's text once; after
@@ -1191,6 +1224,7 @@ app.route('/captions',    captionRoutes);
 app.route('/pierre',      pierreRoutes);
 app.route('/profile',     profileRoutes);
 app.route('/waitlist',     waitlistRoutes);
+app.route('/admin',        adminRoutes);
 app.route('/streamer',    streamerRoutes);
 app.route('/tmdb',        tmdbRoutes);
 app.route('/catalog',     catalogRoutes);

@@ -1921,12 +1921,44 @@ export function getActiveDoc() {
           // files ONLY (no text) → Instagram/Stories gets the media, never treats it as a link
           // ("Can't send link"). The result tells the face what the sheet did (e.g. Save to Photos).
           const res = await Cap.Plugins.Share.share({ files: [uri] });
-          try { if (source) source.postMessage({ type: 'pg:shareDone', activityType: (res && res.activityType) || '' }, '*'); } catch (_) {}
+          const activityType = (res && res.activityType) || '';
+          try { if (source) source.postMessage({ type: 'pg:shareDone', activityType }, '*'); } catch (_) {}
+          // Best-effort moderation trail: log that THIS comment clip left the app, where
+          // (from the iOS activityType) and how (from the file kind). Only comment/reflection
+          // clips carry __pgReflectCommentId; other shares (tickets, chat) are skipped.
+          try { logCommentShare(name, activityType); } catch (_) {}
         }
       }
       // No web navigator.share() fallback on purpose: in WKWebView it shares the file as a
       // blob: URL (Instagram → "Can't send link"). On native we share via the Share plugin only.
     } catch (e) { /* cancelled or unsupported */ }
+  }
+  // Map the iOS UIActivity type (the target the user actually picked in the share
+  // sheet) to a coarse platform, and the file name to a clip method. Both best-effort:
+  // an empty activityType (rare on completion) falls back to 'unknown'.
+  function logCommentShare(name, activityType) {
+    const commentId = window.__pgReflectCommentId;
+    if (!commentId) return;   // only comment/reflection clips are tracked
+    const at = String(activityType || '').toLowerCase();
+    const platform =
+        at.includes('instagram')                   ? 'instagram'
+      : (at.includes('cameraroll') || at.includes('saveto')) ? 'photos'
+      : (at.includes('message') || at.includes('imessage'))  ? 'messages'
+      : at.includes('whatsapp')                    ? 'whatsapp'
+      : at                                         ? 'other'
+      :                                              'unknown';
+    const n = String(name || '').toLowerCase();
+    const method = /\.(mp4|mov|webm|m4v)$/.test(n) ? 'reel'
+                 : /\.(png|jpe?g|gif)$/.test(n)    ? 'story'
+                 :                                   'file';
+    try {
+      fetch(`${API}/transcribe/share`, {
+        method: 'POST', mode: 'cors', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ commentId, platform, method, activityType: activityType || '' }),
+      }).catch(() => {});
+    } catch (_) {}
+    // One logged share per reflect-id, so a later unrelated share can't be misattributed.
+    try { window.__pgReflectCommentId = null; } catch (_) {}
   }
   window.addEventListener('message', (e) => {
     if (e.data && e.data.type === 'pg:shareFile') {

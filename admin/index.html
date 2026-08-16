@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PangolinRC — Admin</title>
+<meta name="robots" content="noindex, nofollow">
+<style>
+  :root {
+    --teal: #0d5c5c;
+    --teal-dark: #093f3f;
+    --mustard: #c8962c;
+    --cream: #faf6ec;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    min-height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--cream);
+    background: radial-gradient(circle at 50% 0%, var(--teal) 0%, var(--teal-dark) 100%);
+  }
+  body { min-height: 100vh; }
+  a { color: var(--mustard); }
+  h1 { font-size: 1.4rem; font-weight: 800; letter-spacing: -0.02em; }
+  .sub { color: var(--mustard); font-size: 0.85rem; }
+
+  /* Password gate */
+  .gate {
+    max-width: 360px; margin: 8vh auto 0;
+    background: rgba(0,0,0,0.18); border-radius: 16px; padding: 28px 24px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.25); text-align: center;
+  }
+  .gate h1 { margin-bottom: 4px; }
+  .gate .sub { margin-bottom: 22px; }
+  .gate label { display: block; font-size: 0.82rem; font-weight: 600; margin-bottom: 8px; text-align: left; }
+  input[type="password"], input[type="search"], select {
+    width: 100%; padding: 11px 13px; border-radius: 9px;
+    border: 1px solid rgba(250,246,236,0.18); background: rgba(250,246,236,0.06);
+    color: var(--cream); font-size: 0.95rem; outline: none;
+  }
+  input:focus, select:focus { border-color: var(--mustard); }
+  button {
+    background: var(--mustard); color: var(--teal-dark); font-weight: 700; font-size: 0.9rem;
+    padding: 10px 18px; border: 0; border-radius: 999px; cursor: pointer;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.2);
+  }
+  button.ghost { background: rgba(250,246,236,0.1); color: var(--cream); box-shadow: none; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .gate button { margin-top: 16px; }
+  .msg { margin-top: 14px; font-size: 0.85rem; min-height: 1.1em; }
+  .msg.err { color: #ffcf8f; }
+
+  /* App layout */
+  .app { display: grid; grid-template-columns: 210px 1fr; min-height: 100vh; }
+  .side { background: rgba(0,0,0,0.22); padding: 22px 14px; border-right: 1px solid rgba(250,246,236,0.08); }
+  .side h1 { font-size: 1.1rem; margin-bottom: 2px; }
+  .side .sub { margin-bottom: 20px; }
+  .navgroup { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(250,246,236,0.45); margin: 16px 0 6px; }
+  .navitem {
+    display: block; width: 100%; text-align: left; padding: 8px 10px; border-radius: 8px;
+    background: transparent; color: var(--cream); box-shadow: none; font-weight: 500;
+    font-size: 0.9rem; cursor: pointer; margin-bottom: 2px;
+  }
+  .navitem:hover { background: rgba(250,246,236,0.06); }
+  .navitem.active { background: var(--mustard); color: var(--teal-dark); font-weight: 700; }
+  .navitem { display: flex; align-items: center; justify-content: space-between; }
+  .navbadge { background: #d9534f; color: #fff; font-size: 0.7rem; font-weight: 700; border-radius: 999px; padding: 1px 7px; margin-left: 8px; }
+  .navitem.active .navbadge { background: var(--teal-dark); color: var(--cream); }
+
+  main { padding: 26px 28px 60px; min-width: 0; }
+  .head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 4px; }
+  .note { font-size: 0.82rem; color: rgba(250,246,236,0.6); margin: 8px 0 16px; max-width: 820px; line-height: 1.45; }
+  .controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+  .controls input[type="search"] { width: 240px; }
+  .controls select { width: auto; min-width: 130px; }
+  .controls .spacer { flex: 1; }
+  .count { font-size: 0.85rem; color: rgba(250,246,236,0.75); white-space: nowrap; }
+
+  .tablecard { background: rgba(0,0,0,0.18); border-radius: 14px; padding: 6px; overflow-x: auto; box-shadow: 0 8px 24px rgba(0,0,0,0.25); }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th, td { text-align: left; padding: 10px 12px; white-space: nowrap; vertical-align: top; }
+  th { color: rgba(250,246,236,0.6); font-weight: 600; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid rgba(250,246,236,0.12); cursor: pointer; user-select: none; }
+  th.nosort { cursor: default; }
+  th .arrow { color: var(--mustard); }
+  tbody tr { border-bottom: 1px solid rgba(250,246,236,0.07); }
+  tbody tr:last-child { border-bottom: 0; }
+  td.wrapcell { white-space: normal; max-width: 320px; }
+  .muted { color: rgba(250,246,236,0.4); }
+  td img.shot { max-height: 44px; border-radius: 5px; display: block; }
+  audio.cmt-audio { height: 34px; width: 220px; }
+
+  .pager { display: flex; align-items: center; gap: 12px; margin-top: 14px; font-size: 0.85rem; }
+  .pager button { padding: 7px 14px; font-size: 0.82rem; }
+  .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 0.78rem; background: rgba(250,246,236,0.1); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+
+  <!-- Password gate -->
+  <div class="gate" id="gate">
+    <h1>PangolinRC Admin</h1>
+    <div class="sub">admin.pangolinrc.com</div>
+    <label for="pw">Password</label>
+    <input type="password" id="pw" autocomplete="current-password" autofocus>
+    <div><button id="unlock">Unlock</button></div>
+    <div class="msg" id="gatemsg"></div>
+  </div>
+
+  <!-- App -->
+  <div class="app" id="app" hidden>
+    <nav class="side">
+      <h1>Admin</h1>
+      <div class="sub">PangolinRC</div>
+      <div id="nav"></div>
+    </nav>
+    <main>
+      <div class="head">
+        <h1 id="title"></h1>
+        <div class="count" id="count"></div>
+      </div>
+      <div class="note" id="note" hidden></div>
+      <div class="controls" id="controls"></div>
+      <div class="tablecard"><table><thead id="thead"></thead><tbody id="tbody"></tbody></table></div>
+      <div class="pager" id="pager" hidden>
+        <button class="ghost" id="prev">‹ Prev</button>
+        <span id="range"></span>
+        <button class="ghost" id="next">Next ›</button>
+      </div>
+    </main>
+  </div>
+
+<script>
+  const API_BASE = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+    ? 'http://localhost:8788' : 'https://pangolin-rc.edward-m-willett.workers.dev';
+  const LIMIT = 100;
+
+  let PW = sessionStorage.getItem('admin_pw') || '';
+  let META = null;            // { resources: [...] }
+  let cur = null;             // current resource meta
+  const state = { q: '', filters: {}, sort: null, dir: 'desc', offset: 0, pivot: '' };
+
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => (s == null ? '' : String(s)).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  const fmtDate = (ms) => { const n = Number(ms); if (!n) return ''; try { return new Date(n).toISOString().slice(0,16).replace('T',' '); } catch { return ''; } };
+  const isUrl = (v) => typeof v === 'string' && /^https?:\/\//.test(v);
+
+  async function api(path) {
+    const res = await fetch(API_BASE + path, { headers: { 'Authorization': 'Bearer ' + PW } });
+    if (res.status === 401) throw { code: 401 };
+    if (res.status === 503) throw { code: 503 };
+    if (!res.ok) throw { code: res.status };
+    return res.json();
+  }
+
+  // ── Gate ──────────────────────────────────────────────────────────────────
+  async function unlock() {
+    const btn = $('unlock'), gatemsg = $('gatemsg');
+    PW = $('pw').value;
+    if (!PW) { gatemsg.className = 'msg err'; gatemsg.textContent = 'Enter the password.'; return; }
+    btn.disabled = true; gatemsg.className = 'msg'; gatemsg.textContent = 'Checking…';
+    try {
+      META = await api('/admin/meta');
+      sessionStorage.setItem('admin_pw', PW);
+      $('gate').hidden = true; $('app').hidden = false;
+      buildNav();
+      select(META.resources[0].key);
+    } catch (err) {
+      sessionStorage.removeItem('admin_pw');
+      gatemsg.className = 'msg err';
+      gatemsg.textContent = err.code === 401 ? 'Wrong password.'
+        : err.code === 503 ? 'Admin isn’t configured yet (USERS_ADMIN_PASSWORD not set).'
+        : 'Could not load (' + (err.code || 'network') + ').';
+    } finally { btn.disabled = false; }
+  }
+
+  // ── Nav ───────────────────────────────────────────────────────────────────
+  function buildNav() {
+    const nav = $('nav');
+    const groups = { core: 'Core', secondary: 'Secondary' };
+    nav.innerHTML = Object.entries(groups).map(([g, label]) => {
+      const items = META.resources.filter(r => r.group === g);
+      if (!items.length) return '';
+      return `<div class="navgroup">${label}</div>` + items.map(r =>
+        `<button class="navitem" data-key="${r.key}"><span>${esc(r.label)}</span>${r.badge ? `<span class="navbadge">${esc(r.badge)}</span>` : ''}</button>`).join('');
+    }).join('');
+    nav.querySelectorAll('.navitem').forEach(b => b.addEventListener('click', () => select(b.dataset.key)));
+  }
+
+  function select(key) {
+    cur = META.resources.find(r => r.key === key);
+    state.q = ''; state.filters = {}; state.sort = cur.sortDefault; state.dir = 'desc'; state.offset = 0; state.pivot = '';
+    document.querySelectorAll('.navitem').forEach(b => b.classList.toggle('active', b.dataset.key === key));
+    $('title').textContent = cur.label;
+    $('note').hidden = !cur.note;
+    $('note').textContent = cur.note || '';
+    buildControls();
+    load();
+  }
+
+  // ── Controls (search / filters / pivot) ─────────────────────────────────────
+  function buildControls() {
+    const c = $('controls');
+    let html = '';
+    if (cur.search) html += `<input type="search" id="q" placeholder="Search…" value="${esc(state.q)}">`;
+    for (const f of cur.filters) {
+      html += `<select data-filter="${f.key}"><option value="">${esc(f.label)}: all</option></select>`;
+    }
+    if (cur.pivots.length) {
+      html += `<select id="pivot"><option value="">Table view</option>` +
+        cur.pivots.map(p => `<option value="${p.key}">◧ ${esc(p.label)}</option>`).join('') + `</select>`;
+    }
+    html += `<span class="spacer"></span><button class="ghost" id="refresh">Refresh</button>`;
+    c.innerHTML = html;
+
+    if (cur.search) {
+      const q = $('q');
+      let t; q.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { state.q = q.value.trim(); state.offset = 0; load(); }, 250); });
+    }
+    for (const f of cur.filters) {
+      const sel = c.querySelector(`select[data-filter="${f.key}"]`);
+      // Options come from the resource meta when provided; otherwise the endpoint
+      // still filters, we just can't prefill choices — leave as "all".
+      (f.options || []).forEach(o => { const el = document.createElement('option'); el.value = o; el.textContent = `${f.label}: ${o}`; sel.appendChild(el); });
+      if (!f.options) sel.disabled = true, sel.title = 'Type a value in search to filter; preset options not defined for this column.';
+      sel.addEventListener('change', () => { if (sel.value) state.filters[f.key] = sel.value; else delete state.filters[f.key]; state.offset = 0; load(); });
+    }
+    const pv = $('pivot');
+    if (pv) pv.addEventListener('change', () => { state.pivot = pv.value; state.offset = 0; load(); });
+    $('refresh').addEventListener('click', load);
+  }
+
+  function queryString() {
+    const p = new URLSearchParams();
+    if (state.q) p.set('q', state.q);
+    for (const [k, v] of Object.entries(state.filters)) p.set('f_' + k, v);
+    return p;
+  }
+
+  // ── Load + render ───────────────────────────────────────────────────────────
+  async function load() {
+    try {
+      if (state.pivot) return renderPivot(await api(`/admin/pivot/${cur.key}/${state.pivot}?` + queryString().toString()));
+      const p = queryString();
+      p.set('sort', state.sort); p.set('dir', state.dir);
+      p.set('limit', LIMIT); p.set('offset', state.offset);
+      renderTable(await api(`/admin/list/${cur.key}?` + p.toString()));
+    } catch (err) {
+      if (err.code === 401 || err.code === 503) { $('app').hidden = true; $('gate').hidden = false; return; }
+      $('count').textContent = 'Error ' + (err.code || 'network');
+    }
+  }
+
+  const PILL_COLS = ['mutual', 'done', 'kind', 'spoiler', 'shared'];
+  function cell(col, val) {
+    // Audio: empty string means "no audio for this row"; a value is the comment id.
+    if (col.key === 'audio') return (val == null || val === '') ? '<span class="muted">—</span>'
+      : `<audio class="cmt-audio" controls preload="none" src="${API_BASE}/transcribe/audio/${encodeURIComponent(val)}"></audio>`;
+    if (col.key === 'timecode') { const s = Math.max(0, Math.floor(Number(val) / 1000)); return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`; }
+    if (val == null || val === '') return '<span class="muted">—</span>';
+    if (col.date) return esc(fmtDate(val));
+    if (col.key === 'screenshot_url' && isUrl(val)) return `<a href="${esc(val)}" target="_blank" rel="noopener"><img class="shot" src="${esc(val)}" alt="shot"></a>`;
+    if (isUrl(val)) return `<a href="${esc(val)}" target="_blank" rel="noopener">link ↗</a>`;
+    if (val === '—') return '<span class="muted">—</span>';
+    if (PILL_COLS.includes(col.key)) return `<span class="pill">${esc(val)}</span>`;
+    const wrap = ['note', 'name', 'episode_name', 'show_name', 'transcription'].includes(col.key);
+    return wrap ? `<span>${esc(val)}</span>` : esc(val);
+  }
+
+  function renderTable(data) {
+    $('pager').hidden = false;
+    const cols = cur.columns;
+    $('thead').innerHTML = '<tr>' + cols.map(col => {
+      const active = state.sort === col.key;
+      const arrow = active ? ` <span class="arrow">${state.dir === 'asc' ? '▲' : '▼'}</span>` : '';
+      return `<th data-key="${col.key}">${esc(col.label)}${arrow}</th>`;
+    }).join('') + '</tr>';
+    $('thead').querySelectorAll('th').forEach(th => th.addEventListener('click', () => {
+      const k = th.dataset.key;
+      if (state.sort === k) state.dir = state.dir === 'asc' ? 'desc' : 'asc';
+      else { state.sort = k; state.dir = 'desc'; }
+      state.offset = 0; load();
+    }));
+    $('tbody').innerHTML = data.rows.map(row => '<tr>' + cols.map(col => {
+      const wrap = ['note','name','episode_name','show_name','transcription'].includes(col.key);
+      return `<td class="${wrap ? 'wrapcell' : ''}">${cell(col, row[col.key])}</td>`;
+    }).join('') + '</tr>').join('') || `<tr><td colspan="${cols.length}" class="muted" style="padding:22px">No rows.</td></tr>`;
+
+    $('count').textContent = `${data.total.toLocaleString()} row${data.total === 1 ? '' : 's'}`;
+    const from = data.total ? state.offset + 1 : 0;
+    const to = Math.min(state.offset + LIMIT, data.total);
+    $('range').textContent = `${from}–${to} of ${data.total.toLocaleString()}`;
+    $('prev').disabled = state.offset === 0;
+    $('next').disabled = to >= data.total;
+  }
+
+  function renderPivot(data) {
+    $('pager').hidden = true;
+    const cols = data.columns;
+    $('thead').innerHTML = '<tr>' + cols.map(col => `<th class="nosort">${esc(col.label)}</th>`).join('') + '</tr>';
+    $('tbody').innerHTML = data.rows.map(row => '<tr>' + cols.map(col => {
+      const v = row[col.key];
+      return `<td>${v == null || v === '' ? '<span class="muted">—</span>' : esc(v)}</td>`;
+    }).join('') + '</tr>').join('') || `<tr><td colspan="${cols.length}" class="muted" style="padding:22px">No data.</td></tr>`;
+    $('count').textContent = `${data.rows.length} group${data.rows.length === 1 ? '' : 's'}`;
+  }
+
+  $('prev').addEventListener('click', () => { state.offset = Math.max(0, state.offset - LIMIT); load(); });
+  $('next').addEventListener('click', () => { state.offset += LIMIT; load(); });
+
+  $('unlock').addEventListener('click', unlock);
+  $('pw').addEventListener('keydown', e => { if (e.key === 'Enter') unlock(); });
+  if (PW) unlock();
+</script>
+</body>
+</html>

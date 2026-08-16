@@ -4,6 +4,92 @@ Append-only log. Any session that touches the Worker, D1, or deploy
 configuration adds an entry here before the session ends (see CLAUDE.md,
 "Backend and deploy rules").
 
+## 2026-08-16 — Admin portal (admin.pangolinrc.com): read-only /admin/* API
+- **New Worker handler `src/handlers/admin.ts`**, mounted `app.route('/admin', adminRoutes)`
+  in `src/index.ts`. Read-only operational admin surface over prod D1 (`DB`), replacing
+  the Airtable window per `admin-portal-build-brief.md`. **No new secret** — reuses the
+  same shared password as users.pangolinrc.com (secret `USERS_ADMIN_PASSWORD`, sent as
+  `Authorization: Bearer <pw>`, fail-CLOSED: 503 until set, 401 on wrong pw). Same
+  `safeEqual` constant-time compare as `waitlist.ts` (self-contained copy; waitlist
+  handler left untouched).
+- **Routes:** `GET /admin/meta` (registry → drives the generic frontend nav/columns/
+  filters/pivots), `GET /admin/list/:resource?q=&f_<key>=&sort=&dir=&limit=&offset=`
+  (paginated rows, LIMIT capped 500), `GET /admin/pivot/:resource/:dim?q=&f_<key>=`
+  (group-by counts, respects current search/filter). All SQL is author-controlled via a
+  `RESOURCES` registry; only q/filter values/sort-dir/paging come from the request and are
+  bound params or validated against the registry (no SQL injection surface).
+- **Resources (real prod tables only):** Core — `users` (device/connection counts +
+  signup-cohort/timezone/has-devices/has-connections pivots), `devices`, `watch_title`
+  (LEFT JOIN titles for show name), `watch_episode` (LEFT JOIN episodes+titles;
+  completion-rate/drop-off pivot), `follows` (mutual-follow detection — the real analog of
+  the brief's not-yet-built unified "connections" model). Secondary — `waitlist`,
+  `bug_report` (inline screenshot), `titles`, `episodes` (read-only reference).
+- **Deferred vs brief:** the brief's unified `connections` table and the net-new
+  `comments` moderation queue don't exist in the schema yet, so they're out of this first
+  cut (documented in the page `note` fields). No new tables, no writes — the only mutating
+  admin route in the Worker remains `POST /waitlist/admin/status`.
+- **Frontend:** static `admin/index.html` (own Pages project `pangolinrc-admin`, mirrors
+  the `pangolinrc-users` pattern; `noindex`). Calls the main Worker at
+  `pangolin-rc.edward-m-willett.workers.dev`.
+- **Validation:** `tsc --noEmit` clean; all list+pivot queries syntax-checked against the
+  real schema in a local SQLite mirror (no prod PII pulled).
+- **DEPLOYED 2026-08-16:** Worker `wrangler deploy` (version 723adf03); verified gate live
+  (`/admin/meta` → 401 with no/bad password, so `USERS_ADMIN_PASSWORD` is set). Frontend
+  Pages project `pangolinrc-admin` created + deployed (`https://pangolinrc-admin.pages.dev`,
+  gate renders). Custom domain `admin.pangolinrc.com` registered on the Pages project (API)
+  and the `admin` → `pangolinrc-admin.pages.dev` proxied CNAME added to the pangolinrc.com
+  zone via the dashboard (browser, Google SSO — the CLI token has no DNS scope). Domain
+  went `active` ~2 min after the CNAME; verified `https://admin.pangolinrc.com` serves the
+  portal with a valid cert (HTTP 200, tls verified).
+
+## 2026-08-16 — Comment-clip external share capture (Worker ve8c58e12, migration 0031)
+- **New table `comment_share`** (migration `0031_comment_share.sql`, applied to remote
+  `pangolin-rc`): one row per COMPLETED native share of a comment/reflection clip —
+  `comment_id`, `user_email` (server-derived from the comment), `platform`, `method`,
+  `activity_type` (raw iOS UIActivity id = source of truth), `shared_at`.
+- **New endpoint `POST /transcribe/share`** (src/index.ts): `{ commentId, platform?, method?,
+  activityType? }` → validates commentId against `watch_comment`, derives `user_email` from
+  the comment (not trusted from client), whitelists platform/method, inserts. Fire-and-forget
+  from the client; no gate (same SEAM:identity posture as `/transcribe` — the share already
+  happened on-device, we're only recording it). 400 missing id / 404 unknown comment / 200 +
+  id on success (all verified live).
+- **Client capture (`public/cube_shell.js`)**: `logCommentShare()` inside the share bridge
+  fires AFTER `Cap.Plugins.Share.share()` resolves, using the returned `activityType` for the
+  real target (instagram/photos/messages/whatsapp/other) and the file extension for method
+  (mp4→reel, png/jpg→story, else file). Anchored on `window.__pgReflectCommentId` (set at
+  reflection-comment creation) and cleared after, so only comment/reflection clips are logged
+  and a later unrelated share can't be misattributed. Best-effort, never blocks the share.
+  NATIVE-ONLY (Capacitor Share) — no capture on web/PWA.
+- **Admin Comments page** gains `shares` (count), `share_dest` (latest platform·method),
+  `last_shared` (date) subquery columns + a `shared_platform` pivot (external shares by
+  platform, honoring the current filter). Frontend needed no change (generic renderer).
+- **Deploys:** Worker `wrangler deploy`; web `pangolin-rc` Pages (`public/`); www mirror +
+  `npx cap copy ios` (marker `logCommentShare` verified in `ios/App/App/public/cube_shell.js`).
+  **iOS pending Ted:** Xcode opened — Clean Build Folder + Archive + Distribute (uncheck
+  Xcode auto-version) to get capture onto TestFlight. `comment_share` stays empty until a
+  device build shares a clip. `tsc --noEmit` clean; SQL validated in the local mirror.
+
+## 2026-08-16 — Admin portal: Comments page + waitlist badge (Worker v4ebd67db)
+- **`watch_comment` resource** added to `src/handlers/admin.ts` (read-only). Derived `kind`
+  (episode / reflection / endnote / reply from `reply_to`/`is_endnote`/`is_reflection`),
+  `spoiler` (SPLR/NOSP, only for reflections+endnotes), `shared` (reflection published to
+  co-view feed vs journaled, from `private`). Joins `titles` on `show_id` only —
+  `episode_id` is the human code (S01E01 / 🎬), NOT `episodes.episode_id`, so episodes is
+  intentionally NOT joined. Filters: kind / spoiler / shared. Pivots: kind, reaction volume
+  by show, spoiler.
+- **Inline audio moderation:** the `audio` column returns the comment id when
+  `audio_r2_key` is set; the frontend renders `<audio controls>` against the EXISTING
+  public `GET /transcribe/audio/:id` R2 streamer (range-enabled) — no new audio route.
+- **Nav badges:** `GET /admin/meta` now also returns a per-resource `badge`; currently the
+  count of `waitlist` rows with `status='new'` (red pill in the nav).
+- **Not built — external share logging:** Instagram/reel/share-timestamp is NOT captured
+  anywhere in the schema (the `shares` table is in-app title recs, not clip shares), and the
+  native/OS share sheet doesn't report the chosen app/method, so where/how-shared is not
+  automatically knowable. Deferred; would need a new capture path (client-logged
+  share-initiated events → new table) and even then only a timestamp is reliable.
+- `tsc --noEmit` clean; list/pivot/badge queries validated against the full `watch_comment`
+  schema in the local SQLite mirror. Both deploys done (Worker + `pangolinrc-admin` Pages).
+
 ## 2026-08-07 — Two more frontend Pages deploys (no Worker/D1/config change)
 - **Tickets `+ Stubs` + stub self-heal** (`cube_browse_face.html`, `cube_log_face.html`).
   Pages deploy `6855137d`, message: "Tickets: rename tab badge to '+ Stubs'; self-heal
@@ -1274,3 +1360,31 @@ Entry format:
 - **Env (`src/types.ts`):** added `USERS_ADMIN_PASSWORD?` (secret).
 - **Manual step outstanding:** set `USERS_ADMIN_PASSWORD` as a Worker secret — until
   then the page shows "Admin isn't configured yet" and the endpoints return 503.
+
+## 2026-08-15 — Pierre chat: native app secret bypasses Turnstile
+
+- **Why:** Turnstile can't run inside the iOS Capacitor WKWebview, so every
+  native `/pierre/chat` send arrived with an empty token and 403'd at the bot
+  gate ("The signal dropped" in Pierre's chat). Web (`remote.pangolinrc.com`,
+  an allowlisted https host) was unaffected.
+- **Worker (DEPLOYED, Version 4a1e5c00-80ed-418b-a25a-d64e0108ad59):**
+  `src/handlers/pierre.ts` bot gate now accepts a valid `appToken` (constant-time
+  `safeEqual` vs `APP_NATIVE_SECRET`) as an alternative to a Turnstile token.
+  Web still must clear Turnstile; native clears via the app secret. Fails the
+  same closed 403 on a bad/missing token.
+- **Env (`src/types.ts`):** added `APP_NATIVE_SECRET?` (secret).
+- **Secret SET:** `APP_NATIVE_SECRET` uploaded via `wrangler secret put`.
+  Must equal the value baked into the native app (see below).
+- **Verified live:** valid appToken → 200 `{"reply":"CONNECTED"}`; wrong appToken
+  + no Turnstile → 403.
+- **Client (`public/cube_pierre_face.html`):** on native (Capacitor
+  `isNativePlatform()`), fetches the secret from the `AppAuth` plugin and sends
+  it as `appToken`, skipping Turnstile; web path unchanged. Mirrored to `www/`
+  and `cap copy`'d into the iOS bundle (byte-identical).
+- **Native (`ios/App/App/WebosLanPlugin.swift`):** appended an `AppAuthPlugin`
+  (jsName `AppAuth`, method `token()`) returning the shared secret. Lives in the
+  compiled binary only — deliberately NOT in the web bundle, which is served
+  publicly. Same file as WebosLan so no project.pbxproj change; Capacitor
+  auto-discovers it. **Rotate = change this constant AND the Worker secret together.**
+- **Web (Pages):** `cube_pierre_face.html` change is a behavioral no-op on web
+  (still Turnstile); deployed to keep public/ and live in sync.
