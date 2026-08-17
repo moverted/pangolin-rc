@@ -42,6 +42,34 @@ configuration adds an entry here before the session ends (see CLAUDE.md,
   went `active` ~2 min after the CNAME; verified `https://admin.pangolinrc.com` serves the
   portal with a valid cert (HTTP 200, tls verified).
 
+## 2026-08-16 — Moderation round 2: flag record, Pierre porn filter, Episode Feed (Worker v5bd7093c, migrations 0033–0034)
+- **Un-hid** comment `7f874f98` (was toggled hidden during panel testing).
+- **Flag glyph moved** onto the comment bubble (FEED `noteBlock`, top-right of `.c-note`)
+  instead of by the like; still tappable on spoiler notes without revealing them (the
+  #feed delegation returns before the spoiler-reveal branch).
+- **`comment_flag` is now a real flagged-object record (migration 0033: +`source`).**
+  source ∈ member | admin | auto. The admin Hide checkbox now also writes a
+  source='admin' record; the Comments **Reports** count is member-only; new **Flagged by**
+  column shows who marked it + source.
+- **Pierre porn-request filter (scope: Pierre requests; Llama Guard; fail-open).**
+  `flagIfExplicitRequest()` in `pierre.ts` runs each user turn through Workers AI
+  `@cf/meta/llama-guard-3-8b` via `executionCtx.waitUntil` (never adds latency). If unsafe
+  for a sexual category (S12 / S3 / S4), inserts a `flagged_request` row (migration 0034:
+  id, user_email, category, excerpt, created_at). Fail-open: any classifier/DB error is
+  swallowed, chat unaffected. Pierre still declines in-chat via his system prompt. New admin
+  **Flagged Requests** resource (secondary) lists them. Verified live: benign turn → no row;
+  a literal "find me porn" request → S12 row + Pierre still 200 (test row deleted).
+  NOTE: there is NO comment-content porn scan — scope was Pierre-only by choice.
+- **Episode Feed (serialized "All comments").** New admin core resource `episode_comments`:
+  one row per episode with visible comments, `all_comments` = every comment concatenated in
+  play order — "hh:mm text" for timed comments, "SPLR text"/"NOSP text" for reflections
+  (is_reflection/is_endnote), reflections sorted last, hidden comments excluded. Built as a
+  grouped derived-table `from` (GROUP_CONCAT over an ordered subquery) so it rides the generic
+  list handler. Comments "At" column + these leading marks are hh:mm. Verified live: 120 episodes.
+- **Deploys:** Worker + admin `pangolinrc-admin` Pages + app `pangolin-rc` Pages (flag move).
+  Migrations 0033/0034 applied remote. `tsc` clean; all SQL validated in the local mirror.
+  Not yet committed at time of writing.
+
 ## 2026-08-16 — Comment moderation: member reports + admin hide (Worker vea76fa7b, migration 0032)
 - **Account promoted:** `UPDATE users SET user_type='admin' WHERE email='edward.m.willett@gmail.com'`
   run on remote (was `elite_pro`; prod had ZERO admins so all admin surfaces were dark).

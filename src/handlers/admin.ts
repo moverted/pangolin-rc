@@ -82,6 +82,30 @@ const SHARED_EXPR = `CASE
     THEN CASE WHEN watch_comment.private = 1 THEN 'journaled' ELSE 'shared' END
   ELSE '—' END`;
 
+// Serialized "All comments" feeder: one row per episode that has visible comments,
+// with every comment concatenated in order — "mm:ss text" for timed comments, "SPLR
+// text" for spoilers (matching the LOG/feed rendering). Hidden comments are excluded.
+// The inner ORDER BY runs before GROUP_CONCAT so the lines come out in play order.
+const EPISODE_COMMENTS_FROM = `(
+  SELECT wc.show_id AS show_id, wc.episode_id AS episode_id,
+         COUNT(*) AS comments, MAX(wc.created_at) AS last_at,
+         (SELECT GROUP_CONCAT(line, char(10)) FROM (
+            SELECT CASE
+                     WHEN w2.is_reflection = 1 OR w2.is_endnote = 1
+                       THEN CASE WHEN w2.spoiler = 1 THEN 'SPLR ' ELSE 'NOSP ' END
+                     ELSE printf('%02d:%02d ', w2.timestamp_ms/3600000, (w2.timestamp_ms/60000)%60)
+                   END || COALESCE(w2.transcription, '') AS line
+              FROM watch_comment w2
+             WHERE w2.show_id = wc.show_id AND w2.episode_id = wc.episode_id
+               AND COALESCE(w2.hidden, 0) = 0 AND COALESCE(w2.transcription, '') <> ''
+             ORDER BY (CASE WHEN w2.is_reflection = 1 OR w2.is_endnote = 1 THEN 1 ELSE 0 END) ASC,
+                      w2.timestamp_ms ASC, w2.created_at ASC
+         )) AS all_comments
+    FROM watch_comment wc
+   WHERE COALESCE(wc.hidden, 0) = 0 AND COALESCE(wc.transcription, '') <> ''
+   GROUP BY wc.show_id, wc.episode_id
+) AS ec LEFT JOIN titles ON titles.title_id = ec.show_id`;
+
 // Simple GROUP BY bucket → count pivot.
 function countPivot(label: string, groupExpr: string, bucketLabel = 'Value'): Pivot {
   return {
@@ -230,7 +254,8 @@ const RESOURCES: Record<string, Resource> = {
     idExpr: 'watch_comment.id',
     cols: [
       { key: 'hidden',     label: 'Hide',    expr: 'watch_comment.hidden' },
-      { key: 'flags',      label: 'Reports', expr: '(SELECT COUNT(*) FROM comment_flag cf WHERE cf.comment_id = watch_comment.id)' },
+      { key: 'flags',      label: 'Reports', expr: "(SELECT COUNT(*) FROM comment_flag cf WHERE cf.comment_id = watch_comment.id AND COALESCE(cf.source,'member') = 'member')" },
+      { key: 'flaggers',   label: 'Flagged by', expr: "(SELECT GROUP_CONCAT(cf.user_email || CASE WHEN COALESCE(cf.source,'member') <> 'member' THEN ' (' || cf.source || ')' ELSE '' END, ', ') FROM comment_flag cf WHERE cf.comment_id = watch_comment.id)" },
       { key: 'kind',       label: 'Kind',    expr: KIND_EXPR },
       { key: 'user_email', label: 'User',    expr: 'watch_comment.user_email' },
       { key: 'show_name',  label: 'Show',    expr: 'COALESCE(titles.name, watch_comment.show_id)' },
@@ -250,7 +275,7 @@ const RESOURCES: Record<string, Resource> = {
       { key: 'kind',     label: 'Kind',     expr: KIND_EXPR,    options: ['episode', 'reflection', 'endnote', 'reply'] },
       { key: 'spoiler',  label: 'Spoiler',  expr: SPOILER_EXPR, options: ['SPLR', 'NOSP', '—'] },
       { key: 'shared',   label: 'Shared',   expr: SHARED_EXPR,  options: ['shared', 'journaled', '—'] },
-      { key: 'reported', label: 'Reported', expr: "CASE WHEN (SELECT COUNT(*) FROM comment_flag cf WHERE cf.comment_id=watch_comment.id)>0 THEN 'yes' ELSE 'no' END", options: ['yes', 'no'] },
+      { key: 'reported', label: 'Reported', expr: "CASE WHEN (SELECT COUNT(*) FROM comment_flag cf WHERE cf.comment_id=watch_comment.id AND COALESCE(cf.source,'member')='member')>0 THEN 'yes' ELSE 'no' END", options: ['yes', 'no'] },
       { key: 'hidden',   label: 'Hidden',   expr: "CASE WHEN watch_comment.hidden=1 THEN 'yes' ELSE 'no' END", options: ['yes', 'no'] },
     ],
     sortDefault: 'created_at',
@@ -273,6 +298,22 @@ const RESOURCES: Record<string, Resource> = {
              GROUP BY bucket ORDER BY n DESC`,
       },
     },
+  },
+
+  episode_comments: {
+    label: 'Episode Feed',
+    group: 'core',
+    from: EPISODE_COMMENTS_FROM,
+    cols: [
+      { key: 'show_name',    label: 'Show',         expr: 'COALESCE(titles.name, ec.show_id)' },
+      { key: 'episode_id',   label: 'Episode',      expr: 'ec.episode_id' },
+      { key: 'comments',     label: '#',            expr: 'ec.comments' },
+      { key: 'all_comments', label: 'All comments', expr: 'ec.all_comments' },
+      { key: 'last_at',      label: 'Last',         expr: 'ec.last_at' },
+    ],
+    searchExprs: ['titles.name', 'ec.episode_id', 'ec.all_comments'],
+    sortDefault: 'last_at',
+    note: 'Serialized feeder: every episode with visible comments, all of them concatenated in play order — "mm:ss text" for timed comments, "SPLR text" for spoilers. Hidden comments are excluded. Read-only.',
   },
 
   waitlist: {
@@ -311,6 +352,22 @@ const RESOURCES: Record<string, Resource> = {
     searchExprs: ['bug_report.user_email', 'bug_report.note', 'bug_report.view'],
     filters: [{ key: 'status', label: 'Status', expr: 'bug_report.status' }],
     sortDefault: 'created_at',
+  },
+
+  flagged_request: {
+    label: 'Flagged Requests',
+    group: 'secondary',
+    from: 'flagged_request',
+    cols: [
+      { key: 'user_email', label: 'User',     expr: 'flagged_request.user_email' },
+      { key: 'category',   label: 'Category',  expr: 'flagged_request.category' },
+      { key: 'excerpt',    label: 'Message',   expr: 'flagged_request.excerpt' },
+      { key: 'created_at', label: 'When',      expr: 'flagged_request.created_at' },
+    ],
+    searchExprs: ['flagged_request.user_email', 'flagged_request.excerpt'],
+    filters: [{ key: 'category', label: 'Category', expr: 'flagged_request.category', options: ['S12', 'S3', 'S4'] }],
+    sortDefault: 'created_at',
+    note: 'Pierre porn/explicit requests auto-flagged by Llama Guard (S12 sexual content; S3/S4 sexual crimes). Pierre declines these in-chat — this is the trail of who asked. Fail-open: a classifier error records nothing.',
   },
 
   titles: {
@@ -353,7 +410,7 @@ const RESOURCES: Record<string, Resource> = {
 };
 
 // Columns that hold a ms-epoch timestamp, so the frontend renders them as dates.
-const DATE_KEYS = new Set(['created_at', 'updated_at', 'started_at', 'last_shared']);
+const DATE_KEYS = new Set(['created_at', 'updated_at', 'started_at', 'last_shared', 'last_at']);
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
 
@@ -478,5 +535,12 @@ adminRoutes.post('/comments/hide', async (c) => {
   if (!id) return c.json({ error: 'id required' }, 400);
   const res = await c.env.DB.prepare('UPDATE watch_comment SET hidden = ? WHERE id = ?').bind(hidden, id).run();
   if (!res.meta.changes) return c.json({ error: 'not found' }, 404);
+  // Hiding creates a record in the flagged-comment object (source='admin') so the
+  // review trail shows an admin marked it, distinct from member reports.
+  if (hidden) {
+    await c.env.DB.prepare(
+      "INSERT INTO comment_flag (comment_id, user_email, created_at, source) VALUES (?, 'admin', ?, 'admin') ON CONFLICT(comment_id, user_email) DO NOTHING"
+    ).bind(id, Date.now()).run();
+  }
   return c.json({ ok: true, id, hidden });
 });

@@ -109,6 +109,11 @@
   .c-flag .ico{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2}
   .c-flag.flagged{color:#d9534f} .c-flag.flagged .ico{fill:currentColor;stroke:none}
   .c-flag:active{transform:scale(.85)}
+  /* Flag glyph sits on the comment bubble (top-right of the note header). */
+  .c-note .nhead{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+  .c-note .c-flag{width:22px;height:22px;opacity:.6}
+  .c-note .c-flag .ico{width:15px;height:15px}
+  .c-note .c-flag.flagged{opacity:1}
 
   /* the blurry note box */
   .c-bottom{margin:0 10px 10px;padding:7px 8px;display:flex;gap:8px;align-items:flex-start;border-radius:11px;
@@ -270,8 +275,13 @@ function noteBlock(it){
   // you're now watching — so we stamp which episode it's from to remove the ambiguity.
   const epLabel = (it.endnoteEp && it.endnoteEp !== '🎬') ? ` · ${_esc(it.endnoteEp)}` : '';
   const tag = (it.endnoteSpoiler ? '⚠ spoiler — tap to reveal' : 'episode note') + epLabel;
+  // Report glyph lives ON the comment now (top-right of the bubble) — turns red once
+  // reported, stays red across reloads. Reports THIS comment (the endnote).
+  const flag = it.endnoteId
+    ? `<button class="c-flag${_isFlagged(it.endnoteId) ? ' flagged' : ''}" data-cid="${_esc(it.endnoteId)}" aria-label="Report comment for review" title="Report for review">${ICON.flag}</button>`
+    : '';
   return `<div class="c-note${it.endnoteSpoiler ? ' spoiler' : ''}" data-eplabel="${_esc(epLabel)}">
-      <div class="body"><div class="tag">${tag}</div><div class="q">“${_esc(it.endnote)}”</div></div>
+      <div class="body"><div class="nhead"><div class="tag">${tag}</div>${flag}</div><div class="q">“${_esc(it.endnote)}”</div></div>
       ${btn}
     </div>`;
 }
@@ -320,12 +330,7 @@ function renderFoot(it, sel){
     : '';
   const likeCls = 'c-like' + (it.liked ? ' liked' : '') + (watch ? '' : ' solo');
   const likeCt = it.likeCt > 0 ? `<span class="c-like-n">${it.likeCt}</span>` : '';
-  // Report the shown comment (the endnote) for review — a flag glyph next to the like
-  // that stays red once reported. Only when this card actually carries a comment.
-  const flag = se.endnoteId
-    ? `<button class="c-flag${_isFlagged(se.endnoteId) ? ' flagged' : ''}" data-cid="${_esc(se.endnoteId)}" aria-label="Report comment for review" title="Report for review">${ICON.flag}</button>`
-    : '';
-  const actions = `<div class="c-actions">${left}${stepper}${watch}<button class="${likeCls}" data-key="${_esc(it.key)}" data-subject="${_esc(it.actorEmail)}" data-title="${_esc(it.id)}" data-kind="${_esc(it.kind)}" aria-label="Like">${ICON.heart}</button>${likeCt}${flag}</div>`;
+  const actions = `<div class="c-actions">${left}${stepper}${watch}<button class="${likeCls}" data-key="${_esc(it.key)}" data-subject="${_esc(it.actorEmail)}" data-title="${_esc(it.id)}" data-kind="${_esc(it.kind)}" aria-label="Like">${ICON.heart}</button>${likeCt}</div>`;
   const note = se.endnote ? `<div class="c-bottom">${noteBlock(se)}</div>` : '';
   return actions + note;
 }

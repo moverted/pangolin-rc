@@ -325,6 +325,16 @@ async function runTool(env: Env, name: string, input: any): Promise<string> {
   }
 }
 
+// Constant-time string compare for the native app secret, so a wrong token
+// can't be teased apart byte-by-byte via response timing. (Length still leaks,
+// which is fine for a fixed-length random secret.)
+function safeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
 // Cloudflare Turnstile bot check. Browser → this Worker → siteverify, never
 // the browser directly. Each token is single-use.
 async function verifyTurnstile(secret: string, token: string, ip?: string): Promise<boolean> {
@@ -344,11 +354,40 @@ async function verifyTurnstile(secret: string, token: string, ip?: string): Prom
   }
 }
 
+// Llama Guard categories that count as "asking for porn": S12 Sexual Content, plus the
+// sexual-crime categories S3 (sex-related crimes) and S4 (child sexual exploitation),
+// which must always be flagged. Non-sexual "unsafe" verdicts (violence, hate, etc.) are
+// out of scope here and deliberately ignored.
+const SEXUAL_CATEGORIES = new Set(['S3', 'S4', 'S12']);
+
+// Run one user message through Workers AI Llama Guard 3. If it's classified unsafe for a
+// sexual category, insert a flagged_request record. Best-effort + fail-open: any error
+// (AI unavailable, DB hiccup) is swallowed so Pierre's reply is never affected.
+async function flagIfExplicitRequest(env: Env, email: string, text: string): Promise<void> {
+  try {
+    if (!(env as any).AI) return;
+    const out = (await (env as any).AI.run('@cf/meta/llama-guard-3-8b', {
+      messages: [{ role: 'user', content: text.slice(0, 4000) }],
+    })) as { response?: string };
+    // Llama Guard returns "safe" or "unsafe\n<S-codes>" (e.g. "unsafe\nS12").
+    const raw = (out?.response || '').trim();
+    if (!/^unsafe/i.test(raw)) return;
+    const cats = (raw.split(/\s+/).join(',').match(/S\d+/gi) || []).map((s) => s.toUpperCase());
+    const hit = cats.find((cat) => SEXUAL_CATEGORIES.has(cat));
+    if (!hit) return;
+    await env.DB.prepare(
+      'INSERT INTO flagged_request (id, user_email, category, excerpt, created_at) VALUES (?, ?, ?, ?, ?)'
+    ).bind(crypto.randomUUID(), email || null, hit, text.slice(0, 500), Date.now()).run();
+  } catch (e) {
+    console.error('pierre flagIfExplicitRequest', e);
+  }
+}
+
 export const pierreRoutes = new Hono<{ Bindings: Env }>();
 
 // Frontend (cube_pierre_face.html) → POST /pierre/chat  { messages: [{role, content}] }
 pierreRoutes.post('/chat', async (c) => {
-  let body: { messages?: unknown; token?: unknown; email?: unknown; mode?: unknown; context?: unknown };
+  let body: { messages?: unknown; token?: unknown; appToken?: unknown; email?: unknown; mode?: unknown; context?: unknown };
   try {
     body = await c.req.json();
   } catch {
@@ -358,11 +397,20 @@ pierreRoutes.post('/chat', async (c) => {
   // Bot gate first: once Turnstile is configured, reject anything without a
   // valid token before doing any other work. Fails open only while unconfigured
   // (i.e. before the secret is set), so the chat keeps working during rollout.
+  //
+  // Native path: the iOS app can't run Turnstile inside its WKWebview, so it
+  // sends a shared app secret instead. A valid appToken satisfies the gate on
+  // its own; everything else (the web) still has to clear Turnstile.
   if (c.env.TURNSTILE_SECRET_KEY) {
-    const token = typeof body.token === 'string' ? body.token : '';
-    const ip = c.req.header('CF-Connecting-IP') || undefined;
-    if (!token || !(await verifyTurnstile(c.env.TURNSTILE_SECRET_KEY, token, ip)))
-      return c.json({ error: 'failed bot check' }, 403);
+    const appToken = typeof body.appToken === 'string' ? body.appToken : '';
+    const nativeOk =
+      !!c.env.APP_NATIVE_SECRET && appToken.length > 0 && safeEqual(appToken, c.env.APP_NATIVE_SECRET);
+    if (!nativeOk) {
+      const token = typeof body.token === 'string' ? body.token : '';
+      const ip = c.req.header('CF-Connecting-IP') || undefined;
+      if (!token || !(await verifyTurnstile(c.env.TURNSTILE_SECRET_KEY, token, ip)))
+        return c.json({ error: 'failed bot check' }, 403);
+    }
   }
 
   if (!c.env.ANTHROPIC_API_KEY) return c.json({ error: 'Pierre is not configured' }, 503);
@@ -397,6 +445,13 @@ pierreRoutes.post('/chat', async (c) => {
       ? body.email.trim().toLowerCase().slice(0, 120)
       : '';
   const taste = email ? await tasteBlock(c.env, email) : SEED_TASTE;
+
+  // Moderation trail: if this turn is a request for porn/explicit content, log it to
+  // the flagged-request object for admin review. Pierre still declines in-chat via his
+  // system prompt; this only RECORDS who asked. Fire-and-forget (never adds latency to
+  // the reply) and fail-open (a classifier error writes nothing, never blocks the chat).
+  const lastUser = [...clean].reverse().find((m) => m.role === 'user')?.content || '';
+  if (lastUser) c.executionCtx.waitUntil(flagIfExplicitRequest(c.env, email, lastUser));
 
   // Reflection mode: the after-episode moment on the Log face. Pierre catches
   // the viewer's fresh reaction, short and warm, two exchanges max, then either

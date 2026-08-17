@@ -94,6 +94,7 @@
   .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 0.78rem; background: rgba(250,246,236,0.1); }
   .pill.flag { background: #d9534f; color: #fff; font-weight: 700; }
   input.hide-chk { width: 17px; height: 17px; accent-color: #d9534f; cursor: pointer; }
+  .serial { display: block; white-space: pre-wrap; max-width: 560px; font-size: 0.8rem; line-height: 1.5; color: rgba(250,246,236,0.9); }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -283,14 +284,16 @@
     // Audio: empty string means "no audio for this row"; a value is the comment id.
     if (col.key === 'audio') return (val == null || val === '') ? '<span class="muted">—</span>'
       : `<audio class="cmt-audio" controls preload="none" src="${API_BASE}/transcribe/audio/${encodeURIComponent(val)}"></audio>`;
-    if (col.key === 'timecode') { const s = Math.max(0, Math.floor(Number(val) / 1000)); return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`; }
+    if (col.key === 'timecode') { const min = Math.max(0, Math.floor(Number(val) / 60000)); return `${String(Math.floor(min/60)).padStart(2,'0')}:${String(min%60).padStart(2,'0')}`; }
+    // Serialized "All comments" feed: preserve the line breaks between comments.
+    if (col.key === 'all_comments') return (val == null || val === '') ? '<span class="muted">—</span>' : `<span class="serial">${esc(val)}</span>`;
     if (val == null || val === '') return '<span class="muted">—</span>';
     if (col.date) return esc(fmtDate(val));
     if (col.key === 'screenshot_url' && isUrl(val)) return `<a href="${esc(val)}" target="_blank" rel="noopener"><img class="shot" src="${esc(val)}" alt="shot"></a>`;
     if (isUrl(val)) return `<a href="${esc(val)}" target="_blank" rel="noopener">link ↗</a>`;
     if (val === '—') return '<span class="muted">—</span>';
     if (PILL_COLS.includes(col.key)) return `<span class="pill">${esc(val)}</span>`;
-    const wrap = ['note', 'name', 'episode_name', 'show_name', 'transcription'].includes(col.key);
+    const wrap = ['note', 'name', 'episode_name', 'show_name', 'transcription', 'excerpt', 'flaggers', 'all_comments'].includes(col.key);
     return wrap ? `<span>${esc(val)}</span>` : esc(val);
   }
 
@@ -309,7 +312,7 @@
       state.offset = 0; load();
     }));
     $('tbody').innerHTML = data.rows.map(row => `<tr data-id="${esc(row._id || '')}">` + cols.map(col => {
-      const wrap = ['note','name','episode_name','show_name','transcription'].includes(col.key);
+      const wrap = ['note','name','episode_name','show_name','transcription','excerpt','flaggers','all_comments'].includes(col.key);
       return `<td class="${wrap ? 'wrapcell' : ''}">${cell(col, row[col.key])}</td>`;
     }).join('') + '</tr>').join('') || `<tr><td colspan="${cols.length}" class="muted" style="padding:22px">No rows.</td></tr>`;
     $('tbody').querySelectorAll('.hide-chk').forEach(chk => chk.addEventListener('change', onHideToggle));
