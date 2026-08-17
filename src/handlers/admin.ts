@@ -44,6 +44,11 @@ function adminGate(c: any): Response | null {
 type Col = { key: string; label: string; expr: string };
 type Filter = { key: string; label: string; expr: string; options?: string[] };
 type Pivot = { label: string; columns: { key: string; label: string }[]; sql: (from: string, where: string) => string };
+// An inline-editable column: the frontend renders a <select> of `options`, and
+// POST /admin/write/:resource runs `UPDATE table SET column = ? WHERE idColumn = ?`.
+// table/column/idColumn are author-controlled literals (never request input); only
+// the bound id + value come from the request, and value is validated against options.
+type Write = { table: string; column: string; idColumn: string; options: readonly string[] };
 
 interface Resource {
   label: string;
@@ -55,8 +60,16 @@ interface Resource {
   filters?: Filter[];         // exact-match dropdown filters
   sortDefault: string;        // a col key
   pivots?: Record<string, Pivot>;
+  writes?: Record<string, Write>; // col key → inline-edit spec
   note?: string;              // shown in the UI (caveats, read-only, etc.)
 }
+
+// Hand-managed waitlist vocab, shared by the columns, filters, and write validation
+// so they can never drift. Empty test_group renders as 'Unassigned' (which is also a
+// selectable value that stores the literal string).
+const WAITLIST_STATUSES = ['new', 'invited', 'active', 'declined'] as const;
+const WAITLIST_GROUPS = ['Unassigned', 'Friends & Family Cohort 1', 'Internal', 'SNW Cohort', 'Tester Cohort 1'] as const;
+const GROUP_EXPR = "COALESCE(NULLIF(waitlist.test_group,''),'Unassigned')";
 
 // Millisecond epoch → local-ish date bucket. All created_at/updated_at are ms.
 const monthOf = (col: string) => `strftime('%Y-%m', ${col}/1000, 'unixepoch')`;
@@ -320,6 +333,7 @@ const RESOURCES: Record<string, Resource> = {
     label: 'Waitlist',
     group: 'secondary',
     from: 'waitlist',
+    idExpr: 'waitlist.email',
     cols: [
       { key: 'email',       label: 'Email',   expr: 'waitlist.email' },
       { key: 'first_name',  label: 'First',   expr: 'waitlist.first_name' },
@@ -327,13 +341,26 @@ const RESOURCES: Record<string, Resource> = {
       { key: 'fav_show',    label: 'Fav show',expr: 'waitlist.fav_show' },
       { key: 'buddy_email', label: 'Buddy',   expr: 'waitlist.buddy_email' },
       { key: 'source',      label: 'Source',  expr: 'waitlist.source' },
+      { key: 'test_group',  label: 'Group',   expr: GROUP_EXPR },
       { key: 'status',      label: 'Status',  expr: 'waitlist.status' },
       { key: 'created_at',  label: 'Joined',  expr: 'waitlist.created_at' },
     ],
     searchExprs: ['waitlist.email', 'waitlist.first_name', 'waitlist.last_name'],
-    filters: [{ key: 'status', label: 'Status', expr: 'waitlist.status', options: ['new', 'invited', 'active', 'declined'] }],
+    filters: [
+      { key: 'status',     label: 'Status', expr: 'waitlist.status', options: [...WAITLIST_STATUSES] },
+      { key: 'test_group', label: 'Group',  expr: GROUP_EXPR,        options: [...WAITLIST_GROUPS] },
+    ],
     sortDefault: 'created_at',
-    note: 'Status is editable at users.pangolinrc.com — this portal is read-only over the same rows.',
+    writes: {
+      status:     { table: 'waitlist', column: 'status',     idColumn: 'email', options: WAITLIST_STATUSES },
+      test_group: { table: 'waitlist', column: 'test_group', idColumn: 'email', options: WAITLIST_GROUPS },
+    },
+    pivots: {
+      status: countPivot('By status', "COALESCE(NULLIF(waitlist.status,''),'—')", 'Status'),
+      group:  countPivot('By group', GROUP_EXPR, 'Group'),
+      cohort: countPivot('Signups by month', monthOf('waitlist.created_at'), 'Month'),
+    },
+    note: 'Status and Group (TestFlight cohort) are editable inline here — pick from the dropdowns to update a row. Group is set by hand when you add someone to a TestFlight group.',
   },
 
   bug_report: {
@@ -430,7 +457,7 @@ adminRoutes.get('/meta', async (c) => {
     group: r.group,
     note: r.note ?? null,
     badge: badges[key] ?? null,
-    columns: r.cols.map((col) => ({ key: col.key, label: col.label, date: DATE_KEYS.has(col.key) })),
+    columns: r.cols.map((col) => ({ key: col.key, label: col.label, date: DATE_KEYS.has(col.key), edit: r.writes?.[col.key] ? [...r.writes[col.key]!.options] : null })),
     search: r.searchExprs.length > 0,
     sortDefault: r.sortDefault,
     filters: (r.filters ?? []).map((f) => ({ key: f.key, label: f.label, options: f.options ?? null })),
@@ -522,6 +549,29 @@ adminRoutes.post('/app-status', async (c) => {
 
   const wl = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM waitlist WHERE status = 'new'").first<{ n: number }>();
   return c.json({ isAdmin: true, waitlistNew: wl?.n ?? 0, adminUrl: 'https://admin.pangolinrc.com' });
+});
+
+// POST /admin/write/:resource — { id, key, value } → inline-edit one column of one
+// row, for columns declared editable in the resource's `writes` map. table/column/
+// idColumn are author-controlled registry literals; id + value are bound params and
+// value must be one of the column's allowed options. Powers the waitlist Status/Group
+// dropdowns (and any future editable column).
+adminRoutes.post('/write/:resource', async (c) => {
+  const denied = adminGate(c); if (denied) return denied;
+  const r = RESOURCES[c.req.param('resource')];
+  if (!r || !r.writes) return c.json({ error: 'resource is not writable' }, 404);
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const key = typeof body.key === 'string' ? body.key : '';
+  const w = r.writes[key];
+  if (!w) return c.json({ error: 'field not writable', writable: Object.keys(r.writes) }, 400);
+  const id = typeof body.id === 'string' ? body.id : '';
+  const value = typeof body.value === 'string' ? body.value : '';
+  if (!id) return c.json({ error: 'id required' }, 400);
+  if (!w.options.includes(value)) return c.json({ error: 'invalid value', allowed: w.options }, 400);
+  const res = await c.env.DB.prepare(`UPDATE ${w.table} SET ${w.column} = ? WHERE ${w.idColumn} = ?`).bind(value, id).run();
+  if (!res.meta.changes) return c.json({ error: 'not found' }, 404);
+  return c.json({ ok: true, id, key, value });
 });
 
 // POST /admin/comments/hide — { id, hidden } → set a comment's moderation hide flag.

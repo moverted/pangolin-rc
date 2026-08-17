@@ -4,6 +4,29 @@ Append-only log. Any session that touches the Worker, D1, or deploy
 configuration adds an entry here before the session ends (see CLAUDE.md,
 "Backend and deploy rules").
 
+## 2026-08-16 — Admin portal: inline-editable waitlist Status + Group (TestFlight cohort)
+- **Migration `0035_waitlist_group.sql`:** `ALTER TABLE waitlist ADD COLUMN test_group TEXT
+  NOT NULL DEFAULT ''` (named `test_group` — `group` is a reserved word). Empty renders as
+  "Unassigned". Values: Unassigned | Friends & Family Cohort 1 | Internal | SNW Cohort |
+  Tester Cohort 1.
+- **`src/handlers/admin.ts`:** the read-only portal gains a *generic* inline-write path. New
+  `Write` type + optional `Resource.writes` map (colKey → `{table,column,idColumn,options}`,
+  all author-controlled literals). New route **`POST /admin/write/:resource` { id, key, value }**
+  — validates the field is in `writes` and value ∈ options, then `UPDATE table SET column=?
+  WHERE idColumn=?` (id+value bound params only; no injection surface). Same fail-closed
+  `USERS_ADMIN_PASSWORD` gate. `GET /admin/meta` now emits `edit: options|null` per column.
+- **`waitlist` resource:** added `test_group` column (Group), `idExpr: waitlist.email`,
+  `writes` for both `status` and `test_group`, a Group filter, and By-group/By-status/
+  signup-month pivots. Status is now editable *here* (its note previously pointed at the now-
+  retired users.pangolinrc.com; both status+group edit inline in this portal).
+- **`admin/index.html`:** `cell()` renders a `<select class="edit-cell">` for any column with
+  `col.edit`; `onEditCell()` POSTs to `/admin/write/:resource`, reverts to `data-prev` on
+  failure, green/amber border flash on save. Reuses the existing `data-id` (`_id`) row wiring.
+- **Validation:** `tsc --noEmit` clean; `0035` applies clean on the local D1 mirror.
+- **DEPLOY (pending):** `npm run db:migrate:remote` → `wrangler deploy` → `npx wrangler pages
+  deploy admin --project-name=pangolinrc-admin --branch=main --commit-dirty=true
+  --commit-message="waitlist status+group inline edit"`.
+
 ## 2026-08-16 — Admin portal (admin.pangolinrc.com): read-only /admin/* API
 - **New Worker handler `src/handlers/admin.ts`**, mounted `app.route('/admin', adminRoutes)`
   in `src/index.ts`. Read-only operational admin surface over prod D1 (`DB`), replacing

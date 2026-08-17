@@ -94,6 +94,9 @@
   .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 0.78rem; background: rgba(250,246,236,0.1); }
   .pill.flag { background: #d9534f; color: #fff; font-weight: 700; }
   input.hide-chk { width: 17px; height: 17px; accent-color: #d9534f; cursor: pointer; }
+  td select.edit-cell { width: auto; min-width: 118px; padding: 6px 8px; font-size: 0.82rem; cursor: pointer; transition: border-color 0.25s; }
+  td select.edit-cell.ok { border-color: #9fe0b0; }
+  td select.edit-cell.bad { border-color: #ffcf8f; }
   .serial { display: block; white-space: pre-wrap; max-width: 560px; font-size: 0.8rem; line-height: 1.5; color: rgba(250,246,236,0.9); }
   [hidden] { display: none !important; }
 </style>
@@ -175,6 +178,27 @@
     try { await apiPost('/admin/comments/hide', { id, hidden: chk.checked }); }
     catch (_) { chk.checked = !chk.checked; }   // revert
     finally { chk.disabled = false; }
+  }
+
+  // Admin write: inline-edit a row column (waitlist Status/Group). Row id is on the
+  // <tr> (email for waitlist); the column key is on the <select>. Reverts to
+  // data-prev on failure. Brief green/amber border flash on save.
+  async function onEditCell(ev) {
+    const sel = ev.target;
+    const tr = sel.closest('tr');
+    const id = tr && tr.dataset.id;
+    const key = sel.dataset.key;
+    if (!id) return;
+    sel.disabled = true;
+    const flash = (cls) => { sel.classList.remove('ok', 'bad'); sel.classList.add(cls); setTimeout(() => sel.classList.remove(cls), 900); };
+    try {
+      await apiPost(`/admin/write/${cur.key}`, { id, key, value: sel.value });
+      sel.dataset.prev = sel.value;
+      flash('ok');
+    } catch (_) {
+      sel.value = sel.dataset.prev || sel.value;   // revert
+      flash('bad');
+    } finally { sel.disabled = false; }
   }
 
   // ── Gate ──────────────────────────────────────────────────────────────────
@@ -277,6 +301,14 @@
 
   const PILL_COLS = ['mutual', 'done', 'kind', 'spoiler', 'shared'];
   function cell(col, val) {
+    // Inline-editable column (col.edit = allowed options): a <select> that PATCHes
+    // the row via POST /admin/write/:resource. Checked first so it wins over the
+    // null/dash rendering below. data-prev holds the value to revert to on failure.
+    if (col.edit) {
+      const curVal = val == null ? '' : String(val);
+      const opts = col.edit.map(o => `<option value="${esc(o)}"${o === curVal ? ' selected' : ''}>${esc(o)}</option>`).join('');
+      return `<select class="edit-cell" data-key="${esc(col.key)}" data-prev="${esc(curVal)}">${opts}</select>`;
+    }
     // Hide: the one write action — a checkbox that toggles watch_comment.hidden.
     if (col.key === 'hidden') return `<input type="checkbox" class="hide-chk"${Number(val) ? ' checked' : ''} title="Hide this comment">`;
     // Reports: red pill when a comment has been flagged for review, muted 0 otherwise.
@@ -316,6 +348,7 @@
       return `<td class="${wrap ? 'wrapcell' : ''}">${cell(col, row[col.key])}</td>`;
     }).join('') + '</tr>').join('') || `<tr><td colspan="${cols.length}" class="muted" style="padding:22px">No rows.</td></tr>`;
     $('tbody').querySelectorAll('.hide-chk').forEach(chk => chk.addEventListener('change', onHideToggle));
+    $('tbody').querySelectorAll('.edit-cell').forEach(sel => sel.addEventListener('change', onEditCell));
 
     $('count').textContent = `${data.total.toLocaleString()} row${data.total === 1 ? '' : 's'}`;
     const from = data.total ? state.offset + 1 : 0;
