@@ -49,6 +49,22 @@
     }
     #pinch-hint.hide { opacity: 0; }
 
+    /* ── select-mode hint: sits between the wheel and the cube while the SELECT
+       highlight is armed, so the disengage gesture ("hold SELECT") is discoverable.
+       Amber ties it to the highlight glow; only .show (set by clickwheel.js) reveals it. */
+    #select-hint {
+      position: fixed;
+      bottom: 196px; left: 0; right: 0;
+      z-index: 31;
+      text-align: center;
+      font-family: 'Comic Neue', cursive;
+      font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
+      color: rgba(240,169,59,0.72);
+      pointer-events: none;
+      opacity: 0; transition: opacity 0.25s;
+    }
+    #select-hint.show { opacity: 1; }
+
     /* ── episode face overlay ── */
     .face-overlay {
       position: fixed; inset: 0;
@@ -500,6 +516,7 @@
 
 
 <div id="pinch-hint">double-tap to open</div>
+<div id="select-hint">Hold SELECT to disengage</div>
 
 
 <div id="controls">

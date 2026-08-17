@@ -159,6 +159,14 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey, cubeNavSte
   // highlight between items instead of scrolling; SELECT confirms (activates) the
   // highlighted item and exits; a long-press cancels out of the mode.
   let selectMode = false;
+  // Reflect select-mode into the discoverability hint that sits between the wheel and
+  // the cube ("Hold SELECT to disengage"). Routed through here from every place that
+  // flips selectMode so the affordance appears with the highlight and clears with it.
+  function setSelectMode(on){
+    selectMode = on;
+    const hint = document.getElementById('select-hint');
+    if(hint) hint.classList.toggle('show', on);
+  }
   // Where the first SELECT click lands per face: WATCH on ▶ WATCH (back→seasons,
   // forward→the rest), LOG on START/CONTINUE. Others start at the first item.
   function faceStartIndex(doc, els){
@@ -173,7 +181,7 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey, cubeNavSte
   function enterSelect(){
     const doc = activeDoc(); if(!doc) return;
     const els = faceSelectables(doc); if(!els.length) return;
-    selectMode = true;
+    setSelectMode(true);
     placeHL(doc, els[faceStartIndex(doc, els)]); tick(10);   // always begin at the face's start control
   }
   function moveSelect(dir){
@@ -186,7 +194,7 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey, cubeNavSte
   function exitSelect(activate){
     const doc = activeDoc();
     if(activate && doc){ const box = doc._wheelHL; if(box && box._el){ box._el.click(); tick(18); } }
-    selectMode = false;
+    setSelectMode(false);
     hideHL(doc);
   }
 
@@ -280,7 +288,7 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey, cubeNavSte
   }
   let _recTotal = 0;
   window.__setComfortMic = function(on){
-    if(on){ centerMic(); selectMode = false; }    // reflection uses ring=scroll + centre=mic
+    if(on){ centerMic(); setSelectMode(false); }    // reflection uses ring=scroll + centre=mic
     else { _recTotal = 0; centerLabel(); hideHL(activeDoc()); }
   };
   window.__comfortMicCount = function(n){
@@ -306,7 +314,7 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey, cubeNavSte
 
   ring.addEventListener('pointerdown', e=>{
     primeAudio();                                        // unlock iOS audio inside the gesture
-    if(!getFocus().locked) selectMode = false;           // never carry select-mode across faces
+    if(!getFocus().locked) setSelectMode(false);         // never carry select-mode across faces
     const r = ring.getBoundingClientRect();
     cx = r.left + r.width/2; cy = r.top + r.height/2;
     lastAng = ang(e.clientX, e.clientY); moved = 0; stepAccum = 0; sx = e.clientX; sy = e.clientY;
@@ -328,16 +336,17 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey, cubeNavSte
       stepAccum += d;   // cube view + a real TV → ring is its D-pad (⊘ mutes it; CW = down/right)
       while(stepAccum >=  STEP_NOTCH){ remoteKey(axisMode === 'h' ? 'right' : 'down'); tick(8); stepAccum -= STEP_NOTCH; }
       while(stepAccum <= -STEP_NOTCH){ remoteKey(axisMode === 'h' ? 'left'  : 'up');   tick(8); stepAccum += STEP_NOTCH; }
+    } else if(logTuneActive()){                           // LOG playhead armed (▶-◀) → ring tunes the mark.
+      // Checked BEFORE selectMode AND cube-nav: an armed playhead owns the ring whether or not
+      // the face is locked and even if a stale SELECT-highlight is still up — if you armed the
+      // scrubber, you want the ring to move the minute, not step a highlight or roll the cube.
+      stepAccum += d;
+      while(stepAccum >=  STEP_NOTCH){ logTuneStep(+1); tick(6); stepAccum -= STEP_NOTCH; }   // clockwise → forward
+      while(stepAccum <= -STEP_NOTCH){ logTuneStep(-1); tick(6); stepAccum += STEP_NOTCH; }   // ccw → back
     } else if(selectMode){                               // ring drives the highlight, notch by notch
       stepAccum += d;
       while(stepAccum >=  STEP_NOTCH){ moveSelect(+1); stepAccum -= STEP_NOTCH; }   // clockwise → next/down
       while(stepAccum <= -STEP_NOTCH){ moveSelect(-1); stepAccum += STEP_NOTCH; }   // ccw → prev/up
-    } else if(logTuneActive()){                           // LOG playhead armed (▶-◀) → ring tunes the mark.
-      // Checked BEFORE cube-nav so an armed playhead scrubs whether or not the face is locked —
-      // if you armed it, you want the ring to move the minute, not roll the cube.
-      stepAccum += d;
-      while(stepAccum >=  STEP_NOTCH){ logTuneStep(+1); tick(6); stepAccum -= STEP_NOTCH; }   // clockwise → forward
-      while(stepAccum <= -STEP_NOTCH){ logTuneStep(-1); tick(6); stepAccum += STEP_NOTCH; }   // ccw → back
     } else if(!getFocus().locked){                        // cube view → ring rolls the 4 core faces
       stepAccum += d;
       while(stepAccum >=  STEP_NOTCH){ cubeNavStep(+1); tick(8); stepAccum -= STEP_NOTCH; }   // clockwise → WATCH→LOG→FEED→BROWSE
