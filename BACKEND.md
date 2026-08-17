@@ -1484,7 +1484,31 @@ Entry format:
 - **Native (`ios/App/App/WebosLanPlugin.swift`):** appended an `AppAuthPlugin`
   (jsName `AppAuth`, method `token()`) returning the shared secret. Lives in the
   compiled binary only — deliberately NOT in the web bundle, which is served
-  publicly. Same file as WebosLan so no project.pbxproj change; Capacitor
-  auto-discovers it. **Rotate = change this constant AND the Worker secret together.**
+  publicly. **Rotate = change this constant AND the Worker secret together.**
+  **CORRECTION (2026-08-17):** the original claim that being in the same file as
+  WebosLan meant "no project.pbxproj change; Capacitor auto-discovers it" was
+  WRONG — `WebosLanPlugin.swift` was never a member of the App build target, so
+  the whole file (WebosLan, AppBadge, AppAuth) never compiled and `AppAuth` was
+  absent at runtime. See the 2026-08-17 entry below.
 - **Web (Pages):** `cube_pierre_face.html` change is a behavioral no-op on web
   (still Turnstile); deployed to keep public/ and live in sync.
+
+## 2026-08-17 — Fix: AppAuth (and WebosLan/AppBadge) native plugins never compiled
+
+- **Why:** Pierre chat still failed in the iOS app; on-screen DIAG showed
+  `err=no AppAuth plugin` with the plugin list containing only Capacitor
+  built-ins. Root cause: `ios/App/App/WebosLanPlugin.swift` — which holds
+  `WebosLanPlugin`, `AppAuthPlugin`, and `AppBadgePlugin` — was never added to
+  the App target in `App.xcodeproj/project.pbxproj` (only `AppDelegate.swift`
+  was in the Sources build phase). So none of the three custom plugins existed
+  in the binary. The earlier "Capacitor auto-discovers it" assumption was false.
+- **Fix (native project):** added `WebosLanPlugin.swift` to the App target via
+  four pbxproj entries (PBXBuildFile, PBXFileReference, App PBXGroup child,
+  Sources build phase). `plutil -lint` OK. No web/bundle change needed — the web
+  side, send path, and Worker `APP_NATIVE_SECRET` check were already correct.
+  Requires a clean Xcode build + new TestFlight build to take effect.
+- **Waitlist admin vocab rename (DEPLOYED, Version e557f2cf-95aa-4668-be57-bbe5dd0fde63):**
+  `src/handlers/admin.ts` `WAITLIST_GROUPS` — renamed `'Tester Cohort 1'` →
+  `"Founder's Circle"` (drives admin group column, filters, write validation).
+  Checked live D1 first: no waitlist rows used the old value (2 rows, both empty
+  group), so no data migration needed.

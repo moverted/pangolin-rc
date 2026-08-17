@@ -68,7 +68,7 @@ interface Resource {
 // so they can never drift. Empty test_group renders as 'Unassigned' (which is also a
 // selectable value that stores the literal string).
 const WAITLIST_STATUSES = ['new', 'invited', 'active', 'declined'] as const;
-const WAITLIST_GROUPS = ['Unassigned', 'Friends & Family Cohort 1', 'Internal', 'SNW Cohort', 'Tester Cohort 1'] as const;
+const WAITLIST_GROUPS = ['Unassigned', 'Friends & Family Cohort 1', 'Internal', 'SNW Cohort', "Founder's Circle"] as const;
 const GROUP_EXPR = "COALESCE(NULLIF(waitlist.test_group,''),'Unassigned')";
 
 // Millisecond epoch → local-ish date bucket. All created_at/updated_at are ms.
