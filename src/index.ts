@@ -329,6 +329,24 @@ app.post('/transcribe/share', async (c) => {
   return c.json({ ok: true, id, shared_at: now });
 });
 
+// Flag a comment for review (the red flag glyph next to the like). One report per
+// member (PK), idempotent — re-flagging is a no-op that still returns the count.
+// SEAM:identity: email-asserted like the other comment routes. Returns the running
+// report count so the admin Comments page can triage.
+app.post('/transcribe/comments/:id/flag', async (c) => {
+  const id = c.req.param('id');
+  let body: any; try { body = await c.req.json(); } catch { body = {}; }
+  const email = (typeof body.email === 'string' ? body.email : (typeof body.userEmail === 'string' ? body.userEmail : '')).trim().toLowerCase();
+  if (!email) return c.json({ error: 'email required' }, 400);
+  const exists = await c.env.DB.prepare('SELECT 1 FROM watch_comment WHERE id = ?').bind(id).first();
+  if (!exists) return c.json({ error: 'unknown comment' }, 404);
+  await c.env.DB.prepare(
+    'INSERT INTO comment_flag (comment_id, user_email, created_at) VALUES (?, ?, ?) ON CONFLICT(comment_id, user_email) DO NOTHING'
+  ).bind(id, email, Date.now()).run();
+  const cnt = await c.env.DB.prepare('SELECT COUNT(*) AS n FROM comment_flag WHERE comment_id = ?').bind(id).first<{ n: number }>();
+  return c.json({ ok: true, flags: cnt?.n ?? 0 });
+});
+
 // One-time transcription fix. The author corrects Whisper's text once; after
 // that transcript_edited is set and further edits are refused (409). Author-only.
 app.patch('/transcribe/:id', async (c) => {
@@ -643,7 +661,8 @@ app.get('/transcribe/coview', async (c) => {
   // client threads those under your own (non-coview) comment rows.
   const ph = allowed.map(() => '?').join(',');
   // c.private = 0 → journaled (private) reflections never reach a friend's co-view feed.
-  const where = ['c.show_id = ?', 'c.private = 0', `(c.user_email IN (${ph}) OR (c.user_email = ? AND c.reply_to IS NOT NULL))`];
+  // c.hidden = 0 → admin-hidden (moderated) comments are withheld from viewers too.
+  const where = ['c.show_id = ?', 'c.private = 0', 'c.hidden = 0', `(c.user_email IN (${ph}) OR (c.user_email = ? AND c.reply_to IS NOT NULL))`];
   const binds: any[] = [showId, ...allowed, email];
   if (episodeId) { where.push('c.episode_id = ?'); binds.push(episodeId); }
   const { results } = await c.env.DB

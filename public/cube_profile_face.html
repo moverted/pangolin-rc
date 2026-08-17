@@ -92,6 +92,11 @@
     letter-spacing:.16em;font-size:10px;color:var(--amber);white-space:nowrap;
     border:1px solid rgba(239,168,60,.45);border-radius:999px;padding:5px 11px;
   }
+  /* Admin panel entry (admins only) */
+  .admin-panel-btn{display:flex;align-items:center;gap:10px;width:100%;margin:0 0 14px;padding:12px 14px;border:1px solid rgba(200,150,44,0.45);border-radius:12px;background:rgba(200,150,44,0.12);color:var(--cream,#faf6ec);font:inherit;font-weight:700;cursor:pointer;}
+  .admin-panel-btn .apb-txt{flex:1;text-align:left;letter-spacing:.02em;}
+  .admin-panel-btn .apb-count{background:#d9534f;color:#fff;font-size:.75rem;font-weight:800;border-radius:999px;padding:1px 8px;}
+  .admin-panel-btn .apb-caret{opacity:.7;}
   /* Admin bug review surface */
   .adminbugs{margin:0 0 22px;}
   .bug-banner{
@@ -411,6 +416,13 @@
         <!-- content scrolls inside the square; the device picker is the focal point -->
         <div class="scroll">
           <div class="pbody">
+            <!-- Admin-only: open the full admin panel (admin.pangolinrc.com). The count
+                 pill mirrors the panel's waitlist "new" badge (also painted on the app icon). -->
+            <button class="admin-panel-btn" id="adminPanelBtn" type="button" style="display:none">
+              <span class="apb-txt">Admin Panel</span>
+              <span class="apb-count" id="adminWaitCount" style="display:none">0</span>
+              <span class="apb-caret">↗</span>
+            </button>
             <!-- Admin-only bug review. Hidden for everyone else; the banner is a live
                  open-bug count, tapping it reveals the list (note · view · shot). -->
             <div class="adminbugs" id="adminBugs" style="display:none">
@@ -749,8 +761,31 @@
     const founding=!!(user&&(user.founding_member===1||user.founding_member===true));
     const base=TIER_LABEL[tier]||'MEMBER';
     $('member').textContent = founding ? ('FOUNDING '+base) : base;
-    if(tier==='admin'){ loadBugs(email); }
-    else { $('adminBugs').style.display='none'; }
+    if(tier==='admin'){ loadBugs(email); loadAdminPanel(email); }
+    else { $('adminBugs').style.display='none'; const b=$('adminPanelBtn'); if(b) b.style.display='none'; }
+  }
+
+  // Admin Panel entry. Opens admin.pangolinrc.com (system browser on native; there the
+  // admin enters the shared panel password). The count pill mirrors the waitlist "new"
+  // badge — fetched via the native app secret, so it fills in on device only.
+  function openAdminPanel(){ try{ window.open('https://admin.pangolinrc.com','_blank'); }catch(_){}}
+  async function appAuthToken(){
+    try{ const C=window.Capacitor; if(!C) return '';
+      const p = C.registerPlugin ? C.registerPlugin('AppAuth') : (C.Plugins && C.Plugins.AppAuth);
+      if(!p||!p.token) return ''; const r=await p.token(); return (r&&r.value)||''; }catch(_){ return ''; }
+  }
+  async function loadAdminPanel(email){
+    const btn=$('adminPanelBtn'); if(!btn) return;
+    btn.style.display='';   // admins get the entry on web + native
+    if(!btn.dataset.wired){ btn.dataset.wired='1'; btn.addEventListener('click', openAdminPanel); }
+    try{
+      const appToken=await appAuthToken(); if(!appToken) return;   // no count without the native secret
+      const r=await fetch(API+'/admin/app-status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,appToken})});
+      if(!r.ok) return; const d=await r.json();
+      const c=$('adminWaitCount');
+      if(d.isAdmin && d.waitlistNew>0){ c.textContent=String(d.waitlistNew); c.style.display=''; }
+      else { c.style.display='none'; }
+    }catch(_){}
   }
 
   // Pull the open bug reports (admin-gated server-side) and render the badge + list.

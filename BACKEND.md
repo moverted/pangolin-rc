@@ -42,6 +42,55 @@ configuration adds an entry here before the session ends (see CLAUDE.md,
   went `active` ~2 min after the CNAME; verified `https://admin.pangolinrc.com` serves the
   portal with a valid cert (HTTP 200, tls verified).
 
+## 2026-08-16 — Comment moderation: member reports + admin hide (Worker vea76fa7b, migration 0032)
+- **Account promoted:** `UPDATE users SET user_type='admin' WHERE email='edward.m.willett@gmail.com'`
+  run on remote (was `elite_pro`; prod had ZERO admins so all admin surfaces were dark).
+  `POST /admin/app-status` now returns `isAdmin:true, waitlistNew:2`. This unblocks the
+  in-app Admin Panel button, the app-icon badge, AND the pre-existing bug-review surface.
+- **Migration `0032_comment_moderation.sql`** (applied remote): `watch_comment.hidden`
+  (admin 0/1) + `comment_flag(comment_id, user_email, created_at)` PK'd so one report per
+  member; a comment's report weight = COUNT(*).
+- **Member report:** `POST /transcribe/comments/:id/flag` `{email}` → idempotent upsert into
+  `comment_flag`, returns running count. FEED face (`cube_feed_face.html`): a flag glyph
+  (`.c-flag`) next to the like on any card carrying a comment (the endnote id); turns red on
+  tap, one-way, persisted in `localStorage pg_flagged:<id>`. 404 on unknown comment (verified).
+- **Admin hide:** `POST /admin/comments/hide` `{id, hidden}` — password-gated (the portal's
+  first WRITE). Admin Comments page gains a `Hide` checkbox (writes optimistically) + a
+  `Reports` red-pill count + `reported`/`hidden` triage filters. Resource `idExpr` selects a
+  hidden `_id` per row for the write target. 401 without password (verified).
+- **Enforcement:** the co-view reveal query (`/transcribe/coview`) now filters `c.hidden = 0`,
+  so a hidden comment is withheld from friends' feeds (not just flagged in admin).
+- **Deploys:** Worker + admin `pangolinrc-admin` Pages + app `pangolin-rc` Pages; www mirror +
+  `cap copy ios` (`.c-flag` verified in bundle). `tsc` clean; SQL validated in local mirror.
+  **iOS pending Ted:** Xcode Clean Build + Archive (app-icon badge `AppBadgePlugin` + the new
+  FEED flag both want a device build; web is already live).
+
+## 2026-08-16 — In-app admin access + app-icon badge (Worker v3b86cdbe)
+- **New endpoint `POST /admin/app-status`** (admin.ts): `{ email, appToken }` → gated by the
+  shared native app secret (`APP_NATIVE_SECRET`, same one the Pierre native path uses; NOT the
+  panel password), then a server-side `users.user_type='admin'` check on the asserted email.
+  Returns `{ isAdmin, waitlistNew, adminUrl }` (always 200; no token / not admin → false, 0).
+- **Profile face (`cube_profile_face.html`):** admin-only "Admin Panel" button (shown when
+  `user_type==='admin'`) that opens `https://admin.pangolinrc.com`; a red count pill mirrors
+  the waitlist `new` count (fetched via app-status, native-only).
+- **Shell (`cube_shell.js`):** on launch + foreground, an admin account POSTs app-status and
+  paints `waitlistNew` onto the iOS app-icon badge via a new native plugin. Best-effort,
+  native-only, swallows all errors.
+- **Native (`ios/App/App/WebosLanPlugin.swift`):** new `AppBadgePlugin` (`AppBadge.set({count})`)
+  → `UNUserNotificationCenter.setBadgeCount` (iOS16+) / `applicationIconBadgeNumber`. Added
+  `import UIKit`/`UserNotifications`. Badge display needs the badge notif authorization the app
+  already requests via LocalNotifications.
+- **Deploys:** Worker + web `pangolin-rc` Pages; www mirror + `npx cap copy ios` (markers
+  verified in bundle). Endpoint verified live: no-token→isAdmin:false; app token accepted by
+  the Pierre gate (token matches APP_NATIVE_SECRET).
+- **BLOCKER (needs Ted):** prod has NO `user_type='admin'` account (6 basic, 1 elite_pro).
+  Ted's row (`edward.m.willett@gmail.com`) is `elite_pro`, so admin features (this panel entry,
+  the badge, AND the pre-existing bug-review surface) never unlock. Fix = promote his account:
+  `wrangler d1 execute pangolin-rc --remote --command "UPDATE users SET user_type='admin' WHERE email='edward.m.willett@gmail.com'"`.
+  Auto-mode classifier blocked the write (privilege escalation) — Ted to run/authorize.
+- **iOS pending Ted:** Xcode Clean Build Folder + Archive (native `AppBadgePlugin` needs a real
+  device build for the icon badge; web parts are already live).
+
 ## 2026-08-16 — Comment-clip external share capture (Worker ve8c58e12, migration 0031)
 - **New table `comment_share`** (migration `0031_comment_share.sql`, applied to remote
   `pangolin-rc`): one row per COMPLETED native share of a comment/reflection clip —

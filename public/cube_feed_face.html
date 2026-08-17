@@ -105,6 +105,10 @@
   .c-like.liked{color:#ff566f} .c-like.liked .ico{fill:currentColor;stroke:none}
   .c-like-n{flex:0 0 auto;margin-left:-3px;font-family:var(--mono);font-size:9px;font-weight:700;color:#f0e6d6;text-shadow:0 1px 5px rgba(0,0,0,.85)}
   .c-like:active{transform:scale(.85)}
+  .c-flag{flex:0 0 auto;width:26px;height:26px;border:none;background:none;padding:0;cursor:pointer;color:#f0e6d6}
+  .c-flag .ico{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2}
+  .c-flag.flagged{color:#d9534f} .c-flag.flagged .ico{fill:currentColor;stroke:none}
+  .c-flag:active{transform:scale(.85)}
 
   /* the blurry note box */
   .c-bottom{margin:0 10px 10px;padding:7px 8px;display:flex;gap:8px;align-items:flex-start;border-radius:11px;
@@ -239,6 +243,7 @@ const ICON = {
   spk:    '<svg class="ico g spk" viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M15.5 8.5a5 5 0 010 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
   comment:'<svg class="ico" viewBox="0 0 24 24"><path d="M20 4H4a1 1 0 00-1 1v11a1 1 0 001 1h3v3l4-3h9a1 1 0 001-1V5a1 1 0 00-1-1z"/></svg>',
   heart:  '<svg class="ico" viewBox="0 0 24 24"><path d="M12 20.3l-1.3-1.2C6 14.9 3 12.1 3 8.8 3 6.2 5 4.2 7.5 4.2c1.5 0 2.9.7 3.8 1.9.9-1.2 2.3-1.9 3.8-1.9C17.6 4.2 19.6 6.2 19.6 8.8c0 3.3-3 6.1-7.7 10.3L12 20.3z"/></svg>',
+  flag:   '<svg class="ico" viewBox="0 0 24 24"><path d="M5 21V4h13l-2.2 3.5L18 11H5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   // kind badges: series / streamed film / physical media / theater ticket
   tv:     '<svg class="ico" viewBox="0 0 24 24"><rect x="2.5" y="7" width="19" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 3.5l4 3 4-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   film:   '<svg class="ico" viewBox="0 0 24 24"><rect x="2.5" y="7.5" width="13" height="9" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15.5 10.5l6-3v9l-6-3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>',
@@ -315,7 +320,12 @@ function renderFoot(it, sel){
     : '';
   const likeCls = 'c-like' + (it.liked ? ' liked' : '') + (watch ? '' : ' solo');
   const likeCt = it.likeCt > 0 ? `<span class="c-like-n">${it.likeCt}</span>` : '';
-  const actions = `<div class="c-actions">${left}${stepper}${watch}<button class="${likeCls}" data-key="${_esc(it.key)}" data-subject="${_esc(it.actorEmail)}" data-title="${_esc(it.id)}" data-kind="${_esc(it.kind)}" aria-label="Like">${ICON.heart}</button>${likeCt}</div>`;
+  // Report the shown comment (the endnote) for review — a flag glyph next to the like
+  // that stays red once reported. Only when this card actually carries a comment.
+  const flag = se.endnoteId
+    ? `<button class="c-flag${_isFlagged(se.endnoteId) ? ' flagged' : ''}" data-cid="${_esc(se.endnoteId)}" aria-label="Report comment for review" title="Report for review">${ICON.flag}</button>`
+    : '';
+  const actions = `<div class="c-actions">${left}${stepper}${watch}<button class="${likeCls}" data-key="${_esc(it.key)}" data-subject="${_esc(it.actorEmail)}" data-title="${_esc(it.id)}" data-kind="${_esc(it.kind)}" aria-label="Like">${ICON.heart}</button>${likeCt}${flag}</div>`;
   const note = se.endnote ? `<div class="c-bottom">${noteBlock(se)}</div>` : '';
   return actions + note;
 }
@@ -539,6 +549,20 @@ async function likeAct(btn){
   }catch(_){ btn.classList.toggle('liked', !nowLiked); }
 }
 
+// Report a comment for review (the flag glyph). One-way for the member — once
+// reported it stays red (persisted locally so it survives reload); the server keeps
+// the running count for the admin Comments page. Best-effort; never blocks the UI.
+function _isFlagged(cid){ try{ return localStorage.getItem('pg_flagged:'+cid)==='1'; }catch(_){ return false; } }
+async function flagAct(btn){
+  const cid = btn.getAttribute('data-cid'); if(!cid) return;
+  if(btn.classList.contains('flagged')) return;   // already reported
+  const me = acct(); if(!me) return;
+  btn.classList.add('flagged');                    // immediate red
+  try{ localStorage.setItem('pg_flagged:'+cid,'1'); }catch(_){}
+  try{ await fetch(API + '/transcribe/comments/' + encodeURIComponent(cid) + '/flag', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ email: me }) }); }catch(_){}
+}
+
 // Binge stepper: walk the selected episode ◀/▶ and re-render just this card's foot.
 function stepBinge(btn){
   const key = btn.getAttribute('data-key'), d = Number(btn.getAttribute('data-d')) || 0;
@@ -559,6 +583,8 @@ document.getElementById('feed').addEventListener('click', e => {
   if(rel){ e.stopPropagation(); followAct(rel); return; }
   const like = e.target.closest('.c-like');
   if(like){ e.stopPropagation(); likeAct(like); return; }
+  const flag = e.target.closest('.c-flag');
+  if(flag){ e.stopPropagation(); flagAct(flag); return; }
   const watch = e.target.closest('.c-watch');
   if(watch){ e.stopPropagation();
     // Deep-link into the viewer's LOG face (cube_log_face = shell face 'episodes'),

@@ -49,6 +49,7 @@ interface Resource {
   label: string;
   group: 'core' | 'secondary';
   from: string;               // FROM + JOINs, no SELECT/WHERE
+  idExpr?: string;            // stable row id (selected as _id) for row-level write actions
   cols: Col[];                // SELECT list + column metadata for the frontend
   searchExprs: string[];      // OR-LIKE'd against `q`
   filters?: Filter[];         // exact-match dropdown filters
@@ -226,7 +227,10 @@ const RESOURCES: Record<string, Resource> = {
     // episodes.episode_id key — so we DON'T join episodes; show_id is the real
     // title key, joined to titles for the show name.
     from: 'watch_comment LEFT JOIN titles ON titles.title_id = watch_comment.show_id',
+    idExpr: 'watch_comment.id',
     cols: [
+      { key: 'hidden',     label: 'Hide',    expr: 'watch_comment.hidden' },
+      { key: 'flags',      label: 'Reports', expr: '(SELECT COUNT(*) FROM comment_flag cf WHERE cf.comment_id = watch_comment.id)' },
       { key: 'kind',       label: 'Kind',    expr: KIND_EXPR },
       { key: 'user_email', label: 'User',    expr: 'watch_comment.user_email' },
       { key: 'show_name',  label: 'Show',    expr: 'COALESCE(titles.name, watch_comment.show_id)' },
@@ -243,9 +247,11 @@ const RESOURCES: Record<string, Resource> = {
     ],
     searchExprs: ['watch_comment.user_email', 'watch_comment.transcription', 'titles.name', 'watch_comment.episode_id'],
     filters: [
-      { key: 'kind',    label: 'Kind',    expr: KIND_EXPR,    options: ['episode', 'reflection', 'endnote', 'reply'] },
-      { key: 'spoiler', label: 'Spoiler', expr: SPOILER_EXPR, options: ['SPLR', 'NOSP', '—'] },
-      { key: 'shared',  label: 'Shared',  expr: SHARED_EXPR,  options: ['shared', 'journaled', '—'] },
+      { key: 'kind',     label: 'Kind',     expr: KIND_EXPR,    options: ['episode', 'reflection', 'endnote', 'reply'] },
+      { key: 'spoiler',  label: 'Spoiler',  expr: SPOILER_EXPR, options: ['SPLR', 'NOSP', '—'] },
+      { key: 'shared',   label: 'Shared',   expr: SHARED_EXPR,  options: ['shared', 'journaled', '—'] },
+      { key: 'reported', label: 'Reported', expr: "CASE WHEN (SELECT COUNT(*) FROM comment_flag cf WHERE cf.comment_id=watch_comment.id)>0 THEN 'yes' ELSE 'no' END", options: ['yes', 'no'] },
+      { key: 'hidden',   label: 'Hidden',   expr: "CASE WHEN watch_comment.hidden=1 THEN 'yes' ELSE 'no' END", options: ['yes', 'no'] },
     ],
     sortDefault: 'created_at',
     note: 'Kinds: episode = timestamped co-view comment; reflection = end-of-viewing thought (episode/season/series/movie); endnote = end-of-episode reflection with a persisted SPLR/NOSP + reveal-on-finish; reply = text-only response (no audio). "Shared" = reflection published to the co-view feed (public) vs journaled (private). "Shares"/"Shared to"/"Last shared" = EXTERNAL native shares of the clip (comment_share log): count, latest platform·method (from the iOS share target + file kind — best-effort), and time. Audio plays inline for moderation. Movies use 🎬 as the episode code.',
@@ -405,7 +411,8 @@ adminRoutes.get('/list/:resource', async (c) => {
   const limit = Math.min(Math.max(parseInt(c.req.query('limit') || '100', 10) || 100, 1), 500);
   const offset = Math.max(parseInt(c.req.query('offset') || '0', 10) || 0, 0);
 
-  const select = r.cols.map((col) => `${col.expr} AS "${col.key}"`).join(', ');
+  const select = r.cols.map((col) => `${col.expr} AS "${col.key}"`).join(', ')
+    + (r.idExpr ? `, ${r.idExpr} AS "_id"` : '');
   const rowsSql = `SELECT ${select} FROM ${r.from} ${clause}
                    ORDER BY ${sortCol.expr} ${dir} LIMIT ? OFFSET ?`;
   const countSql = `SELECT COUNT(*) AS n FROM ${r.from} ${clause}`;
@@ -436,4 +443,40 @@ adminRoutes.get('/pivot/:resource/:dim', async (c) => {
   const { clause, binds } = buildWhere(r, c);
   const res = await c.env.DB.prepare(pivot.sql(r.from, clause)).bind(...binds).all();
   return c.json({ ok: true, columns: pivot.columns, rows: res.results ?? [] });
+});
+
+// POST /admin/app-status — lets the native app decide whether to show its in-app
+// Admin Panel entry and what number to paint on the app icon badge. NOT gated by the
+// panel password (the app doesn't have it); gated by the shared native app secret
+// (same APP_NATIVE_SECRET the Pierre native path uses) proving this is the real app,
+// then a server-side user_type='admin' check on the asserted email. No token / not
+// admin → isAdmin:false, count 0 (always 200 so the app can call it unconditionally).
+adminRoutes.post('/app-status', async (c) => {
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const email = (typeof body.email === 'string' ? body.email : '').trim().toLowerCase();
+  const appToken = typeof body.appToken === 'string' ? body.appToken : '';
+
+  const nativeOk = !!c.env.APP_NATIVE_SECRET && appToken.length > 0 && safeEqual(appToken, c.env.APP_NATIVE_SECRET);
+  if (!nativeOk || !email) return c.json({ isAdmin: false, waitlistNew: 0 });
+
+  const u = await c.env.DB.prepare('SELECT user_type FROM users WHERE email = ?').bind(email).first<{ user_type: string | null }>();
+  if (u?.user_type !== 'admin') return c.json({ isAdmin: false, waitlistNew: 0 });
+
+  const wl = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM waitlist WHERE status = 'new'").first<{ n: number }>();
+  return c.json({ isAdmin: true, waitlistNew: wl?.n ?? 0, adminUrl: 'https://admin.pangolinrc.com' });
+});
+
+// POST /admin/comments/hide — { id, hidden } → set a comment's moderation hide flag.
+// The one WRITE action in the portal; password-gated like the rest of /admin/*.
+adminRoutes.post('/comments/hide', async (c) => {
+  const denied = adminGate(c); if (denied) return denied;
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const id = typeof body.id === 'string' ? body.id : '';
+  const hidden = body.hidden ? 1 : 0;
+  if (!id) return c.json({ error: 'id required' }, 400);
+  const res = await c.env.DB.prepare('UPDATE watch_comment SET hidden = ? WHERE id = ?').bind(hidden, id).run();
+  if (!res.meta.changes) return c.json({ error: 'not found' }, 404);
+  return c.json({ ok: true, id, hidden });
 });

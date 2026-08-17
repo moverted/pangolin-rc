@@ -2038,3 +2038,45 @@ window.addEventListener('message', (e) => {
     pierreMicSync();
   }
 });
+
+// ── Admin app-icon badge ─────────────────────────────────────────────────────
+// For an admin account, mirror the admin panel's waitlist "new" count onto the iOS
+// app-icon badge (and expose it to faces via window.__pgAdmin). Native-only and
+// best-effort: no-ops on web, and any failure is swallowed so it never disturbs the app.
+(function initAdminBadge() {
+  async function appAuthToken() {
+    try {
+      const C = window.Capacitor; if (!C) return '';
+      const p = C.registerPlugin ? C.registerPlugin('AppAuth') : (C.Plugins && C.Plugins.AppAuth);
+      if (!p || !p.token) return '';
+      const r = await p.token(); return (r && r.value) || '';
+    } catch (_) { return ''; }
+  }
+  async function setAppIconBadge(n) {
+    try {
+      const C = window.Capacitor;
+      if (!C || !C.isNativePlatform || !C.isNativePlatform()) return;
+      const p = C.registerPlugin ? C.registerPlugin('AppBadge') : (C.Plugins && C.Plugins.AppBadge);
+      if (p && p.set) await p.set({ count: n | 0 });
+    } catch (_) {}
+  }
+  async function refresh() {
+    try {
+      let email = ''; try { email = (localStorage.getItem('pg_user') || '').trim(); } catch (_) {}
+      if (!email) { setAppIconBadge(0); return; }
+      const appToken = await appAuthToken();
+      if (!appToken) return;   // web / no native secret → leave the badge alone
+      const r = await fetch(`${API}/admin/app-status`, {
+        method: 'POST', mode: 'cors', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, appToken }),
+      });
+      if (!r.ok) return;
+      const d = await r.json();
+      window.__pgAdmin = { isAdmin: !!d.isAdmin, waitlistNew: d.waitlistNew || 0 };
+      setAppIconBadge(d.isAdmin ? (d.waitlistNew || 0) : 0);
+    } catch (_) {}
+  }
+  refresh();
+  // Re-pull when the app returns to the foreground so the badge stays current.
+  try { document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); }); } catch (_) {}
+})();

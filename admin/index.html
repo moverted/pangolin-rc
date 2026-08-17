@@ -92,6 +92,8 @@
   .pager { display: flex; align-items: center; gap: 12px; margin-top: 14px; font-size: 0.85rem; }
   .pager button { padding: 7px 14px; font-size: 0.82rem; }
   .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 0.78rem; background: rgba(250,246,236,0.1); }
+  .pill.flag { background: #d9534f; color: #fff; font-weight: 700; }
+  input.hide-chk { width: 17px; height: 17px; accent-color: #d9534f; cursor: pointer; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -151,6 +153,27 @@
     if (res.status === 503) throw { code: 503 };
     if (!res.ok) throw { code: res.status };
     return res.json();
+  }
+
+  async function apiPost(path, body) {
+    const res = await fetch(API_BASE + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + PW },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw { code: res.status };
+    return res.json();
+  }
+
+  // Admin write: toggle a comment's hide flag. Optimistic; reverts on failure.
+  async function onHideToggle(ev) {
+    const chk = ev.target;
+    const id = chk.closest('tr') && chk.closest('tr').dataset.id;
+    if (!id) return;
+    chk.disabled = true;
+    try { await apiPost('/admin/comments/hide', { id, hidden: chk.checked }); }
+    catch (_) { chk.checked = !chk.checked; }   // revert
+    finally { chk.disabled = false; }
   }
 
   // ── Gate ──────────────────────────────────────────────────────────────────
@@ -253,6 +276,10 @@
 
   const PILL_COLS = ['mutual', 'done', 'kind', 'spoiler', 'shared'];
   function cell(col, val) {
+    // Hide: the one write action — a checkbox that toggles watch_comment.hidden.
+    if (col.key === 'hidden') return `<input type="checkbox" class="hide-chk"${Number(val) ? ' checked' : ''} title="Hide this comment">`;
+    // Reports: red pill when a comment has been flagged for review, muted 0 otherwise.
+    if (col.key === 'flags') return Number(val) > 0 ? `<span class="pill flag">${esc(val)}</span>` : '<span class="muted">0</span>';
     // Audio: empty string means "no audio for this row"; a value is the comment id.
     if (col.key === 'audio') return (val == null || val === '') ? '<span class="muted">—</span>'
       : `<audio class="cmt-audio" controls preload="none" src="${API_BASE}/transcribe/audio/${encodeURIComponent(val)}"></audio>`;
@@ -281,10 +308,11 @@
       else { state.sort = k; state.dir = 'desc'; }
       state.offset = 0; load();
     }));
-    $('tbody').innerHTML = data.rows.map(row => '<tr>' + cols.map(col => {
+    $('tbody').innerHTML = data.rows.map(row => `<tr data-id="${esc(row._id || '')}">` + cols.map(col => {
       const wrap = ['note','name','episode_name','show_name','transcription'].includes(col.key);
       return `<td class="${wrap ? 'wrapcell' : ''}">${cell(col, row[col.key])}</td>`;
     }).join('') + '</tr>').join('') || `<tr><td colspan="${cols.length}" class="muted" style="padding:22px">No rows.</td></tr>`;
+    $('tbody').querySelectorAll('.hide-chk').forEach(chk => chk.addEventListener('change', onHideToggle));
 
     $('count').textContent = `${data.total.toLocaleString()} row${data.total === 1 ? '' : 's'}`;
     const from = data.total ? state.offset + 1 : 0;
