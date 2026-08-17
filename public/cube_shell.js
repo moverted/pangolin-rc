@@ -2080,3 +2080,20 @@ window.addEventListener('message', (e) => {
   // Re-pull when the app returns to the foreground so the badge stays current.
   try { document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); }); } catch (_) {}
 })();
+
+// ── Native app-token bridge for face iframes ─────────────────────────────────
+// Face pages (e.g. Pierre) run in sub-frames whose injected Capacitor is only a
+// partial bridge: it reports isNativePlatform() but has NO registerPlugin and
+// never exposes custom plugins on .Plugins, so those frames can't reach the
+// native AppAuth plugin themselves. The FULL bridge lives here in the top frame,
+// so we expose a getter the faces call via window.top.pgAppNativeToken().
+window.pgAppNativeToken = async function () {
+  try {
+    const C = window.Capacitor;
+    if (!C || !C.isNativePlatform || !C.isNativePlatform()) return '';
+    const p = C.registerPlugin ? C.registerPlugin('AppAuth') : (C.Plugins && C.Plugins.AppAuth);
+    if (!p || !p.token) return '';
+    const r = await p.token();
+    return (r && r.value) || '';
+  } catch (_) { return ''; }
+};

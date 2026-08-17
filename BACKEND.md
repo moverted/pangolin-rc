@@ -1502,11 +1502,47 @@ Entry format:
   the App target in `App.xcodeproj/project.pbxproj` (only `AppDelegate.swift`
   was in the Sources build phase). So none of the three custom plugins existed
   in the binary. The earlier "Capacitor auto-discovers it" assumption was false.
-- **Fix (native project):** added `WebosLanPlugin.swift` to the App target via
+- **Fix 1 (native project):** added `WebosLanPlugin.swift` to the App target via
   four pbxproj entries (PBXBuildFile, PBXFileReference, App PBXGroup child,
-  Sources build phase). `plutil -lint` OK. No web/bundle change needed — the web
-  side, send path, and Worker `APP_NATIVE_SECRET` check were already correct.
-  Requires a clean Xcode build + new TestFlight build to take effect.
+  Sources build phase). `plutil -lint` OK. **This was necessary but NOT sufficient
+  — see the 2026-08-17 (later) entry below: compiled ≠ registered.**
+
+## 2026-08-17 (later) — REAL fix: register the app-embedded plugins with the bridge
+
+- **Why the first fix wasn't enough:** After the plugins compiled, Ted shipped a
+  TestFlight build and Pierre STILL failed. Verified in the iOS simulator (built,
+  installed, read the WKWebView console via Capacitor's Console plugin → os_log):
+  `PGPROBE native=true reg=false … token=EMPTY`. Two facts surfaced:
+  1. `window.Capacitor.registerPlugin` is **undefined everywhere** (even the top
+     frame) — this app is plain HTML/JS with **no `@capacitor/core` import**, so
+     `Capacitor` is only the native-injected bridge. Custom plugins must be reached
+     via `Capacitor.Plugins.<jsName>`, not `registerPlugin()`.
+  2. `Capacitor.Plugins.AppAuth` was **undefined** because Capacitor only registers
+     its 5 built-ins (Http/Console/WebView/Cookies/SystemBars — exactly the DIAG
+     list) plus `packageClassList` from `capacitor.config.json` (Filesystem,
+     LocalNotifications, Share, CardVideo). App-target plugins are in neither list
+     → compiled but **never registered** (`CapacitorBridge.registerPlugins()`).
+- **Fix 2 (the real one):** new **`ios/App/App/MainViewController.swift`** —
+  `class MainViewController: CAPBridgeViewController` overriding `capacitorDidLoad()`
+  to call `bridge?.registerPluginInstance(...)` for `WebosLanPlugin`, `AppAuthPlugin`,
+  `AppBadgePlugin`. (`registerPluginInstance` works even with `autoRegisterPlugins`
+  on; `registerPluginType` would no-op.) `Main.storyboard` initial VC customClass
+  `CAPBridgeViewController`→`MainViewController` (customModule `App`). Added the
+  file to the App target (4 pbxproj entries).
+- **Fix 3 (web, defensive):** `public/cube_pierre_face.html` — the Pierre face runs
+  in an iframe whose Capacitor is even more partial; it now (a) prefers a shell
+  helper `window.top.pgAppNativeToken()` and (b) scans frames for a usable
+  Capacitor. `public/cube_shell.js` — exposes `window.pgAppNativeToken()` (top-frame
+  getter). Mirrored to `www/`, `cap copy`'d to the iOS bundle. Also enriched the
+  on-screen DIAG (per-frame reg/plugin counts + shellFn).
+- **VERIFIED in simulator (not a guess):** after Fix 2+3, re-probe returned
+  `PGPROBE token=ed53bbc5..len64` (the exact `APP_NATIVE_SECRET` from the Swift
+  constant) with `To Native -> AppAuth token` firing; `AppBadge` registered too.
+  Clean `xcodebuild` succeeds and the app **launches without crashing** (confirms
+  the storyboard customModule=`App` wiring). Backend half already confirmed live
+  (valid appToken → 200 `{"reply":"PONG"}`).
+- **Still requires** a clean Xcode build + new TestFlight build on a real device
+  to reach Ted's phone (web UI is served from the local bundle; no `server.url`).
 - **Waitlist admin vocab rename (DEPLOYED, Version e557f2cf-95aa-4668-be57-bbe5dd0fde63):**
   `src/handlers/admin.ts` `WAITLIST_GROUPS` — renamed `'Tester Cohort 1'` →
   `"Founder's Circle"` (drives admin group column, filters, write validation).

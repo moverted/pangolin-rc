@@ -269,6 +269,75 @@
     if(tsWidgetId !== null && window.turnstile){ tsToken=''; turnstile.reset(tsWidgetId); }
   }
 
+  // Native (Capacitor) app: Turnstile can't run inside the WKWebview, so instead
+  // of a Turnstile token the app sends a shared app secret, injected natively by
+  // the AppAuth plugin (never present in the web bundle). On the web this is a
+  // no-op and Turnstile carries the bot gate as before.
+  const IS_NATIVE = (function(){
+    try{ const C=window.Capacitor||(window.top&&window.top.Capacitor); return !!(C&&C.isNativePlatform&&C.isNativePlatform()); }catch(_){ return false; }
+  })();
+  // Reach the native AppAuth plugin. CRITICAL: this face runs in an iframe, and
+  // the Capacitor injected into a Capacitor sub-frame is only a partial bridge —
+  // it reports isNativePlatform() but has NO registerPlugin and never populates
+  // custom plugins on .Plugins (DIAG showed reg=false). The FULL bridge lives in
+  // the top frame (the shell, cube_shell.js), which registers AppAuth fine. So we
+  // must borrow the shell's Capacitor: scan window → parent → top for one that
+  // actually has registerPlugin, and register there. Same-origin, so this works.
+  function capWithRegister(){
+    const frames = [window, window.parent, window.top];
+    for(const w of frames){
+      let C; try{ C = w && w.Capacitor; }catch(_){ continue; }   // cross-origin guard
+      if(C && C.registerPlugin) return C;
+    }
+    // Last resort: any Capacitor at all, for the .Plugins fallback below.
+    for(const w of frames){
+      let C; try{ C = w && w.Capacitor; }catch(_){ continue; }
+      if(C) return C;
+    }
+    return null;
+  }
+  function appAuthPlugin(){
+    const C = capWithRegister();
+    if(!C) return null;
+    if(C.registerPlugin){ try{ const p = C.registerPlugin('AppAuth'); if(p) return p; }catch(_){} }
+    return (C.Plugins && C.Plugins.AppAuth) || null;
+  }
+  let appTokenLastErr = '';   // for the on-screen diagnostic below
+  async function appNativeToken(){
+    if(!IS_NATIVE) return '';
+    appTokenLastErr = '';
+    try{
+      // Fast path: the shell exposes its own working token getter in the top frame.
+      try{
+        const top = window.top;
+        if(top && top !== window && typeof top.pgAppNativeToken === 'function'){
+          const v = await top.pgAppNativeToken();
+          if(v) return v;
+        }
+      }catch(_){}
+      const p = appAuthPlugin();
+      if(!p){ appTokenLastErr = 'no AppAuth plugin'; return ''; }
+      const r = await p.token();
+      if(!r || !r.value){ appTokenLastErr = 'plugin returned no value'; return ''; }
+      return r.value;
+    }catch(e){ appTokenLastErr = (e && (e.message||e.code||String(e))) || 'token() threw'; return ''; }
+  }
+  // One-shot readout of the native bridge, shown in the chat if a native send
+  // can't get an app token — turns a silent "signal dropped" into a real cause.
+  // TEMP DIAGNOSTIC — remove once native chat is confirmed working.
+  function nativeAuthDiag(){
+    try{
+      function fi(w){
+        let C; try{ C = w && w.Capacitor; }catch(_){ return 'x'; }
+        if(!C) return 'none';
+        return 'reg='+(!!C.registerPlugin)+',n='+((C.Plugins&&Object.keys(C.Plugins).length)||0);
+      }
+      const shellFn = (function(){ try{ return typeof window.top.pgAppNativeToken==='function'; }catch(_){ return false; } })();
+      return 'DIAG native='+IS_NATIVE+' self['+fi(window)+'] top['+fi(window.top)+']'+
+             ' shellFn='+shellFn+' err='+(appTokenLastErr||'(none)');
+    }catch(e){ return 'DIAG failed: '+(e&&e.message||e); }
+  }
+
   const log = document.getElementById('log');
   const input = document.getElementById('input');
   const send = document.getElementById('send');
@@ -1253,12 +1322,19 @@
     history.push({role:'user', content});
     busy = true; send.disabled = true;
     showTyping();
+    // TEMP DIAGNOSTIC — any sign of the native bridge means we should surface the
+    // real cause on failure instead of the generic "signal dropped". Remove once
+    // native chat is confirmed working.
+    const hasCap = !!(window.Capacitor||(window.top&&window.top.Capacitor));
     try{
-      const token = await turnstileToken();
+      // Native app clears the gate with its app secret; web mints a Turnstile token.
+      const appToken = IS_NATIVE ? await appNativeToken() : '';
+      const token    = IS_NATIVE ? '' : await turnstileToken();
+      if(IS_NATIVE && !appToken){ clearTyping(); addPierre(nativeAuthDiag()); return; }
       const res = await fetch(`${API}/pierre/chat`,{
         method:"POST",
         headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({ messages: history, token, email: pgSession()||undefined })
+        body:JSON.stringify({ messages: history, token, appToken, email: pgSession()||undefined })
       });
       const data = await res.json();
       const reply = ((data && data.reply) || "").trim();
@@ -1266,6 +1342,8 @@
       if(reply){
         const shown = addPierre(reply);   // strips any [SWITCH]/[ASK]/[ROUTE] tag
         history.push({role:'assistant', content: shown || reply});
+      }else if(hasCap){
+        addPierre("The signal dropped ("+res.status+"). "+nativeAuthDiag());
       }else{
         addPierre("The signal dropped. Say that again?");
       }
