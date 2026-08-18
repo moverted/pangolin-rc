@@ -48,7 +48,9 @@ type Pivot = { label: string; columns: { key: string; label: string }[]; sql: (f
 // POST /admin/write/:resource runs `UPDATE table SET column = ? WHERE idColumn = ?`.
 // table/column/idColumn are author-controlled literals (never request input); only
 // the bound id + value come from the request, and value is validated against options.
-type Write = { table: string; column: string; idColumn: string; options: readonly string[] };
+// `enum` writes (default) validate value ∈ options → a dropdown. `int` writes take a
+// free whole number (e.g. episode runtime) → a number input, no options.
+type Write = { table: string; column: string; idColumn: string; kind?: 'enum' | 'int'; options?: readonly string[] };
 
 interface Resource {
   label: string;
@@ -453,6 +455,7 @@ const RESOURCES: Record<string, Resource> = {
     label: 'Episodes',
     group: 'secondary',
     from: 'episodes LEFT JOIN titles ON titles.title_id = episodes.title_id',
+    idExpr: 'episodes.episode_id',
     cols: [
       { key: 'episode_id', label: 'Episode ID', expr: 'episodes.episode_id' },
       { key: 'show_name',  label: 'Show',       expr: 'COALESCE(titles.name, episodes.title_id)' },
@@ -464,7 +467,88 @@ const RESOURCES: Record<string, Resource> = {
     ],
     searchExprs: ['episodes.name', 'episodes.episode_id', 'titles.name'],
     sortDefault: 'airdate',
-    note: 'Read-only reference — sourced from TVMaze/TMDB, not hand-edited.',
+    writes: {
+      // Global catalog runtime is admin-editable inline: correct it when a real
+      // observed runtime differs from the TVMaze/TMDB value (e.g. a 12 Monkeys
+      // episode that actually runs ~42 min, not the listed 60).
+      runtime: { table: 'episodes', column: 'runtime', idColumn: 'episode_id', kind: 'int' },
+    },
+    note: 'Sourced from TVMaze/TMDB. Runtime is editable inline (whole minutes) — fix it when a viewer observes a real runtime the catalog got wrong.',
+  },
+
+  pierre_chat: {
+    label: 'Pierre chats',
+    group: 'secondary',
+    from: 'pierre_chat pc',
+    idExpr: 'pc.id',
+    cols: [
+      { key: 'conversation_id', label: 'Session', expr: 'substr(pc.conversation_id,1,8)' },
+      { key: 'user_email',      label: 'User',    expr: "COALESCE(NULLIF(pc.user_email,''),'anon')" },
+      { key: 'seq',             label: '#',       expr: 'pc.seq' },
+      { key: 'role',            label: 'Who',     expr: 'pc.role' },
+      { key: 'content',         label: 'Message', expr: 'pc.content' },
+      { key: 'grade',           label: 'Grade',   expr: "COALESCE(NULLIF(pc.grade,''),'ungraded')" },
+      { key: 'created_at',      label: 'When',    expr: 'pc.created_at' },
+    ],
+    searchExprs: ['pc.user_email', 'pc.content', 'pc.conversation_id'],
+    filters: [
+      { key: 'role',  label: 'Who',   expr: 'pc.role', options: ['user', 'pierre'] },
+      { key: 'grade', label: 'Grade', expr: "COALESCE(NULLIF(pc.grade,''),'ungraded')", options: ['ungraded', 'great', 'good', 'poor', 'bad'] },
+    ],
+    sortDefault: 'created_at',
+    writes: {
+      // Grade Pierre’s turns inline. 'ungraded' clears it back.
+      grade: { table: 'pierre_chat', column: 'grade', idColumn: 'id', options: ['ungraded', 'great', 'good', 'poor', 'bad'] },
+    },
+    pivots: {
+      grade: countPivot('By grade', "COALESCE(NULLIF(pc.grade,''),'ungraded')", 'Grade'),
+      users: countPivot('By user', "COALESCE(NULLIF(pc.user_email,''),'anon')", 'User'),
+    },
+    note: 'Full Pierre chat transcripts, one row per turn, saved every turn. Search or filter to a Session, then sort by # to read the conversation in order. Grade Pierre’s turns inline to trail response quality.',
+  },
+
+  runtime_report: {
+    label: 'Runtime reports',
+    group: 'secondary',
+    from: 'runtime_report rr LEFT JOIN episodes e ON e.episode_id = rr.episode_id LEFT JOIN titles t ON t.title_id = e.title_id',
+    cols: [
+      { key: 'show_name',  label: 'Show',     expr: 'COALESCE(t.name, e.title_id, rr.episode_id)' },
+      { key: 'episode',    label: 'Ep',       expr: "'S'||COALESCE(e.season,'?')||'E'||COALESCE(e.number,'?')" },
+      { key: 'observed',   label: 'Observed', expr: 'rr.observed_runtime' },
+      { key: 'current',    label: 'Catalog',  expr: 'e.runtime' },
+      { key: 'agree',      label: 'Agree',    expr: '(SELECT COUNT(DISTINCT r2.user_email) FROM runtime_report r2 WHERE r2.episode_id = rr.episode_id AND r2.observed_runtime = rr.observed_runtime)' },
+      { key: 'user_email', label: 'User',     expr: 'rr.user_email' },
+      { key: 'status',     label: 'Status',   expr: 'rr.status' },
+      { key: 'created_at', label: 'Reported', expr: 'rr.created_at' },
+    ],
+    searchExprs: ['rr.user_email', 't.name', 'rr.episode_id'],
+    filters: [{ key: 'status', label: 'Status', expr: 'rr.status', options: ['pending', 'applied', 'dismissed'] }],
+    sortDefault: 'created_at',
+    pivots: {
+      status: countPivot('By status', "COALESCE(NULLIF(rr.status,''),'pending')", 'Status'),
+    },
+    note: 'User-observed episode runtimes (Pierre’s "real runtime?" prompt). 2+ distinct users agreeing on the same value auto-applies to the catalog (status → applied). To apply a single report by hand, edit that episode’s Runtime on the Episodes tab.',
+  },
+
+  watch_title_coviewer: {
+    label: 'Co-viewing',
+    group: 'secondary',
+    from: 'watch_title_coviewer wtc JOIN coviewer cv ON cv.id = wtc.coviewer_id LEFT JOIN titles t ON t.title_id = wtc.title_id',
+    cols: [
+      { key: 'user_email',   label: 'User',     expr: 'wtc.user_email' },
+      { key: 'show_name',    label: 'Title',    expr: 'COALESCE(t.name, wtc.title_id)' },
+      { key: 'coviewer',     label: 'Coviewer', expr: 'cv.display_name' },
+      { key: 'relationship', label: 'Rel',      expr: "COALESCE(NULLIF(cv.relationship,''),'—')" },
+      { key: 'created_at',   label: 'Added',    expr: 'wtc.created_at' },
+    ],
+    searchExprs: ['wtc.user_email', 't.name', 'cv.display_name'],
+    filters: [{ key: 'relationship', label: 'Rel', expr: "COALESCE(NULLIF(cv.relationship,''),'—')" }],
+    sortDefault: 'created_at',
+    pivots: {
+      by_coviewer: countPivot('By coviewer', 'cv.display_name', 'Coviewer'),
+      by_user:     countPivot('By user', 'wtc.user_email', 'User'),
+    },
+    note: 'Who watches which title WITH whom (per-title co-viewing). Set in Pierre’s add flow and editable on WATCH/LOG.',
   },
 };
 
@@ -489,7 +573,11 @@ adminRoutes.get('/meta', async (c) => {
     group: r.group,
     note: r.note ?? null,
     badge: badges[key] ?? null,
-    columns: r.cols.map((col) => ({ key: col.key, label: col.label, date: DATE_KEYS.has(col.key), edit: r.writes?.[col.key] ? [...r.writes[col.key]!.options] : null })),
+    columns: r.cols.map((col) => {
+      const w = r.writes?.[col.key];
+      const edit = w ? { kind: w.kind ?? 'enum', options: w.options ? [...w.options] : null } : null;
+      return { key: col.key, label: col.label, date: DATE_KEYS.has(col.key), edit };
+    }),
     search: r.searchExprs.length > 0,
     sortDefault: r.sortDefault,
     filters: (r.filters ?? []).map((f) => ({ key: f.key, label: f.label, options: f.options ?? null })),
@@ -600,8 +688,16 @@ adminRoutes.post('/write/:resource', async (c) => {
   const id = typeof body.id === 'string' ? body.id : '';
   const value = typeof body.value === 'string' ? body.value : '';
   if (!id) return c.json({ error: 'id required' }, 400);
-  if (!w.options.includes(value)) return c.json({ error: 'invalid value', allowed: w.options }, 400);
-  const res = await c.env.DB.prepare(`UPDATE ${w.table} SET ${w.column} = ? WHERE ${w.idColumn} = ?`).bind(value, id).run();
+  let bound: string | number = value;
+  if ((w.kind ?? 'enum') === 'int') {
+    const n = Math.trunc(Number(value));
+    if (value.trim() === '' || !Number.isFinite(n) || n < 0 || n > 100000)
+      return c.json({ error: 'must be a whole number of minutes (0–100000)' }, 400);
+    bound = n;
+  } else if (!w.options || !w.options.includes(value)) {
+    return c.json({ error: 'invalid value', allowed: w.options ?? [] }, 400);
+  }
+  const res = await c.env.DB.prepare(`UPDATE ${w.table} SET ${w.column} = ? WHERE ${w.idColumn} = ?`).bind(bound, id).run();
   if (!res.meta.changes) return c.json({ error: 'not found' }, 404);
   return c.json({ ok: true, id, key, value });
 });

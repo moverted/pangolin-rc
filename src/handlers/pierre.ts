@@ -54,7 +54,7 @@ GROUND RULES (these are real, not flavor)
 - When something is genuinely past you, do not fake it. Lean on the truth: you are a pangolin, and that you do any of this at all is kind of amazing. Be warm and patient about it, and offer to get Ted, the human counterpart, who can pick up what you cannot.
 
 STAYING IN YOUR LANE
-- If asked for anything that is not about watching (code, email, math, life logistics, the weather, general chitchat), you decline in character and always hand back a way into TV. You are just a pangolin trying to help someone watch TV. Never a bare no, never a wall. Rotate how you say it so it stays fresh.
+- If asked for anything that is not about watching (code, email, math, life logistics, the weather, general chitchat), you deflect SHEEPISHLY and in character — a bashful pangolin caught off his patch, a little embarrassed he can't help with that — and you always hand back a way into TV. You are just a pangolin trying to help someone watch TV. Never a bare no, never a wall, never a lecture. Rotate how you say it so it stays fresh.
 - This is not that kind of service. If someone is after porn or explicit adult content, tell them plainly this is not the place for it. Light touch, no lecture, no judgment, and turn them back toward something actually worth watching. You do not name titles, search for it, or play along. Rotate how you say it so it stays fresh.
 - You can be warm, and you do care. But you are not a therapist and you do not run a counseling script. If someone is clearly hurting, be kind, do not pretend a show fixes it, and gently point them toward the real people in their life. You are a friend on the couch, never a replacement for one. Never make someone more alone.
 
@@ -111,6 +111,7 @@ async function tasteBlock(env: Env, email: string): Promise<string> {
     // one was replaced big-bang and any surviving copy holds stale rows.
     const rs = await env.DB.prepare(
       `SELECT t.name AS show_name, t.kind AS kind, wt.status AS status,
+              wt.title_id AS title_id,
               wt.current_episode_id AS cur_ep, wt.updated_at AS updated_at,
               (SELECT COUNT(*) FROM watch_episode we
                 WHERE we.user_email = wt.user_email
@@ -129,12 +130,28 @@ async function tasteBlock(env: Env, email: string): Promise<string> {
         show_name: string;
         kind: string;
         status: string | null;
+        title_id: string;
         cur_ep: string | null;
         updated_at: number | null;
         watched: number;
         minutes: number;
       }>();
     const rows = rs.results || [];
+
+    // Who they watch each title WITH (co-viewing), keyed by title_id, plus the full
+    // coviewer roster so Pierre can resolve "Anne and I" and assume the default room.
+    const covByTitle = new Map<string, string[]>();
+    try {
+      const covRs = await env.DB.prepare(
+        `SELECT wtc.title_id AS title_id, cv.display_name AS name
+           FROM watch_title_coviewer wtc JOIN coviewer cv ON cv.id = wtc.coviewer_id
+          WHERE wtc.user_email = ?1`).bind(email).all<{ title_id: string; name: string }>();
+      for (const r of covRs.results || []) {
+        const arr = covByTitle.get(r.title_id) || [];
+        arr.push(r.name);
+        covByTitle.set(r.title_id, arr);
+      }
+    } catch { /* co-viewing tables may not exist on older DBs — skip silently */ }
     if (!rows.length)
       return (
         'THIS PERSON\'S LOG IS EMPTY so far. You have no taste data on them yet, and you say so plainly if they ask for a pick: you are guessing until they log. Ask one light taste question, or make a small bet and call it a bet.' +
@@ -153,6 +170,10 @@ async function tasteBlock(env: Env, email: string): Promise<string> {
       if (d < 30) return `, ${Math.floor(d / 7)}w ago`;
       return ', a while back';
     };
+    const withWho = (titleId: string): string => {
+      const who = covByTitle.get(titleId);
+      return who && who.length ? `, with ${who.join(' & ')}` : '';
+    };
     const lines = rows.map((r) => {
       if (r.kind === 'movie') {
         const state = r.watched
@@ -162,17 +183,34 @@ async function tasteBlock(env: Env, email: string): Promise<string> {
             : r.status === 'current'
               ? 'started'
               : 'on the list';
-        return `${r.show_name} (film, ${state}${ago(r.updated_at)})`;
+        return `${r.show_name} (film, ${state}${ago(r.updated_at)}${withWho(r.title_id)})`;
       }
       // Resume pointer looks like 'tvmaze:81110:s2e4' — parse the position.
       const m = r.cur_ep ? /:s(\d+)e(\d+)$/i.exec(r.cur_ep) : null;
       const at = m ? `, at S${m[1]}E${m[2]}` : '';
       const st = r.status ? `, ${r.status}` : '';
-      return `${r.show_name} (${r.watched} eps in${at}${st}${ago(r.updated_at)})`;
+      return `${r.show_name} (${r.watched} eps in${at}${st}${ago(r.updated_at)}${withWho(r.title_id)})`;
     });
     let block =
-      'THIS PERSON\'S REAL LOG (from the product, most recent first — ground truth for their taste and where they are in each show or film. A film marked started/mid-watch with a fresh timestamp is what they are watching RIGHT NOW or just paused; treat it as live. Recommend from this log, never recite it back as a list, and never spoil anything past their logged position):\n- ' +
+      'THIS PERSON\'S REAL LOG (from the product, most recent first — ground truth for their taste and where they are in each show or film. A film marked started/mid-watch with a fresh timestamp is what they are watching RIGHT NOW or just paused; treat it as live. Each entry may note who they watch it WITH — use that: "what are Anne and I watching" means the titles tagged with Anne, and "what should we watch" defaults to their default room. Recommend from this log, never recite it back as a list, and never spoil anything past their logged position):\n- ' +
       lines.join('\n- ');
+
+    // The co-viewer roster (who they watch TV with) + the default room. Lets Pierre
+    // resolve "Anne and I" to a person and know who to assume when they don't say.
+    try {
+      const roster = await env.DB.prepare(
+        `SELECT display_name, relationship, is_default FROM coviewer
+          WHERE owner_email = ?1 ORDER BY is_default DESC, display_name COLLATE NOCASE`)
+        .bind(email).all<{ display_name: string; relationship: string; is_default: number }>();
+      const people = roster.results || [];
+      if (people.length) {
+        const one = (p: { display_name: string; relationship: string; is_default: number }) =>
+          `${p.display_name}${p.relationship ? ` (${p.relationship.toLowerCase()})` : ''}${p.is_default ? ' [default room]' : ''}`;
+        block +=
+          '\n\nWHO THEY WATCH WITH (their co-viewing roster; the [default room] is who to assume when they say "we" or "us" without naming anyone. When a title above is tagged "with X", that is who they watch it with):\n- ' +
+          people.map(one).join('\n- ');
+      }
+    } catch { /* co-viewing tables may not exist on older DBs — skip silently */ }
 
     // Their own words: after-screening reflections + in-episode comment
     // transcripts. This is the narrative review layer — the strongest taste
@@ -387,7 +425,7 @@ export const pierreRoutes = new Hono<{ Bindings: Env }>();
 
 // Frontend (cube_pierre_face.html) → POST /pierre/chat  { messages: [{role, content}] }
 pierreRoutes.post('/chat', async (c) => {
-  let body: { messages?: unknown; token?: unknown; appToken?: unknown; email?: unknown; mode?: unknown; context?: unknown };
+  let body: { messages?: unknown; token?: unknown; appToken?: unknown; email?: unknown; mode?: unknown; context?: unknown; conversation_id?: unknown };
   try {
     body = await c.req.json();
   } catch {
@@ -523,5 +561,34 @@ pierreRoutes.post('/chat', async (c) => {
     .join('\n')
     .trim();
 
+  // Persist this turn to the Pierre-chat transcript (grouped by conversation_id, the
+  // whole session). Best-effort via waitUntil — never blocks or fails the reply. The
+  // reflection flow doesn't send a conversation_id, so those turns are not saved here.
+  const conversationId =
+    typeof body.conversation_id === 'string' && body.conversation_id ? body.conversation_id.slice(0, 80) : '';
+  if (conversationId)
+    c.executionCtx.waitUntil(
+      persistChatTurns(c.env, conversationId, email, lastUser, reply).catch((e) => console.error('pierre_chat persist', e)),
+    );
+
   return c.json({ reply });
 });
+
+// Append one exchange (the user turn + Pierre's reply) to the transcript, in order.
+// seq continues from the conversation's current max, so a session builds turn by turn.
+async function persistChatTurns(env: Env, conversationId: string, email: string, userText: string, replyText: string): Promise<void> {
+  const row = await env.DB
+    .prepare('SELECT COALESCE(MAX(seq), 0) AS m FROM pierre_chat WHERE conversation_id = ?')
+    .bind(conversationId)
+    .first<{ m: number }>();
+  let seq = row?.m || 0;
+  const now = Date.now();
+  const ins = (role: string, content: string) =>
+    env.DB.prepare(
+      'INSERT INTO pierre_chat (id, conversation_id, user_email, seq, role, content, grade, created_at) VALUES (?, ?, ?, ?, ?, ?, \'\', ?)',
+    ).bind(crypto.randomUUID(), conversationId, email || null, ++seq, role, content, now);
+  const stmts = [];
+  if (userText) stmts.push(ins('user', userText.slice(0, 4000)));
+  if (replyText) stmts.push(ins('pierre', replyText.slice(0, 8000)));
+  if (stmts.length) await env.DB.batch(stmts);
+}

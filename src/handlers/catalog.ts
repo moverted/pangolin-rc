@@ -346,6 +346,50 @@ catalogRoutes.post('/runtime-check', async (c) => {
   return c.json({ checked: true, stored, watched: Math.round(watched), tmdbRuntime: tmdbRt, corrected });
 });
 
+// POST /catalog/runtime-report — a user's confirmed real runtime for an episode, from
+// Pierre's "was that the real end?" prompt (fired only when runtime-check did NOT
+// auto-correct via TMDB). Upserts the user's observation; when 2+ distinct users agree
+// on the SAME runtime it auto-applies to the global catalog. Every report stays queued
+// (runtime_report) for the admin regardless.
+const RUNTIME_CONSENSUS = 2;   // distinct users agreeing → auto-apply
+catalogRoutes.post('/runtime-report', async (c) => {
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const email = (typeof body.email === 'string' ? body.email : '').trim().toLowerCase();
+  const titleId = String(body.title_id || '');
+  const season = Number(body.season);
+  const number = Number(body.number);
+  const observed = Math.trunc(Number(body.observed_runtime));
+  if (!email || !titleId || !Number.isFinite(season) || !Number.isFinite(number) || !(observed > 0) || observed > 100000)
+    return c.json({ error: 'email, title_id, season, number, observed_runtime required' }, 400);
+  const episodeId = epId(titleId, season, number);
+  const ep = await c.env.DB.prepare('SELECT runtime FROM episodes WHERE episode_id = ?').bind(episodeId).first<{ runtime: number | null }>();
+  if (!ep) return c.json({ error: 'unknown episode' }, 404);
+
+  const now = Date.now();
+  await c.env.DB.prepare(
+    `INSERT INTO runtime_report (episode_id, user_email, observed_runtime, status, created_at)
+     VALUES (?, ?, ?, 'pending', ?)
+     ON CONFLICT(episode_id, user_email) DO UPDATE SET
+       observed_runtime = excluded.observed_runtime, status = 'pending', created_at = excluded.created_at`
+  ).bind(episodeId, email, observed, now).run();
+
+  // Consensus: N distinct users on the SAME observed runtime → auto-apply globally.
+  const agree = await c.env.DB.prepare(
+    'SELECT COUNT(DISTINCT user_email) AS n FROM runtime_report WHERE episode_id = ? AND observed_runtime = ?'
+  ).bind(episodeId, observed).first<{ n: number }>();
+  const n = agree?.n || 1;
+  let applied = false;
+  if (n >= RUNTIME_CONSENSUS) {
+    await c.env.DB.prepare('UPDATE episodes SET runtime = ?, updated_at = ? WHERE episode_id = ?')
+      .bind(observed, now, episodeId).run();
+    await c.env.DB.prepare("UPDATE runtime_report SET status = 'applied' WHERE episode_id = ? AND observed_runtime = ?")
+      .bind(episodeId, observed).run();
+    applied = true;
+  }
+  return c.json({ ok: true, applied, agree: n });
+});
+
 // GET /catalog/titles/:title_id/episodes — canonical episode list (no user state).
 catalogRoutes.get('/titles/:title_id/episodes', async (c) => {
   const titleId = c.req.param('title_id');

@@ -92,6 +92,29 @@
   .name.offsvc{ color:#857c72; opacity:.78; text-shadow:0 2px 16px rgba(0,0,0,.7); }
   .ymeta{ font-family:var(--mono); font-size:11px; color:var(--dim);
     letter-spacing:.05em; margin-bottom:12px; text-shadow:0 1px 10px rgba(0,0,0,.7); }
+  /* Pierre "real runtime?" prompt (runtime-mismatch → consensus queue) */
+  .rt-ask{ position:fixed; left:50%; bottom:16px; transform:translateX(-50%); z-index:200;
+    max-width:340px; width:calc(100% - 32px); background:rgba(20,14,8,.96); border:1px solid var(--amber);
+    border-radius:14px; padding:14px 16px; box-shadow:0 10px 30px rgba(0,0,0,.5); }
+  .rt-ask .rt-q{ font-family:var(--mono); font-size:12.5px; line-height:1.4; color:var(--text); margin-bottom:12px; }
+  .rt-ask .rt-btns{ display:flex; gap:8px; flex-wrap:wrap; }
+  .rt-ask .rt-yes{ background:var(--amber); color:var(--amber-deep); border:0; border-radius:999px;
+    font-family:var(--mono); font-weight:700; font-size:12px; padding:7px 12px; cursor:pointer; }
+  .rt-ask .rt-no{ background:none; border:1px solid rgba(240,169,59,.4); color:var(--dim); border-radius:999px;
+    font-family:var(--mono); font-size:12px; padding:7px 12px; cursor:pointer; }
+  /* "Watching with" (co-viewing) row */
+  .covwith{ font-family:var(--mono); font-size:11px; color:var(--faint); letter-spacing:.04em;
+    margin:-4px 0 12px; display:flex; flex-wrap:wrap; align-items:center; gap:7px; }
+  .covwith:empty{ display:none; }
+  .covwith .cw-val{ color:var(--text); }
+  .covwith .cw-edit,.covwith .cw-cancel{ background:none; border:0; color:var(--amber); font-family:var(--mono);
+    font-size:11px; cursor:pointer; padding:0; text-decoration:underline; }
+  .covwith .cw-cancel{ color:var(--faint); }
+  .covwith .cw-chip{ background:none; border:1px solid rgba(240,169,59,.32); border-radius:999px; color:var(--dim);
+    font-family:var(--mono); font-size:11px; padding:4px 10px; cursor:pointer; }
+  .covwith .cw-chip.on{ border-color:var(--amber); color:var(--amber); background:rgba(240,169,59,.14); }
+  .covwith .cw-save{ background:var(--amber); color:var(--amber-deep); border:0; border-radius:999px;
+    font-family:var(--mono); font-weight:700; font-size:11px; padding:4px 12px; cursor:pointer; }
   /* Big TAG: prominent "next drop" badge on the Episodes face. */
   .wowtag-big{ display:inline-flex; align-items:baseline; gap:8px; margin:0 0 14px;
     font-family:var(--mono); font-weight:700; letter-spacing:.06em; color:var(--amber);
@@ -528,6 +551,8 @@
       <div class="herofoot">
         <h1 class="name" id="name">Loading…</h1>
         <div class="ymeta" id="ymeta"></div>
+        <!-- "Watching with" (co-viewing): who this title is watched with, editable. -->
+        <div class="covwith" id="covwith"></div>
         <!-- Big TAG: when the next episode drops (WoW scheduler). Hidden when nothing's upcoming. -->
         <div class="wowtag-big" id="wowTagBig" style="display:none;"></div>
 
@@ -744,6 +769,7 @@ function boot(show,list,isDefault){
   hideEmpty();                       // a show is loading — clear the empty state
   allEps=list;
   curShowId=show.id||null; curShowName=show.name||'';
+  loadCovwith();
   // Pull the shared watch-mode store so the playhead glyph knows BINGE/FRESH; repaint
   // the handle once it lands (async; the store is localStorage-backed and cached).
   if(!DEMO && window.WoW && WoW.store && WoW.store.load){
@@ -1624,6 +1650,44 @@ function coviewCheckReveal(){
 // unanswered comment. Tapping records the reply in-app and opens a native SMS
 // draft to the friend (no text server: it's an sms: deep link). Replied ids are
 // remembered locally so the mic reverts and the row shows "✓ replied".
+// "Watching with" (co-viewing) row: who this title is watched with, editable inline
+// against the roster. curShowId is the title_id. Hidden if no roster is set up.
+const cwEsc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+async function loadCovwith(){
+  const host=document.getElementById('covwith'); if(!host) return;
+  host.innerHTML='';
+  const email=(typeof acctEmail==='function'?acctEmail():''); const tid=curShowId;
+  if(!email || !tid) return;
+  const em=encodeURIComponent(email), sid=encodeURIComponent(tid);
+  let roster=[], current=[];
+  try{ const r=await fetch(`${API_BASE}/profile/${em}/coviewers`); if(r.ok) roster=(await r.json()).coviewers||[]; }catch(_){}
+  if(!roster.length) return;                 // no room set up → nothing to show
+  try{ const r=await fetch(`${API_BASE}/profile/${em}/titles/${sid}/coviewers`); if(r.ok) current=(await r.json()).coviewers||[]; }catch(_){}
+  if(curShowId!==tid) return;                 // show changed mid-fetch
+  covwithDisplay(host, tid, roster, current);
+}
+function covwithDisplay(host, tid, roster, current){
+  const names=current.map(c=>c.display_name);
+  const val=names.length ? ('with '+names.join(' & ')) : 'just you';
+  host.innerHTML='Watching <span class="cw-val">'+cwEsc(val)+'</span> <button class="cw-edit">edit</button>';
+  host.querySelector('.cw-edit').onclick=()=>covwithEditor(host, tid, roster, current);
+}
+function covwithEditor(host, tid, roster, current){
+  const sel=new Set(current.map(c=>c.id));
+  host.innerHTML='Watching with '+
+    roster.map(c=>'<button class="cw-chip'+(sel.has(c.id)?' on':'')+'" data-cid="'+c.id+'">'+cwEsc(c.display_name)+'</button>').join('')+
+    '<button class="cw-save">Save</button><button class="cw-cancel">Cancel</button>';
+  host.querySelectorAll('.cw-chip').forEach(b=>b.onclick=()=>{ const id=b.dataset.cid;
+    if(sel.has(id)){sel.delete(id);b.classList.remove('on');}else{sel.add(id);b.classList.add('on');} });
+  host.querySelector('.cw-save').onclick=async()=>{
+    const email=(typeof acctEmail==='function'?acctEmail():'');
+    try{ await fetch(`${API_BASE}/profile/${encodeURIComponent(email)}/titles/${encodeURIComponent(tid)}/coviewers`,
+      {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({coviewer_ids:[...sel]})}); }catch(_){}
+    covwithDisplay(host, tid, roster, roster.filter(c=>sel.has(c.id)));
+  };
+  host.querySelector('.cw-cancel').onclick=()=>covwithDisplay(host, tid, roster, current);
+}
+
 function coviewRepliedKey(){ const e=(typeof acctEmail==='function'?acctEmail():''); return (curShowId && e) ? 'pg_coview_replied:'+e+':'+curShowId : null; }
 function coviewRepliedSet(){ try{ return new Set(JSON.parse(localStorage.getItem(coviewRepliedKey())||'[]')); }catch(_){ return new Set(); } }
 function coviewMarkReplied(id){ const k=coviewRepliedKey(); if(!k||!id) return;
@@ -2073,8 +2137,35 @@ function reportRuntimeMismatch(i, watchedMin, rt){
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ email:(typeof acctEmail==='function'?acctEmail():''),
         title_id:curShowId, season:(e.season||1), number:(e.number||0),
-        watched_min:Math.round(watchedMin) }) }).catch(()=>{});
+        watched_min:Math.round(watchedMin) }) })
+      .then(r=>r.ok?r.json():null)
+      // TMDB couldn't confirm a fix → ask the viewer for the real runtime (their
+      // answer feeds the consensus queue; 2+ agreeing auto-applies to the catalog).
+      .then(d=>{ if(d && d.checked && !d.corrected && d.stored>0) askRealRuntime(e, Math.round(watchedMin), d.stored); })
+      .catch(()=>{});
   }catch(_){ /* best-effort; never block completion */ }
+}
+
+// Pierre-style prompt: the finish ran short of the listed runtime and TMDB didn't
+// confirm a correction. Ask the viewer if the shorter time is the real length; a
+// "yes" posts to the consensus queue (POST /catalog/runtime-report).
+function askRealRuntime(e, watched, stored){
+  const old=document.getElementById('rtAsk'); if(old) old.remove();
+  const box=document.createElement('div'); box.id='rtAsk'; box.className='rt-ask';
+  box.innerHTML='<div class="rt-q">You finished at '+watched+' min, but this one’s listed at '+stored+'. Is ~'+watched+' min the real length?</div>'+
+    '<div class="rt-btns"><button class="rt-yes">Yes, ≈'+watched+' min</button><button class="rt-no">No, I stopped early</button></div>';
+  document.body.appendChild(box);
+  const close=()=>{ try{ box.remove(); }catch(_){}; };
+  box.querySelector('.rt-no').onclick=close;
+  box.querySelector('.rt-yes').onclick=async()=>{
+    box.querySelector('.rt-yes').disabled=true;
+    try{ await fetch(`${API_BASE}/catalog/runtime-report`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ email:(typeof acctEmail==='function'?acctEmail():''), title_id:curShowId,
+        season:(e.season||1), number:(e.number||0), observed_runtime:watched })}); }catch(_){}
+    box.querySelector('.rt-q').textContent='Got it — noted. Thanks.';
+    box.querySelector('.rt-btns').innerHTML='';
+    setTimeout(close, 1400);
+  };
 }
 
 // FINISH: logs the episode fully watched and advances.
@@ -2179,9 +2270,15 @@ function paint(){
   renderSeasons();
 
   // ----- big TAG: when the next episode drops (WoW scheduler) -----
+  // Only surfaces the future drop when it's the point — i.e. you're CAUGHT UP: the
+  // focused episode is finished (nothing to watch now) or you're already looking at
+  // the unaired episode itself. While you're mid-watch on a fresh, aired episode,
+  // "S21 EP3 TUESDAY" just competes with the thing you're watching → leave it empty.
   const wtb=$('wowTagBig');
   if(wtb){
-    const nx = !isMovie ? wowNextUnaired() : null;
+    const cur = eps[focus];
+    const watchingFresh = cur && released(cur) && !epDone[focus];   // aired + not finished = watching it now
+    const nx = (!isMovie && !watchingFresh) ? wowNextUnaired() : null;
     const lab = nx ? wowDropLabel(nx) : null;
     if(lab){ wtb.style.display='inline-flex'; wtb.classList.toggle('soon', !!lab.soon); wtb.textContent=lab.txt; }
     else { wtb.classList.remove('soon'); wtb.style.display='none'; }
@@ -2527,24 +2624,53 @@ function placeAwayTime(awayMin){
   emitProgress(focus, !!epDone[focus], false, Math.round(epMin[focus]||0));               // persist the stop (started_at cleared)
   paint();
 }
+// Ask the shell to rotate the cube to THIS (LOG) face. Used on return from
+// background while a watch is live — a running timer should always surface the Log.
+function returnToLogFace(){
+  try{
+    if(window.parent===window) return;
+    if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('episodes',{});
+    else window.parent.postMessage({type:'cube:rotateTo',face:'episodes',payload:{}},'*');
+  }catch(_){}
+}
+// The episode-end timer ran out while the phone was asleep. Freeze the watch at full
+// and stage the finish for a DELIBERATE tap (FINISHED?) instead of silently
+// auto-completing — the same one-tap commit the streamer-return path uses. Freezing
+// synchronously here also neutralises the queued 5s tickWatch so it can't complete
+// underneath the prompt.
+function stageReturnFinish(i){
+  const rt=runtimeOf(i);
+  epMin[i]=rt; watchingLive[i]=false; startedAt[i]=null; sessionBase[i]=rt;
+  minPreview=null; awaitingLog=false; cooled=false;
+  paint();
+  calloutFinish();   // FINISHED? + green pulse
+}
+// Shared return-from-background handler for a live watch: bring the Log forward, then
+// either stage FINISHED? (timer expired while away) or catch the bar up (still mid-episode).
+function handleWatchReturn(){
+  if(startedAt[focus]==null || !watchingLive[focus]) return false;
+  returnToLogFace();
+  const rt=runtimeOf(focus), live=liveMin(focus);
+  if(live>=rt-1e-6) stageReturnFinish(focus);   // ended while away → prompt, don't auto-complete
+  else tickWatch();                              // still watching → snap the bar to the wall clock
+  return true;
+}
 let hiddenAt=null;
 document.addEventListener('visibilitychange', ()=>{
   if(document.hidden){ hiddenAt=Date.now(); return; }
   const wasHidden=hiddenAt; hiddenAt=null;
   if(!startedAt[focus] || !wasHidden) return;
-  // While actively WATCHING the live timer owns the clock: time away IS watch time
-  // (the bar is recomputed from startedAt), so we stay in WATCHING and just catch
-  // the bar up — never flip to WAITING. The tick completes this one episode if its
-  // full runtime elapsed while we were gone (one episode only, no season cascade).
-  if(watchingLive[focus]){ tickWatch(); return; }
+  // A live watch owns the clock: time away IS watch time. On return, surface the Log
+  // and either stage FINISHED? (runtime elapsed while gone) or catch the bar up.
+  if(watchingLive[focus]){ handleWatchReturn(); return; }
   // Not actively watching in-app (e.g. a streamer launch left a start ts): keep the
   // existing "offer a placement for the time away" behaviour.
   placeAwayTime((Date.now()-wasHidden)/60000);
 });
 // bfcache restore (iOS Safari / Chrome back-forward) can resume the page without a
 // visibilitychange — the same path the shell guards at index.html. If a live watch is
-// armed, snap the bar to the wall clock at once instead of waiting for the next tick.
-window.addEventListener('pageshow', ()=>{ if(startedAt[focus]!=null && watchingLive[focus]) tickWatch(); });
+// armed, run the same return handler (surface the Log; FINISHED? if it ran out).
+window.addEventListener('pageshow', ()=>{ if(startedAt[focus]!=null && watchingLive[focus]) handleWatchReturn(); });
 
 // Keep native momentum scrolling responsive: nudge .scroll a hair off its top/bottom
 // edge as each drag begins so the first up-swipe isn't eaten by iOS overscroll chaining

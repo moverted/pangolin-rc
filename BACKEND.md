@@ -4,6 +4,33 @@ Append-only log. Any session that touches the Worker, D1, or deploy
 configuration adds an entry here before the session ends (see CLAUDE.md,
 "Backend and deploy rules").
 
+## 2026-08-18 — 1.0.2 co-watching + Pierre batch (DEPLOYED)
+
+Big batch. Migrations applied REMOTE: `0039_watch_title_coviewer`, `0040_runtime_report`,
+`0041_pierre_chat`. Worker + Pages (`pangolin-rc` app, `pangolinrc-admin`) deployed.
+
+- **Co-viewing (coviewer 1.0.2):** per-title `watch_title_coviewer` join table + profile
+  endpoints `GET`/`PUT /profile/:email/titles/:titleId/coviewers` (PUT replaces; body
+  `{use_default:true}` copies the is_default roster, else `{coviewer_ids:[...]}`, roster-
+  scoped). Pierre `tasteBlock` weaves ", with <names>" per title + a roster/[default room]
+  block. Chip set 3 in the Pierre add flow + inline "Watching with" editors on WATCH/LOG.
+  Admin `Co-viewing` resource (no Airtable mirror — admin is source of truth now).
+- **Runtime correction:** `runtime_report` table + `POST /catalog/runtime-report` — 2+
+  distinct users agreeing on the same observed runtime auto-applies to global
+  `episodes.runtime`; all reports queue for admin. LOG-face Pierre prompt fires only when
+  the existing `/catalog/runtime-check` (TMDB) did NOT auto-correct. Admin `Runtime reports`
+  queue. **Admin write path extended to free integers** (`kind:'int'`) so `episodes.runtime`
+  is inline-editable.
+- **Pierre chats:** `pierre_chat` table (one row per turn, grouped by conversation_id, the
+  whole session). `/pierre/chat` now takes `conversation_id` and `persistChatTurns()` saves
+  the user turn + reply every call (waitUntil; reflection turns excluded). Frontend sends a
+  per-session `PIERRE_CONVO`. Admin `Pierre chats` tab with inline `grade` (enum write).
+  NOTE: local `.dev.vars` lacks ANTHROPIC_API_KEY so the live persist path was NOT run
+  locally — verify save-every-turn in prod.
+- **Pierre persona:** non-TV asks now deflect SHEEPISHLY (persona edit). Chat call still has
+  exactly 5 params (model, max_tokens, system, messages, tools).
+- `src/types.ts`: added `APP_NATIVE_SECRET?` to Env (pierre native-auth already used it).
+
 ## 2026-08-18 — Cell phone on both contact forms (DEPLOYED)
 
 - **Migration REMOTE `0038_waitlist_phone.sql`:** `ALTER TABLE waitlist ADD COLUMN

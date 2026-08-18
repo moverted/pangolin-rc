@@ -97,6 +97,9 @@
   td select.edit-cell { width: auto; min-width: 118px; padding: 6px 8px; font-size: 0.82rem; cursor: pointer; transition: border-color 0.25s; }
   td select.edit-cell.ok { border-color: #9fe0b0; }
   td select.edit-cell.bad { border-color: #ffcf8f; }
+  td input.edit-num { width: 74px; padding: 6px 8px; font-size: 0.82rem; background: rgba(0,0,0,0.25); color: inherit; border: 1px solid rgba(255,255,255,0.18); border-radius: 8px; transition: border-color 0.25s; }
+  td input.edit-num.ok { border-color: #9fe0b0; }
+  td input.edit-num.bad { border-color: #ffcf8f; }
   .serial { display: block; white-space: pre-wrap; max-width: 560px; font-size: 0.8rem; line-height: 1.5; color: rgba(250,246,236,0.9); }
   [hidden] { display: none !important; }
 </style>
@@ -301,12 +304,16 @@
 
   const PILL_COLS = ['mutual', 'done', 'kind', 'spoiler', 'shared', 'relationship', 'linked', 'is_default', 'list_type'];
   function cell(col, val) {
-    // Inline-editable column (col.edit = allowed options): a <select> that PATCHes
+    // Inline-editable column (col.edit = {kind:'enum',options} → <select>, or
+    // {kind:'int'} → number input): PATCHes
     // the row via POST /admin/write/:resource. Checked first so it wins over the
     // null/dash rendering below. data-prev holds the value to revert to on failure.
     if (col.edit) {
       const curVal = val == null ? '' : String(val);
-      const opts = col.edit.map(o => `<option value="${esc(o)}"${o === curVal ? ' selected' : ''}>${esc(o)}</option>`).join('');
+      if (col.edit.kind === 'int') {
+        return `<input type="number" min="0" step="1" class="edit-cell edit-num" data-key="${esc(col.key)}" data-prev="${esc(curVal)}" value="${esc(curVal)}">`;
+      }
+      const opts = (col.edit.options || []).map(o => `<option value="${esc(o)}"${o === curVal ? ' selected' : ''}>${esc(o)}</option>`).join('');
       return `<select class="edit-cell" data-key="${esc(col.key)}" data-prev="${esc(curVal)}">${opts}</select>`;
     }
     // Hide: the one write action — a checkbox that toggles watch_comment.hidden.
@@ -325,7 +332,7 @@
     if (isUrl(val)) return `<a href="${esc(val)}" target="_blank" rel="noopener">link ↗</a>`;
     if (val === '—') return '<span class="muted">—</span>';
     if (PILL_COLS.includes(col.key)) return `<span class="pill">${esc(val)}</span>`;
-    const wrap = ['note', 'name', 'episode_name', 'show_name', 'transcription', 'excerpt', 'flaggers', 'all_comments'].includes(col.key);
+    const wrap = ['note', 'name', 'episode_name', 'show_name', 'transcription', 'excerpt', 'flaggers', 'all_comments', 'content', 'message'].includes(col.key);
     return wrap ? `<span>${esc(val)}</span>` : esc(val);
   }
 

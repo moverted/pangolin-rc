@@ -800,6 +800,53 @@ profileRoutes.delete('/:email/coviewers/:id', async (c) => {
   return c.json({ ok: true });
 });
 
+// ── Per-title coviewers ─────────────────────────────────────────────────────────
+// Who you watch a given title WITH (see migrations/0039_watch_title_coviewer.sql).
+// Set in the Pierre add flow and editable on WATCH/LOG. Solo = empty set.
+profileRoutes.get('/:email/titles/:titleId/coviewers', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  const titleId = c.req.param('titleId');
+  const rows = await c.env.DB.prepare(
+    `SELECT cv.* FROM watch_title_coviewer wtc
+       JOIN coviewer cv ON cv.id = wtc.coviewer_id
+      WHERE wtc.user_email = ? AND wtc.title_id = ?
+      ORDER BY cv.display_name COLLATE NOCASE`).bind(email, titleId).all();
+  return c.json({ coviewers: (rows.results || []).map(coviewerRow) });
+});
+
+// Replace the whole set for a title (idempotent). Body: { coviewer_ids: [...] } or
+// { use_default: true } to copy the owner's default matrix (is_default roster). Only
+// ids belonging to this owner's roster are accepted.
+profileRoutes.put('/:email/titles/:titleId/coviewers', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  const titleId = c.req.param('titleId');
+  let body: any; try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  let valid: string[] = [];
+  if (body.use_default === true) {
+    const rs = await c.env.DB.prepare(
+      'SELECT id FROM coviewer WHERE owner_email = ? AND is_default = 1').bind(email).all<{ id: string }>();
+    valid = (rs.results || []).map(r => r.id);
+  } else {
+    const ids = Array.isArray(body.coviewer_ids) ? body.coviewer_ids.map((x: any) => String(x)).slice(0, 20) : [];
+    if (ids.length) {
+      const rs = await c.env.DB.prepare(
+        `SELECT id FROM coviewer WHERE owner_email = ? AND id IN (${ids.map(() => '?').join(',')})`)
+        .bind(email, ...ids).all<{ id: string }>();
+      valid = (rs.results || []).map(r => r.id);
+    }
+  }
+  const now = Date.now();
+  const stmts: any[] = [
+    c.env.DB.prepare('DELETE FROM watch_title_coviewer WHERE user_email = ? AND title_id = ?').bind(email, titleId),
+  ];
+  for (const id of valid) stmts.push(
+    c.env.DB.prepare(
+      'INSERT INTO watch_title_coviewer (user_email, title_id, coviewer_id, created_at) VALUES (?, ?, ?, ?)')
+      .bind(email, titleId, id, now));
+  await c.env.DB.batch(stmts);
+  return c.json({ ok: true, coviewer_ids: valid });
+});
+
 // ─── Likes: react to a member's activity card ────────────────────────────────
 // Set (not toggle) the caller's like on one activity, identified by (subject
 // member + title + kind). Idempotent: liking twice is one row, unliking removes

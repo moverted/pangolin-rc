@@ -90,6 +90,7 @@ export interface Env {
   ACCESS_SECRET:  string;
   ANTHROPIC_API_KEY: string; // secret — backs the Pierre chat proxy (SEAM:processing)
   TURNSTILE_SECRET_KEY?: string; // secret — bot gate on the Pierre chat (optional until set)
+  APP_NATIVE_SECRET?: string;    // secret — shared token the native iOS app sends instead of a Turnstile token (Turnstile can't run in the WKWebview); matched by /pierre/chat
   TMDB_API_KEY?: string; // secret — backs the TMDB movie search/detail proxy (optional until set)
   AIRTABLE_PAT?: string;       // secret — personal access token; enables the D1↔Airtable watch sync
   AIRTABLE_BASE_ID?: string;   // var — Airtable base id (appXXXXXXXXXXXXXX); enables the sync with the PAT

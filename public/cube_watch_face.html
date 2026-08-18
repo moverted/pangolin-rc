@@ -116,6 +116,16 @@
   .exc-seas-chip.cur{border-color:var(--amber);background:rgba(233,162,60,.16)}
   .exc-title{font-family:var(--display);font-weight:700;font-size:17px;line-height:1.1;color:var(--text)}
   .exc-meta{font-family:var(--mono);font-size:10px;letter-spacing:.05em;color:var(--muted)}
+  /* "Watching with" (co-viewing) row on the expanded card */
+  .coview{margin:10px 2px 0;font-family:var(--mono);font-size:11px;letter-spacing:.03em;color:var(--muted);display:flex;flex-wrap:wrap;align-items:center;gap:7px}
+  .coview:empty{display:none}
+  .coview .cv-lbl{color:var(--ash)}
+  .coview .cv-val{color:var(--text)}
+  .coview .cv-edit{background:none;border:0;color:var(--amber);font-family:var(--mono);font-size:11px;cursor:pointer;padding:0;text-decoration:underline}
+  .coview .cv-chip{background:none;border:1px solid var(--line);border-radius:999px;color:var(--muted);font-family:var(--mono);font-size:11px;padding:4px 10px;cursor:pointer}
+  .coview .cv-chip.on{border-color:var(--amber);color:var(--amber);background:rgba(233,162,60,.12)}
+  .coview .cv-save{background:var(--amber);color:#1a130b;border:0;border-radius:999px;font-family:var(--mono);font-size:11px;font-weight:700;padding:4px 12px;cursor:pointer}
+  .coview .cv-cancel{background:none;border:0;color:var(--muted);font-family:var(--mono);font-size:11px;cursor:pointer;text-decoration:underline}
   .exc-syn{font-size:11.5px;line-height:1.45;color:var(--muted);max-height:4.4em;overflow:hidden}
   .exc-btns{display:flex;gap:10px}
   .exc-btn{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;border:none;border-radius:11px;
@@ -947,6 +957,7 @@ function expandedCard(s, mode){
           '<div class="exc-meta">'+metaTxt+'</div><div class="exc-syn">'+syn+'</div></div>'+
         seasonsCol+'</div>'+
       '<div class="exc-btns">'+btns+'</div>'+
+      '<div class="coview" data-cov="'+s.id+'"></div>'+
       '<div class="ep-arch" id="arch-'+s.id+'"><div class="vw-empty">loading episodes…</div></div>'+
       '</div>';
 }
@@ -1106,10 +1117,45 @@ function render(){
     WoW.store.setMode(email, showId, off ? null : 'DECLINED').then(()=>render());
   }));
   // Completed card expanded → per-episode archive INCLUDING force-advanced (BP) eps.
-  if(activeTab==="completed" && selectedId){ const s=LOG.find(x=>x.id===selectedId); if(s){ loadEpisodeArchive(s,true); ensureSyn(s); } }
+  if(activeTab==="completed" && selectedId){ const s=LOG.find(x=>x.id===selectedId); if(s){ loadEpisodeArchive(s,true); ensureSyn(s); loadCoview(s); } }
   // Current card expanded → SEASONS chips + per-episode archive EXCLUDING BP eps,
   // and the action buttons shrink-stick to the top as the archive scrolls.
-  else if(selectedId){ const s=LOG.find(x=>x.id===selectedId); if(s){ fillSeasons(s); loadEpisodeArchive(s,false); ensureSyn(s); } }
+  else if(selectedId){ const s=LOG.find(x=>x.id===selectedId); if(s){ fillSeasons(s); loadEpisodeArchive(s,false); ensureSyn(s); loadCoview(s); } }
+}
+
+// "Watching with" (co-viewing) on the expanded card: show who this title is watched
+// with, editable inline against the roster. Hidden entirely if no roster is set up.
+async function loadCoview(s){
+  const host=document.querySelector('.coview[data-cov="'+s.id+'"]'); if(!host) return;
+  const email=acct(); if(!email || !s.titleId){ host.innerHTML=''; return; }
+  const em=encodeURIComponent(email), sid=encodeURIComponent(s.titleId);
+  let roster=[], current=[];
+  try{ const r=await fetch(API+'/profile/'+em+'/coviewers'); if(r.ok) roster=(await r.json()).coviewers||[]; }catch(_){}
+  if(!roster.length){ host.innerHTML=''; return; }   // no room set up → nothing to show
+  try{ const r=await fetch(API+'/profile/'+em+'/titles/'+sid+'/coviewers'); if(r.ok) current=(await r.json()).coviewers||[]; }catch(_){}
+  if(selectedId!==s.id) return;                       // card collapsed/changed mid-fetch
+  coviewDisplay(host, s, roster, current);
+}
+function coviewDisplay(host, s, roster, current){
+  const names=current.map(c=>c.display_name);
+  const val=names.length ? ('with '+names.join(' & ')) : 'just you';
+  host.innerHTML='<span class="cv-lbl">Watching</span> <span class="cv-val">'+esc(val)+'</span> <button class="cv-edit">edit</button>';
+  host.querySelector('.cv-edit').onclick=e=>{ e.stopPropagation(); coviewEditor(host, s, roster, current); };
+}
+function coviewEditor(host, s, roster, current){
+  const sel=new Set(current.map(c=>c.id));
+  host.innerHTML='<span class="cv-lbl">Watching with</span>'+
+    roster.map(c=>'<button class="cv-chip'+(sel.has(c.id)?' on':'')+'" data-cid="'+c.id+'">'+esc(c.display_name)+'</button>').join('')+
+    '<button class="cv-save">Save</button><button class="cv-cancel">Cancel</button>';
+  host.querySelectorAll('.cv-chip').forEach(b=>b.onclick=e=>{ e.stopPropagation();
+    const id=b.dataset.cid; if(sel.has(id)){sel.delete(id);b.classList.remove('on');}else{sel.add(id);b.classList.add('on');} });
+  host.querySelector('.cv-save').onclick=async e=>{ e.stopPropagation();
+    const email=acct();
+    try{ await fetch(API+'/profile/'+encodeURIComponent(email)+'/titles/'+encodeURIComponent(s.titleId)+'/coviewers',
+      {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({coviewer_ids:[...sel]})}); }catch(_){}
+    coviewDisplay(host, s, roster, roster.filter(c=>sel.has(c.id)));
+  };
+  host.querySelector('.cv-cancel').onclick=e=>{ e.stopPropagation(); coviewDisplay(host, s, roster, current); };
 }
 
 // Backfill a missing synopsis on the expanded card. /titles only carries summary

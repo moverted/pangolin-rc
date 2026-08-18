@@ -241,6 +241,9 @@
   const API = (location.protocol === 'http:' && location.hostname === 'localhost')
     ? 'http://localhost:8787'
     : 'https://pangolin-rc.edward-m-willett.workers.dev';
+  // One id per Pierre-face session, so the server can group this whole chat into a
+  // single transcript (POST /pierre/chat → pierre_chat table, saved every turn).
+  const PIERRE_CONVO = (self.crypto && crypto.randomUUID) ? crypto.randomUUID() : 'c'+Date.now()+Math.random().toString(36).slice(2);
 
   // Demo build (remote.demo.pangolinrc.com, or ?demo=1 preview): Pierre's chat is closed.
   const IS_DEMO = location.hostname.split('.').includes('demo') || new URLSearchParams(location.search).has('demo');
@@ -1334,7 +1337,7 @@
       const res = await fetch(`${API}/pierre/chat`,{
         method:"POST",
         headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({ messages: history, token, appToken, email: pgSession()||undefined })
+        body:JSON.stringify({ messages: history, token, appToken, email: pgSession()||undefined, conversation_id: PIERRE_CONVO })
       });
       const data = await res.json();
       const reply = ((data && data.reply) || "").trim();
@@ -1828,9 +1831,9 @@
         {label:'Pick episodes', onClick:()=>pickEpisodeFlow(show)}]);
     } else {
       pierreSay(show.name+", new to you. From the start, a specific episode, or catch up to live?", [
-        {label:'From the beginning', onClick:()=>handoff(show,{kind:'beginning'})},
-        {label:'Pick an episode', onClick:()=>pickEpisodeFlow(show)},
-        {label:'Catch up live', onClick:()=>handoff(show,{kind:'live'})}]);
+        {label:'From the beginning', onClick:()=>askCoviewing(show, ()=>handoff(show,{kind:'beginning'}))},
+        {label:'Pick an episode', onClick:()=>askCoviewing(show, ()=>pickEpisodeFlow(show))},
+        {label:'Catch up live', onClick:()=>askCoviewing(show, ()=>handoff(show,{kind:'live'}))}]);
     }
   }
 
@@ -1856,6 +1859,51 @@
     if(seasons.length===1){ askEpisode(seasons[0]); return; }
     pierreSay("Which season of "+show.name+"?",
       seasons.map(s=>({label:'Season '+s, onClick:()=>askEpisode(s)})));
+  }
+
+  // Chip set 3 (co-viewing): after the pattern is chosen for a NEW add, ask who's on
+  // the couch. Roster-driven (no LLM). Persists the per-title coviewer set, then runs
+  // `proceed` (the original handoff / pick-episode step). If they have no roster set
+  // up, skip straight through as solo — 1.0.1 behavior, no question.
+  async function askCoviewing(show, proceed){
+    const email=pgSession();
+    let roster=[];
+    if(email){
+      try{ const r=await fetch(`${API}/profile/${encodeURIComponent(email)}/coviewers`);
+        if(r.ok) roster=(await r.json()).coviewers||[]; }catch(_){}
+    }
+    if(!email || !roster.length){ proceed(); return; }
+    const titleId=String(show.id).startsWith('tvmaze:')?String(show.id):'tvmaze:'+show.id;
+    const setAndGo=async (body)=>{
+      try{ await fetch(`${API}/profile/${encodeURIComponent(email)}/titles/${encodeURIComponent(titleId)}/coviewers`,
+        {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)}); }catch(_){}
+      proceed();
+    };
+    const defaults=roster.filter(c=>c.is_default);
+    const chips=[];
+    if(defaults.length) chips.push({label:'With '+defaults.map(c=>c.display_name).join(' & '), onClick:()=>setAndGo({use_default:true})});
+    chips.push({label:'Just me', onClick:()=>setAndGo({coviewer_ids:[]})});
+    chips.push({label:'Someone else', onClick:()=>pickCoviewers(show, roster, setAndGo)});
+    pierreSay("Who's watching "+show.name+" with you?", chips);
+  }
+
+  // "Someone else" → toggle roster chips + Done, so a room of two or more works.
+  function pickCoviewers(show, roster, setAndGo){
+    const selected=new Set();
+    const wrap=document.createElement('div'); wrap.className='msg pierre';
+    wrap.innerHTML='<div class="who">Pierre</div><div class="bubble"></div>';
+    wrap.querySelector('.bubble').textContent='Tap everyone on the couch, then Done.';
+    const c=document.createElement('div'); c.className='chips';
+    roster.forEach(cv=>{
+      const b=document.createElement('button'); b.className='chip'; b.textContent=cv.display_name;
+      b.onclick=()=>{ if(selected.has(cv.id)){ selected.delete(cv.id); b.classList.remove('on'); }
+                      else { selected.add(cv.id); b.classList.add('on'); } };
+      c.appendChild(b);
+    });
+    const done=document.createElement('button'); done.className='chip'; done.textContent='Done';
+    done.onclick=()=>{ c.querySelectorAll('button').forEach(x=>x.disabled=true); setAndGo({coviewer_ids:[...selected]}); };
+    c.appendChild(done);
+    wrap.appendChild(c); log.appendChild(wrap); scrollLogBottom();
   }
 
   function handoff(show, pattern){
