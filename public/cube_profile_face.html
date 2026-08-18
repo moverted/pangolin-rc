@@ -287,6 +287,18 @@
   .fl-slot.full{cursor:default;}
   .fl-slot.full .fl-name{color:var(--muted);}
 
+  /* Coviewers — reuses .following / .fl-row. Star = in the default room; link pill
+     ties a name-only coviewer to a real account. */
+  .cv-star{flex:0 0 auto;background:none;border:0;color:var(--muted-2);font-size:16px;line-height:1;cursor:pointer;padding:0 3px;}
+  .cv-star.on{color:var(--amber);}
+  .cv-link{flex:0 0 auto;background:none;border:1px solid var(--card-line);color:var(--muted-2);border-radius:999px;
+    padding:3px 9px;font-family:'JetBrains Mono',monospace;font-size:8px;font-weight:700;letter-spacing:.08em;
+    text-transform:uppercase;cursor:pointer;}
+  .cv-link:hover{border-color:var(--amber);color:var(--amber);}
+  .cv-linked{flex:0 0 auto;font-family:'JetBrains Mono',monospace;font-size:8px;font-weight:700;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--amber);border:1px solid var(--card-line);border-radius:999px;padding:2px 7px;}
+  .fl-add input.cv-rel{flex:0 0 92px;}
+
   .dev{border-bottom:1px solid var(--line-soft);}
   .dev:last-of-type{border-bottom:none;}
   .dev-main{width:100%;display:flex;align-items:center;gap:13px;background:none;border:none;
@@ -490,6 +502,33 @@
                 <button id="inviteEmailSend">Invite</button>
               </div>
               <div class="fl-hint">Friends' comments surface when you co-view a show — turn it on per show on the episode screen.</div>
+            </div>
+
+            <!-- Coviewers: who you regularly watch TV with (household / group-plan).
+                 A coviewer can be name-only (no account) and linked later. The
+                 starred ones are your default room — what Pierre assumes when you
+                 don't say who's watching. -->
+            <div class="following coviewers">
+              <div class="dhead"><h2>Coviewers</h2><span class="dhint">who's on your sofa</span></div>
+              <div class="dhead-rule"></div>
+
+              <div id="coviewerList"></div>
+
+              <!-- Add a coviewer: name + optional relationship label -->
+              <div class="fl-add" id="cvAddRow">
+                <input id="cvName" type="text" inputmode="text" placeholder="name (e.g. Rose Reis)" autocomplete="off">
+                <input id="cvRel" class="cv-rel" type="text" inputmode="text" placeholder="label" autocomplete="off">
+                <button id="cvAddBtn">Add</button>
+              </div>
+              <div class="fl-msg" id="cvMsg"></div>
+
+              <!-- Inline link editor, revealed under a row by "link" -->
+              <div class="fl-add" id="cvLinkRow" style="display:none;">
+                <input id="cvLinkEmail" type="email" data-kb="email" inputmode="email" placeholder="their pangolinRC email" autocomplete="off">
+                <button id="cvLinkSave">Link</button>
+              </div>
+
+              <div class="fl-hint">Star the people in your default room — Pierre assumes them when you don't say who's watching. No account needed; link one later.</div>
             </div>
 
             <!-- Watch patterns: the WoW in-season scheduler's profile controls — a
@@ -729,6 +768,7 @@
 
   async function refresh(){
     const email=session(); state.email=email;
+    if(typeof loadCoviewers==='function') loadCoviewers();
     if(DEMO){ state.devices=DEMO_DEVICES; state.selected='phone'; renderDevices(); }
     if(!email){
       $('pname').textContent='Guest'; $('phandle').textContent='not signed in';
@@ -1111,6 +1151,97 @@
     const os=e.target.closest('[data-openslot]');
     if(os){ const inp=$('friendSearch'); if(inp){ inp.focus(); } }
   });
+  // ---- Coviewers (who you watch with; starred = your default room) ----
+  function cvMsg(t, err){ const m=$('cvMsg'); if(m){ m.textContent=t||''; m.classList.toggle('err', !!err); } }
+  function cvInitial(name){ return (String(name||'?').trim()[0]||'?').toUpperCase(); }
+  let cvLinkId=null;   // row awaiting an account link
+  async function loadCoviewers(){
+    const box=$('coviewerList'); if(!box) return;
+    if(!session()){ box.innerHTML=''; return; }
+    try{
+      const r=await fetch(API+'/profile/'+encodeURIComponent(session())+'/coviewers');
+      if(!r.ok) return; const d=await r.json(); renderCoviewers(d.coviewers||[]);
+    }catch(_){}
+  }
+  function renderCoviewers(list){
+    const box=$('coviewerList'); if(!box) return;
+    if(!list.length){ box.innerHTML='<div class="fl-empty">No coviewers yet — add the people you watch with below.</div>'; return; }
+    box.innerHTML=list.map(cv=>{
+      const rel=escF(cv.relationship||'');
+      const acct = cv.linked_email ? ('linked · '+escF(cv.linked_email)) : 'name-only';
+      const sub = [rel, acct].filter(Boolean).join(' · ');
+      const link = cv.linked_email
+        ? '<span class="cv-linked">linked</span>'
+        : '<button class="cv-link" data-cvlink="'+escF(cv.id)+'">link</button>';
+      return '<div class="fl-row" data-cvid="'+escF(cv.id)+'">'
+        +'<div class="fl-av">'+cvInitial(cv.display_name)+'</div>'
+        +'<div class="fl-name">'+escF(cv.display_name)+'<small>'+sub+'</small></div>'
+        +link
+        +'<button class="cv-star '+(cv.is_default?'on':'')+'" title="Default room" data-cvstar="'+escF(cv.id)+'">'+(cv.is_default?'★':'☆')+'</button>'
+        +'<button class="fl-x" data-cvx="'+escF(cv.id)+'">×</button>'
+        +'</div>';
+    }).join('');
+  }
+  async function addCoviewer(){
+    const email=session(); if(!email){ cvMsg('Sign in first', true); return; }
+    const nameEl=$('cvName'), relEl=$('cvRel');
+    const display_name=((nameEl&&nameEl.value)||'').trim();
+    if(!display_name){ cvMsg('Enter a name', true); return; }
+    const relationship=((relEl&&relEl.value)||'').trim();
+    cvMsg('');
+    try{
+      const r=await fetch(API+'/profile/'+encodeURIComponent(email)+'/coviewers',{method:'POST',
+        headers:{'Content-Type':'application/json'},body:JSON.stringify({display_name, relationship})});
+      if(r.ok){ if(nameEl)nameEl.value=''; if(relEl)relEl.value=''; showToast('Added '+display_name); loadCoviewers(); }
+      else cvMsg('Could not add', true);
+    }catch(_){ cvMsg('Could not add', true); }
+  }
+  async function patchCoviewer(id, body){
+    const email=session(); if(!email) return null;
+    try{
+      const r=await fetch(API+'/profile/'+encodeURIComponent(email)+'/coviewers/'+encodeURIComponent(id),{method:'PATCH',
+        headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      return r.ok ? (await r.json().catch(()=>null)) : null;
+    }catch(_){ return null; }
+  }
+  async function toggleDefault(id, on){ await patchCoviewer(id, {is_default:on}); loadCoviewers(); }
+  async function removeCoviewer(id){
+    const email=session(); if(!email) return;
+    try{ await fetch(API+'/profile/'+encodeURIComponent(email)+'/coviewers/'+encodeURIComponent(id),{method:'DELETE'}); }catch(_){}
+    loadCoviewers();
+  }
+  function openLink(id){
+    cvLinkId=id; const row=$('cvLinkRow'), inp=$('cvLinkEmail');
+    if(row){ row.style.display='flex'; } if(inp){ inp.value=''; inp.focus(); }
+    cvMsg('Enter their pangolinRC email to link this coviewer.');
+  }
+  async function saveLink(){
+    if(!cvLinkId) return;
+    const inp=$('cvLinkEmail'); const addr=((inp&&inp.value)||'').trim();
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(addr)){ cvMsg('Enter a valid email', true); return; }
+    const d=await patchCoviewer(cvLinkId, {linked_email:addr});
+    const linked = !!(d && d.coviewer && d.coviewer.linked_email);
+    const row=$('cvLinkRow'); if(row) row.style.display='none'; cvLinkId=null;
+    cvMsg(linked ? '' : 'That email isn’t a member yet — kept name-only. Invite them, then link.', !linked);
+    loadCoviewers();
+  }
+  (function wireCoviewers(){
+    const add=$('cvAddBtn'), name=$('cvName'), rel=$('cvRel'), list=$('coviewerList'),
+          lsave=$('cvLinkSave'), lemail=$('cvLinkEmail');
+    if(add) add.onclick=addCoviewer;
+    [name,rel].forEach(el=>{ if(el) el.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); addCoviewer(); } }); });
+    if(lsave) lsave.onclick=saveLink;
+    if(lemail) lemail.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); saveLink(); } });
+    if(list) list.addEventListener('click', e=>{
+      const star=e.target.closest('[data-cvstar]');
+      if(star){ toggleDefault(star.getAttribute('data-cvstar'), !star.classList.contains('on')); return; }
+      const x=e.target.closest('[data-cvx]');
+      if(x){ removeCoviewer(x.getAttribute('data-cvx')); return; }
+      const lk=e.target.closest('[data-cvlink]');
+      if(lk){ openLink(lk.getAttribute('data-cvlink')); return; }
+    });
+    loadCoviewers();
+  })();
   (function wireFriends(){
     const btn=$('followBtn'), inp=$('friendSearch');
     // The Follow button follows an exact address if one's typed, else runs search.

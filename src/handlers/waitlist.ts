@@ -78,6 +78,7 @@ waitlistRoutes.post('/', async (c) => {
   const last_name  = str(body.last_name, 80);
   if (!first_name || !last_name) return c.json({ error: 'first and last name required' }, 400);
   const fav_show   = str(body.fav_show, 200) || null;
+  const phone      = str(body.phone, 40) || null;
   // A malformed buddy address is dropped, not rejected — never fail a real signup
   // over an optional field.
   let buddy_email  = str(body.buddy_email, 200).toLowerCase() || null;
@@ -85,15 +86,16 @@ waitlistRoutes.post('/', async (c) => {
   const now = Date.now();
 
   await c.env.DB.prepare(
-    `INSERT INTO waitlist (email, first_name, last_name, fav_show, buddy_email, source, created_at)
-     VALUES (?, ?, ?, ?, ?, 'join_form', ?)
+    `INSERT INTO waitlist (email, first_name, last_name, fav_show, buddy_email, phone, source, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'join_form', ?)
      ON CONFLICT(email) DO UPDATE SET
        first_name  = excluded.first_name,
        last_name   = excluded.last_name,
        fav_show    = COALESCE(excluded.fav_show, waitlist.fav_show),
        buddy_email = COALESCE(excluded.buddy_email, waitlist.buddy_email),
+       phone       = COALESCE(excluded.phone, waitlist.phone),
        source      = excluded.source`
-  ).bind(email, first_name, last_name, fav_show, buddy_email, now).run();
+  ).bind(email, first_name, last_name, fav_show, buddy_email, phone, now).run();
 
   // Fire-and-forget mirror to Airtable (email is the only mapped column today).
   c.executionCtx.waitUntil(
@@ -107,6 +109,42 @@ waitlistRoutes.post('/', async (c) => {
   );
 
   return c.json({ status: 'waitlist', ok: true });
+});
+
+// Investor "Request the deck" form from invest.pangolinrc.com. Writes into the SAME
+// waitlist table with list_type='investor' so admin has one contact list. No
+// Turnstile (the invest page carries no widget); email is the PK so a re-submit
+// updates the row. company is investor-only; fav_show/buddy stay null here.
+waitlistRoutes.post('/invest', async (c) => {
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+
+  const email = str(body.email, 200).toLowerCase();
+  if (!EMAIL_RE.test(email)) return c.json({ error: 'valid email required' }, 400);
+  const first_name = str(body.first_name, 80);
+  const last_name  = str(body.last_name, 80);
+  if (!first_name || !last_name) return c.json({ error: 'first and last name required' }, 400);
+  const company = str(body.company, 120) || null;
+  const phone   = str(body.phone, 40) || null;
+  const now = Date.now();
+
+  await c.env.DB.prepare(
+    `INSERT INTO waitlist (email, first_name, last_name, company, phone, source, list_type, created_at)
+     VALUES (?, ?, ?, ?, ?, 'invest_page', 'investor', ?)
+     ON CONFLICT(email) DO UPDATE SET
+       first_name = excluded.first_name,
+       last_name  = excluded.last_name,
+       company    = COALESCE(excluded.company, waitlist.company),
+       phone      = COALESCE(excluded.phone, waitlist.phone),
+       source     = excluded.source,
+       list_type  = 'investor'`
+  ).bind(email, first_name, last_name, company, phone, now).run();
+
+  c.executionCtx.waitUntil(
+    pushRow(c.env, 'waitlist', { email, created_at: now }).catch((e: unknown) => console.error('airtable invest mirror', e))
+  );
+
+  return c.json({ ok: true, status: 'investor' });
 });
 
 // ─── Admin (users.pangolinrc.com) ───────────────────────────────────────────

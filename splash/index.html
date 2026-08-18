@@ -81,6 +81,16 @@
     transform: translateY(-2px);
     box-shadow: 0 6px 18px rgba(0,0,0,0.3);
   }
+  .cta-row {
+    display: flex; gap: 12px; align-items: center; flex-wrap: wrap; justify-content: center;
+  }
+  .cta.ghost {
+    background: transparent;
+    color: var(--mustard);
+    border: 1px solid rgba(250,246,236,0.35);
+    box-shadow: none;
+  }
+  .cta.ghost:hover { border-color: var(--mustard); }
   .footer {
     position: absolute;
     bottom: 24px;
@@ -100,7 +110,10 @@
 
   <p class="sizzle">Meet Pierre, your no-nonsense streaming concierge. PangolinRC tracks what you actually watch and finish, so recommendations, reminders, and conversations with Pierre are built on real behavior, not algorithm noise.</p>
 
-  <a class="cta" href="https://join.pangolinrc.com" rel="noopener">Join the waitlist</a>
+  <div class="cta-row">
+    <a class="cta" href="https://join.pangolinrc.com" rel="noopener">Join the waitlist</a>
+    <a class="cta ghost" href="https://invest.pangolinrc.com" rel="noopener">Invest</a>
+  </div>
   <div class="footer">&copy; 2026 PangolinRC</div>
 </body>
 </html>

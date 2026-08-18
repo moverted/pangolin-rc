@@ -714,6 +714,92 @@ profileRoutes.delete('/:email/follow/:target', async (c) => {
   return c.json({ ok: true });
 });
 
+// ── Coviewers ─────────────────────────────────────────────────────────────────
+// "Who's on your sofa" — the people a user regularly watches with (see
+// migrations/0036_coviewer.sql). Accountless by default; `linked_email` ties one to
+// a real member. `is_default` marks the default coviewing matrix Pierre assumes when
+// no one names the room. All CRUD is owner-scoped by the :email path param.
+const coviewerRow = (r: any) => ({
+  id: r.id,
+  display_name: r.display_name,
+  relationship: r.relationship || '',
+  linked_email: r.linked_email || null,
+  is_default: !!r.is_default,
+  created_at: r.created_at,
+});
+
+// List a user's roster, defaults first, then alphabetical.
+profileRoutes.get('/:email/coviewers', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  const rows = await c.env.DB
+    .prepare('SELECT * FROM coviewer WHERE owner_email = ? ORDER BY is_default DESC, display_name COLLATE NOCASE')
+    .bind(email).all();
+  return c.json({ coviewers: (rows.results || []).map(coviewerRow) });
+});
+
+// Add a coviewer. `linked_email`, if given, must be a real member (else stored null
+// and reported back as unlinked — name-only is a first-class state, not an error).
+profileRoutes.post('/:email/coviewers', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  let body: any; try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const display_name = str(body.display_name, 80);
+  if (!display_name) return c.json({ error: 'display_name required' }, 400);
+  const relationship = str(body.relationship, 40);
+  let linked: string | null = null;
+  const wants = String(body.linked_email || '').toLowerCase().trim();
+  if (wants && EMAIL_RE.test(wants)) {
+    const m = await c.env.DB.prepare('SELECT 1 FROM users WHERE email = ?').bind(wants).first();
+    if (m) linked = wants;              // only link to an address that is actually a member
+  }
+  const is_default = body.is_default ? 1 : 0;
+  const id = crypto.randomUUID();
+  const now = Date.now();
+  await c.env.DB.prepare(
+    'INSERT INTO coviewer (id, owner_email, display_name, relationship, linked_email, is_default, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .bind(id, email, display_name, relationship, linked, is_default, now).run();
+  const row = { id, owner_email: email, display_name, relationship, linked_email: linked, is_default, created_at: now };
+  mirror(c, 'coviewer', row);
+  return c.json({ coviewer: coviewerRow(row) });
+});
+
+// Edit a coviewer: name, relationship, link/unlink an account, or toggle default.
+// Only the fields present in the body change. Owner-scoped by the WHERE.
+profileRoutes.patch('/:email/coviewers/:id', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  const id = c.req.param('id');
+  let body: any; try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const sets: string[] = [];
+  const vals: any[] = [];
+  if (typeof body.display_name === 'string') { sets.push('display_name = ?'); vals.push(str(body.display_name, 80)); }
+  if (typeof body.relationship === 'string') { sets.push('relationship = ?'); vals.push(str(body.relationship, 40)); }
+  if ('is_default' in body) { sets.push('is_default = ?'); vals.push(body.is_default ? 1 : 0); }
+  if ('linked_email' in body) {
+    let linked: string | null = null;
+    const wants = String(body.linked_email || '').toLowerCase().trim();
+    if (wants && EMAIL_RE.test(wants)) {
+      const m = await c.env.DB.prepare('SELECT 1 FROM users WHERE email = ?').bind(wants).first();
+      if (m) linked = wants;
+    }
+    sets.push('linked_email = ?'); vals.push(linked);
+  }
+  if (!sets.length) return c.json({ error: 'nothing to update' }, 400);
+  await c.env.DB.prepare(`UPDATE coviewer SET ${sets.join(', ')} WHERE id = ? AND owner_email = ?`)
+    .bind(...vals, id, email).run();
+  const row = await c.env.DB.prepare('SELECT * FROM coviewer WHERE id = ? AND owner_email = ?').bind(id, email).first<any>();
+  if (!row) return c.json({ error: 'not found' }, 404);
+  mirror(c, 'coviewer', row);
+  return c.json({ coviewer: coviewerRow(row) });
+});
+
+// Remove a coviewer from the roster.
+profileRoutes.delete('/:email/coviewers/:id', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  const id = c.req.param('id');
+  await c.env.DB.prepare('DELETE FROM coviewer WHERE id = ? AND owner_email = ?').bind(id, email).run();
+  unmirror(c, 'coviewer', id);
+  return c.json({ ok: true });
+});
+
 // ─── Likes: react to a member's activity card ────────────────────────────────
 // Set (not toggle) the caller's like on one activity, identified by (subject
 // member + title + kind). Idempotent: liking twice is one row, unliking removes

@@ -4,6 +4,81 @@ Append-only log. Any session that touches the Worker, D1, or deploy
 configuration adds an entry here before the session ends (see CLAUDE.md,
 "Backend and deploy rules").
 
+## 2026-08-18 — Cell phone on both contact forms (DEPLOYED)
+
+- **Migration REMOTE `0038_waitlist_phone.sql`:** `ALTER TABLE waitlist ADD COLUMN
+  phone TEXT`.
+- **Worker deployed** (version `95aabd2e`): both `POST /waitlist` (join) and
+  `POST /waitlist/invest` now capture `phone` (str, max 40). Admin Contact resource
+  (`src/handlers/admin.ts`) gains a Phone column + phone in searchExprs.
+- **Pages deployed (production, `--branch main`):** `pangolinrc-join` (optional cell
+  phone on the waitlist form) and `pangolinrc-invest` (REQUIRED cell phone on the
+  deck-request form — all fields required). Splash unchanged.
+- Decision: phone **required on invest**, **optional on join** (keep public signup
+  friction low). Verified prod e2e: invest POST with phone → row in remote D1 → deleted.
+- No new notification needed: investor rows insert with status='new', so the existing
+  app-icon badge + admin nav badge (`waitlist WHERE status='new'`) already count them.
+
+## 2026-08-18 — Investor deck-request form → unified Contact list (DEPLOYED)
+
+- **Migrations applied REMOTE:** `wrangler d1 migrations apply pangolin-rc --remote`
+  applied BOTH pending migrations (all-pending in order):
+  - `0037_waitlist_contact.sql` — `ALTER TABLE waitlist ADD COLUMN company TEXT` +
+    `ADD COLUMN list_type TEXT NOT NULL DEFAULT 'waitlist'`. Folds investor
+    deck-requests into the waitlist table as a second contact kind.
+  - `0036_coviewer.sql` — created the `coviewer` table in PROD too, as an unavoidable
+    side effect of the migration ordering. It is **empty + dormant** (no prod UI, only
+    the dormant `/profile/:email/coviewers` routes touch it). Coviewer feature is still
+    otherwise local-only.
+- **Worker deployed** (version `7317ec78`): new `POST /waitlist/invest`
+  (`src/handlers/waitlist.ts`) — investor form capture, writes list_type='investor',
+  source='invest_page', no Turnstile (invest page has no widget). Admin resource
+  `waitlist` relabeled **"Contact"** with List (waitlist|investor) + Company columns,
+  filter, and pivot (`src/handlers/admin.ts`; `LIST_TYPE_EXPR`). Also carries the
+  dormant coviewer routes.
+- **Pages deployed (production, `--branch main`):**
+  - `pangolinrc-invest` — `investors/index.html` gains the "Request the deck" form
+    (4 required fields First/Last/Company/Email → `/waitlist/invest`; on success the
+    fields hide and the submit button becomes a `mailto:ted@pangolinrc.com` "Get in
+    touch" button). Hero "See traction" → "Home" (→ pangolinrc.com).
+  - `pangolinrc-splash` — added an "Invest" button (→ invest.pangolinrc.com) beside
+    "Join the waitlist". NB: makes the noindex investor page publicly linkable.
+- Verified end-to-end in prod: form POST → 200 → row in remote D1 with company +
+  list_type='investor' → deleted. invest.pangolinrc.com + pangolinrc.com both 200.
+
+## 2026-08-17 — Investor overview page at invest.pangolinrc.com
+
+- **New Pages project `pangolinrc-invest`** (direct-upload) serves
+  `investors/index.html` — a standalone, self-contained investor one-pager (no
+  backend calls, no forms, Pierre's image inlined as base64, `<meta robots
+  noindex>`). Production deploy is on branch `main`
+  (`https://pangolinrc-invest.pages.dev/` → 200, verified). Custom domain
+  `invest.pangolinrc.com` NOT yet attached — needs a CNAME →
+  `pangolinrc-invest.pages.dev` added in the Cloudflare dashboard (CLI token has no
+  DNS scope). Separate from the app (`pangolin-rc`), splash (`pangolinrc-splash`),
+  join (`pangolinrc-join`), users (`pangolinrc-users`), admin (`pangolinrc-admin`).
+- Pre-publish copy fix: removed a visible `[insert ... before sending]` editor
+  placeholder from the Traction section. No Worker/D1 changes; static-only.
+
+## 2026-08-17 — Coviewer backend (1.0.2 co-watching) — LOCAL ONLY, not deployed
+
+- **Migration `0036_coviewer.sql`:** new table `coviewer` (id, owner_email,
+  display_name, relationship, linked_email nullable, is_default, created_at) +
+  `idx_coviewer_owner`. Applied to **local** D1 only (`--local`); NOT yet applied
+  `--remote`. The default coviewing matrix = `is_default=1` rows; distinct from
+  `follows` (a coviewer can be accountless, promotable via linked_email later).
+- **`src/handlers/profile.ts`:** GET/POST/PATCH/DELETE
+  `/profile/:email/coviewers[/:id]`, owner-scoped, Airtable-mirrored (`coviewer`
+  table). linked_email only persists if it resolves to a real member.
+- **`src/handlers/admin.ts` + `admin/index.html`:** new `coviewer` admin resource
+  (relationship/linked/is_default rendered as pills via `PILL_COLS`).
+- **`scripts/seed-coviewers.sql`:** LOCAL-ONLY seed of Ted's roster (owner
+  edward.m.willett@gmail.com; Anne=WIFE/linked/default, Audrey/Bryce/Rose name-only).
+- PROFILE-face UI (`public/cube_profile_face.html`) adds a Coviewers section.
+  Verified end-to-end on localhost (Worker `:8787`, faces `:8788`). **Not deployed**
+  — Worker changes + migration still need `--remote` apply + `wrangler deploy` when
+  the 1.0.2 batch is ready to ship.
+
 ## 2026-08-16 — Admin portal: inline-editable waitlist Status + Group (TestFlight cohort)
 - **Migration `0035_waitlist_group.sql`:** `ALTER TABLE waitlist ADD COLUMN test_group TEXT
   NOT NULL DEFAULT ''` (named `test_group` — `group` is a reserved word). Empty renders as

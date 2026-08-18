@@ -70,6 +70,7 @@ interface Resource {
 const WAITLIST_STATUSES = ['new', 'invited', 'active', 'declined'] as const;
 const WAITLIST_GROUPS = ['Unassigned', 'Friends & Family Cohort 1', 'Internal', 'SNW Cohort', "Founder's Circle"] as const;
 const GROUP_EXPR = "COALESCE(NULLIF(waitlist.test_group,''),'Unassigned')";
+const LIST_TYPE_EXPR = "COALESCE(NULLIF(waitlist.list_type,''),'waitlist')";
 
 // Millisecond epoch → local-ish date bucket. All created_at/updated_at are ms.
 const monthOf = (col: string) => `strftime('%Y-%m', ${col}/1000, 'unixepoch')`;
@@ -174,6 +175,32 @@ const RESOURCES: Record<string, Resource> = {
       type:     countPivot('By device type', "COALESCE(NULLIF(devices.type,''),'—')", 'Type'),
       location: countPivot('By location', "COALESCE(NULLIF(devices.location,''),'—')", 'Location'),
       cohort:   countPivot('Created by month', monthOf('devices.created_at'), 'Month'),
+    },
+  },
+
+  coviewer: {
+    label: 'Coviewers',
+    group: 'core',
+    from: 'coviewer',
+    cols: [
+      { key: 'owner_email',  label: 'Owner',        expr: 'coviewer.owner_email' },
+      { key: 'display_name', label: 'Name',         expr: 'coviewer.display_name' },
+      { key: 'relationship', label: 'Relationship', expr: "COALESCE(NULLIF(coviewer.relationship,''),'—')" },
+      { key: 'linked',       label: 'Account',      expr: "CASE WHEN coviewer.linked_email IS NOT NULL AND coviewer.linked_email <> '' THEN 'linked' ELSE 'name-only' END" },
+      { key: 'is_default',   label: 'Default',      expr: "CASE WHEN coviewer.is_default = 1 THEN 'default' ELSE '—' END" },
+      { key: 'created_at',   label: 'Added',        expr: 'coviewer.created_at' },
+    ],
+    searchExprs: ['coviewer.owner_email', 'coviewer.display_name', 'coviewer.linked_email'],
+    filters: [
+      { key: 'relationship', label: 'Relationship', expr: "COALESCE(NULLIF(coviewer.relationship,''),'—')" },
+      { key: 'linked',       label: 'Account',      expr: "CASE WHEN coviewer.linked_email IS NOT NULL AND coviewer.linked_email <> '' THEN 'linked' ELSE 'name-only' END", options: ['linked', 'name-only'] },
+    ],
+    sortDefault: 'created_at',
+    note: "Who each user watches TV with. name-only coviewers have no pangolinRC account (promotable later via linked_email). `default` rows are that user's default coviewing matrix — what Pierre assumes when the room isn't named.",
+    pivots: {
+      relationship: countPivot('By relationship', "COALESCE(NULLIF(coviewer.relationship,''),'—')", 'Relationship'),
+      linked:       countPivot('Linked vs name-only', "CASE WHEN coviewer.linked_email IS NOT NULL AND coviewer.linked_email <> '' THEN 'linked' ELSE 'name-only' END", 'Account'),
+      top_owners:   countPivot('Roster size by user', 'coviewer.owner_email', 'Owner'),
     },
   },
 
@@ -330,14 +357,17 @@ const RESOURCES: Record<string, Resource> = {
   },
 
   waitlist: {
-    label: 'Waitlist',
+    label: 'Contact',
     group: 'secondary',
     from: 'waitlist',
     idExpr: 'waitlist.email',
     cols: [
+      { key: 'list_type',   label: 'List',    expr: LIST_TYPE_EXPR },
       { key: 'email',       label: 'Email',   expr: 'waitlist.email' },
       { key: 'first_name',  label: 'First',   expr: 'waitlist.first_name' },
       { key: 'last_name',   label: 'Last',    expr: 'waitlist.last_name' },
+      { key: 'phone',       label: 'Phone',   expr: 'waitlist.phone' },
+      { key: 'company',     label: 'Company', expr: 'waitlist.company' },
       { key: 'fav_show',    label: 'Fav show',expr: 'waitlist.fav_show' },
       { key: 'buddy_email', label: 'Buddy',   expr: 'waitlist.buddy_email' },
       { key: 'source',      label: 'Source',  expr: 'waitlist.source' },
@@ -345,8 +375,9 @@ const RESOURCES: Record<string, Resource> = {
       { key: 'status',      label: 'Status',  expr: 'waitlist.status' },
       { key: 'created_at',  label: 'Joined',  expr: 'waitlist.created_at' },
     ],
-    searchExprs: ['waitlist.email', 'waitlist.first_name', 'waitlist.last_name'],
+    searchExprs: ['waitlist.email', 'waitlist.first_name', 'waitlist.last_name', 'waitlist.company', 'waitlist.phone'],
     filters: [
+      { key: 'list_type',  label: 'List',   expr: LIST_TYPE_EXPR,    options: ['waitlist', 'investor'] },
       { key: 'status',     label: 'Status', expr: 'waitlist.status', options: [...WAITLIST_STATUSES] },
       { key: 'test_group', label: 'Group',  expr: GROUP_EXPR,        options: [...WAITLIST_GROUPS] },
     ],
@@ -356,11 +387,12 @@ const RESOURCES: Record<string, Resource> = {
       test_group: { table: 'waitlist', column: 'test_group', idColumn: 'email', options: WAITLIST_GROUPS },
     },
     pivots: {
-      status: countPivot('By status', "COALESCE(NULLIF(waitlist.status,''),'—')", 'Status'),
-      group:  countPivot('By group', GROUP_EXPR, 'Group'),
-      cohort: countPivot('Signups by month', monthOf('waitlist.created_at'), 'Month'),
+      list_type: countPivot('By list', LIST_TYPE_EXPR, 'List'),
+      status:    countPivot('By status', "COALESCE(NULLIF(waitlist.status,''),'—')", 'Status'),
+      group:     countPivot('By group', GROUP_EXPR, 'Group'),
+      cohort:    countPivot('Signups by month', monthOf('waitlist.created_at'), 'Month'),
     },
-    note: 'Status and Group (TestFlight cohort) are editable inline here — pick from the dropdowns to update a row. Group is set by hand when you add someone to a TestFlight group.',
+    note: 'One contact list: List = waitlist (join.pangolinrc.com) or investor (invest.pangolinrc.com "Request the deck"). Status and Group (TestFlight cohort) are editable inline — pick from the dropdowns. Company is investor-only.',
   },
 
   bug_report: {

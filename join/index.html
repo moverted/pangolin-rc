@@ -59,7 +59,8 @@
   label:first-of-type { margin-top: 0; }
   .hint { font-weight: 400; color: rgba(250,246,236,0.55); }
   input[type="text"],
-  input[type="email"] {
+  input[type="email"],
+  input[type="tel"] {
     width: 100%;
     padding: 12px 14px;
     border-radius: 9px;
@@ -139,6 +140,9 @@
 
     <label for="email">Email</label>
     <input type="email" id="email" name="email" autocomplete="email" placeholder="you@example.com" required>
+
+    <label for="phone">Cell phone <span class="hint">(optional)</span></label>
+    <input type="tel" id="phone" name="phone" autocomplete="tel" placeholder="(555) 123-4567">
 
     <label for="show">Favorite TV show <span class="hint">(and where you stream it — optional)</span></label>
     <input type="text" id="show" name="fav_show" placeholder="e.g. Ted Lasso — Apple TV+">
