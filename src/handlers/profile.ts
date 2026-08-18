@@ -18,7 +18,7 @@ const safeParse = (s: string) => { try { return JSON.parse(s); } catch { return 
 const int = (v: unknown, min = -Infinity) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(min, Math.trunc(v)) : null);
 
 // Columns safe to return to the client (never the password salt/hash).
-const SAFE = 'email, username, phone, photo_url, selected_device, timezone, user_type, founding_member, created_at, updated_at';
+const SAFE = 'email, username, phone, photo_url, selected_device, timezone, user_type, founding_member, hide_coviewing, created_at, updated_at';
 
 // PBKDF2 password hashing via Web Crypto.
 const _enc = new TextEncoder();
@@ -764,6 +764,15 @@ profileRoutes.delete('/:email/coviewers/:id', async (c) => {
   return c.json({ ok: true });
 });
 
+// Feed privacy: hide this user's co-viewing from the social feed (opt-out).
+profileRoutes.post('/:email/hide-coviewing', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  let body: any; try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const hide = (body.hide === true || body.hide === 1 || body.hide === '1') ? 1 : 0;
+  await c.env.DB.prepare('UPDATE users SET hide_coviewing = ? WHERE email = ?').bind(hide, email).run();
+  return c.json({ ok: true, hide_coviewing: hide });
+});
+
 // ── Per-title coviewers ─────────────────────────────────────────────────────────
 // Who you watch a given title WITH (see migrations/0039_watch_title_coviewer.sql).
 // Set in the Pierre add flow and editable on WATCH/LOG. Solo = empty set.
@@ -977,6 +986,7 @@ profileRoutes.get('/:email/feed', async (c) => {
     endnote_spoiler: !!r.endnote_spoiler, endnote_audio: !!r.endnote_audio,
     last_season: r.last_season, last_number: r.last_number, last_name: r.last_name || null,
     episodes: [] as any[],   // per-episode content for the binge cycler (filled below)
+    coviewers: undefined as string[] | undefined,   // first-name co-viewers (filled below)
     updated_at: r.updated_at,
   }));
   // Theater tickets are real activity too — a night out at the cinema — but they
@@ -1038,6 +1048,27 @@ profileRoutes.get('/:email/feed', async (c) => {
   for (const row of watchFeed) {
     const arr = epByKey[row.actor_email + '|' + row.show_id];
     if (arr && arr.length) row.episodes = arr;
+  }
+  // Co-viewers on the card — FIRST NAMES ONLY, and only for actors who haven't opted
+  // out via hide_coviewing. The feed is friend-scoped, but co-viewing names third
+  // parties, so we never expose a full name or a coviewer's account here.
+  const cov = await c.env.DB.prepare(
+    `SELECT wtc.user_email, wtc.title_id, cv.display_name
+       FROM watch_title_coviewer wtc
+       JOIN coviewer cv ON cv.id = wtc.coviewer_id
+       JOIN users u ON u.email = wtc.user_email
+      WHERE wtc.user_email IN (${placeholders}) AND COALESCE(u.hide_coviewing, 0) = 0`).bind(...actors).all();
+  const covByKey: Record<string, string[]> = {};
+  for (const r of (cov.results || []) as any[]) {
+    const first = String(r.display_name || '').trim().split(/\s+/)[0];   // first name only
+    if (first) {
+      const k = r.user_email + '|' + r.title_id;
+      (covByKey[k] = covByKey[k] || []).push(first);
+    }
+  }
+  for (const row of watchFeed) {
+    const names = covByKey[row.actor_email + '|' + row.show_id];
+    if (names && names.length) row.coviewers = names;
   }
   const feed = [...watchFeed, ...ticketFeed]
     .sort((a, b) => (b.updated_at || 0) - (a.updated_at || 0))

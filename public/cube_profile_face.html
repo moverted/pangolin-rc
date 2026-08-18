@@ -298,6 +298,8 @@
   .cv-linked{flex:0 0 auto;font-family:'JetBrains Mono',monospace;font-size:8px;font-weight:700;letter-spacing:.1em;
     text-transform:uppercase;color:var(--amber);border:1px solid var(--card-line);border-radius:999px;padding:2px 7px;}
   .fl-add input.cv-rel{flex:0 0 92px;}
+  .cv-hide{display:flex;align-items:center;gap:9px;margin:10px 0 4px;cursor:pointer;color:var(--muted);font-size:12.5px;}
+  .cv-hide input{width:16px;height:16px;accent-color:var(--amber);cursor:pointer;flex:none;}
 
   .dev{border-bottom:1px solid var(--line-soft);}
   .dev:last-of-type{border-bottom:none;}
@@ -511,6 +513,10 @@
             <div class="following coviewers">
               <div class="dhead"><h2>Coviewers</h2><span class="dhint">who's on your sofa</span></div>
               <div class="dhead-rule"></div>
+
+              <!-- Feed privacy: keep co-viewing off the social feed. First names only
+                   ever show, and only to your connections, but this is the opt-out. -->
+              <label class="cv-hide"><input type="checkbox" id="cvHide"><span>Hide my coviewing from the feed</span></label>
 
               <div id="coviewerList"></div>
 
@@ -789,6 +795,7 @@
       if(r.ok){ const d=await r.json(); if(d.user&&d.user.username) $('pname').textContent=d.user.username;
         if(!DEMO){ state.devices=d.devices||[]; state.selected=(d.user&&d.user.selected_device)||'phone'; renderDevices(); }
         if(!DEMO) syncTimezone(email, d.user&&d.user.timezone);
+        const hv=$('cvHide'); if(hv) hv.checked=!!(d.user&&(d.user.hide_coviewing===1||d.user.hide_coviewing===true));
         if(!DEMO) applyMembership(d.user, email); }
     }catch(_){}
   }
@@ -1227,7 +1234,11 @@
   }
   (function wireCoviewers(){
     const add=$('cvAddBtn'), name=$('cvName'), rel=$('cvRel'), list=$('coviewerList'),
-          lsave=$('cvLinkSave'), lemail=$('cvLinkEmail');
+          lsave=$('cvLinkSave'), lemail=$('cvLinkEmail'), hide=$('cvHide');
+    if(hide) hide.onchange=()=>{ const email=pgSession(); if(!email) return;
+      fetch(API+'/profile/'+encodeURIComponent(email)+'/hide-coviewing',{method:'POST',
+        headers:{'Content-Type':'application/json'},body:JSON.stringify({hide:hide.checked})}).catch(()=>{});
+      showToast(hide.checked?'Coviewing hidden from feed':'Coviewing shown on feed'); };
     if(add) add.onclick=addCoviewer;
     [name,rel].forEach(el=>{ if(el) el.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); addCoviewer(); } }); });
     if(lsave) lsave.onclick=saveLink;

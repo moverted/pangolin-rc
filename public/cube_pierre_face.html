@@ -2277,11 +2277,11 @@
   /* Pierre opens. Seed line so the room is never empty. Yours to rewrite. */
   window.addEventListener('load', ()=>{
     if (IS_DEMO) {
-      addPierre("Evening. I am Pierre. I am off the clock for this demo, so the chat is closed. Have a look around the other faces.");
+      addPierre(tod()+". I am Pierre. I am off the clock for this demo, so the chat is closed. Have a look around the other faces.");
       input.disabled = true; send.disabled = true; input.placeholder = "chat closed for the demo";
       return;
     }
-    addPierre("Evening. I am Pierre. Tell me what you are in the mood for and I will keep your queue moving. Or just tell me what you watched last, I have opinions.");
+    addPierre(tod()+". I am Pierre. Tell me what you are in the mood for and I will keep your queue moving. Or just tell me what you watched last, I have opinions.");
     // Standalone only. When embedded in the cube, the parent focuses this input
     // inside the selecting gesture so iOS raises the keyboard (a load-time focus
     // here would pre-focus it and suppress that).

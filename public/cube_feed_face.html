@@ -54,6 +54,7 @@
     display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
   .c-line1 .who{font-weight:700;color:#fff} .c-line1 .verb.done{color:#7fce9d;font-weight:700}
   .c-line1 .epn{font-style:italic;color:#f0e6d6} .c-line1 .show{font-weight:800;color:#fff;text-transform:uppercase;letter-spacing:.01em}
+  .c-line1 .c-with{color:#e0b877;font-weight:600}
   .c-line1 .c-where{color:#d3ba90;font-weight:700}
   .c-line2{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:6px;margin-top:8px}
   .c-line2 .ep{grid-column:2;justify-self:center;font-family:var(--mono);font-weight:700;font-size:10px;letter-spacing:.06em;
@@ -343,7 +344,10 @@ function feedCard(it){
   // a film reads "…bailed on HIGH FIDELITY", never "…episode of".
   const epn = (it.kind === 'show' && it.episodeName) ? `<span class="epn">“${_esc(it.episodeName)}”</span> episode of ` : '';
   const whereSpan = isTicket ? '' : '<span class="c-where"></span>';   // streamer filled async
-  const line1 = `<span class="who">${who}</span> <span class="verb${it.done?' done':''}">${_esc(it.verb)}</span> ${epn}<span class="show">${show}</span>${whereSpan}`;
+  // Co-viewing: first names only (server already stripped hidden/last names).
+  const cov = (it.coviewers && it.coviewers.length)
+    ? ` <span class="c-with">with ${it.coviewers.map(_esc).join(' & ')}</span>` : '';
+  const line1 = `<span class="who">${who}</span> <span class="verb${it.done?' done':''}">${_esc(it.verb)}</span> ${epn}<span class="show">${show}</span>${whereSpan}${cov}`;
   // LINE 2 — chip · episode · date.  Ticket: chip · "at THEATER [on <date>]"
   let line2;
   if(isTicket){
@@ -432,6 +436,7 @@ async function loadFeed(){
         endnote: row.endnote_text || '', endnoteSpoiler: !!row.endnote_spoiler,
         endnoteId: row.endnote_id || '', endnoteAudio: !!row.endnote_audio, endnoteEp: row.endnote_ep || '',
         episodes: Array.isArray(row.episodes) ? row.episodes : [],
+        coviewers: Array.isArray(row.coviewers) ? row.coviewers : [],
         liked: !!row.liked, likeCt: Number(row.like_ct) || 0,
         // a stable identity for the row (actor + title), so a re-render can tell an
         // UPDATED card (same key, new content) from a brand-new one — used to bump it.
