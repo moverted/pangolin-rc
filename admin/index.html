@@ -88,8 +88,11 @@
   /* Message cell (Pierre chat content): wide, wraps, preserves line breaks → taller
      rows instead of left-right scroll. */
   td.msgcell { white-space: pre-wrap; word-break: break-word; max-width: 620px; min-width: 320px; line-height: 1.5; }
-  /* Group divider: an amber rule before each new conversation. */
-  tr.group-start td { border-top: 2px solid rgba(240,169,59,0.55); }
+  /* Group header row: Session + User once per conversation, amber-tinted. */
+  tr.group-header td { background: rgba(240,169,59,0.10); border-top: 2px solid rgba(240,169,59,0.5); padding: 11px 12px; white-space: normal; }
+  .gh-k { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(250,246,236,0.5); }
+  .gh-v { color: rgba(250,246,236,0.95); font-weight: 600; }
+  .gh-sep { margin: 0 10px; color: rgba(240,169,59,0.6); }
   .muted { color: rgba(250,246,236,0.4); }
   td img.shot { max-height: 44px; border-radius: 5px; display: block; }
   audio.cmt-audio { height: 34px; width: 220px; }
@@ -343,7 +346,11 @@
 
   function renderTable(data) {
     $('pager').hidden = false;
-    const cols = cur.columns;
+    // Columns shown once per group in a header row (e.g. Session + User) are dropped
+    // from the per-row columns so they aren't repeated on every turn.
+    const headerKeys = cur.groupHeaderCols || [];
+    const headerMeta = headerKeys.map(k => cur.columns.find(c => c.key === k)).filter(Boolean);
+    const cols = cur.columns.filter(c => !headerKeys.includes(c.key));
     $('thead').innerHTML = '<tr>' + cols.map(col => {
       const active = state.sort === col.key;
       const arrow = active ? ` <span class="arrow">${state.dir === 'asc' ? '▲' : '▼'}</span>` : '';
@@ -357,20 +364,26 @@
     }));
     let _prevGroup = null;
     $('tbody').innerHTML = data.rows.map(row => {
-      // Visual grouping: a divider before each new group value (e.g. a new Pierre
-      // conversation), since the rows come back already ordered by group.
-      let trClass = '';
+      let out = '';
+      // A group-header row starts each new group (e.g. one per Pierre conversation),
+      // carrying the Session/User once instead of repeating them on every turn.
       if (cur.groupBy) {
         const g = row[cur.groupBy];
-        if (_prevGroup !== null && g !== _prevGroup) trClass = 'group-start';
+        if (g !== _prevGroup) {
+          const hdr = headerMeta.map(c =>
+            `<span class="gh-k">${esc(c.label)}</span> <span class="gh-v">${esc(row[c.key] == null ? '' : row[c.key])}</span>`
+          ).join('<span class="gh-sep">·</span>');
+          out += `<tr class="group-header"><td colspan="${cols.length}">${hdr}</td></tr>`;
+        }
         _prevGroup = g;
       }
-      return `<tr data-id="${esc(row._id || '')}"${trClass ? ` class="${trClass}"` : ''}>` + cols.map(col => {
+      out += `<tr data-id="${esc(row._id || '')}">` + cols.map(col => {
         const msg = col.key === 'content' || col.key === 'message';
         const wrap = ['note','name','episode_name','show_name','transcription','excerpt','flaggers','all_comments'].includes(col.key);
         const cls = msg ? 'msgcell' : (wrap ? 'wrapcell' : '');
         return `<td class="${cls}">${cell(col, row[col.key])}</td>`;
       }).join('') + '</tr>';
+      return out;
     }).join('') || `<tr><td colspan="${cols.length}" class="muted" style="padding:22px">No rows.</td></tr>`;
     $('tbody').querySelectorAll('.hide-chk').forEach(chk => chk.addEventListener('change', onHideToggle));
     $('tbody').querySelectorAll('.edit-cell').forEach(sel => sel.addEventListener('change', onEditCell));

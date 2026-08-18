@@ -64,6 +64,7 @@ interface Resource {
   defaultOrder?: string;      // author-controlled ORDER BY expr used when the default sort is active
                               // (e.g. group rows by conversation, then turn order). Overrides sortDefault's single-col sort.
   groupBy?: string;           // col key the frontend visually groups on (divider when the value changes)
+  groupHeaderCols?: string[]; // col keys shown once in a group-header row (and dropped from the per-row columns)
   pivots?: Record<string, Pivot>;
   writes?: Record<string, Write>; // col key → inline-edit spec
   note?: string;              // shown in the UI (caveats, read-only, etc.)
@@ -502,6 +503,7 @@ const RESOURCES: Record<string, Resource> = {
     // Group by conversation: newest session first (by its first turn), turns in order.
     defaultOrder: '(SELECT MIN(p2.created_at) FROM pierre_chat p2 WHERE p2.conversation_id = pc.conversation_id) DESC, pc.conversation_id ASC, pc.seq ASC',
     groupBy: 'conversation_id',
+    groupHeaderCols: ['conversation_id', 'user_email'],   // Session + User → group header, not per-row columns
     writes: {
       // Grade Pierre’s turns inline. 'ungraded' clears it back.
       grade: { table: 'pierre_chat', column: 'grade', idColumn: 'id', options: ['ungraded', 'great', 'good', 'poor', 'bad'] },
@@ -587,6 +589,7 @@ adminRoutes.get('/meta', async (c) => {
     search: r.searchExprs.length > 0,
     sortDefault: r.sortDefault,
     groupBy: r.groupBy ?? null,
+    groupHeaderCols: r.groupHeaderCols ?? null,
     filters: (r.filters ?? []).map((f) => ({ key: f.key, label: f.label, options: f.options ?? null })),
     pivots: r.pivots ? Object.entries(r.pivots).map(([pk, p]) => ({ key: pk, label: p.label })) : [],
   }));
