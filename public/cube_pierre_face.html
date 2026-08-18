@@ -782,6 +782,9 @@
     const ph = (c.ph.name==='RAMP') ? c.ph : { name:'RAMP', next:c.next, prev:null };   // preview → synthetic RAMP
     const n = WoW.nudge(ph, mode, sig.watchLog, seasonEps, now, seasonNum);
     if(!n || n.silent) return;
+    // Already flagged this exact drop? Don't re-offer — the reminder is on file.
+    const _epId = c.next && (c.next.id || ('S'+c.next.season+'E'+c.next.number));
+    if(c.next && WoW.store.isNotified && WoW.store.isNotified(c.t.title_id, _epId)) return;
     _nudged=true;
     offerNudge(c.t.name, c.t.title_id, c.next, n.text);
   }

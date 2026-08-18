@@ -40,10 +40,17 @@ schedulerRoutes.get('/state', async (c) => {
     .bind(email).all<{ show_id: string; mode: string }>();
   const modes: Record<string, string> = {};
   for (const r of results || []) modes[r.show_id] = r.mode;
+  // Drops the member has already asked to be notified about, so Pierre doesn't
+  // re-offer "Notify me" for a flag they already set. Key = `${show_id}|${episodeId}`.
+  const sent = await c.env.SCHED_DB
+    .prepare("SELECT show_id, key FROM sched_sent WHERE user_email = ? AND kind = 'notify'")
+    .bind(email).all<{ show_id: string; key: string }>();
+  const notified = (sent.results || []).map((r) => `${r.show_id}|${r.key}`);
   return c.json({
     user: { declinedCount: u.declined_count, positiveInteraction: !!u.positive_interaction,
             globalKill: !!u.global_kill, defaultMode: u.default_mode },
     modes,
+    notified,
   });
 });
 

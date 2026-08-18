@@ -181,7 +181,8 @@
   async function load(email) {
     if (_state) return _state;
     const cached = lsGet();
-    _state = cached.user ? cached : { user: { declinedCount: 0, positiveInteraction: false, globalKill: false, defaultMode: null }, modes: {} };
+    _state = cached.user ? cached : { user: { declinedCount: 0, positiveInteraction: false, globalKill: false, defaultMode: null }, modes: {}, notified: [] };
+    if (!Array.isArray(_state.notified)) _state.notified = [];
     if (email) {
       try {
         const r = await fetch(`${API}/scheduler/state?email=${encodeURIComponent(email)}`);
@@ -205,8 +206,15 @@
     try { await fetch(`${API}/scheduler/default`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, mode }) }); } catch (_) {} return _state; }
   async function reenable(email) { await load(email); _state.user.globalKill = false; _state.user.declinedCount = 0; lsSet(_state);
     try { await fetch(`${API}/scheduler/reenable`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) }); } catch (_) {} return _state; }
-  async function notify(email, showId, episodeId) { await load(email); _state.user.positiveInteraction = true; lsSet(_state);
+  async function notify(email, showId, episodeId) { await load(email); _state.user.positiveInteraction = true;
+    // Remember this exact drop locally too, so Pierre stops re-offering it immediately
+    // (before the next /state fetch). Server mirror is sched_sent kind='notify'.
+    if (!Array.isArray(_state.notified)) _state.notified = [];
+    const k = `${showId}|${episodeId}`; if (!_state.notified.includes(k)) _state.notified.push(k);
+    lsSet(_state);
     try { await fetch(`${API}/scheduler/notify`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, showId, episodeId }) }); } catch (_) {} return _state; }
+  // Has the member already asked to be notified about this exact drop?
+  function isNotified(showId, episodeId) { return !!(_state && Array.isArray(_state.notified) && _state.notified.includes(`${showId}|${episodeId}`)); }
   function stateNow() { return _state; }
 
   // Cycle order for the chip: auto -> LIVE -> FRESH -> CASUAL -> MORE! -> DECLINED -> auto
@@ -236,7 +244,7 @@
     CFG, MODES, KILL_MSG,
     phase, classify, classifyDeltas, nudge, tag, nextUp, sortKey, inSeason, episodes, epsCached, prefetch,
     daysUntil, weekday,
-    store: { load, setMode, setDefault, reenable, notify, stateNow },
+    store: { load, setMode, setDefault, reenable, notify, isNotified, stateNow },
     nextInCycle, fmtDay,
   };
 })();
