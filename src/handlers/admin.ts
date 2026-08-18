@@ -61,6 +61,9 @@ interface Resource {
   searchExprs: string[];      // OR-LIKE'd against `q`
   filters?: Filter[];         // exact-match dropdown filters
   sortDefault: string;        // a col key
+  defaultOrder?: string;      // author-controlled ORDER BY expr used when the default sort is active
+                              // (e.g. group rows by conversation, then turn order). Overrides sortDefault's single-col sort.
+  groupBy?: string;           // col key the frontend visually groups on (divider when the value changes)
   pivots?: Record<string, Pivot>;
   writes?: Record<string, Write>; // col key → inline-edit spec
   note?: string;              // shown in the UI (caveats, read-only, etc.)
@@ -496,6 +499,9 @@ const RESOURCES: Record<string, Resource> = {
       { key: 'grade', label: 'Grade', expr: "COALESCE(NULLIF(pc.grade,''),'ungraded')", options: ['ungraded', 'great', 'good', 'poor', 'bad'] },
     ],
     sortDefault: 'created_at',
+    // Group by conversation: newest session first (by its first turn), turns in order.
+    defaultOrder: '(SELECT MIN(p2.created_at) FROM pierre_chat p2 WHERE p2.conversation_id = pc.conversation_id) DESC, pc.conversation_id ASC, pc.seq ASC',
+    groupBy: 'conversation_id',
     writes: {
       // Grade Pierre’s turns inline. 'ungraded' clears it back.
       grade: { table: 'pierre_chat', column: 'grade', idColumn: 'id', options: ['ungraded', 'great', 'good', 'poor', 'bad'] },
@@ -580,6 +586,7 @@ adminRoutes.get('/meta', async (c) => {
     }),
     search: r.searchExprs.length > 0,
     sortDefault: r.sortDefault,
+    groupBy: r.groupBy ?? null,
     filters: (r.filters ?? []).map((f) => ({ key: f.key, label: f.label, options: f.options ?? null })),
     pivots: r.pivots ? Object.entries(r.pivots).map(([pk, p]) => ({ key: pk, label: p.label })) : [],
   }));
@@ -617,8 +624,11 @@ adminRoutes.get('/list/:resource', async (c) => {
 
   const select = r.cols.map((col) => `${col.expr} AS "${col.key}"`).join(', ')
     + (r.idExpr ? `, ${r.idExpr} AS "_id"` : '');
+  // When the default sort is active and the resource defines a grouping order, use it
+  // (e.g. Pierre chats group by conversation). Any explicit column sort overrides it.
+  const orderBy = (r.defaultOrder && sortKey === r.sortDefault) ? r.defaultOrder : `${sortCol.expr} ${dir}`;
   const rowsSql = `SELECT ${select} FROM ${r.from} ${clause}
-                   ORDER BY ${sortCol.expr} ${dir} LIMIT ? OFFSET ?`;
+                   ORDER BY ${orderBy} LIMIT ? OFFSET ?`;
   const countSql = `SELECT COUNT(*) AS n FROM ${r.from} ${clause}`;
 
   const [rowsRes, countRes] = await Promise.all([

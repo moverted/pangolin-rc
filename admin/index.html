@@ -85,6 +85,11 @@
   tbody tr { border-bottom: 1px solid rgba(250,246,236,0.07); }
   tbody tr:last-child { border-bottom: 0; }
   td.wrapcell { white-space: normal; max-width: 320px; }
+  /* Message cell (Pierre chat content): wide, wraps, preserves line breaks → taller
+     rows instead of left-right scroll. */
+  td.msgcell { white-space: pre-wrap; word-break: break-word; max-width: 620px; min-width: 320px; line-height: 1.5; }
+  /* Group divider: an amber rule before each new conversation. */
+  tr.group-start td { border-top: 2px solid rgba(240,169,59,0.55); }
   .muted { color: rgba(250,246,236,0.4); }
   td img.shot { max-height: 44px; border-radius: 5px; display: block; }
   audio.cmt-audio { height: 34px; width: 220px; }
@@ -350,10 +355,23 @@
       else { state.sort = k; state.dir = 'desc'; }
       state.offset = 0; load();
     }));
-    $('tbody').innerHTML = data.rows.map(row => `<tr data-id="${esc(row._id || '')}">` + cols.map(col => {
-      const wrap = ['note','name','episode_name','show_name','transcription','excerpt','flaggers','all_comments'].includes(col.key);
-      return `<td class="${wrap ? 'wrapcell' : ''}">${cell(col, row[col.key])}</td>`;
-    }).join('') + '</tr>').join('') || `<tr><td colspan="${cols.length}" class="muted" style="padding:22px">No rows.</td></tr>`;
+    let _prevGroup = null;
+    $('tbody').innerHTML = data.rows.map(row => {
+      // Visual grouping: a divider before each new group value (e.g. a new Pierre
+      // conversation), since the rows come back already ordered by group.
+      let trClass = '';
+      if (cur.groupBy) {
+        const g = row[cur.groupBy];
+        if (_prevGroup !== null && g !== _prevGroup) trClass = 'group-start';
+        _prevGroup = g;
+      }
+      return `<tr data-id="${esc(row._id || '')}"${trClass ? ` class="${trClass}"` : ''}>` + cols.map(col => {
+        const msg = col.key === 'content' || col.key === 'message';
+        const wrap = ['note','name','episode_name','show_name','transcription','excerpt','flaggers','all_comments'].includes(col.key);
+        const cls = msg ? 'msgcell' : (wrap ? 'wrapcell' : '');
+        return `<td class="${cls}">${cell(col, row[col.key])}</td>`;
+      }).join('') + '</tr>';
+    }).join('') || `<tr><td colspan="${cols.length}" class="muted" style="padding:22px">No rows.</td></tr>`;
     $('tbody').querySelectorAll('.hide-chk').forEach(chk => chk.addEventListener('change', onHideToggle));
     $('tbody').querySelectorAll('.edit-cell').forEach(sel => sel.addEventListener('change', onEditCell));
 
