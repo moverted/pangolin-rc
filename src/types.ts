@@ -92,9 +92,6 @@ export interface Env {
   TURNSTILE_SECRET_KEY?: string; // secret — bot gate on the Pierre chat (optional until set)
   APP_NATIVE_SECRET?: string;    // secret — shared token the native iOS app sends instead of a Turnstile token (Turnstile can't run in the WKWebview); matched by /pierre/chat
   TMDB_API_KEY?: string; // secret — backs the TMDB movie search/detail proxy (optional until set)
-  AIRTABLE_PAT?: string;       // secret — personal access token; enables the D1↔Airtable watch sync
-  AIRTABLE_BASE_ID?: string;   // var — Airtable base id (appXXXXXXXXXXXXXX); enables the sync with the PAT
-  SYNC_ADMIN_TOKEN?: string;   // secret — bearer token gating the manual /sync push-all & pull routes
   PROCESS_QUEUE:  Queue<ProcessingJob>;
   EVENTS_QUEUE:   Queue<unknown>;
   BUG_EMAIL?:     SendEmail;  // Email Routing send binding — bug-report notifications (best-effort)

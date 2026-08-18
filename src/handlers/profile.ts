@@ -1,17 +1,10 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
-import { pushRow, pushRows, deleteRow } from './airtable';
 import { ensureTitleSummary, ensureReleaseDate } from './catalog';
 import { fetchTmdbMovie } from './tmdb';
 
 // Account + device API. SEAM:identity — email is the key, no auth in this build.
 export const profileRoutes = new Hono<{ Bindings: Env }>();
-
-// Mirror a D1 write to Airtable, fire-and-forget — never blocks the app's write.
-const mirror = (c: any, table: string, row: Record<string, any>) =>
-  c.executionCtx.waitUntil(pushRow(c.env, table, row).catch((e: unknown) => console.error('airtable mirror', table, e)));
-const unmirror = (c: any, table: string, key: string) =>
-  c.executionCtx.waitUntil(deleteRow(c.env, table, key).catch((e: unknown) => console.error('airtable unmirror', table, e)));
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -64,7 +57,6 @@ profileRoutes.post('/signup', async (c) => {
     const countRow = await c.env.DB.prepare('SELECT COUNT(*) AS c FROM users').first<{ c: number }>();
     if ((countRow?.c ?? 0) >= MEMBER_CAP) {
       await c.env.DB.prepare('INSERT OR IGNORE INTO waitlist (email, created_at) VALUES (?, ?)').bind(email, now).run();
-      mirror(c, 'waitlist', { email, created_at: now });
       return c.json({ status: 'waitlist' });
     }
   }
@@ -101,7 +93,6 @@ profileRoutes.post('/signup', async (c) => {
   }
 
   const user = await c.env.DB.prepare(`SELECT ${SAFE} FROM users WHERE email = ?`).bind(email).first();
-  if (user) mirror(c, 'users', user as Record<string, any>);   // SAFE == the synced users cols (no salt/hash)
   return c.json({ status: 'member', user });
 });
 
@@ -151,7 +142,6 @@ profileRoutes.post('/:email/devices', async (c) => {
   await c.env.DB
     .prepare('INSERT INTO devices (id, user_email, type, location, ip, model, supported, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
     .bind(id, email, type, location, ip, model, supported, now).run();
-  mirror(c, 'devices', { id, user_email: email, type, location, ip, model, supported, created_at: now });
   return c.json({ device: { id, type, location, ip, model, supported } });
 });
 
@@ -177,7 +167,6 @@ profileRoutes.patch('/:email/devices/:id', async (c) => {
   const device = await c.env.DB
     .prepare('SELECT id, user_email, type, location, ip, model, supported, created_at FROM devices WHERE user_email = ? AND id = ?')
     .bind(email, id).first();
-  if (device) mirror(c, 'devices', device as Record<string, any>);
   return c.json({ device });
 });
 
@@ -187,9 +176,6 @@ profileRoutes.delete('/:email/devices/:id', async (c) => {
   const id = c.req.param('id');
   await c.env.DB.prepare('DELETE FROM devices WHERE user_email = ? AND id = ?').bind(email, id).run();
   await c.env.DB.prepare("UPDATE users SET selected_device = 'phone' WHERE email = ? AND selected_device = ?").bind(email, id).run();
-  unmirror(c, 'devices', id);
-  const user = await c.env.DB.prepare(`SELECT ${SAFE} FROM users WHERE email = ?`).bind(email).first();
-  if (user) mirror(c, 'users', user as Record<string, any>);   // selected_device may have reset to 'phone'
   return c.json({ ok: true });
 });
 
@@ -208,8 +194,6 @@ profileRoutes.post('/:email/select', async (c) => {
   }
   const res = await c.env.DB.prepare('UPDATE users SET selected_device = ? WHERE email = ?').bind(device, email).run();
   if (!res.meta.changes) return c.json({ error: 'unknown user' }, 404);
-  const user = await c.env.DB.prepare(`SELECT ${SAFE} FROM users WHERE email = ?`).bind(email).first();
-  if (user) mirror(c, 'users', user as Record<string, any>);
   return c.json({ ok: true, selected: device });
 });
 
@@ -518,10 +502,6 @@ profileRoutes.post('/:email/episodes/:episode_id', async (c) => {
     }
   }
   const recomputed = await recomputeTitle(c.env, email, ep.title_id);
-  mirror(c, 'watch_episode', { user_email: email, episode_id, title_id: ep.title_id,
-    show_name: ep.show_name, episode_name: ep.episode_name, done, minute, bp, sessions, updated_at: now });
-  if (recomputed) mirror(c, 'watch_title', { user_email: email, title_id: ep.title_id, show_name: ep.show_name,
-    status: recomputed.status, active_map_id: null, current_episode_id: recomputed.current, started_at: null, updated_at: now });
   return c.json({ ok: true, status: recomputed?.status, current_episode_id: recomputed?.current });
 });
 
@@ -544,14 +524,6 @@ profileRoutes.patch('/:email/titles/:title_id', async (c) => {
   if (op === 'reset') status = 'current';
   if (status) await c.env.DB.prepare('UPDATE watch_title SET status=?, updated_at=? WHERE user_email=? AND title_id=?').bind(status, now, email, titleId).run();
   const recomputed = await recomputeTitle(c.env, email, titleId);   // fixes resume pointer; respects manual buckets
-
-  // Re-mirror the affected rows (bulk op touched many episodes).
-  c.executionCtx.waitUntil((async () => {
-    const eps = await c.env.DB.prepare('SELECT user_email, episode_id, title_id, show_name, episode_name, done, minute, bp, sessions, updated_at FROM watch_episode WHERE user_email=? AND title_id=?').bind(email, titleId).all();
-    await pushRows(c.env, 'watch_episode', (eps.results || []) as any[]);
-    const row = await c.env.DB.prepare('SELECT user_email, title_id, show_name, status, active_map_id, current_episode_id, started_at, updated_at FROM watch_title WHERE user_email=? AND title_id=?').bind(email, titleId).first();
-    if (row) await pushRow(c.env, 'watch_title', row as any);
-  })().catch((e) => console.error('airtable patch mirror', e)));
   return c.json({ ok: true, status: recomputed?.status });
 });
 
@@ -562,7 +534,6 @@ profileRoutes.patch('/:email/titles/:title_id', async (c) => {
 profileRoutes.delete('/:email/titles/:title_id', async (c) => {
   const email = c.req.param('email').toLowerCase();
   const titleId = c.req.param('title_id');
-  const eps = await c.env.DB.prepare('SELECT episode_id FROM watch_episode WHERE user_email=? AND title_id=?').bind(email, titleId).all<{ episode_id: string }>();
   // Ticket images live in R2 (tickets/<show_id>/<id>); grab keys before dropping rows.
   const tks = await c.env.DB.prepare('SELECT ticket_r2_key FROM watch_ticket WHERE user_email=? AND show_id=?').bind(email, titleId).all<{ ticket_r2_key: string | null }>();
   await c.env.DB.batch([
@@ -576,8 +547,6 @@ profileRoutes.delete('/:email/titles/:title_id', async (c) => {
     .map((t) => t.ticket_r2_key)
     .filter((k): k is string => !!k)
     .map((k) => c.env.RAW_BUCKET.delete(k).catch(() => {})));
-  unmirror(c, 'watch_title', `${email}|${titleId}`);
-  for (const r of eps.results || []) unmirror(c, 'watch_episode', `${email}|${r.episode_id}`);
   return c.json({ ok: true });
 });
 
@@ -698,7 +667,6 @@ profileRoutes.post('/:email/follow', async (c) => {
   await c.env.DB.prepare(
     'INSERT OR IGNORE INTO follows (follower_email, followee_email, created_at) VALUES (?, ?, ?)')
     .bind(email, target, now).run();
-  mirror(c, 'follows', { follower_email: email, followee_email: target, created_at: now });
   const reciprocal = await c.env.DB
     .prepare('SELECT 1 FROM follows WHERE follower_email = ? AND followee_email = ?').bind(target, email).first();
   return c.json({ ok: true, target, username: exists.username || null, friend: !!reciprocal });
@@ -710,7 +678,6 @@ profileRoutes.delete('/:email/follow/:target', async (c) => {
   const target = c.req.param('target').toLowerCase();
   await c.env.DB.prepare('DELETE FROM follows WHERE follower_email = ? AND followee_email = ?')
     .bind(email, target).run();
-  unmirror(c, 'follows', `${email}|${target}`);
   return c.json({ ok: true });
 });
 
@@ -758,7 +725,6 @@ profileRoutes.post('/:email/coviewers', async (c) => {
     'INSERT INTO coviewer (id, owner_email, display_name, relationship, linked_email, is_default, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
     .bind(id, email, display_name, relationship, linked, is_default, now).run();
   const row = { id, owner_email: email, display_name, relationship, linked_email: linked, is_default, created_at: now };
-  mirror(c, 'coviewer', row);
   return c.json({ coviewer: coviewerRow(row) });
 });
 
@@ -787,7 +753,6 @@ profileRoutes.patch('/:email/coviewers/:id', async (c) => {
     .bind(...vals, id, email).run();
   const row = await c.env.DB.prepare('SELECT * FROM coviewer WHERE id = ? AND owner_email = ?').bind(id, email).first<any>();
   if (!row) return c.json({ error: 'not found' }, 404);
-  mirror(c, 'coviewer', row);
   return c.json({ coviewer: coviewerRow(row) });
 });
 
@@ -796,7 +761,6 @@ profileRoutes.delete('/:email/coviewers/:id', async (c) => {
   const email = c.req.param('email').toLowerCase();
   const id = c.req.param('id');
   await c.env.DB.prepare('DELETE FROM coviewer WHERE id = ? AND owner_email = ?').bind(id, email).run();
-  unmirror(c, 'coviewer', id);
   return c.json({ ok: true });
 });
 

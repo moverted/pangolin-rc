@@ -1,6 +1,5 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
-import { pushRow } from './airtable';
 
 export const waitlistRoutes = new Hono<{ Bindings: Env }>();
 
@@ -97,11 +96,6 @@ waitlistRoutes.post('/', async (c) => {
        source      = excluded.source`
   ).bind(email, first_name, last_name, fav_show, buddy_email, phone, now).run();
 
-  // Fire-and-forget mirror to Airtable (email is the only mapped column today).
-  c.executionCtx.waitUntil(
-    pushRow(c.env, 'waitlist', { email, created_at: now }).catch((e: unknown) => console.error('airtable waitlist mirror', e))
-  );
-
   // Fire-and-forget signup notification email (SendGrid). Best-effort; never blocks
   // or fails the signup.
   c.executionCtx.waitUntil(
@@ -139,10 +133,6 @@ waitlistRoutes.post('/invest', async (c) => {
        source     = excluded.source,
        list_type  = 'investor'`
   ).bind(email, first_name, last_name, company, phone, now).run();
-
-  c.executionCtx.waitUntil(
-    pushRow(c.env, 'waitlist', { email, created_at: now }).catch((e: unknown) => console.error('airtable invest mirror', e))
-  );
 
   return c.json({ ok: true, status: 'investor' });
 });

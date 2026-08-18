@@ -58,6 +58,5 @@ binding = "AI"
 [[send_email]]
 name = "BUG_EMAIL"
 
-# Inbound Airtable → D1 watch sync. Every 2 minutes; no-op until AIRTABLE_* set.
-[triggers]
-crons = ["*/2 * * * *"]
+# (Removed 2026-08-18: the inbound Airtable → D1 sync cron. Airtable mirroring is
+# deprecated — the admin portal at admin.pangolinrc.com is the source of truth.)

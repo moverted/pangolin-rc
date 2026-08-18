@@ -18,7 +18,6 @@ import { streamerRoutes }   from './handlers/streamer';
 import { tmdbRoutes }       from './handlers/tmdb';
 import { schedulerRoutes }  from './handlers/scheduler';
 import { catalogRoutes }    from './handlers/catalog';
-import { syncRoutes, pullChanges, airtableEnabled, pushRow } from './handlers/airtable';
 import { processQueue }     from './queue';
 
 export { ResourceCoordinator } from './do/resource-coordinator';
@@ -1061,8 +1060,8 @@ async function notifyBugEmail(env: Env, r: BugRow): Promise<void> {
 // ─── Bug reports ────────────────────────────────────────────────────────────
 // A persistent 🐞 in the shell captures a screenshot + a note from any view and
 // files it here. Anyone may report (no sign-in required); the screenshot is
-// optional and best-effort. D1 is the source of truth; the row mirrors to the
-// Airtable `bug_report` grid for hand triage. The author fields these manually.
+// optional and best-effort. D1 is the source of truth; triage the rows in the
+// admin portal (admin.pangolinrc.com).
 app.options('/bug-reports', (c) => c.json({ ok: true }));
 
 // Admin-only bug review surface (powers the 🐞 badge + list on the profile face).
@@ -1205,12 +1204,10 @@ app.post('/bug-reports', async (c) => {
             row.viewport, row.screenshot_url, row.status, row.send_to_claude, row.claude_status, row.created_at)
       .run();
 
-    // Mirror to the Airtable triage grid and email a notification — both
-    // best-effort and independent, so neither one blocks or fails the report.
-    c.executionCtx.waitUntil(Promise.allSettled([
-      pushRow(c.env, 'bug_report', row).catch((e) => console.warn('bug airtable mirror failed:', String(e).substring(0, 200))),
+    // Email a notification — best-effort, never blocks or fails the report.
+    c.executionCtx.waitUntil(
       notifyBugEmail(c.env, row).catch((e) => console.warn('bug email failed:', String(e).substring(0, 200))),
-    ]));
+    );
 
     return c.json({ id, ok: true });
   } catch (error) {
@@ -1248,7 +1245,6 @@ app.route('/streamer',    streamerRoutes);
 app.route('/tmdb',        tmdbRoutes);
 app.route('/catalog',     catalogRoutes);
 app.route('/scheduler',   schedulerRoutes);
-app.route('/sync',        syncRoutes);
 
 app.notFound((c) => c.json({ error: 'Not found' }, 404));
 app.onError((err, c) => {
@@ -1259,13 +1255,4 @@ app.onError((err, c) => {
 export default {
   fetch: app.fetch.bind(app),
   queue: processQueue,
-  // Inbound Airtable → D1 sync: pull human edits back on a cron. No-op until the
-  // Airtable secrets are set, so the trigger is harmless to register beforehand.
-  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext) {
-    if (!airtableEnabled(env)) return;
-    ctx.waitUntil(pullChanges(env).then(
-      (r) => console.log('airtable pull', JSON.stringify(r)),
-      (e) => console.error('airtable pull failed', e),
-    ));
-  },
 };

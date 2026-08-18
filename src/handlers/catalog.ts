@@ -1,6 +1,5 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
-import { pushRow, pushRows } from './airtable';
 import { fetchTmdbMovie, fetchTmdbTvRuntime } from './tmdb';
 
 // ─── Shared catalog + server-side materialization ────────────────────────────
@@ -234,19 +233,10 @@ catalogRoutes.post('/initiate', async (c) => {
   ];
   await c.env.DB.batch(stmts);
 
-  // Mirror to Airtable (fire-and-forget): the catalog only when freshly created.
-  const wtRow = { user_email: email, title_id: ref.titleId, show_name: titleRow.name, status: wtStatus,
-    active_map_id: null, current_episode_id: currentEp, started_at: now, updated_at: now };
-  c.executionCtx.waitUntil((async () => {
-    if (mat.created) { await pushRow(c.env, 'titles', titleRow); await pushRows(c.env, 'episodes', episodes); }
-    await pushRow(c.env, 'watch_title', wtRow);
-    await pushRows(c.env, 'watch_episode', weRows);
-  })().catch((e) => console.error('airtable initiate mirror', e)));
-
   return c.json({ title_id: ref.titleId, kind: titleRow.kind, episodes: episodes.length, current_episode_id: currentEp });
 });
 
-// File a bug into the admin review list (D1 source of truth + Airtable mirror).
+// File a bug into the admin review list (D1 is the source of truth).
 // Used by the runtime-check below; no screenshot/email path — these are system-filed.
 async function fileSystemBug(env: Env, note: string, view: string, email: string | null): Promise<void> {
   const id = crypto.randomUUID();
@@ -262,7 +252,6 @@ async function fileSystemBug(env: Env, note: string, view: string, email: string
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
   ).bind(row.id, row.user_email, row.note, row.view, row.url, row.user_agent, row.viewport,
          row.screenshot_url, row.status, row.send_to_claude, row.claude_status, row.created_at).run();
-  await pushRow(env, 'bug_report', row).catch((e) => console.warn('runtime bug mirror failed:', String(e).substring(0, 200)));
 }
 
 // POST /catalog/runtime-check — a member completed an episode after a live watch that

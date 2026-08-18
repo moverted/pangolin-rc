@@ -35,9 +35,8 @@ Snapshot for picking work back up after a context clear. Delete/replace when sta
    **grade** (great/good/poor/bad). Reflection-mode turns are excluded.
 4. **Pierre persona:** non-TV asks now deflect **sheepishly**. Chat call has exactly 5
    params (model, max_tokens, system, messages, tools) — no temperature.
-5. **Airtable:** direction confirmed = admin panel is source of truth; NO new mirrors
-   (the new co-viewing/runtime/chat tables don't mirror). Existing mirrors + the 2-min
-   inbound cron still run.
+5. **Airtable:** deprecated — mirroring fully removed in code (see the 2026-08-18
+   deprecation entry in BACKEND.md); admin portal is the sole source of truth.
 
 ## Verify on device (couldn't prove locally)
 
@@ -48,8 +47,10 @@ Snapshot for picking work back up after a context clear. Delete/replace when sta
 
 ## Parked / next
 
-- **Airtable deprecation** — rip out the existing mirrors + the every-2-min inbound
-  Airtable→D1 cron (`wrangler.toml` `[triggers]`). Its own focused pass; not started.
+- **Airtable deprecation — DONE in code (2026-08-18), deploy pending.** Ripped out
+  `airtable.ts`, all mirror call sites, the inbound cron + `/sync` route, Env fields,
+  and the 3 prod secrets (already deleted). type-check clean. Needs `wrangler deploy`
+  to fully retire the cron on the live Worker.
 - **Pierre `temperature`** — add as a 6th chat param if wanted (currently API default).
 - Ted's roster (Anne/Audrey/Bryce/Rose) is seeded in LOCAL D1 only (`scripts/seed-coviewers.sql`),
   not prod.

@@ -4,6 +4,26 @@ Append-only log. Any session that touches the Worker, D1, or deploy
 configuration adds an entry here before the session ends (see CLAUDE.md,
 "Backend and deploy rules").
 
+## 2026-08-18 — Airtable mirroring DEPRECATED / ripped out (code done; deploy pending)
+
+The admin portal (admin.pangolinrc.com over D1) is now the sole human window onto app
+data. Full removal of the Airtable integration:
+
+- **Deleted** `src/handlers/airtable.ts` (pushRow/pushRows/deleteRow/pullChanges/
+  pushAll/syncRoutes/TABLES/airtableEnabled).
+- **Removed all outbound mirror call sites** — `mirror`/`unmirror` helpers + calls in
+  `profile.ts` (users/devices/waitlist/follows/watch_title/watch_episode/coviewer),
+  `pushRow` in `waitlist.ts` (join + invest), `catalog.ts` (initiate + runtime bug),
+  `index.ts` (bug_report).
+- **Removed the inbound cron:** the `scheduled` handler in `index.ts` + `[triggers]
+  crons` in `wrangler.toml` (was every 2 min) + the `/sync` route mount.
+- **types.ts:** dropped `AIRTABLE_PAT`, `AIRTABLE_BASE_ID`, `SYNC_ADMIN_TOKEN` from Env.
+- **Deleted** those 3 prod Worker **secrets** (`wrangler secret delete`) — done now, so
+  the still-running cron on the current Worker no-ops immediately.
+- Deleted `AIRTABLE_SYNC.md`; scrubbed stale Airtable comments.
+- type-check clean; no Airtable code remains in `src/`. **Not yet deployed** — the new
+  Worker (no cron/routes) needs `wrangler deploy` to fully retire it.
+
 ## 2026-08-18 — 1.0.2 co-watching + Pierre batch (DEPLOYED)
 
 Big batch. Migrations applied REMOTE: `0039_watch_title_coviewer`, `0040_runtime_report`,

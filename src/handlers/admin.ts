@@ -2,8 +2,8 @@ import { Hono } from 'hono';
 import type { Env } from '../types';
 
 // ─── admin.pangolinrc.com API ────────────────────────────────────────────────
-// Read-only operational admin surface over the production D1 (`DB`). Replaces
-// the Airtable mirror as the human window onto app data. Purely read/filter/pivot
+// Read-only operational admin surface over the production D1 (`DB`). This is THE
+// human window onto app data (Airtable mirroring was deprecated 2026-08-18). Purely read/filter/pivot
 // at launch (see admin-portal-build-brief.md non-goals) — the only mutating admin
 // route in the Worker is still POST /waitlist/admin/status.
 //
