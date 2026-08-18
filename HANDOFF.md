@@ -1,66 +1,64 @@
-# Handoff — 2026-08-17
+# Handoff — 2026-08-18
 
 Snapshot for picking work back up after a context clear. Delete/replace when stale.
 
-## Current state (1.0.1 space — buttoned up)
+## Current state — 1.0.2 co-watching + Pierre batch SHIPPED
 
-- **Branch `endnote-one-reply-flow`** — pushed to origin. This session's commit:
-  - `d54dd25` Wheel: armed LOG playhead wins over stale selectMode + discoverable disengage.
-- **Web: deployed + verified live** on `remote.pangolinrc.com` (Pages, latest upload
-  confirmed "0 new files" on re-deploy → web == `public/`). New `clickwheel.js` +
-  `index.html` serving in prod.
-- **iOS: bundled, in TestFlight, submitted.** `public/ → www/ → cap copy ios` done and
-  byte-verified; Ted archived + distributed. Build **1.0.1 (202608170718)** is in App
-  Store Connect, "What to Test" filled (cohort welcome copy), submitted for beta review.
-  Attached to external group **Founder's Circle** (SNW Cohort also exists).
-- **Uncommitted WIP in the tree (NOT mine, leave alone):** `public/cube_log_face.html`
-  (~51 lines) + `src/types.ts` (1 line) are pre-existing `endnote-one-reply-flow` WIP,
-  unrelated to the scrubber fix. Did not commit them.
+- **Branch `endnote-one-reply-flow`** — commit **`f51d7bc`** pushed to origin. (Prior
+  this-session commit `0f75f0a` = coviewer backend + invest page; also pushed.)
+- **Web: deployed + verified live.** Worker (version `bc9ae7ff`), remote migrations
+  `0039`/`0040`/`0041`, app Pages (`pangolin-rc` → remote.pangolinrc.com), admin Pages
+  (`pangolinrc-admin` → admin.pangolinrc.com). All 200; new D1 tables confirmed in prod.
+  NB curl the app faces with `-L` (the `_redirects` 308s `.html`).
+- **iOS: bundled + distributed at 1.0.1.** `public/ → www/` mirrored, `cap copy ios`,
+  byte-verified in `ios/App/App/public`. Ted archived (build `202608180925`) and
+  distributed to TestFlight. Version deliberately kept **1.0.1** (not bumped).
 
 ## What shipped this session
 
-1. **Scrubber ↔ click-wheel bug fix (the `>-<` / ▶-◀ playhead).** On the LOG face the
-   armed playhead wasn't getting the ring: the pointermove ladder in `clickwheel.js` hit
-   the `selectMode` rung *before* `logTuneActive()`, so a lingering SELECT-highlight
-   stepped the highlight instead of tuning the minute. **Fix:** moved the `logTuneActive()`
-   branch above `selectMode` — an armed playhead now owns the ring even with a stale
-   highlight up. (LOG face = `cube_log_face.html`, `FACE_INDEX.episodes`; the bridge is
-   `window.__logTune.{active,step}` read across the iframe by the wheel.)
-2. **Discoverable selectMode disengage.** Chosen direction: **long-hold SELECT** (the
-   exit already existed at `exitSelect`), made discoverable with a new `#select-hint`
-   ("Hold SELECT to disengage") that sits between the wheel and the cube while the
-   highlight is up. Every `selectMode` write now routes through `setSelectMode(on)` in
-   `clickwheel.js`, which toggles the hint's `.show`. Hint markup + CSS in `index.html`.
+1. **Co-viewing ("who's on your sofa") — full stack.** Roster + default matrix on the
+   PROFILE face (`coviewer` table, is_default = default room). Per-title co-viewers
+   (`watch_title_coviewer`) via `GET`/`PUT /profile/:email/titles/:titleId/coviewers`
+   (`use_default` shortcut). Pierre add-flow **chip set 3** (With <room> / Just me /
+   Someone else → roster toggle picker) in `cube_pierre_face.html` `resolveShow()`.
+   Inline **"Watching with" editors** on WATCH + LOG faces. Pierre `tasteBlock` weaves
+   ", with <names>" per title + a roster/[default room] block. Admin **Co-viewing** tab.
+2. **Runtime correction.** `runtime_report` + `POST /catalog/runtime-report`: 2+ distinct
+   users agreeing on the same observed runtime auto-applies to global `episodes.runtime`;
+   all reports queue in the admin **Runtime reports** tab. LOG-face Pierre prompt fires
+   only when the existing `/catalog/runtime-check` (TMDB) did NOT auto-correct. Episode
+   runtime is now **admin-inline-editable** (admin write path extended to free ints,
+   `kind:'int'`).
+3. **Pierre chat transcripts.** `pierre_chat` table (one row per turn, grouped by
+   `conversation_id` = whole session, saved every turn via `persistChatTurns` in
+   `/pierre/chat`). Frontend sends `PIERRE_CONVO`. Admin **Pierre chats** tab with inline
+   **grade** (great/good/poor/bad). Reflection-mode turns are excluded.
+4. **Pierre persona:** non-TV asks now deflect **sheepishly**. Chat call has exactly 5
+   params (model, max_tokens, system, messages, tools) — no temperature.
+5. **Airtable:** direction confirmed = admin panel is source of truth; NO new mirrors
+   (the new co-viewing/runtime/chat tables don't mirror). Existing mirrors + the 2-min
+   inbound cron still run.
 
-## Founder's Circle cohort — live now
+## Verify on device (couldn't prove locally)
 
-- Build 1.0.1 out to Founder's Circle. Cohort welcome / "What to Test" copy = plain ASCII
-  ONLY (App Store Connect rejects emoji/special chars — a 🎉 blocked the submit).
-- Onboarding steps testers get: PROFILE face → set password (no requirements) → follow
-  edward.m.willett@gmail.com by email → WATCH → pick a show → call/text Ted 310-922-1109.
-- **Versioning discipline:** stay on **1.0.1** builds for bug fixes to the live cohort
-  (build number auto-stamps; subsequent beta builds usually clear review fast). Bump to
-  **1.0.2** for the next feature batch. NB: a version bump does NOT trigger full App Store
-  review — that's only at public release; TestFlight always runs beta review.
+- Add a show through Pierre → the **"Who's watching <show> with you?"** chip appears
+  (needs a roster; Ted's is seeded LOCAL only — set one up in prod PROFILE to test).
+- Have a Pierre chat → the **Pierre chats** admin tab fills in. Prod has ANTHROPIC_API_KEY
+  so this is the real save-every-turn test (local `.dev.vars` had no key).
 
-## Next up — 1.0.2 (parked in BACKLOG.md, do NOT start before the intended clear/explore)
+## Parked / next
 
-Two new entries added to `BACKLOG.md` this session — both surfaced from Pierre going live:
+- **Airtable deprecation** — rip out the existing mirrors + the every-2-min inbound
+  Airtable→D1 cron (`wrangler.toml` `[triggers]`). Its own focused pass; not started.
+- **Pierre `temperature`** — add as a 6th chat param if wanted (currently API default).
+- Ted's roster (Anne/Audrey/Bryce/Rose) is seeded in LOCAL D1 only (`scripts/seed-coviewers.sql`),
+  not prod.
 
-1. **Group / co-watching ("who's in the room")** — the big 1.0.2 theme. "What am I
-   watching right now?" is loaded because co-viewers may have no account (Rose: none ever;
-   Anne/Audrey: accounts but cohort-onboarding friction; Bryce: never logged in). Needs a
-   room-roster concept (accountless name-only members, promotable later) + Pierre context.
-2. **Comment KIND `pierre_chat` (full thread, gradeable)** — Pierre chats currently log as
-   `KIND: episode` (e.g. the CREATED 2026-08-17 16:43 row). Give them their own kind and
-   store the whole back-and-forth so Ted can grade/trail Pierre from admin. Anchors:
-   `migrations/0015_watch_comment.sql`, `src/handlers/pierre.ts`, `admin/index.html`
-   (`PILL_COLS`).
-
-## iOS bundle rebuild reminder
+## iOS bundle reminder
 
 Web-only changes reuse the stale bundle on a plain Run. To ship native: mirror changed
-`public/ → www/`, `npx cap copy ios`, verify markers landed / byte-match in
-`ios/App/App/public`, then delete app → Clean Build Folder (⇧⌘K) → Archive → Distribute
-(uncheck "Automatically manage version and build number"; build number auto-stamps).
-This Capacitor setup uses SPM → open `ios/App/App.xcodeproj` (no `.xcworkspace`).
+`public/ → www/`, `npx cap copy ios`, byte-verify `ios/App/App/public`, then delete app →
+Clean Build Folder (⇧⌘K) → Archive → Distribute (uncheck "Automatically manage version and
+build number"; build number auto-stamps). SPM setup → open `ios/App/App.xcodeproj`. If the
+Distribute dialog doesn't auto-pop after Archive, `open` the newest `.xcarchive` under
+`~/Library/Developer/Xcode/Archives/` to bring up the Organizer.
