@@ -624,6 +624,104 @@
     chips.push({label:'Someone else', onClick:()=>pickCoviewers({id:titleId, name}, roster, setAndGo)});
     pierreSay("Who watched "+name+" with you?", chips);
   }
+  // ── Conversational episode backfill ────────────────────────────────────────
+  // [WATCHED: show | episode | day | with] — Pierre passes the member's words; the app
+  // resolves the real episode (TVmaze), the absolute date, and the roster companions, then
+  // hands back ONE confirm chip. Only that tap logs (via /catalog/backfill-episode), so the
+  // member sees exactly what will land — no silent log, no faked confirmation.
+  function parseWatched(text){
+    const m = text.match(/\[WATCHED:\s*([^|\]]+?)\s*(?:\|\s*([^|\]]*?)\s*)?(?:\|\s*([^|\]]*?)\s*)?(?:\|\s*([^\]]*?)\s*)?\]/i);
+    if(!m) return {clean:text, watched:null};
+    return {clean:text.replace(m[0],'').trim(), watched:{
+      show:(m[1]||'').trim(), ep:(m[2]||'').trim(), day:(m[3]||'').trim(), withWhom:(m[4]||'').trim() }};
+  }
+  // "S4E3" / "s04e03" / "4x03" → {season, number}; "latest"/blank → null (means latest aired).
+  function parseEpCode(s){
+    const t=String(s||'').trim();
+    let m=t.match(/s\s*(\d{1,3})\s*e\s*(\d{1,3})/i) || t.match(/(\d{1,3})\s*x\s*(\d{1,3})/);
+    return m ? {season:+m[1], number:+m[2]} : null;
+  }
+  function fmtDate(ms){ const d=new Date(ms); return (d.getMonth()+1)+'/'+d.getDate()+'/'+d.getFullYear(); }
+
+  async function runWatched(w){
+    const email=pgSession(); if(!email) return;
+    showTyping();
+    let cands=[];
+    // Episode backfill → resolve to a SERIES (TVmaze). The top match drives the confirm chip;
+    // "Something else" is the correction path, so we don't force a picker for the common case.
+    try{ const r=await fetch('https://api.tvmaze.com/search/shows?q='+encodeURIComponent(w.show));
+      if(r.ok){ const arr=await r.json(); (arr||[]).slice(0,5).forEach(x=>{ const s=x&&x.show; if(s) cands.push({ id:s.id, title_id:'tvmaze:'+s.id, name:s.name, poster:(s.image&&(s.image.medium||s.image.original))||null }); }); } }catch(_){}
+    clearTyping();
+    if(!cands.length){
+      selfEscalate('Backfill (episode): could not find show "'+w.show+'".');
+      addPierre("I could not find "+w.show+" to log it, and I am not going to fake it. I am calling my manager — Ted will take a look and get back to you.");
+      return;
+    }
+    proposeWatched(cands[0], w);
+  }
+
+  async function proposeWatched(cd, w){
+    const email=pgSession(); if(!email) return;
+    showTyping();
+    // Resolve the episode: an explicit SxEy, else the latest AIRED episode from TVmaze.
+    let season=null, number=null, epName='';
+    const explicit=parseEpCode(w.ep);
+    try{
+      const r=await fetch('https://api.tvmaze.com/shows/'+cd.id+'/episodes');
+      if(r.ok){ const eps=await r.json();
+        let target=null;
+        if(explicit){ target=eps.find(e=>e.season===explicit.season && e.number===explicit.number)||null; }
+        else{ const now=Date.now(); const aired=eps.filter(e=>e.airdate && new Date(e.airdate+'T23:59:59').getTime()<=now); target=aired.length?aired[aired.length-1]:null; }
+        if(target){ season=target.season; number=target.number; epName=target.name||''; }
+      }
+    }catch(_){}
+    clearTyping();
+    if(season==null||number==null){
+      selfEscalate('Backfill (episode): found '+cd.name+' but could not resolve '+(w.ep||'the latest episode')+'.');
+      addPierre("I found "+cd.name+" but could not pin down "+(w.ep||'the latest episode')+" to log — I will not guess. Calling my manager; Ted will sort it and get back to you.");
+      return;
+    }
+    const code='S'+String(season).padStart(2,'0')+'E'+String(number).padStart(2,'0');
+    const watchedAt=dayToNoonMs(w.day);
+    const dayLabel = w.day ? fmtDate(watchedAt) : 'today';
+    // Match the stated companions against the member's roster.
+    let roster=[];
+    try{ const r=await fetch(`${API}/profile/${encodeURIComponent(email)}/coviewers`); if(r.ok) roster=(await r.json()).coviewers||[]; }catch(_){}
+    const names=(w.withWhom||'').split(/\s*(?:,|&|\band\b|\+)\s*/i).map(s=>s.trim()).filter(Boolean);
+    const matched=[], withIds=[];
+    names.forEach(nm=>{ const n=nm.toLowerCase();
+      const cv=roster.find(c=>{ const dn=(c.display_name||'').toLowerCase(); return dn===n || dn.startsWith(n) || dn.split(/\s+/)[0]===n; });
+      if(cv){ matched.push(cv.display_name); withIds.push(cv.id); } });
+    const withLabel = matched.length ? (' · with '+matched.join(' & ')) : '';
+    const summary='✓ '+cd.name+' '+code+(epName?' “'+epName+'”':'')+' · '+dayLabel+withLabel;
+    pierreSay("Cool — I'll log it. Tap to confirm:", [
+      { label: summary, onClick: ()=>doWatched(cd, {season, number, code, watchedAt, dayLabel}, withIds, matched) },
+      { label: 'Something else', onClick: ()=>addPierre("No problem — tell me what's off: the show, which episode, the day, or who watched with you.") }
+    ]);
+  }
+
+  async function doWatched(cd, ep, withIds, matched){
+    const email=pgSession(); if(!email) return;
+    showTyping();
+    let d=null;
+    try{ const r=await fetch(`${API}/catalog/backfill-episode`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ email, title_id:cd.title_id, season:ep.season, number:ep.number, watched_at:ep.watchedAt })});
+      if(r.ok) d=await r.json();
+    }catch(_){}
+    if(d && d.ok && withIds.length){
+      try{ await fetch(`${API}/profile/${encodeURIComponent(email)}/titles/${encodeURIComponent(d.title_id)}/coviewers`,
+        {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({coviewer_ids:withIds})}); }catch(_){}
+    }
+    clearTyping();
+    if(d && d.ok){
+      const withTxt = matched.length ? (' with '+matched.join(' & ')) : '';
+      addPierre('Logged '+d.name+' '+d.code+' as watched '+ep.dayLabel+withTxt+'. It is on your log now.');
+    } else {
+      selfEscalate('Backfill (episode): could not log '+cd.name+' '+ep.code+' ('+cd.title_id+').');
+      addPierre("Something tripped me up logging "+cd.name+" "+ep.code+", and I will not pretend it worked. Calling my manager — Ted will look and get back to you.");
+    }
+  }
+
   // Client-side self-escalation (a backfill dead end): record a Get Ted so it lands in the
   // admin queue with context, and start watching for Ted's reply.
   function selfEscalate(note){
@@ -634,11 +732,12 @@
   }
 
   function addPierre(text){
-    let clean, route, ctx, opts, backfill;
+    let clean, route, ctx, opts, backfill, watched;
     ({clean, route} = parseRoute(text));
     ({clean, ctx}   = parseSwitch(clean));
     ({clean, opts}  = parseAsk(clean));
     ({clean, backfill} = parseBackfill(clean));   // [BACKFILL: title | day | rating] → real log
+    ({clean, watched}  = parseWatched(clean));    // [WATCHED: show | ep | day | with] → confirm-chip episode log
     if(/\[GETTED\]/i.test(text)){ _awaitingTed=true; startTedPolling(); }   // handoff fired: watch for Ted's reply
     clean = clean.replace(/\[GETTED\]/ig, '').trim();   // silent Ted-escalation signal, never shown
     const wrap = document.createElement('div');
@@ -677,6 +776,9 @@
     if(ctx && SWITCHABLE.indexOf(ctx)>=0) switchTo(ctx, {viaUser:false});
     // A backfill tag: run the real log now, then confirm ONLY what actually landed.
     if(backfill && backfill.title) runBackfill(backfill);
+    // A watched-episode tag: resolve the real episode + date + companions, then hand back a
+    // confirm chip. Nothing logs until the member taps it.
+    if(watched && watched.show) runWatched(watched);
     return clean;
   }
 

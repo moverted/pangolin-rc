@@ -430,6 +430,44 @@
         <!-- content scrolls inside the square; the device picker is the focal point -->
         <div class="scroll">
           <div class="pbody">
+            <!-- App style: 3D cube vs flat swipe. Persists per device (pg_mode); the launch
+                 router in index.html honors it so a member stays where they left off across
+                 restarts. This face is an iframe in both shells, so we navigate window.top. -->
+            <style>
+              #modeToggle{display:flex;align-items:center;justify-content:space-between;gap:12px;
+                margin:2px 0 16px;padding:10px 12px;border:1px solid rgba(239,177,78,.28);
+                border-radius:12px;background:rgba(239,177,78,.05);}
+              #modeToggle .mt-label{font-family:var(--body,'Inter',sans-serif);font-size:14px;color:#e9dcc4;}
+              #modeToggle .mt-seg{display:flex;background:rgba(0,0,0,.35);border-radius:9px;padding:3px;}
+              #modeToggle .mt-opt{appearance:none;border:0;background:none;cursor:pointer;
+                font-family:var(--body,'Inter',sans-serif);font-weight:700;font-size:13px;
+                color:#8c8172;padding:6px 16px;border-radius:7px;transition:background .15s,color .15s;}
+              #modeToggle .mt-opt.on{background:#f0a93b;color:#1a1206;}
+            </style>
+            <div id="modeToggle">
+              <span class="mt-label">App style</span>
+              <div class="mt-seg" role="group" aria-label="App style">
+                <button type="button" class="mt-opt" data-mode="cube">Cube</button>
+                <button type="button" class="mt-opt" data-mode="flat">Flat</button>
+              </div>
+            </div>
+            <script>
+              (function(){
+                var KEY='pg_mode';
+                function cur(){ try{ return localStorage.getItem(KEY)==='flat'?'flat':'cube'; }catch(e){ return 'cube'; } }
+                var wrap=document.getElementById('modeToggle'); if(!wrap) return;
+                function paint(){ var m=cur(); wrap.querySelectorAll('.mt-opt').forEach(function(b){ b.classList.toggle('on', b.dataset.mode===m); }); }
+                wrap.querySelectorAll('.mt-opt').forEach(function(b){
+                  b.addEventListener('click', function(){
+                    var m=b.dataset.mode; if(m===cur()) return;
+                    try{ localStorage.setItem(KEY, m); }catch(e){}
+                    var dest = m==='flat' ? '/app.html' : '/index.html';
+                    try{ (window.top||window).location.href = dest; }catch(e){ location.href = dest; }
+                  });
+                });
+                paint();
+              })();
+            </script>
             <!-- Admin-only: open the full admin panel (admin.pangolinrc.com). The count
                  pill mirrors the panel's waitlist "new" badge (also painted on the app icon). -->
             <button class="admin-panel-btn" id="adminPanelBtn" type="button" style="display:none">

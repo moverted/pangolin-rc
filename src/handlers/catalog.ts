@@ -313,6 +313,72 @@ catalogRoutes.post('/backfill', async (c) => {
   return c.json({ ok: true, title_id: titleId, name: mat.titleRow.name, kind: isMovie ? 'movie' : 'show', poster: mat.titleRow.poster || null, watched_at: watchedAt, episodes: eps.length });
 });
 
+// POST /catalog/backfill-episode — log ONE episode of an ongoing series as watched, backdated.
+// This is the conversational-backfill target ("I watched the latest episode of Ted Lasso
+// yesterday"): unlike /backfill (which marks a whole series COMPLETE), this marks just the
+// named episode done and leaves the show IN PROGRESS at that episode. Resolves the target by
+// explicit season+number, or — when omitted — the latest AIRED episode as of watched_at. The
+// client shows the member a confirm chip with exactly this episode before calling, and this
+// returns the resolved code so Pierre confirms only what landed.
+catalogRoutes.post('/backfill-episode', async (c) => {
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const email = (typeof body.email === 'string' ? body.email : '').trim().toLowerCase();
+  const titleId = (typeof body.title_id === 'string' ? body.title_id : '').trim().slice(0, 120);
+  const watchedAt = Number(body.watched_at) > 0 ? Math.trunc(Number(body.watched_at)) : Date.now();
+  const wantSeason = Number.isFinite(Number(body.season)) ? Number(body.season) : null;
+  const wantNumber = Number.isFinite(Number(body.number)) ? Number(body.number) : null;
+  const rating = typeof body.rating === 'string' ? body.rating.trim().slice(0, 300) : '';
+  if (!email || !titleId) return c.json({ error: 'email and title_id required' }, 400);
+  const user = await c.env.DB.prepare('SELECT email FROM users WHERE email = ?').bind(email).first();
+  if (!user) return c.json({ error: 'unknown user' }, 404);
+
+  const source = titleId.startsWith('tvmaze:') ? 'tvmaze' : 'tmdb';
+  const ref = titleId.slice(titleId.indexOf(':') + 1);
+  const mat = await materializeTitle(c.env, source, ref, titleId);
+  if (!mat || !mat.episodes.length) return c.json({ ok: false, reason: 'materialize_failed' });
+
+  // Explicit SxEy if given, else the latest episode aired as of the watch date.
+  let ep = null as (typeof mat.episodes)[number] | null;
+  if (wantSeason != null && wantNumber != null) {
+    ep = mat.episodes.find((e) => e.season === wantSeason && e.number === wantNumber) || null;
+  } else {
+    const aired = mat.episodes.filter((e) => released(e.airdate, watchedAt));
+    ep = aired.length ? aired[aired.length - 1]! : null;
+  }
+  if (!ep) return c.json({ ok: false, reason: 'no_episode' });
+
+  const rt = ep.runtime || 0;
+  const session = JSON.stringify([{ minutes: rt, finished: true, bp: false, state: 'done',
+    validated: true, startTs: watchedAt - rt * 60000, lastTs: watchedAt, finishTs: watchedAt }]);
+  await c.env.DB.prepare(
+    `INSERT INTO watch_episode (user_email, episode_id, title_id, show_name, episode_name, done, minute, bp, sessions, updated_at)
+     VALUES (?, ?, ?, ?, ?, 1, ?, 0, ?, ?)
+     ON CONFLICT(user_email, episode_id) DO UPDATE SET done=1, minute=excluded.minute, bp=0, sessions=excluded.sessions, updated_at=excluded.updated_at`,
+  ).bind(email, ep.episode_id, titleId, mat.titleRow.name, ep.name || mat.titleRow.name, rt, session, watchedAt).run();
+
+  // Move the show's progress pointer to this episode and keep it in progress (NOT completed
+  // — it's ongoing). On conflict we advance the pointer/timestamp but don't touch a status the
+  // member (or the profile recompute) already set, so this never downgrades a finished show.
+  await c.env.DB.prepare(
+    `INSERT INTO watch_title (user_email, title_id, show_name, status, current_episode_id, started_at, updated_at)
+     VALUES (?, ?, ?, 'current', ?, ?, ?)
+     ON CONFLICT(user_email, title_id) DO UPDATE SET current_episode_id=excluded.current_episode_id, updated_at=excluded.updated_at`,
+  ).bind(email, titleId, mat.titleRow.name, ep.episode_id, watchedAt, watchedAt).run();
+
+  if (rating) {
+    const refEp = 'S' + String(ep.season ?? 1).padStart(2, '0') + 'E' + String(ep.number ?? 1).padStart(2, '0');
+    await c.env.DB.prepare(
+      `INSERT INTO watch_comment (id, user_email, episode_id, timestamp_ms, transcription, audio_r2_key, created_at, show_id, reply_to, transcript_edited, is_reflection, private, is_endnote, spoiler, reveal_on, hidden)
+       VALUES (?, ?, ?, 0, ?, NULL, ?, ?, NULL, 0, 1, 0, 0, 0, NULL, 0)`,
+    ).bind(crypto.randomUUID(), email, refEp, rating, watchedAt, titleId).run();
+  }
+
+  const code = 'S' + String(ep.season ?? 1).padStart(2, '0') + 'E' + String(ep.number ?? 1).padStart(2, '0');
+  return c.json({ ok: true, title_id: titleId, name: mat.titleRow.name, poster: mat.titleRow.poster || null,
+    episode_id: ep.episode_id, season: ep.season, number: ep.number, code, episode_name: ep.name || null, watched_at: watchedAt });
+});
+
 // POST /catalog/runtime-check — a member completed an episode after a live watch that
 // ran short of the stored runtime. TVmaze (TV) runtimes are sometimes a rounded slot,
 // so we ask TMDB for a second opinion: if TMDB's runtime sits closer to what the member

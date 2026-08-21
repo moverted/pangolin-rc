@@ -2033,3 +2033,21 @@ Entry format:
 - POST /pierre/escalate {email, conversation_id, note?}: inserts needs_ted=1 turn into the CURRENT conversation so GET TED closes out the real session (not a synthetic one). Band GET TED + selfEscalate use it.
 - Feedback band: Pierre-face only (pierreMicSync→_setFeedbackBand), ready-gated (thumbs/GET TED inactive until Pierre has replied; pierre:fb-ready). Thumbs post /feedback then clearChat() (ends+resets chat). Consolidated duplicate clearChat into one full reset.
 - Prompt: hardened no-lie rule — only the [BACKFILL] tag logs; falsely saying "done" is the worst thing Pierre can do (fixes session 4c10d75d).
+
+## 2026-08-21 — Conversational episode backfill + Audrey rename + deploys
+- **Worker DEPLOYED (Version 9569797e-3dc3-46c7-9f07-72e2c281f1d4).**
+- POST /catalog/backfill-episode (new, src/handlers/catalog.ts): logs ONE episode of an
+  ongoing series as watched+backdated (vs /catalog/backfill which completes a whole title).
+  Body {email, title_id, watched_at, season?, number?, rating?}; resolves explicit SxEy or
+  the latest AIRED episode via materializeTitle; writes one watch_episode (done) + advances
+  watch_title current_episode (status 'current', ON CONFLICT never downgrades a finished show).
+  Drives the Pierre [WATCHED] confirm-chip flow (cube_pierre_face.html parseWatched/runWatched).
+- Pierre prompt (src/handlers/pierre.ts): new "[WATCHED] tag" section — conversational single-
+  episode backfill, forward-looking, passes member's words (app resolves episode/date/who).
+- **D1 (pangolin-rc, remote):** UPDATE users SET username='Audrey' WHERE
+  email='audrey.arya.willett@gmail.com' (was 'audrey.arya.willett'; 'Audrey' was free). 1 row.
+- **Pages DEPLOYED** (wrangler pages deploy public → https://f7c1dfc6.pangolin-rc.pages.dev,
+  main→remote.pangolinrc.com): flat-app safe-area top inset, Nunito tab font, Profile Cube|Flat
+  toggle + pg_mode persistence + launch router, bug reporter hidden app-wide, Pierre keyboard/
+  scroll fit (flat), tab-bar redesign (order PIERRE·WATCH·LOG·FEED·BROWSE·PROFILE, no dots,
+  tiny pierre.png on PIERRE, JOIN→BROWSE), and the [WATCHED] confirm-chip face.

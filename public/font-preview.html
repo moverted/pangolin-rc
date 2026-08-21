@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flat app — tab-bar font options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- current + candidates -->
+<link href="https://fonts.googleapis.com/css2?family=Bangers&family=Fredoka:wght@500;600&family=Baloo+2:wght@500;600;700&family=Space+Grotesk:wght@500;600;700&family=Nunito:wght@700;800&family=Inter:wght@600;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px 16px 60px; background: #0c0a08; color: #f4ecdd;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  p.note { color: #8c8172; font-size: 13px; margin: 0 0 24px; max-width: 640px; line-height: 1.5; }
+  .opt { max-width: 520px; margin: 0 auto 22px; }
+  .cap {
+    display: flex; align-items: baseline; gap: 8px; margin: 0 0 6px; padding: 0 4px;
+    font-size: 12px; color: #b7ab98; letter-spacing: .4px;
+  }
+  .cap b { color: #f0a93b; font-size: 13px; letter-spacing: .3px; }
+  .cap .rec { color: #22BB44; font-weight: 700; }
+
+  /* Faithful copy of the real #tabbar from app.html */
+  .tabbar {
+    display: flex; background: #14110c; border-top: 1px solid #2a2418;
+    border-radius: 10px; overflow: hidden; height: 58px;
+  }
+  .tab {
+    flex: 1; background: none; border: 0; color: #8c8172; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 4px; padding: 6px 0; font-size: 12px; letter-spacing: .6px;
+  }
+  .tab .dot { width: 8px; height: 8px; border-radius: 50%; opacity: .55; }
+  .tab.on { color: #f4ecdd; }
+  .tab.on .dot { opacity: 1; transform: scale(1.6); }
+
+  /* per-option font override */
+  .f-bangers .tab { font-family: 'Bangers', system-ui, sans-serif; letter-spacing: .6px; }
+  .f-fredoka .tab { font-family: 'Fredoka', system-ui, sans-serif; font-weight: 600; letter-spacing: .3px; }
+  .f-baloo   .tab { font-family: 'Baloo 2', system-ui, sans-serif; font-weight: 600; letter-spacing: .2px; }
+  .f-grotesk .tab { font-family: 'Space Grotesk', system-ui, sans-serif; font-weight: 600; letter-spacing: .4px; }
+  .f-nunito  .tab { font-family: 'Nunito', system-ui, sans-serif; font-weight: 800; letter-spacing: .2px; }
+  .f-inter   .tab { font-family: 'Inter', system-ui, sans-serif; font-weight: 700; letter-spacing: .3px; }
+</style>
+</head>
+<body>
+  <h1>Flat app — bottom tab-bar font</h1>
+  <p class="note">The current tab labels use <b>Bangers</b> (a comic display face) at 12px — great as a big headline, cramped and hard to read this small. Below is the real tab bar rendered in each candidate. Same size, colors, and spacing as the live app. Tell me which number you want and I'll set it.</p>
+
+  <div class="opt f-bangers">
+    <div class="cap"><b>1 · Bangers</b> — current (for reference)</div>
+    <div class="tabbar" id="t1"></div>
+  </div>
+  <div class="opt f-fredoka">
+    <div class="cap"><b>2 · Fredoka</b> — rounded &amp; friendly <span class="rec">· recommended</span></div>
+    <div class="tabbar"></div>
+  </div>
+  <div class="opt f-baloo">
+    <div class="cap"><b>3 · Baloo 2</b> — rounded, a touch bolder</div>
+    <div class="tabbar"></div>
+  </div>
+  <div class="opt f-grotesk">
+    <div class="cap"><b>4 · Space Grotesk</b> — matches the face headers (most cohesive)</div>
+    <div class="tabbar"></div>
+  </div>
+  <div class="opt f-nunito">
+    <div class="cap"><b>5 · Nunito</b> — soft, very legible</div>
+    <div class="tabbar"></div>
+  </div>
+  <div class="opt f-inter">
+    <div class="cap"><b>6 · Inter</b> — neutral, matches body text</div>
+    <div class="tabbar"></div>
+  </div>
+
+  <script>
+    const FACES = [
+      { label: 'FEED',    color: '#22BB44' },
+      { label: 'WATCH',   color: '#FF6B35' },
+      { label: 'PIERRE',  color: '#BB00FF' },
+      { label: 'PROFILE', color: '#EE1122' },
+      { label: 'LOG',     color: '#FFD600' },
+      { label: 'JOIN',    color: '#00BBEE' },
+    ];
+    document.querySelectorAll('.tabbar').forEach(bar => {
+      FACES.forEach((f, i) => {
+        const b = document.createElement('div');
+        b.className = 'tab' + (i === 1 ? ' on' : '');   // WATCH active, like the real cold-open
+        b.innerHTML = `<span class="dot" style="background:${f.color}"></span><span class="lbl">${f.label}</span>`;
+        bar.appendChild(b);
+      });
+    });
+  </script>
+</body>
+</html>
