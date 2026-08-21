@@ -29,7 +29,7 @@ ON CONFLICT(episode_id) DO UPDATE SET
 -- 3) Put it in Ted's queue.
 INSERT INTO watch_title (user_email, title_id, show_name, status, active_map_id, current_episode_id, started_at, updated_at)
 VALUES (
-  'edward.m.willett@gmail.com', 'manual:xfiles-vrach-frankenshteyn',
+  'ted@pangolinrc.com', 'manual:xfiles-vrach-frankenshteyn',
   'The X-Files: I Want to Believe – Vrach Frankenshteyn', 'current', NULL,
   'manual:xfiles-vrach-frankenshteyn:s1e1', strftime('%s','now')*1000, strftime('%s','now')*1000
 )
@@ -37,7 +37,7 @@ ON CONFLICT(user_email, title_id) DO NOTHING;
 
 INSERT INTO watch_episode (user_email, episode_id, title_id, show_name, episode_name, done, minute, bp, sessions, updated_at)
 VALUES (
-  'edward.m.willett@gmail.com', 'manual:xfiles-vrach-frankenshteyn:s1e1',
+  'ted@pangolinrc.com', 'manual:xfiles-vrach-frankenshteyn:s1e1',
   'manual:xfiles-vrach-frankenshteyn',
   'The X-Files: I Want to Believe – Vrach Frankenshteyn',
   'The X-Files: I Want to Believe – Vrach Frankenshteyn', 0, 0, 0, NULL, strftime('%s','now')*1000
@@ -45,5 +45,5 @@ VALUES (
 ON CONFLICT(user_email, episode_id) DO NOTHING;
 
 -- 4) Remove the 2008 placeholder from Ted's queue (leaves the shared catalog row intact).
-DELETE FROM watch_episode WHERE user_email='edward.m.willett@gmail.com' AND title_id='tmdb:8836';
-DELETE FROM watch_title   WHERE user_email='edward.m.willett@gmail.com' AND title_id='tmdb:8836';
+DELETE FROM watch_episode WHERE user_email='ted@pangolinrc.com' AND title_id='tmdb:8836';
+DELETE FROM watch_title   WHERE user_email='ted@pangolinrc.com' AND title_id='tmdb:8836';

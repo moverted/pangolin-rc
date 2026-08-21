@@ -83,29 +83,30 @@
   }
 
   // ── nudge law (five rules, one place; ported from the prototype) ───────────────
-  function nudge(ph, mode, watchLog, eps, now, seasonNum) {
+  function nudge(ph, mode, watchLog, eps, now, seasonNum, show) {
     now = now || Date.now();
     const S = seasonNum || (eps[0] && eps[0].season) || 1;
+    const sh = show ? show + ' ' : '';   // name the show in the line so "S4E3" is not ambiguous
     const watched = new Set((watchLog || []).map(w => w.epNum));
     const airedEps = eps.filter(e => e.airstamp && new Date(e.airstamp).getTime() <= now);
     const behind = airedEps.filter(e => !watched.has(e.number));
     if (mode.src === 'off') return { silent: true, why: 'classifier off (two-strike)' };
     if (ph.name === 'SEASON WRAP' && mode.mode === 'MORE!')
-      return { silent: false, text: `MORE! is ready. All ${eps.length} episodes.` };
+      return { silent: false, text: `${show ? show + ': ' : ''}MORE! is ready. All ${eps.length} episodes.` };
     if (mode.mode === 'UNSAMPLED' || mode.mode === 'DECLINED') return { silent: true, why: `mode ${mode.mode}: silence is default` };
     if (mode.mode === 'MORE!') return { silent: true, why: 'MORE!: silent all season, one message at wrap' };
     if (ph.name !== 'RAMP') return { silent: true, why: `nudges fire only during RAMP (now: ${ph.name})` };
     if (behind.length === 0) {
       const next = ph.next, d = Math.ceil((new Date(next.airstamp).getTime() - now) / DAY);
-      return { silent: false, text: `S${S}E${next.number} "${next.name}" ${d <= 1 ? 'drops tonight' : 'in ' + d + ' days'}. You're caught up.` };
+      return { silent: false, text: `${sh}S${S}E${next.number} "${next.name}" ${d <= 1 ? 'drops tonight' : 'in ' + d + ' days'}. You're caught up.` };
     }
     const gap = behind[behind.length - 1], next = ph.next;
     const tt = new Date(next.airstamp).getTime() - now;
     if (mode.mode === 'LIVE' || mode.mode === 'FRESH') {
-      if (tt < 24 * H) return { silent: false, text: `You have tonight to watch S${S}E${gap.number} before S${S}E${next.number} drops!` };
-      return { silent: false, text: `S${S}E${next.number} drops ${fmtDay(next.airstamp)}. That's your spoiler deadline for S${S}E${gap.number}.` };
+      if (tt < 24 * H) return { silent: false, text: `You have tonight to watch ${sh}S${S}E${gap.number} before S${S}E${next.number} drops!` };
+      return { silent: false, text: `${sh}S${S}E${next.number} drops ${fmtDay(next.airstamp)}. That's your spoiler deadline for S${S}E${gap.number}.` };
     }
-    return { silent: false, text: `Heads up: S${S}E${next.number} arrives ${fmtDay(next.airstamp)}. E${gap.number} is waiting whenever you are.` };
+    return { silent: false, text: `Heads up: ${sh}S${S}E${next.number} arrives ${fmtDay(next.airstamp)}. E${gap.number} is waiting whenever you are.` };
   }
 
   // ── TAG: the airdate relative to today, in local time ──────────────────────────

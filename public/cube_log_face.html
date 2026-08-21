@@ -92,16 +92,6 @@
   .name.offsvc{ color:#857c72; opacity:.78; text-shadow:0 2px 16px rgba(0,0,0,.7); }
   .ymeta{ font-family:var(--mono); font-size:11px; color:var(--dim);
     letter-spacing:.05em; margin-bottom:12px; text-shadow:0 1px 10px rgba(0,0,0,.7); }
-  /* Pierre "real runtime?" prompt (runtime-mismatch → consensus queue) */
-  .rt-ask{ position:fixed; left:50%; bottom:16px; transform:translateX(-50%); z-index:200;
-    max-width:340px; width:calc(100% - 32px); background:rgba(20,14,8,.96); border:1px solid var(--amber);
-    border-radius:14px; padding:14px 16px; box-shadow:0 10px 30px rgba(0,0,0,.5); }
-  .rt-ask .rt-q{ font-family:var(--mono); font-size:12.5px; line-height:1.4; color:var(--text); margin-bottom:12px; }
-  .rt-ask .rt-btns{ display:flex; gap:8px; flex-wrap:wrap; }
-  .rt-ask .rt-yes{ background:var(--amber); color:var(--amber-deep); border:0; border-radius:999px;
-    font-family:var(--mono); font-weight:700; font-size:12px; padding:7px 12px; cursor:pointer; }
-  .rt-ask .rt-no{ background:none; border:1px solid rgba(240,169,59,.4); color:var(--dim); border-radius:999px;
-    font-family:var(--mono); font-size:12px; padding:7px 12px; cursor:pointer; }
   /* "Watching with" (co-viewing) row */
   .covwith{ font-family:var(--mono); font-size:11px; color:var(--faint); letter-spacing:.04em;
     margin:-4px 0 12px; display:flex; flex-wrap:wrap; align-items:center; gap:7px; }
@@ -2133,39 +2123,16 @@ function reportRuntimeMismatch(i, watchedMin, rt){
     const key = 'pg_rt_warned:'+(curShowId||'?')+':'+epCode(e);
     if(localStorage.getItem(key)) return;            // already checked this episode
     localStorage.setItem(key, '1');
+    // Fire-and-forget: the automated TMDB second opinion + admin note. The member-facing
+    // question (when TMDB can't confirm) is now asked by Pierre on his own face — the old
+    // askRealRuntime box rendered on the Log, which the finish had already rotated away
+    // from, so it was never actually seen.
     fetch(`${API_BASE}/catalog/runtime-check`, {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ email:(typeof acctEmail==='function'?acctEmail():''),
         title_id:curShowId, season:(e.season||1), number:(e.number||0),
-        watched_min:Math.round(watchedMin) }) })
-      .then(r=>r.ok?r.json():null)
-      // TMDB couldn't confirm a fix → ask the viewer for the real runtime (their
-      // answer feeds the consensus queue; 2+ agreeing auto-applies to the catalog).
-      .then(d=>{ if(d && d.checked && !d.corrected && d.stored>0) askRealRuntime(e, Math.round(watchedMin), d.stored); })
-      .catch(()=>{});
+        watched_min:Math.round(watchedMin) }) }).catch(()=>{});
   }catch(_){ /* best-effort; never block completion */ }
-}
-
-// Pierre-style prompt: the finish ran short of the listed runtime and TMDB didn't
-// confirm a correction. Ask the viewer if the shorter time is the real length; a
-// "yes" posts to the consensus queue (POST /catalog/runtime-report).
-function askRealRuntime(e, watched, stored){
-  const old=document.getElementById('rtAsk'); if(old) old.remove();
-  const box=document.createElement('div'); box.id='rtAsk'; box.className='rt-ask';
-  box.innerHTML='<div class="rt-q">You finished at '+watched+' min, but this one’s listed at '+stored+'. Is ~'+watched+' min the real length?</div>'+
-    '<div class="rt-btns"><button class="rt-yes">Yes, ≈'+watched+' min</button><button class="rt-no">No, I stopped early</button></div>';
-  document.body.appendChild(box);
-  const close=()=>{ try{ box.remove(); }catch(_){}; };
-  box.querySelector('.rt-no').onclick=close;
-  box.querySelector('.rt-yes').onclick=async()=>{
-    box.querySelector('.rt-yes').disabled=true;
-    try{ await fetch(`${API_BASE}/catalog/runtime-report`,{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ email:(typeof acctEmail==='function'?acctEmail():''), title_id:curShowId,
-        season:(e.season||1), number:(e.number||0), observed_runtime:watched })}); }catch(_){}
-    box.querySelector('.rt-q').textContent='Got it — noted. Thanks.';
-    box.querySelector('.rt-btns').innerHTML='';
-    setTimeout(close, 1400);
-  };
 }
 
 // FINISH: logs the episode fully watched and advances.
@@ -2188,7 +2155,17 @@ function finishEpisode(screening){
   // watch gets demoted to BP, which then hides it from the CURRENT VIEWING LOG.
   // Re-assert the real completion and bail.
   if(!screening && epDone[focus] && (epSessions[focus]||[]).some(x=>x&&x.finished&&!x.bp)){
+    // Re-assert the completion but SKIP the back-date/BP branch below (it would demote
+    // the genuine watch to BP and hide it from the CURRENT VIEWING LOG). A deliberate
+    // FINISH tap must never be a silent no-op, though — still host the end-of-episode
+    // reflection in Pierre (a re-finish reads as "reflect on this again"), the same
+    // handoff a fresh finish runs. This is what fixed "FINISH did nothing" on a show
+    // whose current episode was already done (Station Eleven).
     emitProgress(focus, true, false, Math.round(epMin[focus]||runtimeOf(focus)));
+    _routedToPierre=false;
+    finaleCheck();
+    if(_suppressFinishRoute){ _suppressFinishRoute=false; return; }
+    if(!_routedToPierre) pierreFinishedNote(focus);
     return;
   }
   const rt=runtimeOf(focus), now=Date.now();
@@ -2217,11 +2194,14 @@ function finishEpisode(screening){
     ? {minutes:rt, finished:true, bp:false, forceAppend:true, atTs:scrStart, startTs:scrStart, finishTs:scrStart+rt*60000}
     : {minutes:rt, finished:true, bp:bp});
   emitProgress(focus, true, bp, rt);
-  // Completing after a genuine live watch that ran short of the stored runtime (watched
-  // ≥ half, yet ≥ 5 min still "remaining") points at a too-long catalog runtime → warn admin.
-  if(liveElapsed!=null && liveElapsed>=5 && liveElapsed>=rt*0.5 && (rt-liveElapsed)>=5){
-    reportRuntimeMismatch(focus, liveElapsed, rt);
-  }
+  // Completing well short of the stored runtime (watched ≥ half, yet ≥ 5 min still
+  // "remaining") points at a too-long catalog runtime. Two signals fire: a background
+  // TMDB cross-check (auto-corrects + files an admin note), and — the visible one —
+  // Pierre asks the member (on his face, where the finish rotates them) whether the
+  // shorter time is the real length. earlyWatched carries the real minutes to Pierre.
+  const _earlyWatched = (liveElapsed!=null && liveElapsed>=5 && liveElapsed>=rt*0.5 && (rt-liveElapsed)>=5)
+    ? Math.round(liveElapsed) : null;
+  if(_earlyWatched!=null) reportRuntimeMismatch(focus, liveElapsed, rt);
   const _noteIdx=focus;
   _routedToPierre=false;
   finaleCheck(); advanceFocus(); paint();
@@ -2230,14 +2210,14 @@ function finishEpisode(screening){
   if(_suppressFinishRoute){ _suppressFinishRoute=false; return; }
   // Pierre catches the reaction while the credits roll — unless the finale or
   // season-wrap handoff already rotated the cube (they run their own Pierre flows).
-  if(!_routedToPierre) pierreFinishedNote(_noteIdx);
+  if(!_routedToPierre) pierreFinishedNote(_noteIdx, _earlyWatched);
 }
 let _suppressFinishRoute=false;
 
 // Every finished watch routes to Pierre: he hosts the thought (and the share
 // offer) on his own face — no in-face entry overlay.
 let _routedToPierre=false;   // set by finaleCheck / forceSeasonNote within a finish
-function pierreFinishedNote(idx){
+function pierreFinishedNote(idx, earlyWatched){
   if(DEMO || window.parent===window) return;
   const e=eps[idx]||{};
   // Next-action for the Comment / next-action fork (COMMENT_CLIP_SHARE.md). Season/series
@@ -2257,7 +2237,8 @@ function pierreFinishedNote(idx){
   const payload={ intent:'note', finished:true, kind:isMovie?'movie':'show',
                   scope:isMovie?'movie':'episode', show:curShowName,
                   ep:isMovie?'🎬':epCode(e),   // movie key '🎬' → the card + reflection anchor on it
-                  titleId:curShowId, runtime:runtimeOf(idx), nextAction, nextEp, nextWhen };
+                  titleId:curShowId, runtime:runtimeOf(idx), earlyWatched:(earlyWatched||null),
+                  nextAction, nextEp, nextWhen };
   if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('pierre', payload);
   else window.parent.postMessage({type:'cube:rotateTo', face:'pierre', payload}, '*');
 }
@@ -2600,20 +2581,22 @@ $('micBtn').onclick=()=>{
 // you on S(N+1)E1 (or partway in) — not stalling at the season finale.
 function placeAwayTime(awayMin){
   if(!(awayMin>0) || !eps.length) return;
-  // Away-time fills only the CURRENT episode. Wall-clock time elapsed since a
-  // launch/start is NOT evidence the member kept watching later episodes — letting
-  // it cascade across episode boundaries is what auto-completed whole seasons when
-  // the app was reopened hours later. Complete the launched episode if enough time
-  // passed (an unvalidated "offer"), else stage it as a partial; land focus on the
-  // next episode but never mark that one watched.
+  // Away-time fills only the CURRENT episode and never advances past it. Wall-clock time
+  // since a launch/start is NOT evidence the member kept watching later episodes — letting
+  // it cascade across episode boundaries is what auto-completed whole seasons when the app
+  // was reopened hours later. If the runtime elapsed, stage FINISHED? on this episode (see
+  // below); otherwise stage it as a partial. Either way focus stays put.
   let i=focus, pos=(epMin[i]||0);
   const rt=runtimeOf(i), needed=Math.max(0, rt-pos);
   if(awayMin>=needed){
-    epMin[i]=rt; epDone[i]=true; epBp[i]=false; epPreApp[i]=false;
-    markWatchedThrough(i);
-    logSession(i, {minutes:Math.round(rt), finished:true, validated:false});  // offered completion
-    emitProgress(i, true, false, Math.round(rt));
-    if(i < eps.length-1) i++;                            // land on the next episode, not-started
+    // The episode's runtime elapsed while you were away (asleep / in the streamer) → it
+    // (probably) finished. Do NOT auto-complete and jump to the next episode — that was
+    // the "app reopened on the next episode, not running" bug. Instead freeze THIS
+    // episode at full and stage a deliberate FINISHED? tap (the same one-tap commit the
+    // live-watch return uses). Nothing is written to the account until you confirm, and
+    // focus stays on the episode you just watched.
+    stageReturnFinish(i);
+    return;
   } else {
     pos=Math.min(rt, pos+awayMin); epMin[i]=pos; epPreApp[i]=false;
     logSession(i, {minutes:Math.round(pos), finished:false, validated:false});  // offered partial
@@ -2677,7 +2660,7 @@ window.addEventListener('pageshow', ()=>{ if(startedAt[focus]!=null && watchingL
 // ("had to scroll down a little first"). Same pattern as the Log face.
 const _scrollEl=document.querySelector('.scroll');
 if(_scrollEl) document.addEventListener('touchstart',()=>{
-  const max=_scrollEl.scrollHeight-_scrollEl.clientHeight; if(max<=0) return;
+  const max=_scrollEl.scrollHeight-_scrollEl.clientHeight; if(!(max>0)) return;   // !(max>0) also bails on NaN
   if(_scrollEl.scrollTop<=0) _scrollEl.scrollTop=1; else if(_scrollEl.scrollTop>=max) _scrollEl.scrollTop=max-1;
 },{passive:true});
 

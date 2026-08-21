@@ -15,7 +15,7 @@ INSERT OR IGNORE INTO users (email, username, created_at, updated_at) VALUES
 
 -- Friend-slot headroom so tapping Sam's FOLLOW BACK completes the pair → friend.
 -- (User-authorized 2026-08-11.)
-UPDATE users SET user_type='elite_pro' WHERE email='edward.m.willett@gmail.com';
+UPDATE users SET user_type='elite_pro' WHERE email='ted@pangolinrc.com';
 
 INSERT OR IGNORE INTO titles (title_id, source, name, kind, poster, premiered, updated_at) VALUES
   ('tvmaze:54914','tvmaze','Hacks','show','https://static.tvmaze.com/uploads/images/medium_portrait/621/1552621.jpg','2021-05-13',1786492800000),
@@ -26,9 +26,9 @@ INSERT OR IGNORE INTO episodes (episode_id, title_id, season, number, name, upda
 
 -- Alex <-> edward mutual (friend); Sam -> edward one-way (FOLLOW BACK).
 INSERT OR IGNORE INTO follows (follower_email, followee_email, created_at) VALUES
-  ('alex.demo@pangolinrc.app','edward.m.willett@gmail.com',1786492800000),
-  ('edward.m.willett@gmail.com','alex.demo@pangolinrc.app',1786492800000),
-  ('sam.demo@pangolinrc.app','edward.m.willett@gmail.com',1786492800000);
+  ('alex.demo@pangolinrc.app','ted@pangolinrc.com',1786492800000),
+  ('ted@pangolinrc.com','alex.demo@pangolinrc.app',1786492800000),
+  ('sam.demo@pangolinrc.app','ted@pangolinrc.com',1786492800000);
 
 INSERT OR REPLACE INTO watch_episode (user_email, episode_id, title_id, done, minute, updated_at) VALUES
   ('alex.demo@pangolinrc.app','tvmaze:54914:s5e9','tvmaze:54914',0,3,1786492800000);

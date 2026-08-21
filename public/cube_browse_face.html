@@ -51,9 +51,18 @@
   .splash h1{font-family:var(--display);font-weight:700;
     font-size:25px;line-height:1.06;letter-spacing:-.01em;margin:7px 0 5px}
   .splash .sub{margin:0;color:var(--muted);font-size:12.5px;line-height:1.4}
-  .video{margin:13px 0;border-radius:12px;overflow:hidden;border:1px solid var(--line);
-    background:#000;aspect-ratio:16/9;flex:0 0 auto}
-  .video iframe{display:block;width:100%;height:100%;border:0}
+  /* Static promo card (replaced the YouTube embed, which threw Error 153 in the app's
+     WKWebview since capacitor://localhost is not an allowed embedding referer). A plain
+     link opens pangolinrc.com in the system browser and can never fail to load. */
+  .promo{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
+    margin:13px 0;border-radius:12px;border:1px solid var(--line);aspect-ratio:16/9;flex:0 0 auto;
+    text-align:center;text-decoration:none;padding:16px;cursor:pointer;
+    background:radial-gradient(circle at 50% 35%, rgba(232,159,61,.14), rgba(0,0,0,.28));
+    transition:border-color .15s,background .15s}
+  .promo:active{border-color:var(--amber)}
+  .promo-kicker{font-family:var(--mono);font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted)}
+  .promo-hed{font-family:var(--display);font-weight:700;font-size:20px;color:var(--text);line-height:1.15}
+  .promo-cta{font-family:var(--mono);font-size:12px;letter-spacing:.05em;color:var(--amber);font-weight:600}
   .join{margin-top:auto;width:100%;font-family:var(--display);font-weight:700;
     font-size:17px;letter-spacing:.04em;color:#1a130b;background:var(--amber);
     border:0;border-radius:12px;padding:15px 16px;cursor:pointer;
@@ -345,12 +354,11 @@
       <div class="eyebrow">PangolinRC</div>
       <h1>Watch what you want, when you want. For less.</h1>
       <p class="sub">Pierre learns your taste and builds your room in a minute.</p>
-      <div class="video">
-        <iframe src="https://www.youtube.com/embed/brdzZG3Bas8?si=R_mptZFrb39IQ15H"
-          title="YouTube video player"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-          referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
-      </div>
+      <a class="promo" href="https://pangolinrc.com" target="_blank" rel="noopener">
+        <span class="promo-kicker">Take a look</span>
+        <span class="promo-hed">See how the room works</span>
+        <span class="promo-cta">pangolinrc.com &#8599;</span>
+      </a>
       <button class="join" id="joinBtn">JOIN / LOGIN</button>
     </section>
 

@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
-import { fetchTmdbMovie, fetchTmdbTvRuntime } from './tmdb';
+import { fetchTmdbMovie, fetchTmdbTvRuntime, searchAll } from './tmdb';
 
 // ─── Shared catalog + server-side materialization ────────────────────────────
 //
@@ -253,6 +253,65 @@ async function fileSystemBug(env: Env, note: string, view: string, email: string
   ).bind(row.id, row.user_email, row.note, row.view, row.url, row.user_agent, row.viewport,
          row.screenshot_url, row.status, row.send_to_claude, row.claude_status, row.created_at).run();
 }
+
+// POST /catalog/backfill — log something the member ALREADY watched as COMPLETED, backdated
+// to `watched_at` (ms; the client computes noon local of the day they said). Works for a film
+// (title_id 'tmdb:X', its one unit) or a series ('tvmaze:Y', every aired episode marked done).
+// The client resolves the title, lets the member pick the right TILE (a film and a series can
+// share a name), and passes the exact title_id here, so the server logs precisely what they
+// chose and returns the truth. This is the reliable core: Pierre only confirms what landed.
+catalogRoutes.post('/backfill', async (c) => {
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const email = (typeof body.email === 'string' ? body.email : '').trim().toLowerCase();
+  const titleId = (typeof body.title_id === 'string' ? body.title_id : '').trim().slice(0, 120);
+  const watchedAt = Number(body.watched_at) > 0 ? Math.trunc(Number(body.watched_at)) : Date.now();
+  const rating = typeof body.rating === 'string' ? body.rating.trim().slice(0, 300) : '';
+  if (!email || !titleId) return c.json({ error: 'email and title_id required' }, 400);
+  const user = await c.env.DB.prepare('SELECT email FROM users WHERE email = ?').bind(email).first();
+  if (!user) return c.json({ error: 'unknown user' }, 404);
+
+  const source = titleId.startsWith('tvmaze:') ? 'tvmaze' : 'tmdb';
+  const ref = titleId.slice(titleId.indexOf(':') + 1);
+  const mat = await materializeTitle(c.env, source, ref, titleId);
+  if (!mat || !mat.episodes.length) return c.json({ ok: false, reason: 'materialize_failed' });
+  const isMovie = source === 'tmdb';
+  // A film is its single unit; a series is every AIRED episode (that is what "finished" means).
+  const eps = isMovie ? mat.episodes.slice(0, 1) : mat.episodes.filter((e) => !e.airdate || released(e.airdate, watchedAt));
+  if (!eps.length) return c.json({ ok: false, reason: 'no_episode' });
+  const last = eps[eps.length - 1]!;
+
+  const epStmts = eps.map((e) => {
+    const rt = e.runtime || 0;
+    const session = JSON.stringify([{ minutes: rt, finished: true, bp: false, state: 'done',
+      validated: true, startTs: watchedAt - rt * 60000, lastTs: watchedAt, finishTs: watchedAt }]);
+    return c.env.DB.prepare(
+      `INSERT INTO watch_episode (user_email, episode_id, title_id, show_name, episode_name, done, minute, bp, sessions, updated_at)
+       VALUES (?, ?, ?, ?, ?, 1, ?, 0, ?, ?)
+       ON CONFLICT(user_email, episode_id) DO UPDATE SET done=1, minute=excluded.minute, bp=0, sessions=excluded.sessions, updated_at=excluded.updated_at`,
+    ).bind(email, e.episode_id, titleId, mat.titleRow.name, e.name || mat.titleRow.name, rt, session, watchedAt);
+  });
+  // Chunk the episode writes so a long series (hundreds of episodes) stays within batch limits.
+  for (let i = 0; i < epStmts.length; i += 50) await c.env.DB.batch(epStmts.slice(i, i + 50));
+
+  const tail: any[] = [
+    c.env.DB.prepare(
+      `INSERT INTO watch_title (user_email, title_id, show_name, status, current_episode_id, started_at, updated_at)
+       VALUES (?, ?, ?, 'completed', ?, ?, ?)
+       ON CONFLICT(user_email, title_id) DO UPDATE SET status='completed', current_episode_id=excluded.current_episode_id, updated_at=excluded.updated_at`,
+    ).bind(email, titleId, mat.titleRow.name, last.episode_id, watchedAt, watchedAt),
+  ];
+  if (rating) {
+    // A film anchors the reflection on its key; a series on its finale episode code.
+    const refEp = isMovie ? '🎬' : ('S' + String(last.season ?? 1).padStart(2, '0') + 'E' + String(last.number ?? 1).padStart(2, '0'));
+    tail.push(c.env.DB.prepare(
+      `INSERT INTO watch_comment (id, user_email, episode_id, timestamp_ms, transcription, audio_r2_key, created_at, show_id, reply_to, transcript_edited, is_reflection, private, is_endnote, spoiler, reveal_on, hidden)
+       VALUES (?, ?, ?, 0, ?, NULL, ?, ?, NULL, 0, 1, 0, 0, 0, NULL, 0)`,
+    ).bind(crypto.randomUUID(), email, refEp, rating, watchedAt, titleId));
+  }
+  await c.env.DB.batch(tail);
+  return c.json({ ok: true, title_id: titleId, name: mat.titleRow.name, kind: isMovie ? 'movie' : 'show', poster: mat.titleRow.poster || null, watched_at: watchedAt, episodes: eps.length });
+});
 
 // POST /catalog/runtime-check — a member completed an episode after a live watch that
 // ran short of the stored runtime. TVmaze (TV) runtimes are sometimes a rounded slot,

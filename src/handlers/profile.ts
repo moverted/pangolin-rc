@@ -8,6 +8,19 @@ export const profileRoutes = new Hono<{ Bindings: Env }>();
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// Founder account every NEW signup is auto-friended with, so a fresh member's feed is
+// never empty on first launch (and the empty-feed path that exposed a scroll crash is
+// far rarer). Seeded as a mutual follow at account creation only — see /signup.
+const FOUNDER_EMAIL = 'ted@pangolinrc.com';
+
+// Robin Williams room-building easter egg. A caught reference grants one free trial month.
+// EGG_ACCOUNT_CAP is the lifetime per-account limit; EGG_GLOBAL_CAP is a backstop across
+// ALL accounts so a leaked trick cannot mint unlimited months once it circulates. Both are
+// plain knobs, raise or lower here.
+const EGG_CODE = 'robin_williams';
+const EGG_ACCOUNT_CAP = 3;
+const EGG_GLOBAL_CAP = 500;
+
 // SEAM:policy — friend slots per tier. A slot is an outgoing follow (an invite or
 // a confirmed friend); admin is unlimited. Following someone you already follow
 // is idempotent and never counts twice.
@@ -92,6 +105,23 @@ profileRoutes.post('/signup', async (c) => {
     }
   }
 
+  // Onboarding seed: auto-friend a brand-new member with the founder account so their
+  // feed has content on first launch. NEW signups only (`!already` — captured before the
+  // upsert above), never the founder themselves. Idempotent via INSERT OR IGNORE, and it
+  // deliberately BYPASSES the slot cap (this is a system seed, not a user-initiated
+  // follow). Best-effort: a failure here must never block the signup.
+  if (!already && email !== FOUNDER_EMAIL) {
+    try {
+      const founder = await c.env.DB.prepare('SELECT email FROM users WHERE email = ?').bind(FOUNDER_EMAIL).first();
+      if (founder) {
+        await c.env.DB.batch([
+          c.env.DB.prepare('INSERT OR IGNORE INTO follows (follower_email, followee_email, created_at) VALUES (?, ?, ?)').bind(email, FOUNDER_EMAIL, now),
+          c.env.DB.prepare('INSERT OR IGNORE INTO follows (follower_email, followee_email, created_at) VALUES (?, ?, ?)').bind(FOUNDER_EMAIL, email, now),
+        ]);
+      }
+    } catch (e) { console.warn('founder-seed follow failed:', String(e).substring(0, 200)); }
+  }
+
   const user = await c.env.DB.prepare(`SELECT ${SAFE} FROM users WHERE email = ?`).bind(email).first();
   return c.json({ status: 'member', user });
 });
@@ -109,6 +139,85 @@ profileRoutes.post('/login', async (c) => {
   if (!ok) return c.json({ ok: false }, 401);
   const user = await c.env.DB.prepare(`SELECT ${SAFE} FROM users WHERE email = ?`).bind(email).first();
   return c.json({ ok: true, user });
+});
+
+// Redeem the Robin Williams easter egg for one free trial month. Enforces BOTH caps: the
+// per-account lifetime limit and the global backstop. Returns granted:true with the month
+// index, or granted:false with atCap + a reason so the client can show the right line.
+profileRoutes.post('/:email/redeem-egg', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  const user = await c.env.DB.prepare('SELECT email FROM users WHERE email = ?').bind(email).first();
+  if (!user) return c.json({ error: 'unknown user' }, 404);
+  const now = Date.now();
+  const acctN = (await c.env.DB.prepare('SELECT COUNT(*) AS n FROM egg_redemption WHERE user_email = ?').bind(email).first<{ n: number }>())?.n ?? 0;
+  if (acctN >= EGG_ACCOUNT_CAP) return c.json({ granted: false, atCap: true, reason: 'account_cap', count: acctN });
+  const globalN = (await c.env.DB.prepare('SELECT COUNT(*) AS n FROM egg_redemption').first<{ n: number }>())?.n ?? 0;
+  if (globalN >= EGG_GLOBAL_CAP) return c.json({ granted: false, atCap: true, reason: 'global_cap', count: acctN });
+  const monthIndex = acctN + 1;
+  try {
+    await c.env.DB.prepare('INSERT INTO egg_redemption (user_email, code, month_index, created_at) VALUES (?, ?, ?, ?)')
+      .bind(email, EGG_CODE, monthIndex, now).run();
+  } catch (_) {
+    // Unique (user_email, month_index) tripped: a concurrent double-tap already granted
+    // this month. Re-read and report the real state rather than double-granting.
+    const n2 = (await c.env.DB.prepare('SELECT COUNT(*) AS n FROM egg_redemption WHERE user_email = ?').bind(email).first<{ n: number }>())?.n ?? monthIndex;
+    return c.json({ granted: false, atCap: n2 >= EGG_ACCOUNT_CAP, reason: 'duplicate', count: n2 });
+  }
+  return c.json({ granted: true, atCap: false, monthIndex, count: monthIndex });
+});
+
+// Ted replies (role='ted' turns) for a member that the app has not shown yet. `since` is
+// the created_at high water the client keeps; returns newer ones oldest-first so they
+// render in order. This is the delivery side of the "Get Ted" handoff.
+profileRoutes.get('/:email/ted-messages', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  const since = Number(c.req.query('since')) || 0;
+  // Delivered to the member on next open: every Ted reply, PLUS any Pierre turn flagged
+  // for delivery (ted_status='deliver') so Pierre can carry a proactive, in-character
+  // message like an apology. Role rides along so the client renders each in the right voice.
+  const rows = await c.env.DB.prepare(
+    "SELECT id, role, content, created_at FROM pierre_chat WHERE user_email = ? AND created_at > ? AND (role = 'ted' OR (role = 'pierre' AND ted_status = 'deliver')) ORDER BY created_at ASC, seq ASC LIMIT 50",
+  ).bind(email, since).all();
+  const messages = (rows.results || []).map((r: any) => ({ id: r.id, role: r.role, text: r.content, created_at: r.created_at }));
+  return c.json({ messages });
+});
+
+// Record the outcome of the microphone permission ask (folded into room building). One
+// row per member, latest outcome wins. This is only the permission event, never audio.
+profileRoutes.post('/:email/mic-permission', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  let body: any; try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const granted = (body.granted === true || body.granted === 1) ? 1 : 0;
+  const now = Date.now();
+  await c.env.DB.prepare(
+    `INSERT INTO mic_permission (user_email, granted, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(user_email) DO UPDATE SET granted = excluded.granted, updated_at = excluded.updated_at`
+  ).bind(email, granted, now).run();
+  return c.json({ ok: true, granted: !!granted });
+});
+
+// Store how the room was seeded: the two shows the member typed or said (source 'user')
+// and the guesses they accepted (source 'pierre'), plus Pierre's hidden-thread line for
+// the session. Upserted by (user_email, title_id). Best-effort record, never blocks the room.
+profileRoutes.post('/:email/room-seed', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  let body: any; try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const thread = typeof body.thread === 'string' ? body.thread.slice(0, 400) : null;
+  const shows = Array.isArray(body.shows) ? body.shows : [];
+  const now = Date.now();
+  const stmts: any[] = [];
+  for (const s of shows) {
+    const titleId = String((s && s.title_id) || '').slice(0, 120);
+    if (!titleId) continue;
+    const name = typeof s.name === 'string' ? s.name.slice(0, 200) : null;
+    const source = s.source === 'pierre' ? 'pierre' : 'user';
+    stmts.push(c.env.DB.prepare(
+      `INSERT INTO room_seed (user_email, title_id, show_name, source, thread, created_at) VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(user_email, title_id) DO UPDATE SET show_name = excluded.show_name, source = excluded.source, thread = COALESCE(excluded.thread, room_seed.thread)`
+    ).bind(email, titleId, name, source, thread, now));
+  }
+  if (stmts.length) await c.env.DB.batch(stmts);
+  return c.json({ ok: true, count: stmts.length });
 });
 
 // Get a user plus their devices. Only supported devices come back in the list
@@ -951,6 +1060,11 @@ profileRoutes.get('/:email/feed', async (c) => {
     if (out) return 'following';
     return 'follower';           // they follow me, I don't follow back → Follow +
   };
+  // Abandoned shows (status='stopped') get a 24h grace window in the feed, then drop
+  // out for everyone: a fresh bail is still a real activity beat, but a stale one just
+  // clutters the stream without adding anything, and newcomers shouldn't watch a
+  // member quietly clean house. updated_at is bumped to the stop-time (ms) on bail.
+  const bailCutoff = Date.now() - 24 * 60 * 60 * 1000;
   // A card is more than "who watched what": it carries the poster (for the big
   // background art), the actor's public comment count on that title, and their
   // latest end-of-episode note + its spoiler flag so the card can show or gate it.
@@ -959,6 +1073,7 @@ profileRoutes.get('/:email/feed', async (c) => {
             (SELECT e.season FROM episodes e JOIN watch_episode we ON we.episode_id=e.episode_id AND we.user_email=wt.user_email WHERE e.title_id=wt.title_id AND (we.done=1 OR we.minute>0) ORDER BY e.season DESC, e.number DESC LIMIT 1) AS last_season,
             (SELECT e.number FROM episodes e JOIN watch_episode we ON we.episode_id=e.episode_id AND we.user_email=wt.user_email WHERE e.title_id=wt.title_id AND (we.done=1 OR we.minute>0) ORDER BY e.season DESC, e.number DESC LIMIT 1) AS last_number,
             (SELECT e.name FROM episodes e JOIN watch_episode we ON we.episode_id=e.episode_id AND we.user_email=wt.user_email WHERE e.title_id=wt.title_id AND (we.done=1 OR we.minute>0) ORDER BY e.season DESC, e.number DESC LIMIT 1) AS last_name,
+            (SELECT we.done FROM episodes e JOIN watch_episode we ON we.episode_id=e.episode_id AND we.user_email=wt.user_email WHERE e.title_id=wt.title_id AND (we.done=1 OR we.minute>0) ORDER BY e.season DESC, e.number DESC LIMIT 1) AS last_done,
             (SELECT COUNT(*) FROM watch_comment wc WHERE wc.user_email=wt.user_email AND wc.show_id=wt.title_id AND wc.reply_to IS NULL AND wc.private=0 AND COALESCE(wc.transcription,'')<>'') AS comment_ct,
             (SELECT COUNT(*) FROM watch_comment wc WHERE wc.user_email=wt.user_email AND wc.show_id=wt.title_id AND wc.reply_to IS NULL AND wc.is_endnote=0 AND wc.is_reflection=0 AND wc.private=0 AND COALESCE(wc.transcription,'')<>''
                AND wc.episode_id = (SELECT 'S'||printf('%02d',e.season)||'E'||printf('%02d',e.number) FROM episodes e JOIN watch_episode we ON we.episode_id=e.episode_id AND we.user_email=wt.user_email WHERE e.title_id=wt.title_id AND (we.done=1 OR we.minute>0) ORDER BY e.season DESC, e.number DESC LIMIT 1)) AS synced_ct,
@@ -973,7 +1088,8 @@ profileRoutes.get('/:email/feed', async (c) => {
        JOIN titles t ON t.title_id = wt.title_id
        LEFT JOIN users u ON u.email = wt.user_email
       WHERE wt.user_email IN (${placeholders})
-      ORDER BY wt.updated_at DESC LIMIT 40`).bind(email, ...actors).all();
+        AND NOT (wt.status = 'stopped' AND wt.updated_at < ?)
+      ORDER BY wt.updated_at DESC LIMIT 40`).bind(email, ...actors, bailCutoff).all();
   const watchFeed = (rows.results || []).map((r: any) => ({
     actor_email: r.user_email,
     actor: r.username || null,
@@ -985,6 +1101,7 @@ profileRoutes.get('/:email/feed', async (c) => {
     endnote_id: r.endnote_id || null, endnote_ep: r.endnote_ep || null, endnote_text: r.endnote_text || null,
     endnote_spoiler: !!r.endnote_spoiler, endnote_audio: !!r.endnote_audio,
     last_season: r.last_season, last_number: r.last_number, last_name: r.last_name || null,
+    last_done: !!Number(r.last_done),   // is the latest touched episode finished (→ past-tense verb) or a mid-episode partial
     episodes: [] as any[],   // per-episode content for the binge cycler (filled below)
     coviewers: undefined as string[] | undefined,   // first-name co-viewers (filled below)
     updated_at: r.updated_at,

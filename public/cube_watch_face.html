@@ -1861,7 +1861,7 @@ function stopShow(id){
   s.stopped=true; patchTitle(s,{status:'stopped'}); setTimeout(()=>{render();renderPierre();},640);
 }
 
-const OWNER_EMAIL='edward.m.willett@gmail.com';
+const OWNER_EMAIL='ted@pangolinrc.com';
 // COMPLETED → "try again": reset progress and send the show back to CURRENT.
 function tryAgain(id){
   const s=LOG.find(x=>x.id===id); if(!s)return;
@@ -1949,7 +1949,7 @@ if(window.parent!==window){
   // chaining ("had to scroll down a little first").
   const _sc=document.querySelector(".scroll");
   if(_sc) document.addEventListener("touchstart",()=>{
-    const max=_sc.scrollHeight-_sc.clientHeight; if(max<=0) return;
+    const max=_sc.scrollHeight-_sc.clientHeight; if(!(max>0)) return;   // !(max>0) also bails on NaN
     if(_sc.scrollTop<=0) _sc.scrollTop=1; else if(_sc.scrollTop>=max) _sc.scrollTop=max-1;
   },{passive:true});
 }

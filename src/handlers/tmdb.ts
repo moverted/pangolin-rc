@@ -108,7 +108,7 @@ function punctVariants(q: string): string[] {
 
 // searchMovies for the query PLUS its punctuation variants, merged & de-duped, so a
 // title like "WALL·E" surfaces even when the user typed "WALL-E".
-async function searchAll(env: Env, q: string): Promise<any[]> {
+export async function searchAll(env: Env, q: string): Promise<any[]> {
   const out = await searchMovies(env, q);
   const seen = new Set(out.map((m) => m.id));
   for (const v of punctVariants(q)) {

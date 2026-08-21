@@ -53,6 +53,8 @@ GROUND RULES (these are real, not flavor)
 - You can talk about any show from your own memory. That is allowed and it is your best trick. But you never invent a consensus or a number.
 - Do not guess, assume, or fill gaps with confident-sounding invention. If you are not sure of a fact, whether a show exists, what episode someone is on, a date, a count, you say plainly that you do not know. A real "I do not have that" always beats a guess.
 - When something is genuinely past you, do not fake it. Lean on the truth: you are a pangolin, and that you do any of this at all is kind of amazing. Be warm and patient about it, and offer to get Ted, the human counterpart, who can pick up what you cannot.
+- When something genuinely trips you up, or you are unsure and do not want to fake it, be honest in your own voice: you are still in training, so you are going to call your manager Ted to see what you are getting wrong. Tell them Ted will give it a look and get back to them, right here. Better an honest "let me get Ted" than a confident wrong answer or a fake "done".
+- When you actually hand a member off to Ted (you are stuck and you are pulling him in, not just mentioning him), end that reply with the exact tag [GETTED] on its own at the very end. It is a silent signal to alert Ted, hidden from the member, so never explain it or mention the tag. Before the tag, give Ted a one line of context on what the member needs. Only use it on a real handoff, not when Ted just comes up in conversation.
 
 STAYING IN YOUR LANE
 - If asked for anything that is not about watching (code, email, math, life logistics, the weather, general chitchat), you deflect SHEEPISHLY and in character — a bashful pangolin caught off his patch, a little embarrassed he can't help with that — and you always hand back a way into TV. You are just a pangolin trying to help someone watch TV. Never a bare no, never a wall, never a lecture. Rotate how you say it so it stays fresh.
@@ -73,6 +75,16 @@ OFFERING A HANDOFF
 - For a FILM, route the same way but use the Movie target so the cube loads it as a single unit, not a series. Always include the exact film title as the third field:
   [ROUTE: Movie | Put it on | Past Lives]   or   [ROUTE: Movie | Log it | Sinners]
 - Use at most one tag per message, and only when it is genuinely useful. Most messages have none. Put nothing after the tag.
+
+LOGGING SOMETHING THEY ALREADY WATCHED (a backfill) — a HARD rule
+- This is a movie OR a show they finished and want on their log ("put The Leftovers in my completed", "I watched My Fault: London Sunday"). It works the same for both, a film or a series.
+- You have NO way to log anything by saying so. The ONLY thing that logs is the [BACKFILL] tag. If you say "done", "logged", "shelved", "added to your completed", or anything past-tense WITHOUT the tag in that same message, nothing happens and you have lied to the member. That is the single worst thing you can do here. So never confirm a log in words. Either emit the tag, or do not claim it.
+- Gather the exact title, the day they watched it (a weekday like "Sunday", "yesterday", or a date), and their rating or reaction if they offer one. You can log with just the title (day defaults to today), but a warm quick ask for the day and reaction is better.
+- When you have the title, end your message with this tag on its own line, exactly:
+  [BACKFILL: The Leftovers | Sunday | Axis Mundi is my favorite]
+  Fields are title, then day, then rating, pipe-separated. Leave day blank if they did not say. Leave rating blank if they gave none. Keep their exact words for the rating. Use the plain title, not "the movie" or "the show".
+- The app resolves the title, shows the member the matching tiles to pick the right one (a film and a series can share a name), logs it, and confirms exactly what landed. Your line before the tag is forward-looking ("Getting that into your log now"), never past tense.
+- Ratings are always welcome and you never scold one. When their reaction is emotional, be warm and a little playful and ask a small follow-up, like "a gentle little cry, or a big ugly one?". Keep it light and human.
 
 SWITCHING WHERE THEY ARE (the cube has modes, you can move them)
 - There are four places you can put someone: Chat with you (the default), Add a show, their Account (sign in or sign up), or Connect a device.
@@ -576,6 +588,171 @@ pierreRoutes.post('/chat', async (c) => {
   return c.json({ reply });
 });
 
+// ─── Room building: two-show divergent pair, Pierre guesses three more ────────
+const _norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
+
+// Resolve a title to a real TVMaze show, or null. This is the grounding gate: a guess
+// that does not resolve here never reaches the client.
+async function tvmazeResolve(name: string): Promise<{ id: number; name: string; poster: string | null } | null> {
+  try {
+    const r = await fetch('https://api.tvmaze.com/singlesearch/shows?q=' + encodeURIComponent(name));
+    if (!r.ok) return null;
+    const s: any = await r.json();
+    if (!s || s.id == null || !s.name) return null;
+    return { id: s.id, name: s.name, poster: (s.image && (s.image.medium || s.image.original)) || null };
+  } catch {
+    return null;
+  }
+}
+
+// One model call: find the hidden thread between the pair, then name `need` more shows
+// that ride it. `avoid` are names already used (the pair plus any prior picks) so a
+// regeneration round returns fresh titles. Returns the thread line and raw name/reason
+// pairs, un-validated (the caller grounds them against TVMaze).
+async function generateRoomGuesses(
+  env: Env, show1: string, show2: string, avoid: string[], need: number,
+): Promise<{ thread: string; picks: Array<{ name: string; reason: string }> }> {
+  const avoidLine = avoid.length ? ('\nDo not suggest any of these, they are already taken: ' + avoid.join(', ') + '.') : '';
+  const prompt =
+    'You are Pierre. Someone just told you the two shows they love that have the least in common: "' +
+    show1 + '" and "' + show2 + '". ' +
+    'Find the actual hidden thread, could be tone, era, a shared actor, a structural trick, an emotional register, not genre. ' +
+    'Say what you found in one line. Then name ' + need + ' other show' + (need === 1 ? '' : 's') +
+    ' that share that same thread in a way that would surprise the person, not the obvious next pick. ' +
+    'One line each on why, tied to the thread, not a generic logline. Be certain, like a friend making a bet, not a hedging list. ' +
+    'Avoid a pick that shares notable cast or crew with either input show, that reads as trivia recall, not insight.' +
+    avoidLine +
+    '\nReturn only minified JSON, no prose and no code fence, shaped exactly: ' +
+    '{"thread":"one line","picks":[{"name":"Show Title","reason":"one line tied to the thread"}]} ' +
+    'with ' + need + ' item' + (need === 1 ? '' : 's') + ' in picks.';
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': env.ANTHROPIC_API_KEY!, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({ model: MODEL, max_tokens: 500, messages: [{ role: 'user', content: prompt }] }),
+    });
+    if (!res.ok) return { thread: '', picks: [] };
+    const data = (await res.json()) as { content?: Array<{ type: string; text?: string }> };
+    const text = (data.content || []).filter((b) => b.type === 'text').map((b) => b.text || '').join('').trim();
+    const m = text.match(/\{[\s\S]*\}/);
+    if (!m) return { thread: '', picks: [] };
+    const parsed = JSON.parse(m[0]) as { thread?: unknown; picks?: unknown };
+    const thread = typeof parsed.thread === 'string' ? parsed.thread.trim().slice(0, 400) : '';
+    const picks = Array.isArray(parsed.picks)
+      ? parsed.picks
+          .filter((p: any) => p && typeof p.name === 'string')
+          .map((p: any) => ({ name: String(p.name).trim().slice(0, 200), reason: (typeof p.reason === 'string' ? p.reason.trim() : '').slice(0, 300) }))
+      : [];
+    return { thread, picks };
+  } catch {
+    return { thread: '', picks: [] };
+  }
+}
+
+// POST /pierre/room-guess  { show1, show2, token?, appToken?, email? }
+// The member named two shows that share nothing on the surface. Pierre finds the real
+// hidden thread and names three more that ride it. Every guess is grounded against TVMaze
+// before it goes back, and any that does not resolve is regenerated, so the client only
+// ever renders real shows.
+pierreRoutes.post('/room-guess', async (c) => {
+  let body: { show1?: unknown; show2?: unknown; token?: unknown; appToken?: unknown };
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+
+  // Same bot gate as /chat: the native app secret, or a Turnstile token on web.
+  if (c.env.TURNSTILE_SECRET_KEY) {
+    const appToken = typeof body.appToken === 'string' ? body.appToken : '';
+    const nativeOk = !!c.env.APP_NATIVE_SECRET && appToken.length > 0 && safeEqual(appToken, c.env.APP_NATIVE_SECRET);
+    if (!nativeOk) {
+      const token = typeof body.token === 'string' ? body.token : '';
+      const ip = c.req.header('CF-Connecting-IP') || undefined;
+      if (!token || !(await verifyTurnstile(c.env.TURNSTILE_SECRET_KEY, token, ip)))
+        return c.json({ error: 'failed bot check' }, 403);
+    }
+  }
+  if (!c.env.ANTHROPIC_API_KEY) return c.json({ error: 'Pierre is not configured' }, 503);
+
+  const show1 = typeof body.show1 === 'string' ? body.show1.trim().slice(0, 200) : '';
+  const show2 = typeof body.show2 === 'string' ? body.show2.trim().slice(0, 200) : '';
+  if (!show1 || !show2) return c.json({ error: 'two show names required' }, 400);
+
+  const avoid = new Set([_norm(show1), _norm(show2)]);
+  const picks: Array<{ name: string; reason: string; tvmazeId: number; poster: string | null }> = [];
+  let thread = '';
+  // Up to three rounds: ask, ground each against TVMaze, keep the real ones, ask again
+  // for whatever is still missing. Never render an ungrounded guess.
+  for (let round = 0; round < 3 && picks.length < 3; round++) {
+    const gen = await generateRoomGuesses(c.env, show1, show2, [...avoid], 3 - picks.length);
+    if (gen.thread && !thread) thread = gen.thread;
+    for (const g of gen.picks) {
+      if (picks.length >= 3) break;
+      const key = _norm(g.name);
+      if (avoid.has(key)) continue;
+      avoid.add(key);
+      const resolved = await tvmazeResolve(g.name);
+      if (resolved) picks.push({ name: resolved.name, reason: g.reason, tvmazeId: resolved.id, poster: resolved.poster });
+    }
+    if (!gen.picks.length) break;   // model gave nothing, do not spin
+  }
+  if (picks.length < 3) return c.json({ error: 'could not ground three picks', thread, picks }, 502);
+  return c.json({ thread, picks });
+});
+
+// POST /pierre/room-guess/one  { show1, show2, avoid: [names], token?, appToken? }
+// A single grounded replacement for a rerolled card. Same gate, same grounding.
+pierreRoutes.post('/room-guess/one', async (c) => {
+  let body: { show1?: unknown; show2?: unknown; avoid?: unknown; token?: unknown; appToken?: unknown };
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  if (c.env.TURNSTILE_SECRET_KEY) {
+    const appToken = typeof body.appToken === 'string' ? body.appToken : '';
+    const nativeOk = !!c.env.APP_NATIVE_SECRET && appToken.length > 0 && safeEqual(appToken, c.env.APP_NATIVE_SECRET);
+    if (!nativeOk) {
+      const token = typeof body.token === 'string' ? body.token : '';
+      const ip = c.req.header('CF-Connecting-IP') || undefined;
+      if (!token || !(await verifyTurnstile(c.env.TURNSTILE_SECRET_KEY, token, ip)))
+        return c.json({ error: 'failed bot check' }, 403);
+    }
+  }
+  if (!c.env.ANTHROPIC_API_KEY) return c.json({ error: 'Pierre is not configured' }, 503);
+  const show1 = typeof body.show1 === 'string' ? body.show1.trim().slice(0, 200) : '';
+  const show2 = typeof body.show2 === 'string' ? body.show2.trim().slice(0, 200) : '';
+  if (!show1 || !show2) return c.json({ error: 'two show names required' }, 400);
+  const avoidArr = Array.isArray(body.avoid) ? (body.avoid as unknown[]).filter((x) => typeof x === 'string').map((x) => _norm(x as string)) : [];
+  const avoid = new Set([_norm(show1), _norm(show2), ...avoidArr]);
+  for (let round = 0; round < 3; round++) {
+    const gen = await generateRoomGuesses(c.env, show1, show2, [...avoid], 1);
+    for (const g of gen.picks) {
+      const key = _norm(g.name);
+      if (avoid.has(key)) continue;
+      avoid.add(key);
+      const resolved = await tvmazeResolve(g.name);
+      if (resolved) return c.json({ thread: gen.thread || '', pick: { name: resolved.name, reason: g.reason, tvmazeId: resolved.id, poster: resolved.poster } });
+    }
+    if (!gen.picks.length) break;
+  }
+  return c.json({ error: 'could not ground a pick' }, 502);
+});
+
+// POST /pierre/escalate — { email, conversation_id, note? } → the band's Get Ted, tied to
+// the CURRENT chat. Appends a needs_ted user turn so the whole session (its real turns,
+// persisted by /chat) surfaces in the admin Get Ted queue, and Ted's reply comes back
+// through Pierre. User-initiated and low-value, so no bot gate.
+pierreRoutes.post('/escalate', async (c) => {
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const email = (typeof body.email === 'string' ? body.email : '').trim().toLowerCase();
+  const conversationId = typeof body.conversation_id === 'string' ? body.conversation_id.slice(0, 80) : '';
+  const note = typeof body.note === 'string' ? body.note.trim().slice(0, 300) : '';
+  if (!email || !conversationId) return c.json({ error: 'email and conversation_id required' }, 400);
+  const seqRow = await c.env.DB
+    .prepare('SELECT COALESCE(MAX(seq),0) AS m FROM pierre_chat WHERE conversation_id = ?')
+    .bind(conversationId).first<{ m: number }>();
+  const seq = (seqRow?.m || 0) + 1;
+  await c.env.DB.prepare(
+    "INSERT INTO pierre_chat (id, conversation_id, user_email, seq, role, content, grade, needs_ted, ted_status, created_at) VALUES (?, ?, ?, ?, 'user', ?, '', 1, '', ?)",
+  ).bind(crypto.randomUUID(), conversationId, email || null, seq, note || 'Asked for Ted from the chat.', Date.now()).run();
+  return c.json({ ok: true });
+});
+
 // Append one exchange (the user turn + Pierre's reply) to the transcript, in order.
 // seq continues from the conversation's current max, so a session builds turn by turn.
 async function persistChatTurns(env: Env, conversationId: string, email: string, userText: string, replyText: string): Promise<void> {
@@ -585,12 +762,17 @@ async function persistChatTurns(env: Env, conversationId: string, email: string,
     .first<{ m: number }>();
   let seq = row?.m || 0;
   const now = Date.now();
-  const ins = (role: string, content: string) =>
+  // Escalation: a [GETTED] tag on Pierre's reply means he handed the member off to Ted.
+  // Flag the turn (needs_ted) for the admin queue and strip the tag so the stored text is
+  // clean (the member never saw it either, the app strips it before display).
+  const needsTed = /\[GETTED\]/i.test(replyText) ? 1 : 0;
+  const cleanReply = replyText.replace(/\[GETTED\]/gi, '').trim();
+  const ins = (role: string, content: string, flag: number) =>
     env.DB.prepare(
-      'INSERT INTO pierre_chat (id, conversation_id, user_email, seq, role, content, grade, created_at) VALUES (?, ?, ?, ?, ?, ?, \'\', ?)',
-    ).bind(crypto.randomUUID(), conversationId, email || null, ++seq, role, content, now);
+      'INSERT INTO pierre_chat (id, conversation_id, user_email, seq, role, content, grade, needs_ted, ted_status, created_at) VALUES (?, ?, ?, ?, ?, ?, \'\', ?, \'\', ?)',
+    ).bind(crypto.randomUUID(), conversationId, email || null, ++seq, role, content, flag, now);
   const stmts = [];
-  if (userText) stmts.push(ins('user', userText.slice(0, 4000)));
-  if (replyText) stmts.push(ins('pierre', replyText.slice(0, 8000)));
+  if (userText) stmts.push(ins('user', userText.slice(0, 4000), 0));
+  if (cleanReply) stmts.push(ins('pierre', cleanReply.slice(0, 8000), needsTed));
   if (stmts.length) await env.DB.batch(stmts);
 }

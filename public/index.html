@@ -242,7 +242,9 @@
 
     /* ── Pierre context picker: now CENTER of the band (mic retired), between the
        device chip (left) and the floating cube (right). ── */
-    #pierre-ctx-wrap { display: none; position: absolute; left: 50%; transform: translateX(-50%);
+    /* CHAT picker sits at the LEFT of the console row (the freed device-chip slot), so it
+       reads [CHAT] ... feedback ... [cube] and never collides with the centered band. */
+    #pierre-ctx-wrap { display: none; position: absolute; left: 16px;
       bottom: 352px; z-index: 31; }
     #pierre-ctx-wrap.show { display: block; }
     #pierre-ctx {
@@ -257,7 +259,7 @@
     #pierre-ctx .pc-dot { width: 6px; height: 6px; border-radius: 50%; background: #f0a93b; box-shadow: 0 0 8px #f0a93b; }
     #pierre-ctx .pc-caret { font-size: 8px; color: #a7967f; }
     #pierre-ctx-pop {
-      position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 8px;
+      position: absolute; bottom: 100%; left: 0; margin-bottom: 8px;
       min-width: 190px; background: rgba(28,22,16,0.97); border: 1px solid #3a2f22; border-radius: 12px;
       padding: 5px; box-shadow: 0 14px 40px rgba(0,0,0,0.6); display: flex; flex-direction: column; gap: 1px;
     }
@@ -287,12 +289,42 @@
       cursor: pointer; -webkit-tap-highlight-color: transparent;
       transition: opacity 0.15s, border-color 0.15s;
     }
-    #device-chip.show { display: inline-flex; }
+    /* Device picker is hidden for now (half-built, not working). Flip back to
+       inline-flex to bring it back. Kept in the DOM so nothing else breaks. */
+    #device-chip.show { display: none; }
     #device-chip:active { border-color: #e89f3d; }
     #device-chip .dc-row { display: inline-flex; align-items: center; gap: 6px; }
     #device-chip .dc-dev { color: #f3ebe0; }
     #device-chip .dc-svc { color: #e89f3d; font-size: 11px; }
     #device-chip.dimmed { opacity: 0.78; }
+
+    /* Quick-feedback band: thumbs / Get Ted, centered in the console row, left of the
+       floating cube. Shown with the cube (any open face). */
+    #feedback-band {
+      display: none; position: absolute; left: 50%; transform: translateX(-50%);
+      bottom: 358px; z-index: 31; align-items: center; gap: 8px;
+    }
+    #feedback-band.show { display: flex; }
+    /* Stays up while talking to Pierre (console keyboard up), on purpose: quick 👍/👎/Get
+       Ted during a Pierre exchange is exactly when we want fast iteration signal. It sits
+       above the keyboard in the console row. */
+    .fb-btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      height: 34px; padding: 0 10px; border-radius: 11px; cursor: pointer;
+      border: 1px solid #3a2f22; background: rgba(10,12,16,0.6);
+      backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+      color: #a7967f; -webkit-tap-highlight-color: transparent;
+      transition: transform 0.12s ease, color 0.15s, border-color 0.15s, background 0.15s;
+    }
+    .fb-btn:active { transform: scale(0.92); }
+    .fb-btn:disabled { opacity: 0.38; cursor: default; }   /* inactive until Pierre has replied */
+    .fb-up.on { color: #5f8f5a; border-color: rgba(95,143,90,0.6); background: rgba(95,143,90,0.16); }
+    .fb-down.on { color: #c26c60; border-color: rgba(157,74,63,0.6); background: rgba(157,74,63,0.16); }
+    .fb-getted {
+      font-family: 'Space Mono', ui-monospace, monospace; font-size: 10.5px; font-weight: 700;
+      letter-spacing: 0.12em; color: #5fd6e0; border-color: rgba(95,214,224,0.4);
+    }
+    .fb-getted.on { color: #06232a; background: #5fd6e0; border-color: #5fd6e0; }
 
     /* floating cube — back to cube nav, upper-right of the wheel */
     #wheel-cube {
@@ -530,6 +562,18 @@
       <span class="wc-face wc-top"></span><span class="wc-face wc-bottom"></span>
     </span>
   </button>
+
+  <!-- Quick-feedback band in the console row: thumbs up / Get Ted / thumbs down.
+       Shown alongside the floating cube (any open face). Glyphs, not emoji. -->
+  <div id="feedback-band" aria-label="Quick feedback">
+    <button class="fb-btn fb-up" id="fbUp" aria-label="Thumbs up">
+      <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v11"/><path d="M7 10l4-7a2 2 0 0 1 3 1.7V9h4.5a2 2 0 0 1 2 2.4l-1.3 6.5a2 2 0 0 1-2 1.6H7"/><path d="M3 10h4v11H3z"/></svg>
+    </button>
+    <button class="fb-btn fb-getted" id="fbGetTed" aria-label="Get Ted">GET TED</button>
+    <button class="fb-btn fb-down" id="fbDown" aria-label="Thumbs down">
+      <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 14V3"/><path d="M17 14l-4 7a2 2 0 0 1-3-1.7V15H5.5a2 2 0 0 1-2-2.4l1.3-6.5a2 2 0 0 1 2-1.6H17"/><path d="M21 14h-4V3h4z"/></svg>
+    </button>
+  </div>
 
   <!-- iPod-style click wheel: the ring scrolls the open face; the four card
        actions (WATCH top / SHARE left / STOP right / SELECT center) drive the

@@ -95,6 +95,15 @@
     border-bottom-right-radius:5px;
     color:var(--ink);
   }
+  /* Ted, the human, steps in: the cold TV-glow blue (--screen) against Pierre's amber. */
+  .msg.ted{align-self:flex-start;}
+  .ted .bubble{
+    background:linear-gradient(180deg,rgba(95,214,224,.14),rgba(95,214,224,.06));
+    border:1px solid rgba(95,214,224,.30);
+    border-bottom-left-radius:5px;
+    color:var(--screen);
+  }
+  .ted .who{color:var(--screen);}
   .who{font-family:'Space Mono';font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-dim);margin:0 0 4px 2px;}
   .user .who{text-align:right;}
 
@@ -115,6 +124,24 @@
     border-radius:12px;text-align:center;}
   .chip.hasimg .chip-poster{width:94px;height:141px;object-fit:cover;border-radius:6px;background:rgba(239,177,78,.08);display:block;}
   .chip.hasimg .chip-label{display:block;line-height:1.25;}   /* full title + year, no truncation */
+
+  /* Room-building guess cards: poster + name + the one-line why, with Add / Reroll. */
+  .rg-grid{display:flex;flex-direction:column;gap:9px;margin-top:9px;}
+  .rg-card{display:grid;grid-template-columns:56px 1fr;grid-template-rows:auto auto;gap:3px 10px;
+    align-items:start;padding:9px;border:1px solid rgba(239,177,78,.28);border-radius:12px;background:rgba(239,177,78,.05);}
+  .rg-poster{grid-row:1 / span 2;width:56px;height:84px;object-fit:cover;border-radius:6px;background:rgba(239,177,78,.08);display:block;}
+  .rg-noposter{border:1px dashed rgba(239,177,78,.3);}
+  .rg-body{min-width:0;}
+  .rg-name{font-family:'Space Mono';font-size:13px;font-weight:700;color:var(--amber);line-height:1.2;}
+  .rg-why{font-size:12px;line-height:1.35;color:rgba(245,236,222,.82);margin-top:3px;}
+  .rg-actions{grid-column:2;display:flex;gap:7px;margin-top:2px;}
+  .rg-actions button{font-family:'Space Mono';font-size:10.5px;letter-spacing:.04em;padding:5px 12px;border-radius:999px;cursor:pointer;}
+  .rg-add{background:var(--amber);color:#20160a;border:0;font-weight:700;}
+  .rg-reroll{background:transparent;color:var(--amber);border:1px solid rgba(239,177,78,.45);}
+  .rg-actions button:disabled{opacity:.55;cursor:default;}
+  .rg-card.rg-done{border-color:rgba(159,224,176,.55);background:rgba(159,224,176,.08);}
+  .rg-card.rg-done .rg-add{background:#9fe0b0;color:#06140b;}
+  .rg-own{margin-top:9px;}
 
   /* Context switcher + mic now live in the shell's off-cube band (see index.html
      / cube_shell.js). The face keeps only the switch/clear logic, driven same-origin. */
@@ -162,6 +189,9 @@
   .composer #input::placeholder{color:var(--ink-dim);}
   .composer #input:focus{border-color:rgba(239,177,78,.55);box-shadow:0 0 0 3px rgba(239,177,78,.12);}
   .composer #input.secret{ -webkit-text-security:disc; text-security:disc; }   /* password steps */
+  /* Session closed by Ted: the box is a single Clear chat action, not an input. */
+  .composer #input.clearmode{ text-align:center; cursor:pointer; caret-color:transparent; color:var(--amber); font-weight:600; letter-spacing:.04em; }
+  .composer #input.clearmode::placeholder{ color:var(--amber); opacity:1; text-align:center; }
   .send{
     flex:none;width:42px;height:42px;border-radius:50%;
     border:none;cursor:pointer;
@@ -243,7 +273,8 @@
     : 'https://pangolin-rc.edward-m-willett.workers.dev';
   // One id per Pierre-face session, so the server can group this whole chat into a
   // single transcript (POST /pierre/chat → pierre_chat table, saved every turn).
-  const PIERRE_CONVO = (self.crypto && crypto.randomUUID) ? crypto.randomUUID() : 'c'+Date.now()+Math.random().toString(36).slice(2);
+  let PIERRE_CONVO = (self.crypto && crypto.randomUUID) ? crypto.randomUUID() : 'c'+Date.now()+Math.random().toString(36).slice(2);
+  const newConvoId = () => (self.crypto && crypto.randomUUID) ? crypto.randomUUID() : 'c'+Date.now()+Math.random().toString(36).slice(2);
 
   // Demo build (remote.demo.pangolinrc.com, or ?demo=1 preview): Pierre's chat is closed.
   const IS_DEMO = location.hostname.split('.').includes('demo') || new URLSearchParams(location.search).has('demo');
@@ -364,6 +395,96 @@
     log.appendChild(wrap);
     scrollLogBottom();
   }
+  // Ted, the human, stepping in. Same shape as a Pierre bubble but his own blue voice
+  // and a TED label (uppercased by .who). Delivered from the admin, not the model.
+  function addTed(text){
+    const wrap = document.createElement('div');
+    wrap.className = 'msg ted';
+    wrap.innerHTML = '<div class="who">Ted</div><div class="bubble"></div>';
+    wrap.querySelector('.bubble').textContent = text;
+    log.appendChild(wrap);
+    scrollLogBottom();
+  }
+  // Pull any Ted replies the member has not seen yet (by created_at high water) and drop
+  // them into the chat. Runs on open and on return to the app, so a reply Ted sent while
+  // they were away shows up next time they look.
+  async function fetchTedMessages(){
+    const em = pgSession(); if(!em) return;
+    let since = 0; try{ since = Number(localStorage.getItem('pg_ted_seen') || '0') || 0; }catch(_){}
+    try{
+      const r = await fetch(`${API}/profile/${encodeURIComponent(em)}/ted-messages?since=${since}`);
+      if(!r.ok) return;
+      const d = await r.json();
+      const msgs = (d && d.messages) || [];
+      if(!msgs.length) return;
+      let hi = since, tedDelivered = 0;
+      msgs.forEach(m=>{ if(m && m.text){
+        // A flagged Pierre delivery (e.g. an apology) shows in his own voice and leaves the
+        // chat open to keep talking; a Ted reply shows as TED and closes the session.
+        if(m.role === 'pierre') addPierre(m.text);
+        else { addTed(m.text); tedDelivered++; }
+        if(m.created_at > hi) hi = m.created_at;
+      } });
+      try{ localStorage.setItem('pg_ted_seen', String(hi)); }catch(_){}
+      // Ted answering is the end of this session: the human closed it out. Stop waiting,
+      // let the member scrub the thread, and turn the composer into a single Start new
+      // chat action, not a place to keep typing at Pierre.
+      if(tedDelivered){ _awaitingTed=false; stopTedPolling(); setClearChatMode(true); }
+    }catch(_){}
+  }
+  // Only poll while THIS session is actually waiting on Ted (Pierre escalated with his
+  // [GETTED] tag). No pending handoff → no polling, so we never hammer the server.
+  let _awaitingTed=false, _tedPoll=null;
+  function startTedPolling(){ if(_tedPoll) return; _tedPoll=setInterval(()=>{ if(_awaitingTed) fetchTedMessages(); else stopTedPolling(); }, 30000); }
+  function stopTedPolling(){ if(_tedPoll){ clearInterval(_tedPoll); _tedPoll=null; } }
+  document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) fetchTedMessages(); });
+  // Composer becomes a "Clear chat" button once a session is closed (Ted replied). Tapping
+  // it wipes the thread and starts a fresh Pierre conversation.
+  let _clearMode = false;
+  function setClearChatMode(on){
+    _clearMode = !!on;
+    if(on){
+      input.readOnly = true; input.value=''; try{ autoGrow(); }catch(_){}
+      input.placeholder = 'Start new chat';
+      input.classList.add('clearmode');
+      send.style.display = 'none';
+      try{ suppressBandMic(true); }catch(_){}
+      try{ input.blur(); }catch(_){}
+    } else {
+      input.readOnly = false;
+      input.classList.remove('clearmode');
+      input.placeholder = 'Ask Pierre what to watch...';
+      send.style.display = '';
+      try{ suppressBandMic(false); setSendMode('mic'); }catch(_){}
+    }
+  }
+  // The single reset lives at the other clearChat() below (also wired to the context
+  // picker's Clear chat). Tapping the "Start new chat" composer runs it.
+  input.addEventListener('click', ()=>{ if(_clearMode) clearChat(); });
+
+  // Feedback band (👍 / GET TED / 👎) lives in the shell but acts on THIS chat. Tell the
+  // shell when it should be active (a reply has happened), and handle the taps here.
+  function fbReady(ready){ try{ if(window.parent!==window) window.parent.postMessage({type:'pierre:fb-ready', ready:!!ready}, '*'); }catch(_){} }
+  function onBandFeedback(kind){
+    const email=pgSession();
+    if(email){ try{ fetch(`${API}/feedback`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ email, kind, face:'PIERRE' })}); }catch(_){} }
+    clearChat();   // a thumb ends the chat and resets the window
+  }
+  function onBandGetTed(){
+    const email=pgSession();
+    if(email){ try{ fetch(`${API}/pierre/escalate`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ email, conversation_id:PIERRE_CONVO })}); }catch(_){} }
+    addPierre("Calling my manager on this one. Ted will give it a look and get back to you right here.");
+    _awaitingTed=true; startTedPolling();
+    setClearChatMode(true);   // this session is closed out; Ted's reply lands here
+    fbReady(false);
+  }
+  window.addEventListener('message', (e)=>{
+    if(!e.data) return;
+    if(e.data.type==='fb:vote') onBandFeedback(e.data.kind==='down'?'down':'up');
+    else if(e.data.type==='fb:getted') onBandGetTed();
+  });
 
   // ── Share the conversation ───────────────────────────────────────────────
   // Pierre's chat lives only in this page's memory — no server copy. The band's
@@ -421,11 +542,105 @@
     return {clean:text.replace(m[0], '').trim(), opts};
   }
 
+  // [BACKFILL: title | day | rating] — Pierre logs a film the member already watched. The
+  // client resolves the day to noon local, calls the server (which does the real log), and
+  // then confirms only what actually landed. This is what kills the old "I said done but
+  // nothing happened" (the tap-only ROUTE log the member never got).
+  function parseBackfill(text){
+    const m = text.match(/\[BACKFILL:\s*([^|\]]+?)\s*(?:\|\s*([^|\]]*?)\s*)?(?:\|\s*([^\]]*?)\s*)?\]/i);
+    if(!m) return {clean:text, backfill:null};
+    return {clean:text.replace(m[0],'').trim(), backfill:{ title:(m[1]||'').trim(), day:(m[2]||'').trim(), rating:(m[3]||'').trim() }};
+  }
+  // A stated day → noon LOCAL of it (the device is in the member's timezone).
+  function dayToNoonMs(day){
+    const now=new Date();
+    const noon=(dt)=>{ const d=new Date(dt); d.setHours(12,0,0,0); return d.getTime(); };
+    const s=String(day||'').trim().toLowerCase();
+    if(!s || s==='today') return noon(now);
+    if(s==='yesterday'){ const d=new Date(now); d.setDate(d.getDate()-1); return noon(d); }
+    const iso=s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if(iso) return new Date(+iso[1], +iso[2]-1, +iso[3], 12,0,0,0).getTime();
+    const WD={sunday:0,sun:0,monday:1,mon:1,tuesday:2,tue:2,tues:2,wednesday:3,wed:3,thursday:4,thu:4,thurs:4,friday:5,fri:5,saturday:6,sat:6};
+    const key=Object.keys(WD).find(k=>s.startsWith(k));
+    if(key!=null){ const d=new Date(now); const back=(d.getDay()-WD[key]+7)%7; d.setDate(d.getDate()-back); return noon(d); }
+    return noon(now);
+  }
+  async function runBackfill(bf){
+    const email=pgSession(); if(!email) return;
+    showTyping();
+    const cands=[];
+    // A film and a series can share a name (The Leftovers), so search BOTH and let the member
+    // pick the tile, never auto-guess the wrong type.
+    try{ const r=await fetch(`${API}/tmdb/search?q=`+encodeURIComponent(bf.title));
+      if(r.ok){ const d=await r.json(); (d.results||[]).slice(0,3).forEach(m=>cands.push({ title_id:'tmdb:'+m.id, name:m.title, year:m.year||(m.release_date||'').slice(0,4), poster:m.poster||null, kind:'movie' })); } }catch(_){}
+    try{ const r=await fetch('https://api.tvmaze.com/search/shows?q='+encodeURIComponent(bf.title));
+      if(r.ok){ const arr=await r.json(); (arr||[]).slice(0,3).forEach(x=>{ const s=x&&x.show; if(s) cands.push({ title_id:'tvmaze:'+s.id, name:s.name, year:(s.premiered||'').slice(0,4), poster:(s.image&&(s.image.medium||s.image.original))||null, kind:'show' }); }); } }catch(_){}
+    clearTyping();
+    if(!cands.length){
+      selfEscalate('Backfill: could not find "'+bf.title+'".');
+      addPierre("I could not find "+bf.title+" to log it, and I am not going to fake it. I am still in training, so I am calling my manager. Ted will give this a look and get back to you.");
+      return;
+    }
+    presentPicker("Which "+bf.title+"? Pick the one you watched.", cands.map(cd=>({
+      label: cd.name + (cd.year?' ('+cd.year+')':'') + '  ·  ' + (cd.kind==='movie'?'Film':'Series'),
+      poster: cd.poster,
+      onClick: ()=>doBackfill(cd, bf.day, bf.rating)
+    })));
+  }
+  async function doBackfill(cd, day, rating){
+    const email=pgSession(); if(!email) return;
+    const watchedAt=dayToNoonMs(day);
+    showTyping();
+    let d=null;
+    try{ const r=await fetch(`${API}/catalog/backfill`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ email, title_id:cd.title_id, watched_at:watchedAt, rating:rating||'' })});
+      if(r.ok) d=await r.json();
+    }catch(_){}
+    clearTyping();
+    if(d && d.ok){
+      const when = day ? (' as watched '+day) : '';
+      addPierre('Logged '+d.name+when+(rating?', '+rating:'')+'. It is in your Completed and on your feed now.');
+      askWatchedWith(d.title_id, d.name);
+    } else {
+      selfEscalate('Backfill: could not log "'+cd.name+'" ('+cd.title_id+').');
+      addPierre("Something tripped me up logging "+cd.name+", and I will not pretend it worked. I am calling my manager. Ted will look and get back to you.");
+    }
+  }
+  // Attach coviewers to a title already logged (movie backfill). Roster-driven; solo if none.
+  async function askWatchedWith(titleId, name){
+    const email=pgSession(); if(!email) return;
+    let roster=[];
+    try{ const r=await fetch(`${API}/profile/${encodeURIComponent(email)}/coviewers`); if(r.ok) roster=(await r.json()).coviewers||[]; }catch(_){}
+    if(!roster.length) return;
+    const setAndGo=async(body)=>{
+      try{ await fetch(`${API}/profile/${encodeURIComponent(email)}/titles/${encodeURIComponent(titleId)}/coviewers`,
+        {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); }catch(_){}
+      addPierre('Got it, added them to that watch.');
+    };
+    const defaults=roster.filter(c=>c.is_default);
+    const chips=[];
+    if(defaults.length) chips.push({label:'With '+defaults.map(c=>c.display_name).join(' & '), onClick:()=>setAndGo({use_default:true})});
+    chips.push({label:'Just me', onClick:()=>{}});
+    chips.push({label:'Someone else', onClick:()=>pickCoviewers({id:titleId, name}, roster, setAndGo)});
+    pierreSay("Who watched "+name+" with you?", chips);
+  }
+  // Client-side self-escalation (a backfill dead end): record a Get Ted so it lands in the
+  // admin queue with context, and start watching for Ted's reply.
+  function selfEscalate(note){
+    const email=pgSession(); if(!email) return;
+    try{ fetch(`${API}/feedback`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ email, kind:'get_ted', face:'PIERRE', note })}); }catch(_){}
+    _awaitingTed=true; startTedPolling();
+  }
+
   function addPierre(text){
-    let clean, route, ctx, opts;
+    let clean, route, ctx, opts, backfill;
     ({clean, route} = parseRoute(text));
     ({clean, ctx}   = parseSwitch(clean));
     ({clean, opts}  = parseAsk(clean));
+    ({clean, backfill} = parseBackfill(clean));   // [BACKFILL: title | day | rating] → real log
+    if(/\[GETTED\]/i.test(text)){ _awaitingTed=true; startTedPolling(); }   // handoff fired: watch for Ted's reply
+    clean = clean.replace(/\[GETTED\]/ig, '').trim();   // silent Ted-escalation signal, never shown
     const wrap = document.createElement('div');
     wrap.className = 'msg pierre';
     wrap.innerHTML = '<div class="who">Pierre</div><div class="bubble"></div>';
@@ -460,6 +675,8 @@
     scrollLogBottom();
     // NL switch: only for the four real lanes; unknown values render as plain text.
     if(ctx && SWITCHABLE.indexOf(ctx)>=0) switchTo(ctx, {viaUser:false});
+    // A backfill tag: run the real log now, then confirm ONLY what actually landed.
+    if(backfill && backfill.title) runBackfill(backfill);
     return clean;
   }
 
@@ -535,8 +752,9 @@
   let _rec=null,_recChunks=[],_recTimer=null,_recLeft=0;
   async function startComposerRec(){
     if(_recTimer) return;
-    let stream; try{ stream=await navigator.mediaDevices.getUserMedia({audio:true}); }
-    catch(_){ input.focus(); setSendMode('send'); return; }   // no mic → fall back to typing
+    let stream;
+    try{ stream=await navigator.mediaDevices.getUserMedia({audio:true}); recordMicPermission(true); }
+    catch(_){ recordMicPermission(false); input.focus(); setSendMode('send'); return; }   // no mic or declined → fall back to typing
     _recChunks=[]; _rec=new MediaRecorder(stream); _rec.ondataavailable=e=>_recChunks.push(e.data); _rec.start();
     _recLeft=10; setSendMode('rec'); send.innerHTML='<span class="rec-lbl">REC</span>'+_recRing(10); _recSync(_recLeft);
     _recTimer=setInterval(()=>{ _recLeft--; _recSync(Math.max(_recLeft,0)); if(_recLeft<=0) stopComposerRec(); },1000);
@@ -605,11 +823,45 @@
                         : scope==='season' ? ((p.show||'that')+' season '+(p.seasonNum!=null?p.seasonNum:''))
                         : scope==='movie'  ? (p.show||'the movie')
                         : ((p.show||'')+(p.ep?(' '+p.ep):''));
-    // Step 1 is a two-chip fork — hide the input/arrow/mic so nothing competes with the choice.
+    // Hide the input/arrow/mic so nothing competes with the choice.
+    flowChrome(false);
+    input.placeholder='';
+    // A short finish (done tapped well before the catalog runtime) means the stored length
+    // is probably wrong — ask BEFORE the Comment/next fork; the answer feeds the runtime
+    // consensus. Only fires when the Log flagged it (p.earlyWatched); else straight to the fork.
+    if(!askEarlyFinish(p, finishedLabel)) showFinishedFork(p, finishedLabel);
+  }
+  // Step 1 proper — the two-chip Comment / next-action fork.
+  function showFinishedFork(p, finishedLabel){
     flowChrome(false);
     pierreSay('You finished '+finishedLabel+'.', [ {label:'Comment', onClick:beginComment}, nextActionChip(p) ], true);
     input.placeholder='';
     scrollLogBottom();   // land pinned to the bottom so the fork chips aren't clipped
+  }
+  // "You finished early — is the shorter time the real length?" Chips: [watched min]
+  // [stored min] [Something else]. Returns true when it asked (deferring the fork until
+  // answered), false when there's nothing worth asking. Replaces the old Log-face box
+  // that never showed (the finish had already rotated the cube here).
+  let rtAskFlow=null;   // { p, finishedLabel } while awaiting a typed custom runtime
+  function askEarlyFinish(p, finishedLabel){
+    const watched=Math.round(Number(p.earlyWatched)||0), stored=Math.round(Number(p.runtime)||0);
+    if(!(watched>0) || !(stored>0) || (stored-watched)<5) return false;
+    pierreSay('You wrapped up around '+watched+' min, but I have '+(p.ep||'this one')+' listed at '+stored+'. Did it end early, or is '+stored+' the real length?', [
+      {label:watched+' minutes', onClick:()=>{ reportRuntime(p, watched); addPierre('Thanks — I’ll get the length fixed.'); showFinishedFork(p, finishedLabel); }},
+      {label:stored+' minutes', onClick:()=>{ addPierre('Got it — you just stopped early.'); showFinishedFork(p, finishedLabel); }},
+      {label:'Something else', onClick:()=>{ rtAskFlow={ p, finishedLabel }; flowChrome(true); input.placeholder='Real runtime in minutes…'; try{ input.focus(); }catch(_){} }},
+    ], true);
+    scrollLogBottom();
+    return true;
+  }
+  // Post a member-observed runtime to the consensus queue (2+ agreeing auto-applies).
+  function reportRuntime(p, mins){
+    const m=Math.trunc(Number(mins)||0); if(!(m>0) || !p.titleId) return;
+    let season=1, number=0; const mm=String(p.ep||'').match(/S(\d+)E(\d+)/i);
+    if(mm){ season=+mm[1]; number=+mm[2]; }
+    else if(p.ep==='🎬'){ season=1; number=1; }   // movie single-unit key → S1E1 row
+    try{ fetch(`${API}/catalog/runtime-report`, { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ email:pgSession(), title_id:p.titleId, season, number, observed_runtime:m }) }); }catch(_){}
   }
   // Step 2 — they chose to comment: show the text box AND the mic, both at REST. No focus,
   // no keyboard, no blinking cursor — the two elements are the implicit choice (record vs
@@ -745,7 +997,10 @@
     try{ const r=await fetch(`${API}/profile/${encodeURIComponent(em)}/titles/${encodeURIComponent(titleId)}`); if(r.ok) detail=await r.json(); }catch(_){}
     const list=(detail&&detail.episodes)||[]; const watchLog=[], deltas=[], ts=[];
     list.forEach(e=>{
-      if(e.done && !e.bp && e.season===seasonNum) watchLog.push({epNum:e.number});
+      // Watched = DONE, BP or not. A before-Pierre / force-advanced episode is still one
+      // you have seen (or deliberately moved past), so it must not read as "behind" and
+      // get you nagged to watch it. BP only matters for the timed deltas below, not here.
+      if(e.done && e.season===seasonNum) watchLog.push({epNum:e.number});
       const as=airBy[e.season+'-'+e.number];
       (e.sessions||[]).forEach(s=>{ if(s && s.finished && !s.bp && typeof s.finishTs==='number' && as){
         deltas.push((s.finishTs-new Date(as).getTime())/3600000); ts.push(s.finishTs); } });
@@ -780,7 +1035,7 @@
     const sig=await wowShowSignals(em, c.t.title_id, seasonNum, c.eps);
     const mode = manual ? { mode:manual, src:'set' } : WoW.classifyDeltas(sig.deltas, sig.ts);
     const ph = (c.ph.name==='RAMP') ? c.ph : { name:'RAMP', next:c.next, prev:null };   // preview → synthetic RAMP
-    const n = WoW.nudge(ph, mode, sig.watchLog, seasonEps, now, seasonNum);
+    const n = WoW.nudge(ph, mode, sig.watchLog, seasonEps, now, seasonNum, c.t.name);
     if(!n || n.silent) return;
     // Already flagged this exact drop? Don't re-offer — the reminder is on file.
     const _epId = c.next && (c.next.id || ('S'+c.next.season+'E'+c.next.number));
@@ -1348,6 +1603,7 @@
       if(reply){
         const shown = addPierre(reply);   // strips any [SWITCH]/[ASK]/[ROUTE] tag
         history.push({role:'assistant', content: shown || reply});
+        fbReady(true);   // a real exchange happened → the feedback band goes live
       }else if(hasCap){
         addPierre("The signal dropped ("+res.status+"). "+nativeAuthDiag());
       }else{
@@ -1374,6 +1630,14 @@
     // Never echo a password into the transcript (the box is masked; the bubble was not).
     addUser(input.classList.contains('secret') ? '••••••' : text);
     input.value = ''; autoGrow();
+    // "Something else" on the finished-early prompt: parse the typed runtime, file it to
+    // the consensus queue, then resume the finished-fork. Must precede the noteCtx branch
+    // (noteCtx is still set during the note flow).
+    if(rtAskFlow){ const rf=rtAskFlow; rtAskFlow=null;
+      const m=parseInt(text,10);
+      if(m>0){ reportRuntime(rf.p, m); addPierre('Thanks — noted '+m+' min.'); }
+      else { addPierre('No worries — leaving it as is.'); }
+      showFinishedFork(rf.p, rf.finishedLabel); return; }
     // A pending note (finished watch / note-to-Pierre / share-a-thought): persist
     // the line, then Pierre reacts as a real turn (share offer follows if due).
     if(noteCtx){ noteTurn(text); return; }
@@ -1410,13 +1674,18 @@
   // The composer button tracks the text box: a MIC while it's empty (voice is a tap
   // away), the send ARROW the moment there's something to send — and back to the mic if
   // the box is cleared. Recording/transcribing own the button, so leave those alone. The
-  // typed-only flows (join / account / add-a-show) don't offer voice, so their empty box
-  // keeps the arrow rather than a mic that would start a recording.
+  // Empty box → mic; typed text → arrow. Voice-first EVERYWHERE, including the typed
+  // onboarding flows (room build / add-a-show), so a new user always sees the mic and
+  // gets the OS permission prompt the first time they tap it. The only exceptions are
+  // email + password entry (data-kb="email" / the secret class), where a spoken
+  // transcript is the wrong input — those keep the arrow on an empty box. A voice
+  // capture drops its transcript INTO the box (stopComposerRec), so it then submits
+  // through the same path a typed line would (e.g. joinSearch on the picking step).
   function refreshComposerBtn(){
     if(sendMode==='rec' || sendMode==='busy') return;
     const hasText = input.value.trim().length > 0;
-    const voiceOk = !joinFlow && !acctFlow && !addFlow;
-    const target = hasText ? 'send' : (voiceOk ? 'mic' : 'send');
+    const typedOnly = input.classList.contains('secret') || input.getAttribute('data-kb') === 'email';
+    const target = hasText ? 'send' : (typedOnly ? 'send' : 'mic');
     if(target !== sendMode) setSendMode(target);
   }
   // Focusing an empty box keeps the mic (tap to record, or type to reveal the arrow).
@@ -1487,10 +1756,14 @@
   function clearChat(){
     if(IS_DEMO) return;
     history.length = 0; log.innerHTML = '';
+    PIERRE_CONVO = newConvoId();   // a fresh chat is its own transcript
     addFlow=null; acctFlow=null; joinFlow=null; noteCtx=null;
-    seasonNoteFlow=false; seasonNote=null;
+    seasonNoteFlow=false; seasonNote=null; roomPhase=null;
+    _intentSeen=false; _nudged=false; _eggChecked=false; _awaitingTed=false; stopTedPolling();
+    try{ setClearChatMode(false); }catch(_){}   // leave the "Start new chat" state if we were in it
     inputSecret(false); input.placeholder = "Ask Pierre what to watch...";
     setCtxIndicator('chat');
+    fbReady(false);                             // band goes inactive until Pierre replies again
     addPierre("Fresh start. What are you in the mood for?");
     setSendMode('mic'); try{ input.blur(); }catch(_){}   // voice-first: rest on the mic
   }
@@ -2034,10 +2307,14 @@
      and populates the Log. TVMaze-validated picks. */
   let joinFlow=null, joinStep=0, joinPicks=[[],[],[]], joinEmail="";
   const JOIN_STEPS=[
-    {key:"favorites", target:5, bubble:"Let's build your room. Drop five all time favorites, one at a time."},
+    {key:"favorites", target:5, room:true, bubble:"Let's build your room. Give me the two shows you love that have nothing in common. Mine are Mork and Mindy and Homicide: Life on the Street. Your turn, then I'll guess three more for the room."},
     {key:"current",   target:3, bubble:"Nice. Now three you are watching this week."},
     {key:"future",    target:0, bubble:"Anything you are waiting on? Add a few, or say skip."}
   ];
+  // Room step is a two-phase thing: 'pair' collects the two shows the member types or says,
+  // then 'guess' shows Pierre's three grounded picks to accept or reroll. 'manual' is the
+  // escape where the member types their own show for a slot instead of taking a guess.
+  let roomPhase=null, roomThread='', roomGuesses=[], _roomMicLineShown=false, _eggChecked=false;
 
   function enterJoinFlow(){
     addFlow=null; acctFlow=null; noteCtx=null; joinFlow='auth-email'; joinStep=0; joinPicks=[[],[],[]]; joinEmail="";
@@ -2089,7 +2366,9 @@
   }
   function promptJoinStep(){
     const cfg=JOIN_STEPS[joinStep];
+    if(cfg.room){ promptRoomPair(); return; }   // step 0 is the two-show pair + guess flow
     input.placeholder="Type a show, one at a time";
+    refreshComposerBtn();   // empty box on a picking step → show the mic right away (not the stale arrow)
     const have=joinPicks[joinStep].length, need=cfg.target;
     const count = need ? (have+" of "+need) : (have+" added, optional");
     const chips = need ? null : [{label:(have?'Done':'Skip'), onClick:advanceJoin}];
@@ -2114,6 +2393,9 @@
     joinFinalize();
   }
   async function joinSearch(text){
+    // Easter egg: scan the RAW submission (typed or transcribed) during the pair phase,
+    // before it resolves to any show. A Robin Williams mention grants a free trial month.
+    if(joinStep===0 && roomPhase==='pair') checkEgg(text);
     showTyping();
     let results=[];
     try{ const r=await fetch('https://api.tvmaze.com/search/shows?q='+encodeURIComponent(text)); results=r.ok?await r.json():[]; }
@@ -2129,6 +2411,7 @@
   }
   function addJoinPick(show){
     const cfg=JOIN_STEPS[joinStep];
+    if(cfg.room){ addRoomShow(show); return; }   // step 0 collects the pair (or a manual fill) with source flags
     if(cfg.target && joinPicks[joinStep].length>=cfg.target) return;
     if(!joinPicks[joinStep].some(p=>p.id===show.id)) joinPicks[joinStep].push({id:show.id, name:show.name});
     input.focus();
@@ -2137,6 +2420,153 @@
     pierreSay("Added "+show.name+". "+(need?(have+" of "+need+", keep going"):(have+" so far, add more or say skip")),
       need?null:[{label:'Done', onClick:advanceJoin}], true);
   }
+  // ─── Room building: two-show pair, Pierre guesses three ─────────────────────
+  function promptRoomPair(){
+    roomPhase='pair';
+    flowChrome(true);        // composer + mic visible (the mic is the permission ask, folded in here)
+    input.placeholder="Type a show, or say it";
+    refreshComposerBtn();   // empty box → mic, so the OS permission ask happens right here
+    pierreSay(JOIN_STEPS[0].bubble+"  (0 of 2)", null, true);
+    if(!_roomMicLineShown){ _roomMicLineShown=true; addPierre("You can type these or just say them, your call."); }
+    scrollLogBottom();
+  }
+  function addRoomShow(show){
+    if(joinPicks[0].some(p=>p.id===show.id)){ pierreSay("Already in the room. Another?", null, true); input.focus(); return; }
+    joinPicks[0].push({id:show.id, name:show.name, source:'user'});   // typed or said by the member
+    input.focus();
+    const n=joinPicks[0].length;
+    if(roomPhase==='pair'){
+      if(n>=2){ startRoomGuess(); return; }
+      pierreSay("Got "+show.name+". One more, something that shares nothing with it.  (1 of 2)", null, true);
+      return;
+    }
+    // manual fill: the member chose to type their own instead of taking a guess
+    if(n>=5){ finishRoom(); return; }
+    pierreSay("Added "+show.name+".  ("+n+" of 5)", null, true);
+  }
+  async function pierreAuthPair(){
+    const appToken = IS_NATIVE ? await appNativeToken() : '';
+    const token    = IS_NATIVE ? '' : await turnstileToken();
+    return { token, appToken };
+  }
+  async function startRoomGuess(){
+    roomPhase='guess';
+    flowChrome(false);   // the cards are the choice now, hide the composer
+    showTyping();
+    let data=null;
+    try{
+      const { token, appToken } = await pierreAuthPair();
+      const r=await fetch(API+'/pierre/room-guess',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ show1:joinPicks[0][0].name, show2:joinPicks[0][1].name, token, appToken, email:pgSession()||undefined })});
+      if(r.ok) data=await r.json();
+    }catch(_){}
+    clearTyping();
+    if(!data || !Array.isArray(data.picks) || data.picks.length<3){
+      // Could not ground three real shows. Let the member fill the last three by hand.
+      roomPhase='manual';
+      flowChrome(true); input.placeholder="Type a show, or say it"; refreshComposerBtn();
+      pierreSay("My guesser slipped there. Give me three more you love and we will call the room done.  (2 of 5)", null, true);
+      input.focus(); return;
+    }
+    roomThread = data.thread || '';
+    renderRoomGuesses(roomThread, data.picks.slice(0,3));
+  }
+  function renderRoomGuesses(thread, picks){
+    roomGuesses = picks.slice();
+    const wrap=document.createElement('div'); wrap.className='msg pierre';
+    wrap.innerHTML='<div class="who">Pierre</div><div class="bubble"></div>';
+    wrap.querySelector('.bubble').textContent = thread || "Here is the thread. Three more for the room.";
+    const grid=document.createElement('div'); grid.className='rg-grid';
+    picks.forEach(g=> grid.appendChild(buildGuessCard(g)) );
+    wrap.appendChild(grid);
+    const alt=document.createElement('button'); alt.className='chip rg-own'; alt.textContent='Type my own instead';
+    alt.addEventListener('mousedown',e=>e.preventDefault());
+    alt.onclick=()=>typeOwnFifth();
+    wrap.appendChild(alt);
+    log.appendChild(wrap); scrollLogBottom();
+  }
+  function buildGuessCard(g){
+    const card=document.createElement('div'); card.className='rg-card'; card.dataset.name=g.name;
+    if(g.poster){ const im=document.createElement('img'); im.className='rg-poster'; im.loading='lazy'; im.alt=''; im.src=g.poster;
+      im.onerror=()=>{ im.classList.add('rg-noposter'); im.removeAttribute('src'); }; card.appendChild(im); }
+    else { const d=document.createElement('div'); d.className='rg-poster rg-noposter'; card.appendChild(d); }
+    const body=document.createElement('div'); body.className='rg-body';
+    const nm=document.createElement('div'); nm.className='rg-name'; nm.textContent=g.name;
+    const why=document.createElement('div'); why.className='rg-why'; why.textContent=g.reason||'';
+    body.appendChild(nm); body.appendChild(why); card.appendChild(body);
+    const acts=document.createElement('div'); acts.className='rg-actions';
+    const addB=document.createElement('button'); addB.className='rg-add'; addB.textContent='Add';
+    const reB=document.createElement('button'); reB.className='rg-reroll'; reB.textContent='Reroll';
+    [addB,reB].forEach(b=>b.addEventListener('mousedown',e=>e.preventDefault()));
+    addB.onclick=()=>{ addB.disabled=true; reB.disabled=true; acceptGuess(g, card); };
+    reB.onclick=()=>{ reB.disabled=true; addB.disabled=true; rerollGuess(g, card); };
+    acts.appendChild(addB); acts.appendChild(reB); card.appendChild(acts);
+    return card;
+  }
+  function acceptGuess(g, card){
+    if(!joinPicks[0].some(p=>p.id===g.tvmazeId)) joinPicks[0].push({id:g.tvmazeId, name:g.name, source:'pierre'});
+    if(card){ card.classList.add('rg-done'); const a=card.querySelector('.rg-add'); if(a) a.textContent='Added'; }
+    if(joinPicks[0].length>=5){ finishRoom(); }
+  }
+  async function rerollGuess(g, card){
+    const why=card.querySelector('.rg-why'); const prev=why?why.textContent:'';
+    if(why) why.textContent='rerolling...';
+    const seen=[joinPicks[0][0].name, joinPicks[0][1].name].concat(roomGuesses.map(x=>x.name)).concat(joinPicks[0].filter(p=>p.source==='pierre').map(p=>p.name));
+    let data=null;
+    try{
+      const { token, appToken } = await pierreAuthPair();
+      const r=await fetch(API+'/pierre/room-guess/one',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ show1:joinPicks[0][0].name, show2:joinPicks[0][1].name, avoid:seen, token, appToken })});
+      if(r.ok) data=await r.json();
+    }catch(_){}
+    if(!data || !data.pick){ if(why) why.textContent=prev||''; const a=card.querySelector('.rg-add'), b=card.querySelector('.rg-reroll'); if(a) a.disabled=false; if(b) b.disabled=false; return; }
+    const idx=roomGuesses.findIndex(x=>x.name===g.name); if(idx>=0) roomGuesses[idx]=data.pick; else roomGuesses.push(data.pick);
+    card.replaceWith(buildGuessCard(data.pick));
+  }
+  function typeOwnFifth(){
+    roomPhase='manual';
+    flowChrome(true); input.placeholder="Type a show, or say it"; refreshComposerBtn();
+    const left=Math.max(0, 5-joinPicks[0].length);
+    pierreSay("Your call. Give me "+left+" more you love.  ("+joinPicks[0].length+" of 5)", null, true);
+    input.focus();
+  }
+  async function finishRoom(){
+    // Record how the room got seeded (source flags + Pierre's thread) before moving on.
+    const email=pgSession();
+    if(email){
+      const shows=joinPicks[0].map(p=>({ title_id:'tvmaze:'+p.id, name:p.name, source:p.source||'user' }));
+      try{ fetch(API+'/profile/'+encodeURIComponent(email)+'/room-seed',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ thread:roomThread||'', shows })}); }catch(_){}
+    }
+    roomPhase=null;
+    pierreSay("That's your room. Five shows, two yours and three that ride the same hidden thread.");
+    advanceJoin();   // on to the current-week step
+  }
+  // Robin Williams easter egg: one free trial month, capped three per account (and a global
+  // backstop server side). Fires at most once per flow even if both shows mention him.
+  async function checkEgg(rawText){
+    if(_eggChecked) return;
+    if(!/robin\s+williams/i.test(rawText||'')) return;
+    _eggChecked=true;
+    const email=pgSession(); if(!email) return;
+    try{
+      const r=await fetch(API+'/profile/'+encodeURIComponent(email)+'/redeem-egg',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ code:'robin_williams' })});
+      const d=await r.json();
+      if(d && d.granted){ addPierre("Robin Williams. Most people never catch that. add a month to your free trial, us TV lovers gotta stick together!"); }
+      else if(d && d.atCap && d.reason==='account_cap'){ addPierre("Robin Williams. Most people never catch that. your free trial is maxxed out to 3 months, us TV lovers gotta stick together!"); }
+      else if(d && d.atCap && d.reason==='global_cap'){ addPierre("Robin Williams. Most people never catch that. we are all out of free months for the moment, but I see you."); }
+    }catch(_){}
+  }
+  // Record the OS mic-permission outcome once, the first time a recording is attempted.
+  let _micPermPosted=false;
+  function recordMicPermission(granted){
+    if(_micPermPosted) return; _micPermPosted=true;
+    const email=pgSession(); if(!email) return;
+    try{ fetch(API+'/profile/'+encodeURIComponent(email)+'/mic-permission',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ granted:!!granted })}); }catch(_){}
+  }
+
   async function joinFinalize(){
     joinFlow=null; setCtxIndicator('chat'); input.blur(); inputSecret(false); input.placeholder="Ask Pierre what to watch...";
     const f=joinPicks[0].length, c=joinPicks[1].length, w=joinPicks[2].length;
@@ -2289,6 +2719,7 @@
     // After the room settles, if nothing steered Pierre into a flow, check whether a
     // tracked show is in RAMP and, if so, deliver the scheduler nudge (once).
     setTimeout(()=>{ if(!_intentSeen && !addFlow && !joinFlow && !acctFlow && !noteCtx){ try{ wowProactiveNudge(); }catch(_){} } }, 1300);
+    fetchTedMessages();   // surface any reply Ted left since last time
   });
 
   // ── embedded in cube face ──
@@ -2319,7 +2750,7 @@
     document.addEventListener('touchstart', (ev) => {
       if (ev.touches.length !== 1 || !log) return;
       const max = log.scrollHeight - log.clientHeight;
-      if (max <= 0) return;                                           // nothing to scroll
+      if (!(max > 0)) return;                                         // nothing to scroll (also bails on NaN)
       if (log.scrollTop <= 0)        log.scrollTop = 1;
       else if (log.scrollTop >= max) log.scrollTop = max - 1;
     }, { passive: true });

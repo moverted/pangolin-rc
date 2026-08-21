@@ -25,7 +25,7 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>PangolinRC uses the microphone when you tap to record a short voice comment. Clips are stored so friends can hear them after they finish the episode.</string>
+	<string>PangolinRC uses the microphone only when you tap to record. Voice comments you leave on an episode are saved so friends can hear them after they watch. When you speak a show name or a note to Pierre, the audio is turned into text and the recording is discarded.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>PangolinRC uses the camera when you photograph a movie ticket to log a theater viewing.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

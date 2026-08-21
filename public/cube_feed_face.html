@@ -196,7 +196,12 @@ function weightedPick(key, words){
   b[pick]--; return pick;
 }
 const BAIL_SYNONYMS = ['bailed on', 'gave up on', 'abandoned', 'quit'];
-function verbFor(status, kind){
+// `epDone` = the latest touched episode is finished (you stopped AT THE END of it),
+// vs a mid-episode partial. A caught-up-but-unfinished series is still 'current', so
+// status alone can't tell "watched Ep 4" from "is watching Ep 5" — the flag does:
+// finish the episode → past tense; stop mid-episode → present tense (mirrors how you
+// actually left it).
+function verbFor(status, kind, epDone){
   const s = String(status||'').toLowerCase();
   if(kind === 'ticket') return 'saw';   // past default; feedCard uses 'bought a ticket for' for upcoming
   if(s === 'stopped') return weightedPick('bail', BAIL_SYNONYMS);
@@ -204,15 +209,15 @@ function verbFor(status, kind){
     switch(s){
       case 'completed': return 'watched';
       case 'comfort':   return 'is rewatching';
-      default:          return 'is watching';
+      default:          return epDone ? 'watched' : 'is watching';
     }
   }
   switch(s){
     case 'completed': return 'finished';
     case 'comfort':   return 'is rewatching';
     case 'returning': return 'caught up on';
-    case 'current':   return 'is watching';
-    default:          return 'is logging';
+    case 'current':   return epDone ? 'watched' : 'is watching';
+    default:          return epDone ? 'watched' : 'is logging';
   }
 }
 // Short date for a past ticket ("Jun 20, 2023").
@@ -415,14 +420,17 @@ async function loadFeed(){
     const me = uname() || 'You';
     const items = feed.map(row => {
       const isSelf = row.relationship === 'self';
-      const done = ['completed','returning'].includes(String(row.status||'').toLowerCase());
+      // Finishing the latest episode reads as "done" (past-tense verb + its styling), even
+      // when the SERIES is still 'current' (caught up, waiting on the next drop).
+      const lastDone = row.kind === 'show' && !!row.last_done;
+      const done = ['completed','returning'].includes(String(row.status||'').toLowerCase()) || lastDone;
       const ep = (row.kind !== 'movie' && row.kind !== 'ticket' && row.last_season && row.last_number)
         ? ('S' + pad2(row.last_season) + 'E' + pad2(row.last_number)) : '';
       // A ticket is "upcoming" if the film hasn't premiered yet (or the ticket date
       // is still in the future) → "bought a ticket for" + PREMIERES; else "saw … on <date>".
       const premiere = premiereInfo(row.premiered);
       const upcoming = row.kind === 'ticket' && ((premiere && premiere.future) || isFuture(row.ticket_date));
-      let verb = row.kind === 'ticket' ? (upcoming ? 'bought a ticket for' : 'saw') : verbFor(row.status, row.kind);
+      let verb = row.kind === 'ticket' ? (upcoming ? 'bought a ticket for' : 'saw') : verbFor(row.status, row.kind, lastDone);
       if(isSelf) verb = verb.replace(/^is\b/, 'are');   // "You are watching", not "You is watching"
       return {
         who: isSelf ? 'You' : (row.actor || String(row.actor_email||'').split('@')[0] || 'Someone'),
@@ -636,7 +644,7 @@ if (window.parent !== window) {
 // begins so the first up-swipe isn't eaten by iOS overscroll chaining.
 const _bodyEl=document.querySelector('.body');
 if(_bodyEl) document.addEventListener('touchstart',()=>{
-  const max=_bodyEl.scrollHeight-_bodyEl.clientHeight; if(max<=0) return;
+  const max=_bodyEl.scrollHeight-_bodyEl.clientHeight; if(!(max>0)) return;   // !(max>0) also bails on NaN
   if(_bodyEl.scrollTop<=0) _bodyEl.scrollTop=1; else if(_bodyEl.scrollTop>=max) _bodyEl.scrollTop=max-1;
 },{passive:true});
 </script>

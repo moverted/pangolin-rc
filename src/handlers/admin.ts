@@ -491,6 +491,7 @@ const RESOURCES: Record<string, Resource> = {
       { key: 'seq',             label: '#',       expr: 'pc.seq' },
       { key: 'role',            label: 'Who',     expr: 'pc.role' },
       { key: 'content',         label: 'Message', expr: 'pc.content' },
+      { key: 'needs_reply',     label: 'Ted?',    expr: "CASE WHEN pc.needs_ted=1 AND COALESCE(pc.ted_status,'')<>'handled' THEN 1 ELSE 0 END" },
       { key: 'grade',           label: 'Grade',   expr: "COALESCE(NULLIF(pc.grade,''),'ungraded')" },
       { key: 'created_at',      label: 'When',    expr: 'pc.created_at' },
     ],
@@ -513,6 +514,53 @@ const RESOURCES: Record<string, Resource> = {
       users: countPivot('By user', "COALESCE(NULLIF(pc.user_email,''),'anon')", 'User'),
     },
     note: 'Full Pierre chat transcripts, one row per turn, saved every turn. Search or filter to a Session, then sort by # to read the conversation in order. Grade Pierre’s turns inline to trail response quality.',
+  },
+
+  get_ted: {
+    label: 'Get Ted',
+    group: 'core',
+    // Full sessions that still need Ted: every turn of any conversation with an open
+    // [GETTED] escalation, so the thread reads exactly like Pierre chats (not a bare row).
+    from: "(SELECT * FROM pierre_chat WHERE conversation_id IN (SELECT conversation_id FROM pierre_chat WHERE needs_ted = 1 AND COALESCE(ted_status,'') <> 'handled')) pc",
+    idExpr: 'pc.id',
+    cols: [
+      { key: 'conversation_id', label: 'Session', expr: 'substr(pc.conversation_id,1,8)' },
+      { key: 'user_email',      label: 'User',    expr: "COALESCE(NULLIF(pc.user_email,''),'anon')" },
+      { key: 'role',            label: 'Who',     expr: 'pc.role' },
+      { key: 'content',         label: 'Message', expr: 'pc.content' },
+      { key: 'needs_reply',     label: 'Ted?',    expr: "CASE WHEN pc.needs_ted=1 AND COALESCE(pc.ted_status,'')<>'handled' THEN 1 ELSE 0 END" },
+      { key: 'created_at',      label: 'When',    expr: 'pc.created_at' },
+    ],
+    searchExprs: ['pc.user_email', 'pc.content', 'pc.conversation_id'],
+    sortDefault: 'created_at',
+    // Group by conversation, newest session first (by its first turn), turns in order.
+    defaultOrder: '(SELECT MIN(p2.created_at) FROM pierre_chat p2 WHERE p2.conversation_id = pc.conversation_id) DESC, pc.conversation_id ASC, pc.seq ASC',
+    groupBy: 'conversation_id',
+    groupHeaderCols: ['conversation_id', 'user_email'],
+    note: 'Sessions waiting on Ted, read like Pierre chats. Read the thread, then write one reply in the box under the conversation. It lands in the user’s app as a blue TED message and clears the session.',
+  },
+
+  feedback: {
+    label: 'Feedback',
+    group: 'core',
+    from: 'feedback f',
+    cols: [
+      { key: 'kind',       label: 'Kind',  expr: 'f.kind' },
+      { key: 'user_email', label: 'User',  expr: "COALESCE(NULLIF(f.user_email,''),'anon')" },
+      { key: 'face',       label: 'Face',  expr: "COALESCE(f.face,'')" },
+      { key: 'note',       label: 'Note',  expr: "COALESCE(f.note,'')" },
+      { key: 'created_at', label: 'When',  expr: 'f.created_at' },
+    ],
+    searchExprs: ['f.user_email', 'f.face', 'f.note'],
+    filters: [
+      { key: 'kind', label: 'Kind', expr: 'f.kind', options: ['up', 'down', 'get_ted'] },
+    ],
+    sortDefault: 'created_at',
+    pivots: {
+      kind:  countPivot('By kind', 'f.kind', 'Kind'),
+      users: countPivot('By user', "COALESCE(NULLIF(f.user_email,''),'anon')", 'User'),
+    },
+    note: 'Quick thumbs (and Get Ted taps) from the console band, for your manual review. A Get Ted tap also opens a session in the Get Ted queue.',
   },
 
   runtime_report: {
@@ -681,7 +729,13 @@ adminRoutes.post('/app-status', async (c) => {
   if (u?.user_type !== 'admin') return c.json({ isAdmin: false, waitlistNew: 0 });
 
   const wl = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM waitlist WHERE status = 'new'").first<{ n: number }>();
-  return c.json({ isAdmin: true, waitlistNew: wl?.n ?? 0, adminUrl: 'https://admin.pangolinrc.com' });
+  // Chats waiting on Ted: distinct conversations with an open escalation (needs_ted, not
+  // yet handled). Counted per conversation, not per turn, so one chat is one badge unit.
+  const gt = await c.env.DB
+    .prepare("SELECT COUNT(DISTINCT conversation_id) AS n FROM pierre_chat WHERE needs_ted = 1 AND COALESCE(ted_status,'') <> 'handled'")
+    .first<{ n: number }>();
+  const getTedOpen = gt?.n ?? 0;
+  return c.json({ isAdmin: true, waitlistNew: wl?.n ?? 0, getTedOpen, adminUrl: 'https://admin.pangolinrc.com' });
 });
 
 // POST /admin/write/:resource — { id, key, value } → inline-edit one column of one
@@ -734,4 +788,35 @@ adminRoutes.post('/comments/hide', async (c) => {
     ).bind(id, Date.now()).run();
   }
   return c.json({ ok: true, id, hidden });
+});
+
+// POST /admin/ted-reply — { id, text } → Ted answers an escalation. Looks up the flagged
+// pierre_chat turn, appends a role='ted' turn to that same conversation for the member to
+// see (the app pulls it in on next open), and marks the escalation handled. Gated like
+// the rest of /admin/*.
+adminRoutes.post('/ted-reply', async (c) => {
+  const denied = adminGate(c); if (denied) return denied;
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const id = typeof body.id === 'string' ? body.id : '';
+  const text = typeof body.text === 'string' ? body.text.trim().slice(0, 4000) : '';
+  if (!id || !text) return c.json({ error: 'id and text required' }, 400);
+  const row = await c.env.DB
+    .prepare('SELECT conversation_id, user_email FROM pierre_chat WHERE id = ?')
+    .bind(id).first<{ conversation_id: string; user_email: string | null }>();
+  if (!row) return c.json({ error: 'not found' }, 404);
+  const seqRow = await c.env.DB
+    .prepare('SELECT COALESCE(MAX(seq),0) AS m FROM pierre_chat WHERE conversation_id = ?')
+    .bind(row.conversation_id).first<{ m: number }>();
+  const seq = (seqRow?.m || 0) + 1;
+  const now = Date.now();
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      "INSERT INTO pierre_chat (id, conversation_id, user_email, seq, role, content, grade, needs_ted, ted_status, created_at) VALUES (?, ?, ?, ?, 'ted', ?, '', 0, '', ?)",
+    ).bind(crypto.randomUUID(), row.conversation_id, row.user_email, seq, text, now),
+    // One reply closes the whole session: mark EVERY open escalation turn in it handled,
+    // not just the one replied from (a session can carry more than one [GETTED] turn).
+    c.env.DB.prepare("UPDATE pierre_chat SET ted_status = 'handled' WHERE conversation_id = ? AND needs_ted = 1").bind(row.conversation_id),
+  ]);
+  return c.json({ ok: true, id, delivered: !!row.user_email });
 });

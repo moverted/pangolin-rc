@@ -7,6 +7,17 @@
 // See the cube map in CLAUDE.md.
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js';
 
+// One-time login migration: the founder app account was renamed
+// edward.m.willett@gmail.com -> ted@pangolinrc.com. A device still holding the old address
+// in local storage would be a ghost account (that user no longer exists), so rewrite it
+// before anything reads pg_user. Runs before the face iframes are created. Harmless for all.
+try {
+  if (localStorage.getItem('pg_user') === 'edward.m.willett@gmail.com') {
+    localStorage.setItem('pg_user', 'ted@pangolinrc.com');
+    localStorage.setItem('pg_refresh', String(Date.now()));
+  }
+} catch (_) {}
+
 // UAT convenience: on a branch PREVIEW host only (a *.pangolin-rc.pages.dev SUBDOMAIN,
 // e.g. wow-scheduler.pangolin-rc.pages.dev), auto-sign-in the owner so preview builds
 // come up logged in. Never fires on the bare prod canonical (pangolin-rc.pages.dev) or
@@ -14,7 +25,7 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.m
 try {
   const h = location.hostname;
   if (h !== 'pangolin-rc.pages.dev' && /\.pangolin-rc\.pages\.dev$/.test(h) && !localStorage.getItem('pg_user')) {
-    localStorage.setItem('pg_user', 'edward.m.willett@gmail.com');
+    localStorage.setItem('pg_user', 'ted@pangolinrc.com');
     localStorage.setItem('pg_refresh', String(Date.now()));
   }
 } catch (_) {}
@@ -235,6 +246,7 @@ function pierreMicSync() {
   // hidden; only the context picker still syncs to Pierre focus.
   if (window._setPierreMic) window._setPierreMic(false);
   if (window._setPierreCtx) window._setPierreCtx(on);
+  if (window._setFeedbackBand) window._setFeedbackBand(on);   // thumbs + Get Ted: Pierre face only
 }
 
 function lock() {
@@ -265,6 +277,7 @@ function unlock() {
   if (window._kbHide) window._kbHide();   // leaving a face closes the console keyboard
   if (window._setPierreMic) window._setPierreMic(false);
   if (window._setPierreCtx) window._setPierreCtx(false);
+  if (window._setFeedbackBand) window._setFeedbackBand(false);
   canvas.style.opacity = '1';   // cube returns as the free-nav object
   hideFaceInfo();
   snapping = false; // release to free rotation
@@ -519,7 +532,15 @@ function faceCssMatrix3d(pts) {
   const src = _basis([0,0],[W,0],[W,H],[0,H]);
   const dst = _basis([pts[0].x,pts[0].y],[pts[1].x,pts[1].y],[pts[2].x,pts[2].y],[pts[3].x,pts[3].y]);
   const h = _mul3(dst, _adj3(src)); const s = h[8];
-  return `matrix3d(${h[0]/s},${h[3]/s},0,${h[6]/s},${h[1]/s},${h[4]/s},0,${h[7]/s},0,0,1,0,${h[2]/s},${h[5]/s},0,1)`;
+  // A degenerate projection — a face grazing edge-on (zero screen area) or an off-screen
+  // corner that projected to NaN — drives s toward 0, so every h[i]/s becomes Infinity or
+  // NaN. Writing THAT into an iframe's CSS transform corrupts its layer bounds and aborts
+  // on the next scroll/pan (UIScrollView.setContentOffset → CALayer.setBounds → SIGABRT).
+  // Return null instead so the caller simply keeps the last good transform for this frame.
+  if (!Number.isFinite(s) || Math.abs(s) < 1e-9) return null;
+  const m = [h[0]/s, h[3]/s, h[6]/s, h[1]/s, h[4]/s, h[7]/s, h[2]/s, h[5]/s];
+  for (let i = 0; i < m.length; i++) if (!Number.isFinite(m[i])) return null;
+  return `matrix3d(${m[0]},${m[1]},0,${m[2]},${m[3]},${m[4]},0,${m[5]},0,0,1,0,${m[6]},${m[7]},0,1)`;
 }
 
 // Keyed by BoxGeometry material index; corners in TL→TR→BR→BL order (local cube space)
@@ -779,7 +800,7 @@ let t = 0;
           return { x: (_fP.x + 1) / 2 * VW, y: (1 - _fP.y) / 2 * VH };
         });
         const tx = faceCssMatrix3d(pts);
-        if (cfg._tx !== tx) { cfg.frame.style.transform = tx; cfg._tx = tx; }
+        if (tx && cfg._tx !== tx) { cfg.frame.style.transform = tx; cfg._tx = tx; }
       }
       const opacity = active ? 1 : dot;
       if (Math.abs(cfg._op - opacity) > 0.004) {
@@ -832,10 +853,16 @@ let t = 0;
       // momentum scroll alive — and renders the face sharp instead of a
       // 480px layout stretched to fit. The projection path restores the
       // natural IFRAME_SZ box when the face rides the cube again.
-      const px = Math.round(size) + 'px';
+      // Defend the pin against a transient bad viewport (a keyboard show/hide can report
+      // vv.height 0, making availH negative → size NaN/negative): a NaN width or transform
+      // here corrupts the frame's layer bounds and crashes on the next pan. Only write
+      // finite, positive values; otherwise skip this frame and keep the last good box.
       const f = cfg.frame;
-      if (f.style.width !== px) { f.style.width = px; f.style.height = px; }
-      f.style.transform = `translate(${x}px, ${y}px)`;
+      if (Number.isFinite(size) && size > 0) {
+        const px = Math.round(size) + 'px';
+        if (f.style.width !== px) { f.style.width = px; f.style.height = px; }
+      }
+      if (Number.isFinite(x) && Number.isFinite(y)) f.style.transform = `translate(${x}px, ${y}px)`;
       cfg._tx = '';                               // force projection to re-apply when unlocked
     }
   }
@@ -1370,11 +1397,31 @@ document.getElementById('device-chip').addEventListener('click', () => cubeRotat
 // Console floating cube → back to cube nav. Shown only while a face is open.
 (function initWheelCube(){
   const wc = document.getElementById('wheel-cube');
+  const fb = document.getElementById('feedback-band');
   if(!wc) return;
   wc.addEventListener('click', () => { if(locked) unlock(); });
-  // Track lock state each frame is overkill; piggyback on the existing lock/unlock
-  // by observing `locked` on a light interval is unnecessary — toggle from lock/unlock.
+  // Cube shows on ANY open face. The feedback band shows only on the Pierre face (driven by
+  // pierreMicSync, same as the chat picker), never on the other faces.
   window._setWheelCube = (on) => wc.classList.toggle('show', !!on);
+  window._setFeedbackBand = (on) => { if(fb) fb.classList.toggle('show', !!on); };
+
+  if(fb){
+    const up = document.getElementById('fbUp'), down = document.getElementById('fbDown'), gt = document.getElementById('fbGetTed');
+    const btns = [up,down,gt].filter(Boolean);
+    // Inactive until Pierre has actually replied in this session (the face signals ready).
+    let _ready = false;
+    const applyReady = () => btns.forEach(b => { b.disabled = !_ready; });
+    window._setFeedbackReady = (ready) => { _ready = !!ready; applyReady(); };
+    applyReady();
+    // The Pierre face owns the current conversation and chat state, so the actions run
+    // there: a thumb records the vote and ends the chat; Get Ted escalates THIS session and
+    // closes it. The shell just relays the tap.
+    const toPierre = (msg) => { try { const cfg=FACE_OVERLAYS[PIERRE_FACE]; if(cfg&&cfg.frame&&cfg.frame.contentWindow) cfg.frame.contentWindow.postMessage(msg,'*'); } catch(_){} };
+    const flash = (btn) => { btn.classList.add('on'); setTimeout(() => btn.classList.remove('on'), 1000); };
+    if(up)   up.addEventListener('click',   () => { if(!_ready) return; flash(up);   toPierre({type:'fb:vote', kind:'up'}); });
+    if(down) down.addEventListener('click', () => { if(!_ready) return; flash(down); toPierre({type:'fb:vote', kind:'down'}); });
+    if(gt)   gt.addEventListener('click',   () => { if(!_ready) return; flash(gt);   toPierre({type:'fb:getted'}); });
+  }
 })();
 // The Profile face writes pg_device in its own iframe; the top window hears it as
 // a storage event. Re-read so the chip reflects a device change immediately.
@@ -1394,6 +1441,29 @@ window.addEventListener('storage', (e) => { if (e.key === 'pg_device') updateDev
   const enter = () => cubeRotateTo('log', { openMarathon: 'psycho' });
   // Rotate ~1s after the reveal — but never before the WATCH frame's own message
   // listener is live, or the open-marathon intent would post into the void.
+  setTimeout(() => {
+    if (!cfg || !cfg.frame) { enter(); return; }
+    let doc; try { doc = cfg.frame.contentWindow && cfg.frame.contentWindow.document; } catch (_) {}
+    if (doc && doc.readyState === 'complete') enter();
+    else cfg.frame.addEventListener('load', enter, { once: true });
+  }, 1000);
+})();
+
+// ── Logged-out first launch → straight to Pierre's login question ──────────────
+// The floating cube is a member's home. A visitor with no login on this device should
+// see one clear ask, not a cube to wander. So on boot with no pg_user, rotate to the
+// Pierre face and hand it the same intent the JOIN button does (intent:'join'), which
+// opens his "new here or returning, drop your email" flow. Members, an explicit ?open
+// deep-link, and demo/waitlist browsers all keep the cube.
+(function loggedOutToPierre(){
+  let member = false; try { member = !!localStorage.getItem('pg_user'); } catch (_) {}
+  if (member) return;
+  if (DEMO) return;                                             // demo browsers wander the cube
+  try { if (localStorage.getItem('pg_demo') === '1') return; } catch (_) {}   // waitlisted visitor
+  if (new URLSearchParams(location.search).get('open')) return; // an explicit deep-link wins
+  const cfg = FACE_OVERLAYS[FACE_INDEX.pierre];
+  const enter = () => cubeRotateTo('pierre', { intent: 'join' });
+  // Wait for the Pierre frame so the intent lands (same guard the front-door route uses).
   setTimeout(() => {
     if (!cfg || !cfg.frame) { enter(); return; }
     let doc; try { doc = cfg.frame.contentWindow && cfg.frame.contentWindow.document; } catch (_) {}
@@ -1694,6 +1764,8 @@ window.addEventListener('message', (e) => {
   if (e.data?.type === 'pangolin-back') unlock();
   // Pierre chat reports input focus so we can pin it above the keyboard.
   if (e.data?.type === 'pierre-chat-focus') chatFocused = !!e.data.focused;
+  // Pierre chat says whether the feedback band should be active (a reply has happened).
+  if (e.data?.type === 'pierre:fb-ready' && window._setFeedbackReady) window._setFeedbackReady(!!e.data.ready);
   // The Log face published its current records; keep a snapshot for the others,
   // plus a ready-to-load payload for the most-recently-watched show.
   if (e.data?.type === 'log:data') {
@@ -2072,8 +2144,9 @@ window.addEventListener('message', (e) => {
       });
       if (!r.ok) return;
       const d = await r.json();
-      window.__pgAdmin = { isAdmin: !!d.isAdmin, waitlistNew: d.waitlistNew || 0 };
-      setAppIconBadge(d.isAdmin ? (d.waitlistNew || 0) : 0);
+      window.__pgAdmin = { isAdmin: !!d.isAdmin, waitlistNew: d.waitlistNew || 0, getTedOpen: d.getTedOpen || 0 };
+      // Badge = waitlist new-signups + chats waiting on Ted.
+      setAppIconBadge(d.isAdmin ? ((d.waitlistNew || 0) + (d.getTedOpen || 0)) : 0);
     } catch (_) {}
   }
   refresh();

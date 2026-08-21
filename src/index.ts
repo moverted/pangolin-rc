@@ -539,6 +539,33 @@ app.post('/transcribe/endnote', async (c) => {
   return c.json({ id, endNote: true, spoiler: isSpoiler, private: isPrivate, createdAt: now });
 });
 
+// Quick feedback from the console band: thumbs up / down (Ted reviews by hand) and Get
+// Ted (opens a real escalation so it lands in the admin Get Ted queue, and Ted's reply
+// comes back through Pierre via the ted-messages fetch). Always records; no auth (it is
+// low-value and tied to the signed-in email the client sends).
+app.post('/feedback', async (c) => {
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const email = (typeof body.email === 'string' ? body.email : '').trim().toLowerCase();
+  const kind = typeof body.kind === 'string' ? body.kind.trim().slice(0, 20) : '';
+  const face = typeof body.face === 'string' ? body.face.trim().slice(0, 40) : '';
+  const note = typeof body.note === 'string' ? body.note.trim().slice(0, 500) : '';
+  if (!email || !['up', 'down', 'get_ted'].includes(kind)) return c.json({ error: 'email and valid kind required' }, 400);
+  const now = Date.now();
+  await c.env.DB.prepare('INSERT INTO feedback (user_email, kind, face, note, created_at) VALUES (?, ?, ?, ?, ?)')
+    .bind(email, kind, face || null, note || null, now).run();
+  if (kind === 'get_ted') {
+    // A one-turn synthetic conversation carrying the needs_ted flag, so the band's Get Ted
+    // rides the exact same admin queue + reply-delivery loop as a Pierre [GETTED] handoff.
+    const convo = crypto.randomUUID();
+    const content = note || `Tapped Get Ted from the ${face || 'app'} screen.`;
+    await c.env.DB.prepare(
+      "INSERT INTO pierre_chat (id, conversation_id, user_email, seq, role, content, grade, needs_ted, ted_status, created_at) VALUES (?, ?, ?, 1, 'user', ?, '', 1, '', ?)",
+    ).bind(crypto.randomUUID(), convo, email, content, now).run();
+  }
+  return c.json({ ok: true });
+});
+
 // Same-origin image proxy for CDNs that send no CORS header (image.tmdb.org movie posters),
 // so the share-card canvas can loadImg them crossOrigin and still toBlob() to share. TVmaze
 // (series) posters already send CORS and don't need this. Host-whitelisted; cached at the edge.
@@ -1023,7 +1050,7 @@ type BugRow = {
 };
 async function notifyBugEmail(env: Env, r: BugRow): Promise<void> {
   if (!env.BUG_EMAIL) return;
-  const to = (env.BUG_NOTIFY_TO || 'edward.m.willett@gmail.com').trim();
+  const to = (env.BUG_NOTIFY_TO || 'ted@pangolinrc.com').trim();
   const from = (env.BUG_FROM || 'bugs@pangolinrc.com').trim();
   // Headers must be ASCII — strip non-ASCII (emoji/em-dash) from the subject only.
   const subject = `Bug report: ${r.view || 'unknown'} (${r.user_email || 'anon'})`
@@ -1069,7 +1096,7 @@ app.options('/bug-reports', (c) => c.json({ ok: true }));
 // author's address is also accepted as a hardcoded fallback so the surface keeps
 // working even if the row is reset — "bulletproof" per the brief. Returns the open
 // (not fixed/wontfix) reports plus an open count for the badge.
-const HARDCODED_ADMINS = new Set(['edward.m.willett@gmail.com']);
+const HARDCODED_ADMINS = new Set(['ted@pangolinrc.com']);
 async function isAdmin(env: Env, email: string): Promise<boolean> {
   if (!email) return false;
   if (HARDCODED_ADMINS.has(email)) return true;

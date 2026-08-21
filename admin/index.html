@@ -52,6 +52,9 @@
 
   /* App layout */
   .app { display: grid; grid-template-columns: 210px 1fr; min-height: 100vh; }
+  .app.nav-collapsed { grid-template-columns: 1fr; }
+  .app.nav-collapsed .side { display: none; }
+  .navtoggle { background: rgba(250,246,236,0.1); color: var(--cream); box-shadow: none; font-size: 1rem; padding: 5px 12px; line-height: 1; }
   .side { background: rgba(0,0,0,0.22); padding: 22px 14px; border-right: 1px solid rgba(250,246,236,0.08); }
   .side h1 { font-size: 1.1rem; margin-bottom: 2px; }
   .side .sub { margin-bottom: 20px; }
@@ -93,6 +96,20 @@
   .gh-k { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(250,246,236,0.5); }
   .gh-v { color: rgba(250,246,236,0.95); font-weight: 600; }
   .gh-sep { margin: 0 10px; color: rgba(240,169,59,0.6); }
+  /* Collapsible sessions */
+  tr.group-header td { cursor: pointer; }
+  tr.group-header .gh-caret { color: rgba(240,169,59,0.9); margin-right: 7px; display: inline-block; width: 9px; }
+  tr.group-header.needs td { border-top-color: #5fd6e0; background: rgba(95,214,224,0.10); }
+  /* One reply bubble on a Get Ted row (blue Send, matching Ted's app voice) */
+  /* Reply box lives in its own full-width row under a session. position:sticky keeps it in
+     the viewport even when a wide table is scrolled sideways (so it is usable on a phone). */
+  tr.reply-row td { background: rgba(95,214,224,0.06); border-top: 1px solid rgba(95,214,224,0.25); padding: 12px; }
+  tr.reply-row .ted-reply { position: sticky; left: 12px; width: min(100%, calc(100vw - 40px)); }
+  .ted-reply { display: flex; gap: 8px; align-items: flex-start; }
+  .ted-reply-in { flex: 1; min-width: 150px; background: rgba(0,0,0,0.25); color: var(--cream); border: 1px solid rgba(250,246,236,0.18); border-radius: 8px; padding: 6px 8px; font-size: 0.82rem; font-family: inherit; resize: vertical; }
+  .ted-reply-send { background: #5fd6e0; color: #06232a; border: 0; border-radius: 999px; font-weight: 700; font-size: 0.75rem; padding: 6px 12px; cursor: pointer; white-space: nowrap; }
+  .ted-reply-send:disabled { opacity: 0.6; cursor: default; }
+  .needs-dot { color: #5fd6e0; font-weight: 700; }
   .muted { color: rgba(250,246,236,0.4); }
   td img.shot { max-height: 44px; border-radius: 5px; display: block; }
   audio.cmt-audio { height: 34px; width: 220px; }
@@ -108,7 +125,12 @@
   td input.edit-num { width: 74px; padding: 6px 8px; font-size: 0.82rem; background: rgba(0,0,0,0.25); color: inherit; border: 1px solid rgba(255,255,255,0.18); border-radius: 8px; transition: border-color 0.25s; }
   td input.edit-num.ok { border-color: #9fe0b0; }
   td input.edit-num.bad { border-color: #ffcf8f; }
+  .serial-wrap { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
   .serial { display: block; white-space: pre-wrap; max-width: 560px; font-size: 0.8rem; line-height: 1.5; color: rgba(250,246,236,0.9); }
+  /* Per-episode "copy all comments" button — small, ghost, sits above the serial text. */
+  button.copy-comments { background: rgba(250,246,236,0.1); color: var(--cream); box-shadow: none;
+    font-size: 0.72rem; font-weight: 600; padding: 4px 10px; align-self: flex-start; }
+  button.copy-comments:hover { background: rgba(250,246,236,0.18); }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -133,6 +155,7 @@
     </nav>
     <main>
       <div class="head">
+        <button class="navtoggle" id="navToggle" title="Show or hide the menu">☰</button>
         <h1 id="title"></h1>
         <div class="count" id="count"></div>
       </div>
@@ -189,6 +212,53 @@
     try { await apiPost('/admin/comments/hide', { id, hidden: chk.checked }); }
     catch (_) { chk.checked = !chk.checked; }   // revert
     finally { chk.disabled = false; }
+  }
+
+  // Copy this episode's entire comment list to the clipboard — the serialized text
+  // exactly as shown (mm:ss / SPLR / NOSP lines, one per comment). Reads the sibling
+  // .serial span so it copies the raw, un-escaped text with its line breaks intact.
+  async function onCopyComments(ev) {
+    const btn = ev.currentTarget;
+    const serial = btn.parentNode && btn.parentNode.querySelector('.serial');
+    const text = serial ? serial.textContent : '';
+    if (!text) return;
+    const flash = (msg) => { const o = btn.textContent; btn.textContent = msg; btn.disabled = true;
+      setTimeout(() => { btn.textContent = o; btn.disabled = false; }, 1200); };
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(text);
+      else { const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
+      flash('✓ Copied');
+    } catch (_) { flash('✗ Failed'); }
+  }
+
+  // Ted answers an escalation: one bubble, one Send. Drops a TED message into the user's
+  // chat (they see it next time they open the app) and marks the escalation handled.
+  async function onTedReply(ev) {
+    const btn = ev.currentTarget;
+    const tr = btn.closest('tr');
+    const id = btn.dataset.esc || (tr && tr.dataset.id) || '';
+    const ta = tr && tr.querySelector('.ted-reply-in');
+    const text = ta ? ta.value.trim() : '';
+    if (!id || !text) { if (ta) ta.focus(); return; }
+    const o = btn.textContent; btn.disabled = true; btn.textContent = 'Sending…';
+    try {
+      await apiPost('/admin/ted-reply', { id, text });
+      btn.textContent = 'Sent ✓'; if (ta) ta.value = '';
+      setTimeout(load, 700);   // refresh so this escalation flips to handled
+    } catch (_) { btn.textContent = 'Failed'; btn.disabled = false; setTimeout(() => { btn.textContent = o; }, 1400); }
+  }
+
+  // Collapsible sessions.
+  function setGroupCollapsed(gi, collapsed) {
+    const hdr = $('tbody').querySelector(`tr.group-header[data-gi="${gi}"]`);
+    if (hdr) { hdr.classList.toggle('collapsed', collapsed);
+      const c = hdr.querySelector('.gh-caret'); if (c) c.textContent = collapsed ? '▸' : '▾'; }
+    $('tbody').querySelectorAll(`tr[data-gi="${gi}"]:not(.group-header)`).forEach(r => { r.style.display = collapsed ? 'none' : ''; });
+  }
+  function toggleGroup(gi) {
+    const hdr = $('tbody').querySelector(`tr.group-header[data-gi="${gi}"]`);
+    setGroupCollapsed(gi, !(hdr && hdr.classList.contains('collapsed')));
   }
 
   // Admin write: inline-edit a row column (waitlist Status/Group). Row id is on the
@@ -326,14 +396,20 @@
     }
     // Hide: the one write action — a checkbox that toggles watch_comment.hidden.
     if (col.key === 'hidden') return `<input type="checkbox" class="hide-chk"${Number(val) ? ' checked' : ''} title="Hide this comment">`;
+    // One reply bubble on a Get Ted row: type and Send to drop a TED message into the user's chat.
+    if (col.key === 'reply') return `<div class="ted-reply"><textarea class="ted-reply-in" rows="1" placeholder="Write back to the user…"></textarea><button class="ted-reply-send">Send</button></div>`;
+    // Needs-a-reply flag on a Pierre-chat turn (drives session auto-collapse).
+    if (col.key === 'needs_reply') return Number(val) ? '<span class="needs-dot" title="Needs a reply">● needs Ted</span>' : '<span class="muted">—</span>';
     // Reports: red pill when a comment has been flagged for review, muted 0 otherwise.
     if (col.key === 'flags') return Number(val) > 0 ? `<span class="pill flag">${esc(val)}</span>` : '<span class="muted">0</span>';
     // Audio: empty string means "no audio for this row"; a value is the comment id.
     if (col.key === 'audio') return (val == null || val === '') ? '<span class="muted">—</span>'
       : `<audio class="cmt-audio" controls preload="none" src="${API_BASE}/transcribe/audio/${encodeURIComponent(val)}"></audio>`;
     if (col.key === 'timecode') { const min = Math.max(0, Math.floor(Number(val) / 60000)); return `${String(Math.floor(min/60)).padStart(2,'0')}:${String(min%60).padStart(2,'0')}`; }
-    // Serialized "All comments" feed: preserve the line breaks between comments.
-    if (col.key === 'all_comments') return (val == null || val === '') ? '<span class="muted">—</span>' : `<span class="serial">${esc(val)}</span>`;
+    // Serialized "All comments" feed: preserve the line breaks between comments, and
+    // offer a one-tap copy of the whole episode's comment list (reads the .serial text).
+    if (col.key === 'all_comments') return (val == null || val === '') ? '<span class="muted">—</span>'
+      : `<div class="serial-wrap"><button type="button" class="copy-comments" title="Copy all comments for this episode">⧉ Copy</button><span class="serial">${esc(val)}</span></div>`;
     if (val == null || val === '') return '<span class="muted">—</span>';
     if (col.date) return esc(fmtDate(val));
     if (col.key === 'screenshot_url' && isUrl(val)) return `<a href="${esc(val)}" target="_blank" rel="noopener"><img class="shot" src="${esc(val)}" alt="shot"></a>`;
@@ -362,7 +438,8 @@
       else { state.sort = k; state.dir = 'desc'; }
       state.offset = 0; load();
     }));
-    let _prevGroup = null;
+    let _prevGroup = null, _gi = -1;
+    const groupNeeds = {};   // group index -> any turn in it still needs a Ted reply
     $('tbody').innerHTML = data.rows.map(row => {
       let out = '';
       // A group-header row starts each new group (e.g. one per Pierre conversation),
@@ -370,14 +447,18 @@
       if (cur.groupBy) {
         const g = row[cur.groupBy];
         if (g !== _prevGroup) {
+          _gi++; groupNeeds[_gi] = false;
           const hdr = headerMeta.map(c =>
             `<span class="gh-k">${esc(c.label)}</span> <span class="gh-v">${esc(row[c.key] == null ? '' : row[c.key])}</span>`
           ).join('<span class="gh-sep">·</span>');
-          out += `<tr class="group-header"><td colspan="${cols.length}">${hdr}</td></tr>`;
+          out += `<tr class="group-header" data-gi="${_gi}"><td colspan="${cols.length}"><span class="gh-caret">▾</span>${hdr}</td></tr>`;
         }
         _prevGroup = g;
+        if (Number(row.needs_reply) === 1) groupNeeds[_gi] = true;
       }
-      out += `<tr data-id="${esc(row._id || '')}">` + cols.map(col => {
+      const giAttr = cur.groupBy ? ` data-gi="${_gi}"` : '';
+      const escAttr = (Number(row.needs_reply) === 1) ? ` data-esc="${esc(row._id || '')}"` : '';
+      out += `<tr data-id="${esc(row._id || '')}"${giAttr}${escAttr}>` + cols.map(col => {
         const msg = col.key === 'content' || col.key === 'message';
         const wrap = ['note','name','episode_name','show_name','transcription','excerpt','flaggers','all_comments'].includes(col.key);
         const cls = msg ? 'msgcell' : (wrap ? 'wrapcell' : '');
@@ -387,6 +468,36 @@
     }).join('') || `<tr><td colspan="${cols.length}" class="muted" style="padding:22px">No rows.</td></tr>`;
     $('tbody').querySelectorAll('.hide-chk').forEach(chk => chk.addEventListener('change', onHideToggle));
     $('tbody').querySelectorAll('.edit-cell').forEach(sel => sel.addEventListener('change', onEditCell));
+    $('tbody').querySelectorAll('.copy-comments').forEach(btn => btn.addEventListener('click', onCopyComments));
+    $('tbody').querySelectorAll('.ted-reply-send').forEach(btn => btn.addEventListener('click', onTedReply));
+    // Collapsible sessions: click a header to toggle. When any session still needs a Ted
+    // reply, auto-collapse the ones that do not, so the ones needing a response stand out.
+    if (cur.groupBy) {
+      const anyNeeds = Object.keys(groupNeeds).some(gi => groupNeeds[gi]);
+      Object.keys(groupNeeds).forEach(gi => {
+        const hdr = $('tbody').querySelector(`tr.group-header[data-gi="${gi}"]`);
+        if (hdr && groupNeeds[gi]) hdr.classList.add('needs');
+        setGroupCollapsed(gi, anyNeeds ? !groupNeeds[gi] : false);
+      });
+      $('tbody').querySelectorAll('tr.group-header').forEach(h =>
+        h.addEventListener('click', () => toggleGroup(h.dataset.gi)));
+    }
+    // Get Ted: a full-width reply box under each session that needs Ted (works on a phone,
+    // unlike a cramped table cell). Targets that session's escalation turn.
+    if (cur.key === 'get_ted') {
+      $('tbody').querySelectorAll('tr.group-header.needs').forEach(hdr => {
+        const gi = hdr.dataset.gi;
+        const rows = [...$('tbody').querySelectorAll(`tr[data-gi="${gi}"]:not(.group-header)`)];
+        if (!rows.length) return;
+        const escRow = rows.find(r => r.dataset.esc) || rows[rows.length - 1];
+        const escId = (escRow && (escRow.dataset.esc || escRow.dataset.id)) || '';
+        const tr = document.createElement('tr');
+        tr.className = 'reply-row'; tr.dataset.gi = gi;
+        tr.innerHTML = `<td colspan="${cols.length}"><div class="ted-reply"><textarea class="ted-reply-in" rows="2" placeholder="Write back to the user…"></textarea><button class="ted-reply-send" data-esc="${esc(escId)}">Send</button></div></td>`;
+        rows[rows.length - 1].insertAdjacentElement('afterend', tr);
+      });
+      $('tbody').querySelectorAll('.ted-reply-send').forEach(b => b.addEventListener('click', onTedReply));
+    }
 
     $('count').textContent = `${data.total.toLocaleString()} row${data.total === 1 ? '' : 's'}`;
     const from = data.total ? state.offset + 1 : 0;
@@ -412,6 +523,8 @@
 
   $('unlock').addEventListener('click', unlock);
   $('pw').addEventListener('keydown', e => { if (e.key === 'Enter') unlock(); });
+  // Collapse or show the left nav.
+  $('navToggle').addEventListener('click', () => $('app').classList.toggle('nav-collapsed'));
   if (PW) unlock();
 </script>
 </body>

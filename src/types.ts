@@ -95,7 +95,7 @@ export interface Env {
   PROCESS_QUEUE:  Queue<ProcessingJob>;
   EVENTS_QUEUE:   Queue<unknown>;
   BUG_EMAIL?:     SendEmail;  // Email Routing send binding — bug-report notifications (best-effort)
-  BUG_NOTIFY_TO?: string;     // var — recipient for bug emails (default edward.m.willett@gmail.com)
+  BUG_NOTIFY_TO?: string;     // var — recipient for bug emails (default ted@pangolinrc.com)
   BUG_FROM?:      string;     // var — from address on pangolinrc.com (default bugs@pangolinrc.com)
   SENDGRID_API_KEY?: string;  // secret — enables the waitlist-signup notification email (optional until set)
   WAITLIST_NOTIFY_TO?: string;   // var — recipient for signup notifications (default waitlist@pangolinrc.com)

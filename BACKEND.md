@@ -4,6 +4,363 @@ Append-only log. Any session that touches the Worker, D1, or deploy
 configuration adds an entry here before the session ends (see CLAUDE.md,
 "Backend and deploy rules").
 
+## 2026-08-20 — Pierre movie backfill flow + honest self-escalate (DEPLOYED)
+
+Worker `7fea88a4` (then copy/migration Pages) + app Pages deployed, iOS bundle synced.
+Kills the "Pierre says logged but nothing happened" bug for everyone.
+
+- **`catalog/backfill-movie`** (new): {email, name, watched_at ms, rating} → resolves the
+  film on TMDB (`searchAll`, now exported from tmdb.ts), materializes it, writes watch_title
+  completed + watch_episode done + a done session backdated to `watched_at`, and stores the
+  rating as a shared reflection. Server does the real work and returns the truth. Tested
+  live (The Matrix, backdated, rating) + cleaned up.
+- **Client (`cube_pierre_face.html`):** `[BACKFILL: title | day | rating]` tag →
+  `parseBackfill` → `runBackfill` resolves the day to noon LOCAL (`dayToNoonMs`, device tz),
+  calls the endpoint, and confirms ONLY what landed, then `askWatchedWith` (coviewer roster).
+  On a dead end it does NOT fake it: `selfEscalate` posts /feedback get_ted with context and
+  starts the Ted-reply poll, and Pierre says the honest "still in training, calling my
+  manager" line.
+- **`/feedback`:** the Get Ted escalation content now uses the posted `note` (so a backfill
+  dead end shows its context in the queue). Verified.
+- **Prompt (`pierre.ts`):** new BACKFILL section (gather title/day/rating, emit the tag,
+  never say "done", warm emotional follow-ups like "gentle little cry or big ugly one",
+  never scold a rating) + honesty rule ("still in training, call my manager Ted" then
+  [GETTED]).
+- **Console band relaid out** to [CHAT picker | 👍 GET TED 👎 | cube]: CHAT picker moved to
+  the left (freed device-chip slot) with its popup left-aligned, so it no longer collides
+  with the centered feedback band. Feedback band also stays up during Pierre chat.
+- **One-time login migration** in `cube_shell.js`: a device still holding
+  edward.m.willett@gmail.com in pg_user is rewritten to ted@pangolinrc.com before anything
+  reads it (runs before the face iframes), so the renamed founder account is not a ghost on
+  the next build.
+
+## 2026-08-20 — Willett family friend + coviewer graph (D1 data only)
+
+`scripts/willett-friends-coviewers.sql`. Ted (ted@pangolinrc.com), Audrey
+(audrey.arya.willett@gmail.com), Abby (aweid8@gmail.com) all made mutual friends (added
+Ted<->Audrey both ways + Abby->Audrey; Ted<->Abby was already mutual) so all three see each
+other's FEED. Coviewers made bidirectional+linked for Ted<->Audrey and Audrey<->Abby only
+(Audrey's roster gained Ted/Abby linked; Abby's existing name-only Audrey linked to her
+account). Ted and Abby are friends but deliberately NOT coviewers. Verified.
+
+## 2026-08-20 — Feedback band during Pierre + Audrey movie backfill (DEPLOYED)
+
+App Pages deployed + bundle synced. D1 data ops (no schema change).
+
+- **Feedback band stays up during Pierre chat:** removed the
+  `#controls:has(#console-kb.show) #feedback-band{display:none}` hide-on-keyboard rule in
+  index.html, so 👍/GET TED/👎 stay visible while a member is talking to Pierre (fast
+  iterate signal, "Pierre drives everything" voice path).
+- **Audrey used voice, not typing:** no mic_permission row (that logging postdates her
+  session), but the transcript is full of ASR errors ("Qsack"=Cusack, "suday"=Sunday,
+  "wherr"). Recorded here as the reason the transcription needs work.
+- **Backfilled Audrey's three films for real** (`scripts/audrey-log-movies.sql`): resolved
+  all three on TMDB (My Fault: London 1294203, Your Fault: London 1477317 — a real 2026
+  title, she was right, Don't Say Good Luck 1504358), `/catalog/initiate` to materialize,
+  then set watch_title completed + watch_episode done + a done session, backdated to NOON
+  America/Los_Angeles of the day she said (Sun Aug 16 / Mon Aug 17), and her ratings stored
+  as shared reflections (is_reflection=1, private=0): 5/5, 5/5, "4/5, and I cried like a
+  baby". Now in her Completed tab + the FEED time-slotted so friends see them.
+- **Mea culpa updated** to the new (now truthful) ending: logged as solo watches, offer to
+  add coviewers to the watches and profile.
+
+## 2026-08-19 — Proactive Pierre delivery + Audrey mea culpa (DEPLOYED)
+
+Worker `e1a5b3bd` + app Pages deployed, bundle synced. No schema change.
+
+- **`ted-messages` delivery now carries role + a Pierre channel:** query also returns
+  `role='pierre' AND ted_status='deliver'` turns (and the `role` field). Client
+  `fetchTedMessages` renders a delivered Pierre turn via `addPierre` (his voice, chat stays
+  open) and a Ted turn via `addTed` (closes the session). Lets Pierre send a proactive,
+  in-character message on next open.
+- **Queued Audrey's apology** (`scripts/audrey-mea-culpa.sql`): one `role='pierre'`,
+  `ted_status='deliver'` turn for audrey.arya.willett@gmail.com, owning the fake "logged"
+  claim and offering to log the three films properly with her ratings as notes. Shows on her
+  next open once she is on a build with the role-aware fetch. Editable/removable until seen.
+
+## 2026-08-19 — Device picker hidden + console feedback band (DEPLOYED)
+
+Migration `0045_feedback` applied REMOTE. Worker `d02a60ec` + app Pages deployed, iOS
+bundle synced. Two of a larger batch (Pierre movie-backfill flow still pending).
+
+- **Device picker hidden everywhere** (half-built, not working). `index.html`
+  `#device-chip.show{display:none}`. `cube_profile_face.html`: the Your Devices section
+  moved from the top to the very BOTTOM of the profile scroll and `display:none`, so
+  friends/coviewing get the top real estate. Ids kept so the JS still binds; flip the
+  display to bring it back at the bottom.
+- **Console feedback band** (`#feedback-band` in index.html, wired in `initWheelCube`):
+  thumbs up / GET TED / thumbs down, glyphs not emoji, centered in the console row left of
+  the floating cube, shown with it (any open face). `POST /feedback {email,kind,face}` →
+  `feedback` table (migration 0045). Get Ted also opens a one-turn `pierre_chat` escalation
+  (needs_ted=1) so it rides the SAME admin Get Ted queue + reply-delivery loop and bumps
+  the badge. New admin **Feedback** resource (kind/user/face/note + by-kind/by-user
+  pivots). Verified live: up + get_ted recorded, escalation created, cleaned up.
+
+## 2026-08-19 — Get Ted polish: badge, session view, mobile reply, poll (DEPLOYED)
+
+Worker `99c2c348` + admin Pages + app Pages deployed, iOS bundle synced. Follow-ups on the
+Ted reply loop.
+
+- **App-icon badge now includes Get Ted:** `/admin/app-status` returns `getTedOpen` =
+  COUNT(DISTINCT conversation_id) of open escalations; `cube_shell.js` badge = waitlistNew +
+  getTedOpen.
+- **App:** the closed-session composer now reads **"Start new chat"** (was Clear chat).
+  Added a 30s poll for Ted's reply that runs ONLY while the current session is waiting on
+  him (`_awaitingTed`, set when Pierre emits [GETTED]); it stops the moment a reply lands.
+- **Admin Get Ted reworked to a session view:** `from` now pulls every turn of any
+  conversation with an OPEN escalation, grouped by conversation like Pierre chats
+  (groupBy + groupHeaderCols + the same defaultOrder). Handled sessions drop out.
+- **Mobile reply box:** replaced the cramped per-row reply cell with a full-width reply
+  ROW injected under each needy session (`tr.reply-row`, textarea + blue Send), with
+  `position:sticky; left` so it stays in the viewport on a phone (the reason a reply could
+  not be written on mobile before). Targets that session's escalation turn.
+- **`/admin/ted-reply`** now marks EVERY open escalation turn in the conversation handled
+  (not just the replied-from id), so one reply closes the whole session (22c4a1e3 had two
+  [GETTED] turns). Verified: 22c4a1e3 resolved, turn 11 = the delivered TED reply, 0 open.
+
+## 2026-08-19 — Ted reply loop + admin session UX (DEPLOYED)
+
+Worker `25ae9767` + admin Pages (`pangolinrc-admin`) + app Pages deployed, iOS bundle
+synced. Closes the escalation loop: Ted answers from the admin, the reply reaches the
+user's app as a blue TED message. No schema change (reuses pierre_chat role='ted').
+
+- **`admin.ts` `POST /admin/ted-reply`** (adminGate): given a flagged turn id + text, appends
+  a role='ted' turn to that conversation (next seq) and sets the escalation ted_status
+  'handled'. **`GET /profile/:email/ted-messages?since=`** returns role='ted' turns newer
+  than the client high water, oldest-first. Verified end-to-end (insert → fetch → cleanup).
+- **`cube_pierre_face.html`:** `.msg.ted` renders in the palette's cold blue (`--screen`
+  #5fd6e0) with a TED label; `addTed()` renderer; `fetchTedMessages()` pulls unseen replies
+  on chat open + on visibilitychange, tracked by localStorage `pg_ted_seen` high water.
+- **Admin `get_ted` resource:** added a `reply` column (one textarea + blue Send per row →
+  /admin/ted-reply). **`pierre_chat` resource:** added a `needs_reply` flag column (needs_ted
+  AND not handled).
+- **`admin/index.html`:** collapsible left nav (☰ toggle, `.nav-collapsed`); collapsible
+  session groups (click a group header, caret ▾/▸); auto-collapse: when any session in a
+  grouped view still needs a Ted reply, the ones that do not are collapsed and the ones that
+  do are highlighted (blue top border) and left open.
+
+## 2026-08-19 — Session close on Ted reply: composer becomes Clear chat (DEPLOYED, client-only)
+
+App Pages deployed + bundle synced. When `fetchTedMessages` delivers a reply, the session
+is treated as closed: the member can scrub the thread, but the composer flips to a single
+read-only "Clear chat" action (`.clearmode`, send hidden, band mic suppressed). Tapping it
+wipes the log + history, mints a fresh `PIERRE_CONVO`, resets flow flags, and shows a new
+Pierre greeting. `PIERRE_CONVO` is now `let` + `newConvoId()`.
+
+## 2026-08-19 — Pierre "Get Ted" escalation queue (DEPLOYED)
+
+Migration `0044_pierre_getted` applied REMOTE. Worker `0c4a77b7` + app Pages deployed, iOS
+bundle synced. Backend + admin only (one trivial app touch: strip the tag). Read + act
+queue, NOT two-way messaging.
+
+- **Migration `0044_pierre_getted.sql`:** `pierre_chat` gains `needs_ted` (INTEGER) +
+  `ted_status` (TEXT, '' open / 'handled') + an index. Backfilled existing escalations by
+  phrase ('get ted' / 'ted''s got you'), which flagged session 22c4a1e3 (the Utopia
+  handoff) so the queue is not empty on day one.
+- **`pierre.ts` system prompt:** on a REAL handoff (not just mentioning Ted), Pierre ends
+  the reply with a hidden `[GETTED]` tag after one line of context. **`persistChatTurns`:**
+  detects the tag, sets `needs_ted=1` on that turn, strips the tag before storing the clean
+  text.
+- **`cube_pierre_face.html` `addPierre`:** strips `[GETTED]` from display like the existing
+  `[SWITCH]/[ASK]/[ROUTE]` tags, so the member never sees it.
+- **`admin.ts` new `get_ted` resource** ("Get Ted", core group): scoped via
+  `from: '(SELECT * FROM pierre_chat WHERE needs_ted=1) pc'`. Columns User / Pierre's
+  handoff / Status / Session / When; inline `ted_status` open|handled toggle; status + user
+  pivots. Served from the Worker so it shows up in the existing admin frontend with no
+  admin Pages redeploy. Copy the Session to read the full transcript under Pierre chats.
+
+## 2026-08-19 — Founder account rename + logged-out routing (DEPLOYED)
+
+Worker `b50ec98f` + Pages deployed, iOS bundle re-synced. Two changes.
+
+- **Founder app account renamed edward.m.willett@gmail.com to ted@pangolinrc.com.** No
+  collision (ted did not exist). D1 `pangolin-rc`: every email column updated via
+  `scripts/rename-founder-email.sql` (28 statements, `PRAGMA defer_foreign_keys=ON` so the
+  users PK + all child references commit together in the one --file transaction; FKs ARE
+  enforced here, an immediate update of users.email failed until deferred). D1
+  `pangolinrc-scheduler`: `scripts/rename-founder-email-scheduler.sql` (4 tables). Verified:
+  0 edward rows left, ted is `user_type='admin'` with 93 titles / 5 followers / 4 coviewers.
+  Login uses ted@pangolinrc.com + the same password (hash moved with the row). Code:
+  `FOUNDER_EMAIL`, `HARDCODED_ADMINS` (so Ted keeps admin), `BUG_NOTIFY_TO` default,
+  `cube_shell.js` preview auto-login, `OWNER_EMAIL`, `_data.html`, seed scripts,
+  wrangler.toml comment. LEFT UNCHANGED on purpose: the Cloudflare dashboard Google SSO
+  (edward's account, a different system), Ted's personal Gmail context, the
+  `edward-m-willett` workers.dev deploy subdomain (derives from the CF account, not the
+  email), applied migration `0020_user_type` and past BACKEND.md entries (immutable history;
+  admin is covered by HARDCODED_ADMINS + the renamed row).
+- **Logged-out cold start goes straight to Pierre's login question** (`cube_shell.js`
+  `loggedOutToPierre`): on boot with no `pg_user` it rotates to the Pierre face with
+  `intent:'join'` (the same flow the JOIN button fires), so a first-time visitor sees one
+  clear ask instead of the floating cube. Members, demo/waitlist browsers, and an explicit
+  `?open` deep-link still get the cube. Waits for the Pierre frame before handing the intent.
+- Also: JOIN splash YouTube embed (Error 153 in WKWebview) replaced with a static
+  pangolinrc.com link card.
+
+## 2026-08-19 — Pierre room building: divergent pair + mic auth (DEPLOYED)
+
+Migration `0043_room_pierre` applied REMOTE. Worker `d49864b3` + Pages (`pangolin-rc`
+public/) deployed. iOS bundle re-synced (Pierre face byte-matched) + Info.plist mic string
+updated. Replaces the old "Drop five favorites" onboarding step with a two-show pair that
+Pierre extends by three.
+
+- **Migration `0043_room_pierre.sql`:** `room_seed` (per-show source flag user vs pierre +
+  session thread line), `egg_redemption` (Robin Williams free-trial-month ledger, UNIQUE
+  (user_email, month_index) so a double-tap cannot grant the same month twice),
+  `mic_permission` (one row per member, permission outcome only, no audio).
+- **`pierre.ts`:** `POST /pierre/room-guess` and `POST /pierre/room-guess/one`. Same bot
+  gate as /chat (app secret or Turnstile). Runs the divergent-thread prompt on
+  claude-sonnet-4-6, parses {thread, picks[]}, grounds every pick against TVMaze
+  singlesearch, and regenerates any that do not resolve (bounded rounds) so the client only
+  renders real shows. `/one` returns a single grounded replacement for a rerolled card.
+- **`profile.ts`:** `POST /:email/redeem-egg` (per-account cap EGG_ACCOUNT_CAP=3 +
+  global backstop EGG_GLOBAL_CAP=500, both top-level constants; returns granted / atCap +
+  reason account_cap|global_cap|duplicate). `POST /:email/mic-permission` (upsert
+  granted/denied). `POST /:email/room-seed` (store the pair + accepted guesses + thread).
+  Verified live: grant x3 then account_cap, seeds + mic stored, throwaway account cleaned.
+- **`cube_pierre_face.html`:** new room flow. Pair phase collects two shows (typed or via
+  the composer mic, which is the folded-in permission ask), scans the raw text for
+  'robin williams' (keyword v1) to redeem; guess phase renders three tappable poster cards
+  (Add / Reroll) plus a "type my own" escape; room closes at five. mic outcome recorded on
+  first getUserMedia. Egg copy: grant = "add a month to your free trial, us TV lovers gotta
+  stick together!", account-maxxed = "your free trial is maxxed out to 3 months, ...".
+  Global-cap line ("we are all out of free months for the moment, but I see you") is my
+  addition, awaiting sign-off.
+- **Info.plist NSMicrophoneUsageDescription:** rewritten to the accurate dual-purpose
+  wording (stored voice comments AND transcribe-then-discard speech). The brief's premise
+  (old string said "nothing is recorded or stored") did not match the actual old string.
+
+## 2026-08-19 — Finish-while-asleep: stage FINISHED? on current, don't advance (DEPLOYED, client-only)
+
+Pages (`pangolin-rc` public/) deployed + iOS bundle re-synced (byte-matched). No Worker/D1.
+
+- **Bug:** returning to the app after the phone slept during an episode opened on the
+  NEXT episode (stopped), not the current one with a FINISHED? button.
+- **Root cause (`cube_log_face.html` `placeAwayTime`):** when away-time ≥ the episode's
+  remaining runtime it auto-completed the episode (`epDone=1` + `emitProgress(done)` +
+  `logSession` — which also cleared `pg_launch`) and **advanced focus to the next
+  episode** (`i++`). Hit on a binge return where the episode had prior progress, so
+  `needed < runtime` and launchShow's `promptFinish` (which uses the full stored runtime)
+  didn't catch it.
+- **Fix:** the completion branch now calls `stageReturnFinish(i)` — freeze THIS episode at
+  full, clear the live timer, and call the FINISH button out as **FINISHED?** (via
+  `calloutFinish`) — then `return`. Nothing is written to the account and focus never
+  advances until the member taps FINISHED? (→ `finishEpisode`). Matches the live-watch
+  return path. The partial branch (returned genuinely early) is unchanged.
+- Note: for a FRESH episode whose catalog runtime is padded (e.g. 12 Monkeys stored 60 vs
+  real ~42), a mid-window return still stages a partial rather than FINISHED? until the
+  runtime-report consensus corrects the catalog length; a long sleep (elapsed ≥ stored
+  runtime) already hits launchShow's promptFinish → FINISHED?.
+
+## 2026-08-18 — Pierre composer: mic on empty box in typed onboarding (DEPLOYED, client-only)
+
+Pages (`pangolin-rc` public/) deployed + iOS bundle re-synced (byte-matched). No Worker/D1.
+
+- **`cube_pierre_face.html` `refreshComposerBtn`:** the send button's empty-box rule was
+  `voiceOk = !joinFlow && !acctFlow && !addFlow` → the join "build your room" onboarding
+  (a joinFlow picking step) showed the **arrow** on an empty field, so a new user never
+  saw the mic there (and never hit the OS mic-permission prompt). Now empty → **mic**
+  everywhere EXCEPT email/password entry (`data-kb="email"` / `.secret`), which keep the
+  arrow. A voice capture drops its transcript into the box (stopComposerRec) and submits
+  through the same path a typed line would (e.g. joinSearch on the picking step).
+- Added a `refreshComposerBtn()` call in `promptJoinStep` so the mic shows the instant a
+  room-build step appears, not only after the field is tapped.
+
+## 2026-08-18 — TestFlight scroll-crash guards + founder-seed on signup (DEPLOYED)
+
+Worker `f805a9bf` + Pages (`pangolin-rc` public/) deployed; iOS bundle re-synced
+(6 files, byte-matched). Crash: EXC_CRASH/SIGABRT in CALayer.setBounds via
+UIScrollView.setContentOffset→handlePan on a fresh empty account.
+
+- **`cube_shell.js` (root cause fix):** `faceCssMatrix3d` now returns `null` when the
+  homography denominator `s`≈0 or any matrix element is non-finite (a face grazing
+  edge-on / an off-screen NaN corner) — the caller then keeps the last good transform
+  instead of writing `matrix3d(NaN…)` into an iframe's layer (which corrupts its bounds
+  and aborts on the next pan). Locked-face **pin** math likewise now only writes finite,
+  positive width/translate (a keyboard show/hide can momentarily report vv.height 0 →
+  negative/NaN size).
+- **Scroll-nudge guards:** the touchstart edge-nudge in feed/log/pierre/profile/watch
+  changed `if(max<=0)` → `if(!(max>0))` so a NaN `scrollHeight-clientHeight` bails
+  instead of assigning `scrollTop = NaN`.
+- **Feed empty-state:** already present (`.empty` card, two messages) — kept as-is per
+  Ted.
+- **`profile.ts` `POST /signup` — founder seed:** new members only (`!already`,
+  captured before the upsert; never the founder) get a mutual follow with
+  `FOUNDER_EMAIL` (edward.m.willett@gmail.com, a top-level constant for easy removal at
+  wide launch). `INSERT OR IGNORE` both directions in a `batch`; bypasses the slot cap
+  (system seed); best-effort try/catch so it never blocks signup; skipped if the founder
+  row is missing. Verified live: throwaway signup created both follow rows, then deleted
+  (user+follows+waitlist) — count back to 8. Existing accounts untouched.
+
+## 2026-08-18 — Admin Episode Feed: Copy-all-comments button (DEPLOYED, client-only)
+
+Pages (`pangolinrc-admin`, admin/) deployed. No Worker/D1 change — the `episode_comments`
+resource already returns the serialized `all_comments`.
+
+- **`admin/index.html`:** the `all_comments` cell now renders a small ghost **⧉ Copy**
+  button above the serialized text (`.serial-wrap`). `onCopyComments` copies the sibling
+  `.serial` textContent (raw, un-escaped, line breaks intact) via `navigator.clipboard`
+  (execCommand fallback), with a ✓ Copied / ✗ Failed flash. Wired per-render alongside the
+  hide/edit handlers.
+
+## 2026-08-18 — Runtime-mismatch prompt moved to Pierre (DEPLOYED, client-only)
+
+Pages (`pangolin-rc` public/) deployed + iOS bundle re-synced (byte-matched). No Worker/
+D1 change — the `/catalog/runtime-check` + `/catalog/runtime-report` endpoints already
+existed and are unchanged.
+
+- **Root cause it never worked:** `finishEpisode` fired `reportRuntimeMismatch` →
+  `askRealRuntime`, which appended a DOM box to the **Log face** — but the finish had
+  *already* rotated the cube to **Pierre**, so the box lived on the now-hidden face. Also
+  the streamer-launch / auto-complete finish paths never set `startedAt`, so `liveElapsed`
+  was null and the check was skipped there entirely.
+- **`cube_log_face.html`:** `finishEpisode` now computes `_earlyWatched` (rounded live
+  minutes when the finish ran ≥5 min short of a ≥half-watched runtime) and passes it to
+  `pierreFinishedNote(idx, earlyWatched)` → note payload `earlyWatched`. Still fires the
+  background `runtime-check` (TMDB auto-correct + admin note). Deleted the invisible
+  `askRealRuntime` box + its `.rt-ask` CSS.
+- **`cube_pierre_face.html`:** end-of-episode `enterNoteFlow` now asks — BEFORE the
+  Comment/next fork — "You wrapped up around {watched} min, but I have {ep} listed at
+  {stored}…" with chips **[{watched} minutes] [{stored} minutes] [Something else]**.
+  [watched]→POST `runtime-report`(watched); [stored]→"stopped early", no report;
+  [Something else]→composer captures a typed number (`rtAskFlow` branch in `submit`) →
+  `runtime-report`. Then continues to the normal fork. Uses `API` + `pgSession()`.
+
+## 2026-08-18 — Feed verb tense + FINISH re-tap → Pierre (DEPLOYED)
+
+Worker `47d2f973` + Pages (`pangolin-rc` public/) deployed. iOS bundle re-synced
+(public→www→cap copy); byte-matched. No migration.
+
+- **`profile.ts` `GET /:email/feed`:** added `last_done` to the `watch_title` query —
+  the `we.done` of the latest touched episode (same subquery shape as
+  `last_season`/`last_number`). Mapped as `last_done: !!Number(...)`.
+- **`cube_feed_face.html`:** `verbFor(status, kind, epDone)` now returns past-tense
+  ("watched") when the latest episode is finished, present-tense ("is watching") for a
+  mid-episode partial — a caught-up-but-unfinished series stays `current`, so status
+  alone couldn't tell "watched Ep 4 of Maul" from "is watching Silo". `loadFeed` derives
+  `lastDone = kind==='show' && row.last_done` and folds it into the `done` styling flag.
+  Verified live: Maul S1E4→watched, Silo S3E3→is watching, 12 Monkeys S1E13→watched.
+- **`cube_log_face.html` `finishEpisode()`:** the idempotency guard (already-finished
+  episode) no longer bare-`return`s — it re-asserts completion (skipping the BP-demote
+  back-date) then routes to Pierre (`finaleCheck` / `pierreFinishedNote`). Fixes "FINISH
+  did nothing" when the current episode was already done (Station Eleven). Client-only,
+  so it reaches the iOS app on the next TestFlight build, and web on this Pages deploy.
+
+## 2026-08-18 — Feed: age-out abandoned shows after 24h (DEPLOYED)
+
+Worker deployed (version `dd8593f8`). No migration, no schema change.
+
+- **`profile.ts` `GET /:email/feed`:** the `watch_title` query now excludes
+  `status='stopped'` rows once they're older than 24h, for **all** actors:
+  `AND NOT (wt.status = 'stopped' AND wt.updated_at < ?)` bound to
+  `bailCutoff = Date.now() - 24h`. A fresh bail still shows for its first day
+  (grace window / activity beat); after that it drops from everyone's feed so
+  stale bails don't clutter the stream or let newcomers watch someone clean
+  house. `updated_at` is the bail time (ms) written on stop; server-evaluated
+  per request, so no cron/cleanup needed. Tickets untouched (always
+  `status='ticket'`). Note: the client's `BAIL_SYNONYMS` verbs are now only
+  reachable during that 24h window. Verified live: 4 stopped shows (~14.7h old)
+  still present; no stale-stopped leaking.
+
 ## 2026-08-18 — Airtable mirroring DEPRECATED / ripped out (code done; deploy pending)
 
 The admin portal (admin.pangolinrc.com over D1) is now the sole human window onto app
@@ -1670,3 +2027,9 @@ Entry format:
   `"Founder's Circle"` (drives admin group column, filters, write validation).
   Checked live D1 first: no waitlist rows used the old value (2 rows, both empty
   group), so no data migration needed.
+
+## 2026-08-18 — Pierre backfill tiles + band fixes + no-lie
+- POST /catalog/backfill (replaces /catalog/backfill-movie): title_id-based, handles FILM and SERIES. Movie=1 ep; show=all aired eps done, watch_title completed, reflection episode_id='🎬'|'S..E..'. Client (cube_pierre_face runBackfill) now searches TMDB movies + TVmaze shows and shows tiles (presentPicker); doBackfill posts the picked title_id. Fixes The Leftovers logging as a movie.
+- POST /pierre/escalate {email, conversation_id, note?}: inserts needs_ted=1 turn into the CURRENT conversation so GET TED closes out the real session (not a synthetic one). Band GET TED + selfEscalate use it.
+- Feedback band: Pierre-face only (pierreMicSync→_setFeedbackBand), ready-gated (thumbs/GET TED inactive until Pierre has replied; pierre:fb-ready). Thumbs post /feedback then clearChat() (ends+resets chat). Consolidated duplicate clearChat into one full reset.
+- Prompt: hardened no-lie rule — only the [BACKFILL] tag logs; falsely saying "done" is the worst thing Pierre can do (fixes session 4c10d75d).

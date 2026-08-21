@@ -63,7 +63,7 @@
   <h1>pangolinRC · data</h1>
   <input id="email" placeholder="member email" spellcheck="false">
   <button id="go">Load</button>
-  <button class="quick" data-email="edward.m.willett@gmail.com">Ted</button>
+  <button class="quick" data-email="ted@pangolinrc.com">Ted</button>
   <button class="quick" data-email="demo@pangolinrc.com">Demo</button>
   <span id="api" class="muted"></span>
 </header>
@@ -213,7 +213,7 @@ $('go').onclick = ()=> load($('email').value);
 $('email').addEventListener('keydown', e=>{ if(e.key==='Enter') load($('email').value); });
 document.querySelectorAll('.quick').forEach(b=> b.onclick = ()=> load(b.dataset.email));
 
-const initial = new URLSearchParams(location.search).get('email') || 'edward.m.willett@gmail.com';
+const initial = new URLSearchParams(location.search).get('email') || 'ted@pangolinrc.com';
 load(initial);
 </script>
 </body>
