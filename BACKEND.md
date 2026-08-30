@@ -4,6 +4,408 @@ Append-only log. Any session that touches the Worker, D1, or deploy
 configuration adds an entry here before the session ends (see CLAUDE.md,
 "Backend and deploy rules").
 
+## 2026-08-29 — SET = Shadow page + Watch/Log tab-start logic (DEPLOYED, frontend-only)
+
+No Worker/D1 change (reuses the already-deployed `/shadow` + `/marathons` endpoints). App Pages
+(`pangolin-rc`, main). iOS NOT rebuilt.
+
+- **`public/cube_set_face.html`** — SET now opens on a new **SHADOW** sub-tab (the fused taste
+  profile) with COMPLETED as the second tab. Renders `GET /shadow?email=&all=1` grouped by tier
+  (Top 10/25/50/rest); per row: sentiment dot + title/kind + editable note (PUT) + sentiment select
+  + cut/restore (DELETE); filter, + Add (POST), ⟳ Rebuild (POST /shadow/rebuild). Classes namespaced
+  `shd-` to avoid the share dialog's `sh-` classes.
+- **`public/flat_shell.js` + `cube_watch_face.html` + `cube_log_face.html`** — Watch/Log tab-start
+  logic. `goWatch`: WATCH tab lands on the LOG detail when the timer is LIVE, else the QUEUE list
+  (was always LOG). The Watch list's ‹ CURRENT button now takes a `{active, live}` state
+  (`watch:state`): VISIBLE whenever there's an in-progress watch (paused or live), marquee ANIMATES
+  only while live. Shell probes the Log face (`watch:probe` → `_reportWatchState`) for the true live
+  state on focus. Top-right corner shares CURRENT (active) vs the savings stat (idle) so a phone-width
+  header doesn't overflow and clip CURRENT. Verified on a live Moonlighting-marathon watch.
+
+## 2026-08-29 — Nav restructure to PROD + COLLECT marathons endpoint/seed (DEPLOYED)
+
+The flat-app navigation restructure (branch `nav-restructure`) shipped to production. Bottom bar is
+now WATCH · FEED · PIERRE · BROWSE · SET (Log merged into Watch); Watch sub-tabs QUEUE/TICKETS/STACK
+(Tickets + physical-media Stack ported in from Browse, incl. the ZXing barcode scanner; SHELF→STACK
+with `MEDIA_KEY`→`pg_stack` back-compat migration); Browse → SUGGEST/COLLECT; new SET tab = Completed.
+DEPLOYED: Worker version `0e6a82a4-00d2-4b2d-ae41-558fb98cf515` + app Pages (`pangolin-rc`, main) +
+D1 data seed (no migration). iOS bundle NOT rebuilt (web only).
+
+- **`src/handlers/profile.ts`** — new `GET /:email/marathons`: the COLLECT view. Returns the `maps`
+  table split `{ yours, community }` by `owner_email` (a map reads as YOURS to its owner, COMMUNITY
+  to everyone else incl. NULL=global), each row with name/kind/step-count (join `map_steps`) + poster
+  (join `titles`). Additive, read-only; reuses the existing map/`active_map_id` plumbing. Verified on
+  prod: as ted → yours=[Moonlighting], community=[Psych]; as another email → yours=[], community=both.
+- **D1 seed (watch DB, no schema change):** `maps.owner_email` set to `ted@pangolinrc.com` for
+  `map:moonlighting-ultimate` (was NULL/global). Added `map:psych-psycho` — "Tressany's PSYCH-O
+  Marathon", `owner_email` NULL (community-for-all), title_id `tvmaze:517`, + a `titles` row for Psych
+  (poster) and 12 `map_steps` (the @tressandthecity curated list). NOTE: Psych's episodes are NOT
+  materialized in the catalog, so activating this map falls back to air order until it is (follow-up).
+
+### Deferred (tracked, not shipped)
+- The theater-ticket audio-reflection recorder (`openTicketFull`) stayed a Browse-only subsystem;
+  the ported Watch TICKETS tab lists stubs and opens the film on tap. Browse still carries the now-
+  unreachable ticket/media render code (safe dead code) pending cleanup.
+
+## 2026-08-28 — WATCH FRESH/leaf classifier + pager tab-drift hardening + Lanterns E2 data fix (DEPLOYED)
+
+Frontend-only (no Worker/D1 config change). DEPLOYED: app Pages (`pangolin-rc`, `445950ab`) +
+iOS bundle synced (Xcode opened for Ted's archive/distribute). Plus a one-off D1 **data**
+correction to Ted's account (no schema change).
+
+- **`public/cube_watch_face.html`** — two watch-mode fixes. (1) `wowFreshNow` broadened: a show
+  reads FRESH when you're caught up AND it's actively in-season — phase in
+  `LIVE/FRESH/PRE-SHOW/RAMP/SETTLED` (new `WOW_INSEASON_PHASES`), not just inside the old <=48h
+  post-air window. A caught-up weekly now stays FRESH between drops instead of decaying to CASUAL
+  (the "Lanterns should be FRESH not CASUAL" report). (2) `playheadMarkerHTML` leaf glyph now
+  keys off the SAME effective mode as the text badge (`wowStampFor`→`wowEffMode`) instead of raw
+  air-phase, so a show you're BEHIND on shows CASUAL text and NO leaf — they can't disagree (the
+  "Silo is CASUAL but has a leaf" report; Ted is 24/29 on Silo).
+- **`public/flat_shell.js`** — pager tab-drift hardening. The scroll-settle handler used to accept
+  EVERY derived index unconditionally, so any involuntary iOS/WKWebView horizontal scroll (resume
+  position-restore, focused-field pan, face-iframe reflow) that landed near a neighbouring panel
+  silently re-indexed the pager ("returned and LOG/PIERRE/FEED/BROWSE thrown off"). Now the tracked
+  `index` is authoritative: a settle only moves it when a real pointer landed on `#stage` within
+  `TOUCH_WINDOW` (1200ms); otherwise it snaps back via `pinToIndex()`. Complements last build's
+  `reassertFace` re-pin (0/120/300/600ms on resume), which alone was insufficient.
+- **D1 data fix (watch_episode):** Ted's Lanterns (`tvmaze:44776`) **S1E2** was a "Before Pierre"
+  backfill (`bp=1`, done session `bp:true`) so it rendered as a greyed pre-app mark with no date
+  and its reflection comment didn't surface. Cleared `bp` on the episode row and the finished
+  session, keeping the real finishTs (Sun 2026-08-23 22:53) → now a proper dated Sunday-night watch
+  with its comment. Comment data untouched (the one S1E2 reflection was already correctly attached;
+  the "Hacks" comments under `tvmaze:54914` were an unrelated bare-`S01E02` code collision).
+
+## 2026-08-27 — Catalog auto-heal on read + Pierre/LOG/shell bug fixes (DEPLOYED)
+
+Five reported bugs. The one backend change is catalog **auto-heal on read**: a title is
+materialized ONCE, so episodes not yet aired at ingest kept TVmaze placeholders (null runtime,
+`"Episode N"` names, null summary) forever — the "Silo / Ted Lasso have no episode
+title/synopsis/runtime" report, which also forced the LOG synopsis to fall back to the series
+blurb. DEPLOYED: Worker version `d56acc00-57c8-4329-9645-c6372f43548d` + app Pages
+(`pangolin-rc`, `78302b5c`). **No migration** — read-path healing only.
+
+- **`src/handlers/catalog.ts`** — extracted `/refresh`'s TVmaze re-pull into a reusable
+  `refreshTitleEpisodes(env, titleId)` (upserts the full episode list + corrects
+  names/runtimes/airdates/next-links + title total/status/poster, bumps `titles.updated_at`);
+  `/refresh` now just calls it. New `maybeHealTitle(env, title)`: on a title read, if
+  `titles.updated_at` is older than `HEAL_TTL_MS` (6h) AND a cheap `STALE_EP_SQL` existence
+  check finds an **aired** episode still carrying a placeholder (`runtime IS NULL` /
+  `name GLOB 'Episode [0-9]*'` / blank / `TBA%`), it re-pulls from TVmaze in-band and returns
+  the refreshed title row. TTL-gated so an aired-but-still-incomplete-upstream episode can't make
+  every open hammer TVmaze; summary-null is deliberately NOT a staleness signal (many aired eps
+  legitimately have no synopsis → would re-fetch forever). Wired into both read paths:
+  `GET /catalog/titles/:id/episodes` and (via import) `profile.ts`
+  `GET /:email/titles/:title_id`. Movies/fresh titles are a no-op.
+- **`src/handlers/profile.ts`** — imports `maybeHealTitle`; the title-detail endpoint heals
+  before loading episodes (so the LOG face shows real episode data on open).
+
+Frontend-only fixes in the same Pages deploy (no Worker/D1 impact, logged here for the deploy
+trail): **cube_pierre_face.html** — a debounced dead-end guard (`ensureExit`/`scheduleExitCheck`,
+fired after each message/reply/chip tap and on `cube:focus`) restores the composer when a flow
+branch leaves it hidden with no enabled button to tap (the "stranded, must hard-quit" bug); and
+`applyTRT` now posts `pg:runtimeApplied` when a `[TRT]` runtime correction applies. **flat_shell.js**
+— forwards `pg:runtimeApplied` to the LOG face, and `reassertFace()` re-pins the pager across a
+0/120/300/600ms window (was a single 60ms) so iOS's post-resume `scrollLeft` reset can't leave
+LOG/PIERRE view-vs-indicator out of sync. **cube_log_face.html** — `applyRuntimeUpdate()` patches
+the cached episode + repaints so a running watch's total/remaining update live from a `[TRT]` fix
+(no quit/reopen). iOS bundle NOT yet rebuilt (web only).
+
+## 2026-08-26 — Admin Episode Feed call-to-action top line (DEPLOYED)
+
+The admin Episode Feed's serialized `all_comments` column now opens with a
+call-to-action line before the timed comments. DEPLOYED: Worker version
+`de6eba15-e291-461a-a3a3-a9d8dbb3e1cc`. No migration.
+
+- **`src/handlers/admin.ts`** — in `EPISODE_COMMENTS_FROM`, prepended
+  `'To listen along join.pangolinrc.com' || char(10) ||` to the per-episode
+  `GROUP_CONCAT`, so each episode's feed reads:
+  `To listen along join.pangolinrc.com` / `00:XX comment` / … Updated the
+  `episode_comments` resource `note` to document the CTA line. Read-only view;
+  no schema change. Follow-up (Worker `dee678d6-a602-4416-8020-43bbf16ddc22`):
+  added a blank line (`char(10) || char(10)`) between the CTA and the first
+  comment.
+
+## 2026-08-24 — GET TED reply queue (one-at-a-time, ack-via-grade) + fixes (DEPLOYED)
+
+The flat app now surfaces Ted's answers to Get-Ted escalations as a proper queue instead of
+splicing a lone TED bubble into whatever chat is on screen. DEPLOYED: Worker version
+`dd35b491-4625-4142-aaa9-8cd2ecb5ad32` + app Pages (`pangolin-rc`, `6e2e33b1`) + iOS bundle
+synced. No migration — reuses `pierre_chat.grade`. Verified locally: `/ted-thread` returns the
+oldest unacked thread as its full transcript with a pending count; `/ted-thread/ack` writes the
+grade and advances; FIFO across multiple pending threads (oldest served first, next loads on ack).
+
+- **Model:** a Ted reply (`role='ted'` turn on the original conversation) is "unacked" while its
+  `grade` is '' (ungraded). The member acks by grading — 👍→`great`, 👎→`bad`, any other chat exit
+  (General TV Chat / Share / Clear / tap composer)→`good`. Grading advances to the next unacked
+  thread. Ungraded = still waiting, so it survives navigation/reinstall and reloads every return.
+- **`src/handlers/profile.ts`** (new, member-scoped): `GET /:email/ted-thread` → `{ pending, thread }`
+  where `pending` = count of ungraded ted turns and `thread` = the OLDEST unacked ted turn's FULL
+  conversation transcript (all user/pierre/ted turns in seq order) + `ted_turn_id`. `POST
+  /:email/ted-thread/ack { ted_turn_id, grade }` sets great|good|bad (default good) on the member's
+  own still-ungraded ted turn, returns remaining `pending`. The old batch `ted-messages` endpoint
+  stays for the frozen cube (which keeps inline delivery); the flat app uses the queue.
+- **Frontend (app Pages):** `cube_pierre_face.html` — flat-app-only Ted-thread takeover: loads the
+  oldest unacked thread as the full read-only conversation on boot / `cube:focus` (tab switch) /
+  visibility-return; thumbs grade+advance, General TV Chat/Share/Clear ack `good`+advance, detours
+  (add series/movie/ticket, game) leave it ungraded so it waits; GET TED greyed while a thread is
+  open; picker "Your streaming shadow" → disabled "Shadow (future)". `flat_shell.js` + `app.html`
+  — a blue (`#5fd6e0`, the TED-reply glow, never red) count badge over the remote in the PIERRE
+  hero tab, driven by `pierre:ted-waiting`. `cube_watch_face.html` — COMFORT tab count now =
+  marathon count (was 0 until you opened the tab, reading as a bug).
+
+## 2026-08-24 — Curated maps: wire marathons into real Current/Next (DEPLOYED)
+
+Ties the reserved `maps` / `map_steps` / `watch_title.active_map_id` system (migration 0012) into
+the live watch engine so watching from a comfort marathon drives the app's real Current/Next in the
+curated order. First map: The Ultimate Moonlighting Rewatch (7 cross-season episodes). TEST-ONLY —
+NOT in tester "What to Test"; fine if a tester stumbles on it. DEPLOYED: Worker version
+`14a2665f-23d8-4284-b9d1-428f22c4df9a` + D1 remote migration `0052` + app Pages (`pangolin-rc`,
+`2776cd10`) + iOS bundle synced (Xcode opened for Ted's archive/distribute). Verified on prod:
+`GET /catalog/titles/tvmaze:1487/episodes?map=map:moonlighting-ultimate` returns the 7 steps in
+curated order (1e1, 2e2, 2e4, 3e6, 3e7, 3e8, 4e13); no-map/no-email request still returns the full
+67-ep air-order list with no map flag (regression clean).
+
+- **D1 `0052_moonlighting_map.sql`:** one `maps` row (`map:moonlighting-ultimate`, title
+  `tvmaze:1487`, kind `curated`, owner NULL = global) + 7 `map_steps` (position + episode_id +
+  next_episode_id chaining s1e1→s2e2→s2e4→s3e6→s3e7→s3e8→s4e13→NULL). `INSERT OR REPLACE`,
+  idempotent. Applied LOCAL + REMOTE. NOTE: the referenced title must be materialized in the
+  catalog for the JOIN to resolve — did `POST /catalog/initiate {tvmaze:1487}` on prod post-migrate.
+- **`src/handlers/catalog.ts`:** `GET /catalog/titles/:id/episodes` now accepts `?map=<map_id>`,
+  or auto-detects the member's `active_map_id` via `?email=`. When a map applies, returns episodes
+  JOINed through `map_steps` in position order with the map's next-links + a `map:{id,name}` flag.
+  No map → the prior response, byte-identical.
+- **`src/handlers/profile.ts`:** `recomputeTitle` is map-aware (when `active_map_id` set, total/
+  watched/released/cur/last computed against `map_steps` in position order); `GET /:email/titles/
+  :title_id` returns map-ordered episodes + `map` flag when active; new `POST /:email/titles/
+  :title_id/map { map_id|null }` sets/clears `active_map_id` (validates the map, upserts watch_title,
+  recomputes) → `{ ok, active_map_id, status, current_episode_id }`.
+- **Frontend (app Pages):** `cube_log_face.html` gains a gated **map mode** (`mapMode` set only
+  when the episodes response carries a `map` flag; when on, `boot`/`applyPattern` skip the season
+  slice and treat the map as one flat ordered sequence, `hasLaterSeason`/`loadNextSeason` no-op) —
+  non-map watching is unchanged. `cube_watch_comfort_face.html` gains a "watch in the app" button
+  on the now-watching card (gated on `CFG.map`) that postMessages `comfort:watch` to the parent.
+  `cube_watch_face.html` listens for `comfort:watch` → `POST …/map {map_id}` → `cube.rotateTo
+  ('episodes', {titleId, pattern, addToLog})`. `flat_shell.js` pins the episodes handoff on
+  `payload.titleId` too (prevents resume-last clobbering the marathon handoff).
+
+## 2026-08-22 — Streaming shadow (table + API + admin + panel) & Pierre intent fixes (DEPLOYED 2026-08-23)
+
+Built on branch `endnote-one-reply-flow`. DEPLOYED 2026-08-23: Worker version
+`40946167-3b4b-42e0-b23e-8f08a4dbbee2` + D1 remote migration `0047` + app Pages (`pangolin-rc`,
+`2984d940`) + admin Pages (`pangolinrc-admin`, `cd443b30`) + iOS bundle synced (Xcode opened for
+Ted's archive/distribute). Verified on prod: `/shadow` live; `POST /shadow/rebuild` for
+ted@pangolinrc.com folded in 97 watch rows + extracted 23 titles from his pierre_chat transcripts
+(13 net-new chat rows after upsert overlap), with real narrative feel/sentiment (e.g. The Leftovers
+love, Dark nope, Mr. Robot love). App panel string present on remote.pangolinrc.com.
+
+- **D1 `0047_streaming_shadow.sql`:** new `streaming_shadow` table (id, user_email, title_id,
+  title_name, kind, feel, sentiment, source, weight, hidden, visibility, created/updated_at),
+  unique `(user_email, title_name)` so a re-mention upserts. Applied LOCAL only.
+- **`src/handlers/shadow.ts`** (new, mounted `/shadow` in index.ts): `upsertShadow` helper;
+  `GET /shadow?email=&all=1`, `POST /shadow` (manual add), `PUT /shadow/:id` (feel/sentiment/
+  hidden, owner-scoped), `DELETE /shadow/:id` (soft-cut hidden=1), `POST /shadow/rebuild`
+  (folds watch_title rows + one LLM pass over the user's pierre_chat → upserts everything
+  mentioned/discussed). Exports `shadowTitleNames` for the game avoid.
+- **`pierre.ts`:** new `[SHADOW: title | feel | sentiment]` prompt tag (silent auto-write);
+  `shadowBlock` folds the top-weighted shadow into the chat system context; `/pierre/room-guess`
+  + `/room-guess/one` now merge the caller's shadow titles into `avoid` (kills the repeated-
+  Severance game bug). Also tightened the BACKFILL/WATCHED/put-on rules so future desire
+  ("I'd like to watch X") routes to a put-on (Current) and partial progress ("saw ep 1, want
+  the rest") uses [WATCHED] (in-progress) — never [BACKFILL]/Completed.
+- **`admin.ts`:** new `streaming_shadow` resource (list/filter/pivot; inline-editable
+  sentiment). `admin/index.html` wraps the `feel` column.
+- **Client (`cube_pierre_face.html`):** `parseShadow` fires the `[SHADOW]` writes silently;
+  `askWatchedWith` "Just me" chip no longer a no-op; new "Your streaming shadow" context-menu
+  item opens an in-face panel to view/edit (feel + sentiment), cut, restore, and add titles.
+- **Follow-up (Worker `68431e4a`):** admin `streaming_shadow` now groups rows by user —
+  added `groupHeaderCols: ['user_email']` so each user gets one header row (email drops off the
+  per-row columns). Worker-only redeploy; admin frontend already supported group headers.
+
+## 2026-08-23 — Streaming shadow admin: rank/reorder, Pierre vs User Feel, editable source/cut (DEPLOYED)
+
+Worker `37d4c1fb` + D1 remote migrations `0048`+`0049` + admin Pages (`pangolinrc-admin` `135cef82`)
++ app Pages (`pangolin-rc` `c468a067`). iOS bundle NOT synced yet (in-app panel improvements ride
+the next build, bundled with the Maul watch-timer fix). Prod `POST /shadow/rerank` ranked ted's 110 rows.
+
+- **D1:** `0048_streaming_shadow_note.sql` (`note` = User Feel free text), `0049_streaming_shadow_rank.sql`
+  (`rank` INTEGER + index). Both additive, applied local + remote.
+- **`shadow.ts`:** GET returns `note`+`rank`, ordered by rank (unranked last); PUT accepts `note`,`rank`;
+  new `rerankShadow` helper (sentiment love>like>meh>nope>unset, then weight, then recency → 1..N over
+  non-hidden rows) + `POST /shadow/rerank`; rebuild now reranks at the end and returns `ranked`.
+- **`admin.ts`:** streaming_shadow cols relabeled (`feel`→"Pierre Feel" read-only, `note`→"User Feel"),
+  added `rank` col; new write kinds `text` (note) + `bool` (hidden/Cut checkbox) in the `/write/:resource`
+  handler; `source` + `rank` now writable; `reorder:'rank'` flag + exposed in `/admin/meta`; defaultOrder
+  by rank. `Write` type gained `text`|`bool`.
+- **`admin/index.html`:** renders text/bool editors + autosave; **Save all** button; **resizable columns**
+  (colgroup + grips, persisted per-resource in localStorage); **drag-to-reorder rows** (⠿ handle → renumber
+  group's ranks + save). Verified end-to-end locally + prod (rerank, editable source/cut/note, drag persist).
+- **`cube_pierre_face.html` (in web deploy, reaches iOS on next build):** shadow panel is now full-screen
+  `position:fixed` + scrollable, with a filter/add row, read-only "Pierre:" feel + editable User Feel note.
+
+## 2026-08-23 — Shadow: 4-way kind classification + per-kind ranking (Worker `46636e3e` + admin Pages `0409dd67`)
+
+No migration (reused existing `kind`/`rank` cols). Classify titles into series / miniseries / anthology /
+movie so ranking is apples-to-apples within a kind.
+- **`shadow.ts`:** `KINDS` set; `classifyShadow` = one LLM pass (`llmClassify`, best-guess) + tmdb:→movie +
+  legacy show→series fallback; **idempotent + edit-safe** (skips rows already holding one of the four kinds,
+  so re-runs/rebuilds never reshuffle or clobber manual edits). `rerankShadow` now ranks 1..N PER KIND.
+  `POST /shadow/classify` (classify+rerank); rebuild runs classify before rerank. GET orders by kind, rank.
+  PUT accepts `kind` (validated).
+- **`admin.ts`:** `kind` now an editable enum + a Kind filter; `reorderScope:'kind'` (exposed in /meta) so
+  drag-reorder + renumber happen WITHIN a category. defaultOrder clusters user → kind → per-kind rank.
+- **`admin/index.html`:** rows carry `data-rk` (the reorder sub-key); `scopeRows` limits drag/renumber to
+  same group + same kind. (No new write kinds; kind uses the existing enum path.)
+- Prod: classified ted's shadow → series 31 / miniseries 9 / movie 68 / anthology 0 (LLM was conservative
+  on anthology; all editable). Verified per-kind rerank + idempotent re-run (classified:0) + PUT validation.
+- **Follow-up (Worker `1865ae12` + admin Pages `24552966` + D1 `0050`):** renamed kind `movie`→`film`
+  (migration `0050_shadow_movie_to_film.sql` UPDATE; KINDS/classify/options all use `film` now — so the
+  rank prefix F=film is distinct from M=mini-series). Rank cell now shows a **kind prefix** (S-/M-/A-/F-)
+  before the editable number, derived from `reorderScope` (`RANK_PREFIX` map). Smaller `Cut` header
+  (`th[data-key="hidden"]` font 0.6rem, nowrap) so it doesn't wrap. Reorder col min bumped to 120 (grip +
+  prefix + input). Prod re-ranked (per-kind, no dup ranks); the earlier "both S-3" was the missing prefix
+  (Bad Monkey S-3 vs a different-kind title). Maul still auto-tagged F-1 — Ted to flip to series.
+- **Earlier follow-up (Worker `6629f24f` + admin Pages `a9733508`):** moved `Cut` to the 2nd column; added
+  `defaultFilters:{hidden:'kept'}` (exposed in /meta) so the shadow opens uncut-only and ticking Cut drops
+  the row out (still reachable via the Cut? filter — the frontend reloads after editing a filtered column).
+  Column resize now soft-wraps text cells (`table.fixedcols` white-space:normal) and clamps control columns
+  to a usable min width (`colMinWidth`: enum 130 / int 80 / bool 44 / text 48).
+
+## 2026-08-23 — Fix FINISHED? leaking across shows (app `b95d7ec9`)
+
+Regression from the watch-timer durable-finish work: `finishPrompt` was a sticky global (the 30s callout
+stopped clearing it), so after one show staged FINISHED?, the next show/episode that loaded inherited the
+green FINISHED? at 0 min (reported on The Neighbors + Lanterns). Fix: `paint()` now DERIVES finishPrompt from
+the focused episode's own pending marker — `finishPrompt = !isTheater() && hasPendingFin(focus) &&
+!epDone[focus] && !watchingLive[focus]` — so it can't leak to a show without a marker. Verified in-browser:
+staged show → FINISHED?, fresh show → FINISH. (Frontend-only; iOS bundle synced.) NOTE: separately, Lanterns
+appears wrongly marked complete (pre-existing, likely the old auto-complete before the always-stage fix or a
+leaked-FINISHED tap) — that's why it left Current, Pierre offered REWATCH, and next-up reads S1E02 (done+1,
+which loads E1 since there's no E2). Reset the episode to clear.
+
+## 2026-08-24 — Comfort marathons data-driven + Moonlighting Rewatch (app `9a0d0a7c`, frontend only)
+
+`cube_watch_comfort_face.html` was a Psych-only self-contained prototype. Made it data-driven: a `CONFIGS`
+registry keyed by `?m=<id>` (store key, TVmaze show id, emoji, title, subline, foot, and the curated
+`episodes` list); header text set from the config at runtime. Added `moonlighting` (TVmaze 1487, 7 curated
+eps: S1E1, S2E2, S2E4, S3E6, S3E7, S3E8, S4E13) + a MARATHONS row in `cube_watch_face.html`
+(`?m=moonlighting`). Next-up follows the curated order (verified: after S1E1 → "next up S2E02"). NOTE: this
+is the self-contained comfort marathon (its own next-up + localStorage progress, like Psych) — NOT yet wired
+into the main watch engine's global next via the reserved `maps`/`active_map_id` tables. That deeper
+integration is a follow-up if the marathon should drive the real Current/Next everywhere.
+
+## 2026-08-24 — Shadow tiers become SUBJECTIVE stored buckets + admin opens on Series (Worker `5fdcd7d2` + admin `51865c5f` + app `05e76c4f` + D1 `0051`)
+
+Ted: tiers should be loose subjective buckets (a "Top 10" can hold 30 shows), a way to place a title broadly
+via conversation then refine — NOT a rank band. Migration `0051` adds a stored `tier` column (seeded from the
+old rank bands: 1-10→Top 10, 11-25→Top 25, 26+→Top 50). `shadow.ts`: `TIERS`/`tierCanon`/`TIER_ORDER_SQL`
+replace the derived `tierLabel`/`TIER_CAPS`; GET returns stored tier and sorts kind→tier→rank; PUT accepts
+`tier`; `/shadow/place` now SETS the tier bucket (dropped the rank-band insert `placeAtTier`); rerank/compact
+order kind→tier→rank. `pierre.ts`: `shadowBlock` shows each title's [tier]; `[SHADOW]` prompt reframed —
+place broad (Top 10/25/50), refine through discussion. Client `hasTier` regex drops 100. `admin.ts`: Tier is
+now a stored editable enum (Top 10/25/50) + filter + By-tier pivot; `defaultFilters:{kind:'series',hidden:'kept'}`
+(opens on Series); order kind→tier→rank. Prod seed: series Top 10=10 / Top 25=15 / Top 50=8 (Mork & Mindy #1).
+
+## 2026-08-23 — catalog/refresh: heal stale one-episode catalog entries (Worker `23451364`)
+
+Real root of the Lanterns saga: `materializeTitle` ingests a title ONCE and never re-fetches, so a show added
+before its episodes populated keeps a stale list. Lanterns (tvmaze:44776) had 1 placeholder episode ("TBA")
+in the catalog while TVmaze now has 8 (S1E1 Pilot, S1E2 Trust Fall, S1E3-8 TBA). Pierre reads TVmaze live (so
+it offered "S1E02 Trust Fall") but the LOG face reads the catalog → E2 didn't exist → fell back to E1/"TBA".
+New `POST /catalog/refresh {title_id}` re-pulls a TVmaze show's full episode list (INSERT OR REPLACE episodes +
+next-episode links, updates titles.total_episodes/status/name/poster). Series only; idempotent. Ran it for
+Lanterns on prod → 8 episodes, names corrected. NOTE: the member's watch_title may still read 'completed' (set
+when total was 1) until they reset E1 or log an episode; catalog refresh doesn't touch member progress.
+
+## 2026-08-23 — Fix Pierre episode-chip handoff loading the wrong show (app `397397ab`)
+
+Report: tapping a Pierre episode chip ("S1E02 Trust Fall") loaded S1E01 of the WRONG show (Lanterns/TBA).
+Cause in `flat_shell.js`: `cubeRotateTo` posts the picked show to the LOG face, but an async `sendEpisodesLast()`
+(deferred `episodesWantsLast` on `log:data`, or the WATCH face's `episode:requestLast`) then re-posted
+`lastResume` (the last-watched show, Lanterns) and clobbered it — Lanterns has 1 episode so `kind:'at' number:2`
+fell back to E1/TBA. Fix: `episodesPinned` — set when a handoff loads a specific show into episodes (and
+cancels a pending wantsLast); `sendEpisodesLast()` returns early when pinned; `goTo(episodes)` clears the pin
+(a manual LOG-tab tap resumes last as before, and cubeRotateTo re-pins right after its goTo). Verified by
+syntax + reasoning (full flat-app race needs the live multi-face app to reproduce).
+
+## 2026-08-23 — Game titles now feed the shadow (Worker `b35d0d59` + app `58ff4d3f`)
+
+Before: only the member's REACTION to Pierre's pick reached the shadow (via [SHADOW]); the two titles they
+named in the game weren't recorded. Now `POST /shadow` honors an optional `source` (watch/game/chat/manual;
+default manual), and the game client (`submitGame`) records the two named titles + the put-on pick as
+`source:'game'` (silent upsert; kind/sentiment fill in later via classify). iOS bundle re-synced.
+
+## 2026-08-23 — Fix: big shadow was starving the game + room-build (Worker `b6fb22c3`)
+
+Report: "shows added but not the slots" (onboarding room-build) + "the game is failing." Root cause: both
+`/pierre/room-guess` and `/room-guess/one` merged up to 80 of the signed-in member's shadow titles into the
+LLM's `avoid` list. Once a member's shadow got large (Ted's ~110 after rebuild/classify), nearly every
+groundable pick was excluded → 0 picks → room slots empty / game "slipped." Fix: split avoid into HARD (the
+pair + accepted/seen picks — never repeat) vs SOFT (shadow, capped 30). Two passes: pass 0 honors the soft
+shadow avoid, pass 1 drops it — so a big shadow can't starve the picks; worst case it re-offers a known title
+rather than failing. (Could not reproduce locally — room-guess needs the Turnstile/native gate + ANTHROPIC
+key; fix is logic-only + strictly more lenient.)
+
+## 2026-08-23 — Shadow tiers (Top 10/25/50/100) + Pierre place + compact (Worker `b1162dc4` + admin `5f61b34e` + app `55db7276`)
+
+No migration (tier derived from per-kind rank). Bands: Top 10 = ranks 1-10, Top 25 = 11-25, Top 50 = 26-50,
+Top 100 = 51-100, else Beyond 100.
+- **`shadow.ts`:** `tierLabel`/`tierCap`; GET now returns a derived `tier` per row. `POST /shadow/place
+  {email,title_name,tier,kind?,feel?,sentiment?}` — upserts + resolves kind (given→existing→LLM→series) +
+  inserts at that Top-N band within the kind (`placeAtTier`: position N, shift down, compact). `POST /shadow/
+  compact` — normalizes ranks to 1..N PER KIND preserving current order (fixes dup ranks from manual number
+  edits + gaps from kind changes, WITHOUT rerank's heuristic resort). Ran compact on prod (105 rows) → film
+  1..67, miniseries 1..6, series 1..32, no dups.
+- **`pierre.ts`:** `shadowBlock` now groups the shadow by kind + shows per-kind rank so Pierre can reference
+  tiers ("your top 10 films"); `[SHADOW]` tag extended to an optional `| kind | tier` (5-field) form for
+  ranking a title into a tier — prompt rule added.
+- **`cube_pierre_face.html`:** `parseShadow` reads the 5-field tag; `recordShadow` routes tier placements to
+  `/shadow/place`, plain reactions to `/shadow`. (In app Pages; reaches iOS on the next archive — bundle
+  re-synced.)
+- **`admin.ts`:** derived `Tier` column + Tier filter + By-kind/By-tier pivots (shared `SHADOW_TIER_EXPR`).
+- **Follow-up (admin Pages `fe8f2f22`):** editing a rank NUMBER now reorders — `onEditCell` routes the
+  reorder column to `reorderByNumber`, which moves the row to the typed position within its kind and calls
+  `renumberScope` (same path as drag) → clean 1..N, no dups/gaps. Removes the manual-number-edit dup caveat.
+- **Follow-up (Worker `7deb5064` + admin Pages `a01a2176`):** cutting a row now compacts its kind. Resource
+  declares `reorderCutCol:'hidden'` (in /meta); `onEditCell` on that col: on CUT, blanks the row's own rank
+  (0) then runs `compactScope` (renumber the scope's not-cut rows 1..N by order) → gap closes by shifting
+  rows below UP (top-down). Rank cell renders blank + no prefix when rank is 0. On RESTORE it does NOT
+  renumber — the row returns unranked (blank) so you place it (avoids a dup with siblings not loaded in the
+  cut-only view). VERIFIED in-browser against a stubbed backend: cutting Andor (S-3) → writes hidden=1,
+  rank=0 (Andor), rank=3 (Psych, was 4); visible became S-1 Bear / S-2 Severance / S-3 Psych; cut view shows
+  Andor with a blank rank and no prefix.
+
+## 2026-08-23 — Watch-timer FINISHED fix (app Pages `50f5423b`; iOS bundle synced/Xcode opened)
+
+Frontend-only (`public/cube_log_face.html`); no Worker/D1. Fixes the Maul E6 report: (A) pausing near the
+end no longer silently auto-completes + jumps to the next episode, and (B) the staged FINISHED? now
+survives sleep/reload.
+- `tickWatch` at runtime now ALWAYS `stageReturnFinish` (deliberate FINISHED? tap, focus stays) instead of
+  `completeWatch` (silent auto-complete + advanceFocus). The app can't see an external pause, so it never
+  auto-advances on a wall-clock overrun. `completeWatch` is now unused (kept for reference).
+- Durable staged finish: `stageReturnFinish` sets a `pg_pendingfin:<titleId>:<epcode>` localStorage marker +
+  `emitProgress(minute=rt, done=false)`; `restorePendingFinish` re-surfaces FINISHED? on visibilitychange/
+  pageshow/cube:focus/load. The 30s callout now only drops the pulse (keeps the green FINISHED? state).
+  Marker cleared by finish/log/re-start/scrub/forceAdvance. Streamer deep-link promptFinish routed through
+  `stageReturnFinish` too. Verified in-browser: end→stage (no advance), sleep/wake restore, reload restore,
+  commit clears marker. This build also carries the in-app shadow panel scroll fix.
+
+## 2026-08-21 — Pierre chat-type (game) tracking + admin session Type/Grade (DEPLOYED)
+
+Worker `3d3849f5` + D1 remote migration `0046` + app/admin Pages deployed, iOS bundle synced.
+Lets Ted see how the "Do you want to play a game?" streaming-shadow game is used/performing.
+
+- **D1 `0046_pierre_chat_kind.sql`:** `ALTER TABLE pierre_chat ADD COLUMN kind TEXT NOT NULL
+  DEFAULT 'chat'` (+ index). Applied local + remote. (Numbered 0046 to dodge the existing
+  `0045_feedback.sql`.)
+- **`pierre.ts`:** `POST /pierre/chat` now reads `body.kind` (`'game'` else `'chat'`) and
+  `persistChatTurns(..., kind)` stores it on each turn.
+- **Client (`cube_pierre_face.html`):** the chat POST sends `kind: currentCtx==='game'?'game':'chat'`,
+  so game-lane turns are tagged. (Game lane = the new `enterGameFlow`/`switchTo('game')`.)
+- **`admin.ts` pierre_chat resource:** session header is now **Session · User · Type · Grade**.
+  `type` = "Game Session" if any turn in the conversation is `kind='game'`; `sgrade` = 👍 (any
+  great/good, no poor/bad) / 👎 (any poor/bad) / — . Added a **Type** filter (Game Session / Chat).
+  Existing per-turn inline grading kept (relabeled "Turn grade").
+
 ## 2026-08-20 — Pierre movie backfill flow + honest self-escalate (DEPLOYED)
 
 Worker `7fea88a4` (then copy/migration Pages) + app Pages deployed, iOS bundle synced.
@@ -2051,3 +2453,73 @@ Entry format:
   toggle + pg_mode persistence + launch router, bug reporter hidden app-wide, Pierre keyboard/
   scroll fit (flat), tab-bar redesign (order PIERRE·WATCH·LOG·FEED·BROWSE·PROFILE, no dots,
   tiny pierre.png on PIERRE, JOIN→BROWSE), and the [WATCHED] confirm-chip face.
+
+## 2026-08-25 — Pierre [TRT] runtime-correction skill (DEPLOYED)
+- **Worker DEPLOYED** (Version 07efb2d1-0589-49cf-8bbe-9c80c9a322dc). **Pages DEPLOYED**
+  to production (deployment 2bcd15a8, `--branch main` → remote.pangolinrc.com); this Pages
+  deploy also shipped the flat-view keyboard/tab-drift fix (public/flat_shell.js). NOTE: a
+  first `pages deploy` with no --branch landed on the git-branch alias
+  (endnote-one-reply-flow.pangolin-rc.pages.dev), NOT production — must pass `--branch main`.
+- **Reuses POST /catalog/runtime-report** (no new route). Added a hybrid authority path
+  in `src/handlers/catalog.ts`: after the report upsert it looks up the reporter's
+  `users.user_type`; if `'admin'`, applies the observed runtime to the global `episodes`
+  catalog IMMEDIATELY (no consensus wait) and marks matching reports `applied`. Non-admins
+  still feed the existing 2-distinct-user consensus. Response now carries `byAuthority`.
+- Pierre prompt (`src/handlers/pierre.ts`): new "[TRT] tag" section — member states a real
+  running time for an episode ("that ep was 42 min") or film ("Sinners runs 2h 17m"); Pierre
+  emits `[TRT: title | episode | minutes]` (episode blank for a film), forward-looking, no
+  past-tense claim without the tag.
+- Client (`public/cube_pierre_face.html`, mirrored to `www/`): parseTRT + parseMinutes
+  ("1h 30m"→90) + runTRT/proposeTRT/applyTRT — resolves title (TMDB film / TVmaze series) and
+  episode (explicit SxEy or latest aired), hands back ONE confirm chip; only the tap POSTs to
+  /catalog/runtime-report. Confirms per response: admin→"set in the catalog now"; consensus
+  hit→"now X min for everyone"; otherwise "noted, needs one more / Ted"; 404→"not in catalog yet".
+- **Web is live** (Worker + Pages above). iOS/TestFlight still needs a bundle rebuild
+  (cap copy + Xcode) to carry the [TRT] face + tab fix into the app.
+
+## 2026-08-25 — TRT any-title + LOG force-start unaired (DEPLOYED)
+- **Worker DEPLOYED** (Version bfb7560d-16f5-421a-896d-f9ae4e8a4751). **Pages DEPLOYED**
+  (deployment 0f96b45d, --branch main → remote.pangolinrc.com).
+- `src/handlers/catalog.ts` /catalog/runtime-report: when the episode isn't in `episodes`,
+  now `materializeTitle` on demand (splitTitleId → tvmaze:/tmdb:) then re-check, so [TRT]
+  works for ANY show/film, not only ones already in the member's log. Ingests future episodes
+  too (runtime null), so a not-yet-aired drop can be set. 404 only when truly unresolvable.
+  Client (cube_pierre_face applyTRT) 404 copy softened to "double-check the title and episode".
+- LOG face (public/cube_log_face.html): long-press (~0.6s) the greyed START ('notify' action)
+  FORCES an unaired episode through for members with early access — sets wowForced[focus] so the
+  paint state machine stops treating it as unaired and startEpisode() runs. Short tap still
+  swings to Pierre notify. Pierre's offerNotify message now tells the member about the long-press.
+
+## 2026-08-25 — Ambient "go dark but stay open" + story-export fix (web DEPLOYED; iOS pending build)
+- **Pages DEPLOYED** (deployment db214c9e, --branch main → remote.pangolinrc.com). Client-only,
+  no Worker/D1 change.
+- New dep `@capacitor-community/keep-awake@8.0.1` (native keep-awake; web uses Screen Wake Lock).
+  Requires an iOS build to take effect natively — `cap sync ios` done, Xcode opened.
+- Flat app: Profile "Screen while watching" toggle (pg_screen: on|sleep, default on); flat_shell
+  keeps the screen awake + fades a black #screen-dim overlay after 5s idle WHILE a watch timer
+  runs; tap wakes. LOG face posts pg:watch (500ms change-detector off watchingLive) + pg:wake on
+  a fresh friend co-view comment (shell holds awake ~20s). Cube app: toggle inert (frozen).
+- Also in this iOS build (compiled from capacitor-card-video/): story-export fix — CardVideo now
+  writes a 30fps CFR still instead of 2 frames, so IG Stories stop playing it "super fast".
+
+## 2026-08-26 — Poster-forward share card + edited-transcript persistence (web DEPLOYED; iOS pending build)
+- **Pages DEPLOYED** (deployment 182b5668, --branch main → remote.pangolinrc.com). Client-only,
+  **no Worker/D1 change** — the transcript fix reuses the existing `PATCH /transcribe/:id`.
+- Share cards: new shared renderer `public/pg_share_card.js` (+ `public/pg_share_qr.js`, a
+  baked-in QR matrix for https://pangolinrc.com drawn as rects so the card canvas stays
+  exportable). Both the IRL ticket (`buildTicketCard`, cube_browse_face) and the TV-show
+  reflection (`buildReflectionCard`, cube_pierre_face) now delegate to it: full-bleed poster,
+  big title, avatar+name, quote, meta, and a bottom band of Pierre · pangolinrc.com/scan · QR.
+  Pierre-face video path (buildStoryFrame/buildShareVideo) now paints the already-9:16 card
+  full-frame.
+- Bug fix (recorded reflections): `commitEndnote` now PATCHes `/transcribe/:id` with the member's
+  edited text before `/finalize`, so a corrected transcript persists to the shared comment
+  (previously finalize only stamped endnote/spoiler and kept Whisper's raw text).
+
+## 2026-08-26 — Default everyone to flat view (web DEPLOYED; iOS pending build)
+- **Pages DEPLOYED** (deployment 133883d6, --branch main → remote.pangolinrc.com). Client-only,
+  no Worker/D1 change.
+- Launch router (`index.html`): flat is now the default surface — redirects to `/app.html`
+  unless `pg_mode==='cube'`. Profile App-style toggle (`cube_profile_face.html`) reads unset as
+  flat. Flat header "Back to the cube" button now sets `pg_mode='cube'` before navigating so the
+  cube stays reachable for a deliberate opt-in (otherwise the new redirect bounces it back).

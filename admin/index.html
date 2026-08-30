@@ -125,6 +125,26 @@
   td input.edit-num { width: 74px; padding: 6px 8px; font-size: 0.82rem; background: rgba(0,0,0,0.25); color: inherit; border: 1px solid rgba(255,255,255,0.18); border-radius: 8px; transition: border-color 0.25s; }
   td input.edit-num.ok { border-color: #9fe0b0; }
   td input.edit-num.bad { border-color: #ffcf8f; }
+  td textarea.edit-text { width: 100%; min-width: 150px; padding: 6px 8px; font-size: 0.82rem; background: rgba(0,0,0,0.25); color: inherit; border: 1px solid rgba(255,255,255,0.18); border-radius: 8px; resize: vertical; font-family: inherit; line-height: 1.4; transition: border-color 0.25s; }
+  td textarea.edit-text.ok { border-color: #9fe0b0; }
+  td textarea.edit-text.bad { border-color: #ffcf8f; }
+  td input.edit-bool { width: 18px; height: 18px; accent-color: #9fe0b0; cursor: pointer; }
+  /* Row reorder: a drag handle in the rank cell. */
+  /* Cut header is a short label over a narrow checkbox column — keep it small + on one line. */
+  th[data-key="hidden"] { font-size: 0.6rem; white-space: nowrap; letter-spacing: 0; }
+  .rank-pfx { color: rgba(250,246,236,0.55); font-size: 0.78rem; margin-right: 2px; vertical-align: middle; }
+  .row-grip { display: inline-block; margin-right: 6px; color: rgba(250,246,236,0.45); cursor: grab; user-select: none; font-size: 15px; vertical-align: middle; }
+  .row-grip:active { cursor: grabbing; }
+  tr.dragging { opacity: 0.5; background: rgba(240,169,59,0.12); }
+  tr.drop-target td { box-shadow: inset 0 2px 0 var(--mustard); }
+  /* Column resize: a grip on the right edge of each header cell. */
+  th { position: relative; }
+  /* Once columns are sized (fixed layout), let text cells soft-wrap instead of clipping when
+     narrowed. Control cells (select/checkbox/number) keep their own min-widths and don't wrap. */
+  table.fixedcols td, table.fixedcols th { white-space: normal; word-break: break-word; overflow-wrap: anywhere; }
+  table.fixedcols td:has(> select.edit-cell), table.fixedcols td:has(> input.edit-cell) { white-space: nowrap; }
+  th .col-grip { position: absolute; top: 0; right: 0; width: 8px; height: 100%; cursor: col-resize; user-select: none; touch-action: none; }
+  th .col-grip:hover, th .col-grip.dragging { background: rgba(240,169,59,0.5); }
   .serial-wrap { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
   .serial { display: block; white-space: pre-wrap; max-width: 560px; font-size: 0.8rem; line-height: 1.5; color: rgba(250,246,236,0.9); }
   /* Per-episode "copy all comments" button — small, ghost, sits above the serial text. */
@@ -264,22 +284,205 @@
   // Admin write: inline-edit a row column (waitlist Status/Group). Row id is on the
   // <tr> (email for waitlist); the column key is on the <select>. Reverts to
   // data-prev on failure. Brief green/amber border flash on save.
-  async function onEditCell(ev) {
-    const sel = ev.target;
+  // Read the editor's current value as a string (checkbox → '1'/'0').
+  function editVal(el) { return el.type === 'checkbox' ? (el.checked ? '1' : '0') : el.value; }
+  // Save one inline editor. Autosave calls this on change; Save all calls it for dirty cells.
+  async function saveEditCell(sel) {
     const tr = sel.closest('tr');
     const id = tr && tr.dataset.id;
     const key = sel.dataset.key;
-    if (!id) return;
+    if (!id) return false;
+    const value = editVal(sel);
+    const wasDisabled = sel.disabled;
     sel.disabled = true;
     const flash = (cls) => { sel.classList.remove('ok', 'bad'); sel.classList.add(cls); setTimeout(() => sel.classList.remove(cls), 900); };
     try {
-      await apiPost(`/admin/write/${cur.key}`, { id, key, value: sel.value });
-      sel.dataset.prev = sel.value;
+      await apiPost(`/admin/write/${cur.key}`, { id, key, value });
+      sel.dataset.prev = value;
       flash('ok');
+      return true;
     } catch (_) {
-      sel.value = sel.dataset.prev || sel.value;   // revert
+      if (sel.type === 'checkbox') sel.checked = sel.dataset.prev === '1';
+      else sel.value = sel.dataset.prev || sel.value;   // revert
       flash('bad');
-    } finally { sel.disabled = false; }
+      return false;
+    } finally { sel.disabled = wasDisabled; }
+  }
+  async function onEditCell(ev) {
+    const el = ev.target;
+    // Editing the rank NUMBER = "move to this position": reposition the row within its kind
+    // and renumber the whole category (like a drag), so you never end up with dup ranks.
+    if (cur.reorder && el.dataset.key === cur.reorder) return reorderByNumber(el);
+    // Toggling the Cut column removes/returns a row from ranking → compact the scope so the
+    // gap closes by shifting the rows below it UP (order preserved), not from the bottom.
+    if (cur.reorder && cur.reorderCutCol && el.dataset.key === cur.reorderCutCol) {
+      const ok = await saveEditCell(el);
+      if (ok) {
+        const tr = el.closest('tr');
+        const isCut = el.type === 'checkbox' ? el.checked : el.value === '1';
+        if (isCut) {
+          // Leaving the ranking → blank this row's rank (0), then compact the rest so the gap
+          // closes by shifting the ones below UP. (Restore does NOT renumber — the row comes
+          // back unranked/blank so you place it where you want, avoiding a dup with siblings
+          // that aren't loaded in the cut-only view.)
+          const rankInp = tr.querySelector(`.edit-cell[data-key="${cur.reorder}"]`);
+          if (rankInp && rankInp.value !== '0') { rankInp.value = '0'; await saveEditCell(rankInp); }
+          await compactScope(tr);
+        }
+      }
+      if (ok && state.filters[el.dataset.key] != null) load();
+      return ok;
+    }
+    const ok = await saveEditCell(el);
+    // If the edited column is actively filtered (e.g. ticking Cut while Cut?=kept), reload so
+    // the row re-applies against the filter and drops out — still reachable by changing it.
+    if (ok && state.filters[el.dataset.key] != null) load();
+    return ok;
+  }
+  // Renumber a scope's still-ranked (not-cut) rows to 1..N by their current order — closes a
+  // gap left by a cut (rows below shift up) without disturbing the order.
+  async function compactScope(tr) {
+    if (!tr) return;
+    const rows = scopeRows(tr).filter(r => {
+      const chk = r.querySelector(`.edit-cell[data-key="${cur.reorderCutCol}"]`);
+      return !(chk && chk.type === 'checkbox' && chk.checked);   // skip cut rows
+    });
+    for (let i = 0; i < rows.length; i++) {
+      const inp = rows[i].querySelector(`.edit-cell[data-key="${cur.reorder}"]`);
+      if (!inp) continue;
+      const want = String(i + 1);
+      if (inp.value !== want) { inp.value = want; await saveEditCell(inp); }
+    }
+  }
+  // Move a row to the typed position within its reorder scope, then renumber 1..N.
+  async function reorderByNumber(inp) {
+    const tr = inp.closest('tr'); if (!tr) return false;
+    const others = scopeRows(tr).filter(r => r !== tr);
+    const n = Math.max(1, Math.min(others.length + 1, Math.round(Number(inp.value) || 1)));
+    const ref = others[n - 1] || null;           // the row currently at position n (0-based n-1)
+    if (ref) tr.parentNode.insertBefore(tr, ref);
+    else { const last = others[others.length - 1]; if (last) last.parentNode.insertBefore(tr, last.nextSibling); }
+    await renumberScope(tr);                      // writes the new 1..N for the whole category
+    return true;
+  }
+  // Save all: flush every inline editor whose value differs from its last-saved value.
+  async function saveAllEdits() {
+    const btn = $('saveall'); if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+    const dirty = [...document.querySelectorAll('#tbody .edit-cell')].filter(el => editVal(el) !== (el.dataset.prev ?? ''));
+    let ok = 0;
+    for (const el of dirty) { if (await saveEditCell(el)) ok++; }
+    if (btn) { btn.textContent = dirty.length ? `Saved ${ok}/${dirty.length}` : 'Nothing to save'; setTimeout(() => { btn.textContent = 'Save all'; btn.disabled = false; }, 1400); }
+  }
+
+  // ── Resizable columns (persisted per resource in localStorage) ──────────────
+  const tableEl = () => $('thead').parentElement;
+  const colWKey = () => 'admin_colw_' + (cur && cur.key);
+  function loadColW() { try { return JSON.parse(localStorage.getItem(colWKey()) || '{}'); } catch (_) { return {}; } }
+  function saveColW(o) { try { localStorage.setItem(colWKey(), JSON.stringify(o)); } catch (_) {} }
+  function clearColgroup() { const cg = tableEl().querySelector('colgroup'); if (cg) cg.remove(); const t = tableEl(); t.style.tableLayout = 'auto'; t.classList.remove('fixedcols'); }
+  // Minimum width a column may be dragged to: dropdowns/number/checkbox stay usable; text
+  // columns can go narrow and soft-wrap.
+  function colMinWidth(col) {
+    if (col && cur.reorder && col.key === cur.reorder) return 120;  // grip + prefix + number input
+    const k = col && col.edit && col.edit.kind;
+    if (k === 'enum' || (col && col.edit && !k)) return 130;   // <select>
+    if (k === 'int') return 80;                                 // number input
+    if (k === 'bool') return 44;                                // checkbox
+    return 48;                                                  // text / display
+  }
+  // Build a <colgroup> matching the rendered columns; apply any saved widths and switch to
+  // fixed layout so those widths are honored. No saved widths => natural auto layout.
+  function applyColgroup(cols) {
+    const tbl = tableEl();
+    let cg = tbl.querySelector('colgroup'); if (cg) cg.remove();
+    cg = document.createElement('colgroup');
+    const saved = loadColW(); let any = false;
+    cols.forEach(c => { const col = document.createElement('col'); col.dataset.key = c.key; if (saved[c.key]) { col.style.width = saved[c.key] + 'px'; any = true; } cg.appendChild(col); });
+    tbl.insertBefore(cg, tbl.firstChild);
+    tbl.style.tableLayout = any ? 'fixed' : 'auto';
+    tbl.classList.toggle('fixedcols', any);
+    return cg;
+  }
+  function attachGrips(cols) {
+    $('thead').querySelectorAll('th').forEach((th, i) => {
+      const grip = document.createElement('span'); grip.className = 'col-grip';
+      grip.addEventListener('click', e => e.stopPropagation());   // never triggers the sort
+      grip.addEventListener('pointerdown', e => startColResize(e, i, grip, cols[i]));
+      th.appendChild(grip);
+    });
+  }
+  function startColResize(e, i, grip, colMeta) {
+    e.preventDefault(); e.stopPropagation();
+    const tbl = tableEl();
+    const cg = tbl.querySelector('colgroup'); if (!cg) return;
+    // First drag on an auto-layout table: freeze every column at its current width, then
+    // switch to fixed so only the dragged column changes.
+    if (tbl.style.tableLayout !== 'fixed') {
+      const ths = [...$('thead').querySelectorAll('th')];
+      [...cg.children].forEach((col, idx) => { if (ths[idx]) col.style.width = ths[idx].offsetWidth + 'px'; });
+      tbl.style.tableLayout = 'fixed'; tbl.classList.add('fixedcols');
+    }
+    const col = cg.children[i];
+    const minW = colMinWidth(colMeta);
+    const startX = e.clientX, startW = parseFloat(col.style.width) || col.offsetWidth;
+    grip.classList.add('dragging');
+    const move = ev => { col.style.width = Math.max(minW, startW + (ev.clientX - startX)) + 'px'; };
+    const up = () => {
+      grip.classList.remove('dragging');
+      window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up);
+      const o = {}; [...cg.children].forEach(c => { o[c.dataset.key] = Math.round(parseFloat(c.style.width) || c.offsetWidth); }); saveColW(o);
+    };
+    window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+  }
+
+  // ── Drag-to-reorder rows (persists a 1..N rank per group) ───────────────────
+  let _dragRow = null;
+  function enableRowReorder() {
+    const tb = $('tbody');
+    tb.querySelectorAll('tr[data-id]:not(.group-header)').forEach(tr => {
+      const grip = tr.querySelector('.row-grip');
+      if (grip) {
+        // Only make the row draggable while the handle is held (so inputs stay usable).
+        grip.addEventListener('mousedown', () => { tr.draggable = true; });
+        tr.addEventListener('mouseup', () => { tr.draggable = false; });
+      }
+      tr.addEventListener('dragstart', e => { _dragRow = tr; tr.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', tr.dataset.id || ''); } catch (_) {} });
+      tr.addEventListener('dragend', async () => {
+        tr.draggable = false; tr.classList.remove('dragging');
+        $('tbody').querySelectorAll('.drop-target').forEach(el => el.classList.remove('drop-target'));
+        const row = _dragRow; _dragRow = null;
+        if (row) await renumberScope(row);
+      });
+    });
+    tb.ondragover = onRowDragOver;          // property assignment → never stacks across renders
+    tb.ondrop = e => { e.preventDefault(); };
+  }
+  // The rows the dragged row may reorder among: same group, and — when ranks are per a
+  // sub-key (e.g. per kind) — the same sub-key value too. Keeps a movie from landing in
+  // the series list.
+  function scopeRows(row) {
+    const gi = row.dataset.gi;
+    let sel = `tr[data-gi="${gi}"][data-id]:not(.group-header)`;
+    if (cur.reorderScope) sel += `[data-rk="${(row.dataset.rk || '').replace(/"/g, '\\"')}"]`;
+    return [...$('tbody').querySelectorAll(sel)];
+  }
+  function onRowDragOver(e) {
+    if (!_dragRow) return;
+    e.preventDefault();
+    const rows = scopeRows(_dragRow);
+    let target = null;
+    for (const r of rows) { if (r === _dragRow) continue; const b = r.getBoundingClientRect(); if (e.clientY < b.top + b.height / 2) { target = r; break; } }
+    if (target) { if (_dragRow.nextSibling !== target) target.parentNode.insertBefore(_dragRow, target); }
+    else { const last = rows[rows.length - 1]; if (last && last !== _dragRow) last.parentNode.insertBefore(_dragRow, last.nextSibling); }
+  }
+  async function renumberScope(row) {
+    const rows = scopeRows(row);
+    for (let i = 0; i < rows.length; i++) {
+      const inp = rows[i].querySelector(`.edit-cell[data-key="${cur.reorder}"]`);
+      if (!inp) continue;
+      const want = String(i + 1);
+      if (inp.value !== want) { inp.value = want; await saveEditCell(inp); }
+    }
   }
 
   // ── Gate ──────────────────────────────────────────────────────────────────
@@ -318,7 +521,7 @@
 
   function select(key) {
     cur = META.resources.find(r => r.key === key);
-    state.q = ''; state.filters = {}; state.sort = cur.sortDefault; state.dir = 'desc'; state.offset = 0; state.pivot = '';
+    state.q = ''; state.filters = cur.defaultFilters ? { ...cur.defaultFilters } : {}; state.sort = cur.sortDefault; state.dir = 'desc'; state.offset = 0; state.pivot = '';
     document.querySelectorAll('.navitem').forEach(b => b.classList.toggle('active', b.dataset.key === key));
     $('title').textContent = cur.label;
     $('note').hidden = !cur.note;
@@ -339,8 +542,12 @@
       html += `<select id="pivot"><option value="">Table view</option>` +
         cur.pivots.map(p => `<option value="${p.key}">◧ ${esc(p.label)}</option>`).join('') + `</select>`;
     }
-    html += `<span class="spacer"></span><button class="ghost" id="refresh">Refresh</button>`;
+    const hasEdits = (cur.columns || []).some(col => col.edit);
+    html += `<span class="spacer"></span>`;
+    if (hasEdits) html += `<button class="ghost" id="saveall">Save all</button>`;
+    html += `<button class="ghost" id="refresh">Refresh</button>`;
     c.innerHTML = html;
+    if (hasEdits) $('saveall').addEventListener('click', saveAllEdits);
 
     if (cur.search) {
       const q = $('q');
@@ -352,6 +559,7 @@
       // still filters, we just can't prefill choices — leave as "all".
       (f.options || []).forEach(o => { const el = document.createElement('option'); el.value = o; el.textContent = `${f.label}: ${o}`; sel.appendChild(el); });
       if (!f.options) sel.disabled = true, sel.title = 'Type a value in search to filter; preset options not defined for this column.';
+      if (state.filters[f.key] != null) sel.value = state.filters[f.key];   // reflect a default filter (e.g. Cut? = kept)
       sel.addEventListener('change', () => { if (sel.value) state.filters[f.key] = sel.value; else delete state.filters[f.key]; state.offset = 0; load(); });
     }
     const pv = $('pivot');
@@ -381,7 +589,8 @@
   }
 
   const PILL_COLS = ['mutual', 'done', 'kind', 'spoiler', 'shared', 'relationship', 'linked', 'is_default', 'list_type'];
-  function cell(col, val) {
+  const RANK_PREFIX = { series: 'S', miniseries: 'M', anthology: 'A', film: 'F' };
+  function cell(col, val, row) {
     // Inline-editable column (col.edit = {kind:'enum',options} → <select>, or
     // {kind:'int'} → number input): PATCHes
     // the row via POST /admin/write/:resource. Checked first so it wins over the
@@ -389,7 +598,20 @@
     if (col.edit) {
       const curVal = val == null ? '' : String(val);
       if (col.edit.kind === 'int') {
-        return `<input type="number" min="0" step="1" class="edit-cell edit-num" data-key="${esc(col.key)}" data-prev="${esc(curVal)}" value="${esc(curVal)}">`;
+        const grip = (cur.reorder === col.key) ? `<span class="row-grip" title="Drag to reorder">⠿</span>` : '';
+        // Rank 0 = unranked (e.g. a cut row) → show a blank cell, no prefix.
+        const isReorder = cur.reorder === col.key;
+        const shown = (isReorder && (curVal === '0' || curVal === '')) ? '' : curVal;
+        const pk = (isReorder && cur.reorderScope && row && shown !== '') ? RANK_PREFIX[row[cur.reorderScope]] : null;
+        const pfx = pk ? `<span class="rank-pfx">${pk}-</span>` : '';
+        return `${grip}${pfx}<input type="number" min="0" step="1" class="edit-cell edit-num" data-key="${esc(col.key)}" data-prev="${esc(shown)}" value="${esc(shown)}">`;
+      }
+      if (col.edit.kind === 'bool') {
+        const on = Number(val) ? ' checked' : '';
+        return `<input type="checkbox" class="edit-cell edit-bool" data-key="${esc(col.key)}" data-prev="${Number(val) ? '1' : '0'}"${on}>`;
+      }
+      if (col.edit.kind === 'text') {
+        return `<textarea class="edit-cell edit-text" rows="1" data-key="${esc(col.key)}" data-prev="${esc(curVal)}" placeholder="…">${esc(curVal)}</textarea>`;
       }
       const opts = (col.edit.options || []).map(o => `<option value="${esc(o)}"${o === curVal ? ' selected' : ''}>${esc(o)}</option>`).join('');
       return `<select class="edit-cell" data-key="${esc(col.key)}" data-prev="${esc(curVal)}">${opts}</select>`;
@@ -416,7 +638,7 @@
     if (isUrl(val)) return `<a href="${esc(val)}" target="_blank" rel="noopener">link ↗</a>`;
     if (val === '—') return '<span class="muted">—</span>';
     if (PILL_COLS.includes(col.key)) return `<span class="pill">${esc(val)}</span>`;
-    const wrap = ['note', 'name', 'episode_name', 'show_name', 'transcription', 'excerpt', 'flaggers', 'all_comments', 'content', 'message'].includes(col.key);
+    const wrap = ['note', 'name', 'episode_name', 'show_name', 'transcription', 'excerpt', 'flaggers', 'all_comments', 'content', 'message', 'feel'].includes(col.key);
     return wrap ? `<span>${esc(val)}</span>` : esc(val);
   }
 
@@ -438,6 +660,8 @@
       else { state.sort = k; state.dir = 'desc'; }
       state.offset = 0; load();
     }));
+    applyColgroup(cols);   // persisted column widths + resize grips
+    attachGrips(cols);
     let _prevGroup = null, _gi = -1;
     const groupNeeds = {};   // group index -> any turn in it still needs a Ted reply
     $('tbody').innerHTML = data.rows.map(row => {
@@ -458,16 +682,18 @@
       }
       const giAttr = cur.groupBy ? ` data-gi="${_gi}"` : '';
       const escAttr = (Number(row.needs_reply) === 1) ? ` data-esc="${esc(row._id || '')}"` : '';
-      out += `<tr data-id="${esc(row._id || '')}"${giAttr}${escAttr}>` + cols.map(col => {
+      const rkAttr = cur.reorderScope ? ` data-rk="${esc(row[cur.reorderScope] == null ? '' : row[cur.reorderScope])}"` : '';
+      out += `<tr data-id="${esc(row._id || '')}"${giAttr}${escAttr}${rkAttr}>` + cols.map(col => {
         const msg = col.key === 'content' || col.key === 'message';
-        const wrap = ['note','name','episode_name','show_name','transcription','excerpt','flaggers','all_comments'].includes(col.key);
+        const wrap = ['note','name','episode_name','show_name','transcription','excerpt','flaggers','all_comments','feel'].includes(col.key);
         const cls = msg ? 'msgcell' : (wrap ? 'wrapcell' : '');
-        return `<td class="${cls}">${cell(col, row[col.key])}</td>`;
+        return `<td class="${cls}">${cell(col, row[col.key], row)}</td>`;
       }).join('') + '</tr>';
       return out;
     }).join('') || `<tr><td colspan="${cols.length}" class="muted" style="padding:22px">No rows.</td></tr>`;
     $('tbody').querySelectorAll('.hide-chk').forEach(chk => chk.addEventListener('change', onHideToggle));
     $('tbody').querySelectorAll('.edit-cell').forEach(sel => sel.addEventListener('change', onEditCell));
+    if (cur.reorder) enableRowReorder();
     $('tbody').querySelectorAll('.copy-comments').forEach(btn => btn.addEventListener('click', onCopyComments));
     $('tbody').querySelectorAll('.ted-reply-send').forEach(btn => btn.addEventListener('click', onTedReply));
     // Collapsible sessions: click a header to toggle. When any session still needs a Ted
@@ -509,6 +735,7 @@
 
   function renderPivot(data) {
     $('pager').hidden = true;
+    clearColgroup();   // pivot has its own columns; drop any table-view widths
     const cols = data.columns;
     $('thead').innerHTML = '<tr>' + cols.map(col => `<th class="nosort">${esc(col.label)}</th>`).join('') + '</tr>';
     $('tbody').innerHTML = data.rows.map(row => '<tr>' + cols.map(col => {

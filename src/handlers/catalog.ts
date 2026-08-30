@@ -19,6 +19,14 @@ export interface EpisodeRow {
 }
 
 const epId = (titleId: string, season: number, number: number) => `${titleId}:s${season}e${number}`;
+
+// "tvmaze:123" / "tmdb:456" → { source, ref } for materializeTitle. Null for anything else.
+function splitTitleId(titleId: string): { source: string; ref: string } | null {
+  const i = titleId.indexOf(':');
+  if (i < 0) return null;
+  const source = titleId.slice(0, i), ref = titleId.slice(i + 1);
+  return ref && (source === 'tvmaze' || source === 'tmdb') ? { source, ref } : null;
+}
 const released = (airdate: string | null, now: number) => !!airdate && new Date(airdate + 'T23:59:59').getTime() <= now;
 
 // TVmaze summaries arrive as HTML (`<p>…</p>`); TMDB overviews are plain text.
@@ -86,9 +94,9 @@ async function materializeTitle(env: Env, source: string, ref: string, titleId: 
       total_episodes: eps.length, summary: cleanSummary(show.summary), premiered: show.premiered || null, updated_at: now };
     // NOTE: a title is materialized ONCE, so episodes not yet aired at ingest carry
     // whatever TVmaze had then — commonly runtime:null (and placeholder "Episode N"
-    // names). Those don't self-heal; they need a per-episode backfill from TVmaze once
-    // the episode airs. See BACKEND.md (Ted Lasso S4 runtime fix, 2026-08-14): E1-E3
-    // were backfilled by hand; a scheduled cloud routine backfills E4/E5 as they air.
+    // names). These now self-heal on read: maybeHealTitle() re-pulls the full episode
+    // list from TVmaze (via refreshTitleEpisodes) the next time the title is opened after
+    // the episode airs, TTL-gated so it can't hammer TVmaze. See BACKEND.md (Ted Lasso S4).
     epInputs = eps.map((e: any) => ({ season: e.season, number: e.number, name: e.name || '',
       runtime: e.runtime || null, airdate: e.airdate || null, summary: cleanSummary(e.summary) }));
   }
@@ -167,6 +175,84 @@ export async function ensureReleaseDate(env: Env, titleId: string): Promise<stri
     return rel;
   }
   return cur;
+}
+
+// Re-fetch a TVmaze show's full episode list and upsert it, correcting names/runtimes/
+// airdates + next-episode links and the title's total_episodes/status/poster. This is the
+// heal for the "materialized ONCE" problem (see materializeTitle): a show ingested before
+// its later episodes aired keeps ingest-time placeholders (null runtime, "Episode N" names)
+// forever otherwise. Bumps titles.updated_at so callers can TTL-gate how often this runs.
+// TVmaze series only; returns false on any fetch/parse failure (caller keeps the old rows).
+export async function refreshTitleEpisodes(env: Env, titleId: string): Promise<boolean> {
+  const parts = splitTitleId(titleId);
+  if (!parts || parts.source !== 'tvmaze') return false;
+  let show: any;
+  try {
+    const r = await fetch(`https://api.tvmaze.com/shows/${encodeURIComponent(parts.ref)}?embed=episodes`);
+    if (!r.ok) return false;
+    show = await r.json();
+  } catch { return false; }
+
+  const eps = ((show._embedded && show._embedded.episodes) || [])
+    .filter((e: any) => e.season >= 1)
+    .sort((a: any, b: any) => a.season - b.season || a.number - b.number);
+  if (!eps.length) return false;
+
+  const now = Date.now();
+  const epInputs = eps.map((e: any) => ({ season: e.season, number: e.number, name: e.name || '',
+    runtime: e.runtime || null, airdate: e.airdate || null, summary: cleanSummary(e.summary) }));
+  const rows = epInputs.map((e: any, i: number) => {
+    const nxt = epInputs[i + 1];
+    return { episode_id: epId(titleId, e.season, e.number), season: e.season, number: e.number,
+      name: e.name, runtime: e.runtime, airdate: e.airdate, summary: e.summary,
+      next_episode_id: nxt ? epId(titleId, nxt.season, nxt.number) : null };
+  });
+
+  const stmts = [
+    env.DB.prepare(`UPDATE titles SET total_episodes = ?, status = ?, name = COALESCE(NULLIF(?,''), name),
+      poster = COALESCE(?, poster), platform = COALESCE(NULLIF(?,''), platform), updated_at = ? WHERE title_id = ?`)
+      .bind(rows.length, show.status || 'Unknown', show.name || '',
+        (show.image && (show.image.original || show.image.medium)) || null,
+        (show.webChannel && show.webChannel.name) || (show.network && show.network.name) || '', now, titleId),
+    ...rows.map((e: any) => env.DB.prepare(`INSERT OR REPLACE INTO episodes
+      (episode_id, title_id, season, number, name, runtime, airdate, summary, next_episode_id, updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?)`).bind(e.episode_id, titleId, e.season, e.number, e.name, e.runtime,
+        e.airdate, e.summary, e.next_episode_id, now)),
+  ];
+  await env.DB.batch(stmts);
+  return true;
+}
+
+// Once per this window, at most, will a stale title be re-pulled from TVmaze on read — so a
+// show whose upstream is still incomplete (aired but TVmaze hasn't filled runtime) can't make
+// every open hammer TVmaze.
+const HEAL_TTL_MS = 6 * 60 * 60 * 1000;
+
+// An episode carries an ingest-time placeholder when it has a null runtime or a TVmaze auto-name
+// ("Episode 5" / "TBA" / blank) that stands in until the episode is fully scheduled. Summary-null
+// alone is NOT a staleness signal — plenty of aired episodes legitimately have no upstream
+// synopsis, and healing on that would re-fetch forever. Expressed as SQL so the check is a single
+// cheap existence query (LIMIT 1) rather than loading every row on each read of an old title.
+const STALE_EP_SQL =
+  `SELECT 1 FROM episodes
+     WHERE title_id = ?1 AND airdate IS NOT NULL AND airdate <= date('now')
+       AND (runtime IS NULL OR name IS NULL OR name = ''
+            OR name GLOB 'Episode [0-9]*' OR name LIKE 'TBA%')
+     LIMIT 1`;
+
+// Auto-heal on read: if a TVmaze title has an AIRED episode that still looks like a placeholder
+// and we haven't refreshed it within HEAL_TTL_MS, re-pull the whole episode list in-band so the
+// member sees real names/runtimes/synopses on this open. Returns the refreshed title row (to use
+// downstream) or null when nothing was healed. Best-effort; never throws.
+export async function maybeHealTitle(env: Env, title: any): Promise<any | null> {
+  try {
+    if (!title || title.source !== 'tvmaze') return null;
+    if (title.updated_at && (Date.now() - Number(title.updated_at)) < HEAL_TTL_MS) return null;
+    const stale = await env.DB.prepare(STALE_EP_SQL).bind(title.title_id).first();
+    if (!stale) return null;
+    if (!(await refreshTitleEpisodes(env, title.title_id))) return null;
+    return await env.DB.prepare('SELECT * FROM titles WHERE title_id = ?').bind(title.title_id).first<any>();
+  } catch { return null; }
 }
 
 // POST /catalog/initiate — materialize a title for a member at a watch pattern.
@@ -379,6 +465,26 @@ catalogRoutes.post('/backfill-episode', async (c) => {
     episode_id: ep.episode_id, season: ep.season, number: ep.number, code, episode_name: ep.name || null, watched_at: watchedAt });
 });
 
+// POST /catalog/refresh { title_id } — re-fetch a TVmaze show's episodes and upsert the whole
+// list, healing a stale catalog entry. A title is materialized ONCE (see materializeTitle), so a
+// show ingested before its later episodes existed (e.g. an unreleased show that had a single
+// "TBA" placeholder) never self-heals — the LOG face then shows one episode with a stale name
+// while Pierre (which reads TVmaze live) offers episodes the catalog doesn't have. This re-pulls
+// all episodes, corrects names/runtimes/airdates + next-episode links, and updates the title's
+// total_episodes/status/poster. Series only (movies are a single unit). Idempotent.
+catalogRoutes.post('/refresh', async (c) => {
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const ref = resolveRef(body);
+  if (!ref) return c.json({ error: 'title_id required' }, 400);
+  if (ref.source !== 'tvmaze') return c.json({ error: 'refresh is for TVmaze series only' }, 400);
+
+  const ok = await refreshTitleEpisodes(c.env, ref.titleId);
+  if (!ok) return c.json({ error: 'tvmaze fetch failed' }, 502);
+  const eps = await loadEpisodes(c.env, ref.titleId);
+  return c.json({ ok: true, title_id: ref.titleId, episodes: eps.length });
+});
+
 // POST /catalog/runtime-check — a member completed an episode after a live watch that
 // ran short of the stored runtime. TVmaze (TV) runtimes are sometimes a rounded slot,
 // so we ask TMDB for a second opinion: if TMDB's runtime sits closer to what the member
@@ -477,7 +583,15 @@ catalogRoutes.post('/runtime-report', async (c) => {
   if (!email || !titleId || !Number.isFinite(season) || !Number.isFinite(number) || !(observed > 0) || observed > 100000)
     return c.json({ error: 'email, title_id, season, number, observed_runtime required' }, 400);
   const episodeId = epId(titleId, season, number);
-  const ep = await c.env.DB.prepare('SELECT runtime FROM episodes WHERE episode_id = ?').bind(episodeId).first<{ runtime: number | null }>();
+  let ep = await c.env.DB.prepare('SELECT runtime FROM episodes WHERE episode_id = ?').bind(episodeId).first<{ runtime: number | null }>();
+  if (!ep) {
+    // Not in the catalog yet → materialize the whole title on demand (TVmaze show / TMDB film),
+    // so a member can correct the runtime of ANY title, not just ones already in their log.
+    // Ingests future episodes too (runtime null), so a not-yet-aired drop can be set as well.
+    const parts = splitTitleId(titleId);
+    if (parts) { try { await materializeTitle(c.env, parts.source, parts.ref, titleId); } catch { /* fall through to 404 */ } }
+    ep = await c.env.DB.prepare('SELECT runtime FROM episodes WHERE episode_id = ?').bind(episodeId).first<{ runtime: number | null }>();
+  }
   if (!ep) return c.json({ error: 'unknown episode' }, 404);
 
   const now = Date.now();
@@ -488,26 +602,63 @@ catalogRoutes.post('/runtime-report', async (c) => {
        observed_runtime = excluded.observed_runtime, status = 'pending', created_at = excluded.created_at`
   ).bind(episodeId, email, observed, now).run();
 
+  // The authority applies directly. When the reporter is an admin (e.g. Ted correcting a
+  // runtime through Pierre's [TRT] skill), their word is authoritative — apply to the global
+  // catalog immediately, no consensus wait. Everyone else feeds the consensus rule below.
+  const me = await c.env.DB.prepare('SELECT user_type FROM users WHERE email = ?')
+    .bind(email).first<{ user_type?: string }>();
+  const byAuthority = me?.user_type === 'admin';
+
   // Consensus: N distinct users on the SAME observed runtime → auto-apply globally.
   const agree = await c.env.DB.prepare(
     'SELECT COUNT(DISTINCT user_email) AS n FROM runtime_report WHERE episode_id = ? AND observed_runtime = ?'
   ).bind(episodeId, observed).first<{ n: number }>();
   const n = agree?.n || 1;
   let applied = false;
-  if (n >= RUNTIME_CONSENSUS) {
+  if (byAuthority || n >= RUNTIME_CONSENSUS) {
     await c.env.DB.prepare('UPDATE episodes SET runtime = ?, updated_at = ? WHERE episode_id = ?')
       .bind(observed, now, episodeId).run();
     await c.env.DB.prepare("UPDATE runtime_report SET status = 'applied' WHERE episode_id = ? AND observed_runtime = ?")
       .bind(episodeId, observed).run();
     applied = true;
   }
-  return c.json({ ok: true, applied, agree: n });
+  return c.json({ ok: true, applied, byAuthority, agree: n });
 });
 
-// GET /catalog/titles/:title_id/episodes — canonical episode list (no user state).
+// GET /catalog/titles/:title_id/episodes[?map=<map_id>] — the episode list (no user state).
+// Default = canonical air order. With ?map=, the episodes are returned in the curated map's
+// order (join map_steps → episodes by position), each row's next_episode_id taken from the
+// map, plus a `map` flag — so the LOG face can follow the marathon instead of air order.
 catalogRoutes.get('/titles/:title_id/episodes', async (c) => {
   const titleId = c.req.param('title_id');
-  const title = await c.env.DB.prepare('SELECT * FROM titles WHERE title_id = ?').bind(titleId).first();
+  let title = await c.env.DB.prepare('SELECT * FROM titles WHERE title_id = ?').bind(titleId).first<any>();
   if (!title) return c.json({ error: 'not found' }, 404);
+  // Auto-heal a catalog left stale by "materialize ONCE": if an aired episode still carries an
+  // ingest-time placeholder (null runtime / "Episode N"), re-pull from TVmaze in-band so the
+  // member sees real episode data on this open. TTL-gated inside maybeHealTitle; no-op otherwise.
+  const healed = await maybeHealTitle(c.env, title);
+  if (healed) title = healed;
+  let mapId = (c.req.query('map') || '').trim();
+  const email = (c.req.query('email') || '').trim().toLowerCase();
+  // No explicit map but a signed-in member → honor the map they've set on this title, so a
+  // marathon persists across sessions without the shell having to thread the map id around.
+  if (!mapId && email) {
+    const wt = await c.env.DB.prepare('SELECT active_map_id FROM watch_title WHERE user_email=? AND title_id=?').bind(email, titleId).first<{ active_map_id: string | null }>();
+    if (wt?.active_map_id) mapId = wt.active_map_id;
+  }
+  if (mapId) {
+    const mp = await c.env.DB.prepare('SELECT map_id, name FROM maps WHERE map_id = ? AND (title_id = ? OR title_id IS NULL)').bind(mapId, titleId).first<{ map_id: string; name: string }>();
+    if (mp) {
+      const rs = await c.env.DB.prepare(
+        `SELECT e.episode_id, e.title_id, e.season, e.number, e.name, e.runtime, e.airdate, e.summary,
+                ms.next_episode_id AS next_episode_id, e.updated_at
+           FROM map_steps ms JOIN episodes e ON e.episode_id = ms.episode_id
+          WHERE ms.map_id = ?1 ORDER BY ms.position ASC`,
+      ).bind(mapId).all<EpisodeRow>();
+      const episodes = rs.results ?? [];
+      if (episodes.length) return c.json({ title, episodes, map: { id: mp.map_id, name: mp.name } });
+      // map defined but its episodes aren't materialized → fall back to air order.
+    }
+  }
   return c.json({ title, episodes: await loadEpisodes(c.env, titleId) });
 });

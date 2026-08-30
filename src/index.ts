@@ -18,6 +18,7 @@ import { streamerRoutes }   from './handlers/streamer';
 import { tmdbRoutes }       from './handlers/tmdb';
 import { schedulerRoutes }  from './handlers/scheduler';
 import { catalogRoutes }    from './handlers/catalog';
+import { shadowRoutes }     from './handlers/shadow';
 import { processQueue }     from './queue';
 
 export { ResourceCoordinator } from './do/resource-coordinator';
@@ -1271,6 +1272,7 @@ app.route('/admin',        adminRoutes);
 app.route('/streamer',    streamerRoutes);
 app.route('/tmdb',        tmdbRoutes);
 app.route('/catalog',     catalogRoutes);
+app.route('/shadow',      shadowRoutes);
 app.route('/scheduler',   schedulerRoutes);
 
 app.notFound((c) => c.json({ error: 'Not found' }, 404));

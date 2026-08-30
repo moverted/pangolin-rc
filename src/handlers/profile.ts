@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
-import { ensureTitleSummary, ensureReleaseDate } from './catalog';
+import { ensureTitleSummary, ensureReleaseDate, maybeHealTitle } from './catalog';
 import { fetchTmdbMovie } from './tmdb';
 
 // Account + device API. SEAM:identity — email is the key, no auth in this build.
@@ -182,6 +182,47 @@ profileRoutes.get('/:email/ted-messages', async (c) => {
   return c.json({ messages });
 });
 
+// The GET TED reply queue (flat app): one unacked Ted thread at a time. A Ted reply is
+// "unacked" while its turn's grade is '' (ungraded). The member acks it by grading — 👍 great,
+// 👎 bad, any other exit good — which advances to the next. Returns the OLDEST unacked thread
+// as its FULL original conversation (so the member can scroll up for the context Ted answered)
+// plus the count still waiting (for the mascot badge). This is the delivery model that survives
+// navigation/reinstall: nothing is "seen"-consumed, it stays until graded.
+profileRoutes.get('/:email/ted-thread', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  const pendRow = await c.env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM pierre_chat WHERE user_email = ? AND role = 'ted' AND COALESCE(grade,'') = ''",
+  ).bind(email).first<{ n: number }>();
+  const pending = pendRow?.n ?? 0;
+  if (!pending) return c.json({ pending: 0, thread: null });
+  const ted = await c.env.DB.prepare(
+    "SELECT id, conversation_id FROM pierre_chat WHERE user_email = ? AND role = 'ted' AND COALESCE(grade,'') = '' ORDER BY created_at ASC, seq ASC LIMIT 1",
+  ).bind(email).first<{ id: string; conversation_id: string }>();
+  if (!ted) return c.json({ pending, thread: null });
+  const rows = await c.env.DB.prepare(
+    "SELECT role, content, created_at FROM pierre_chat WHERE conversation_id = ? AND role IN ('user','pierre','ted') ORDER BY seq ASC, created_at ASC",
+  ).bind(ted.conversation_id).all();
+  const messages = (rows.results || []).map((r: any) => ({ role: r.role, text: r.content, created_at: r.created_at }));
+  return c.json({ pending, thread: { conversation_id: ted.conversation_id, ted_turn_id: ted.id, messages } });
+});
+
+// Ack a Ted thread by grading its ted turn (great | good | bad); default good for a neutral
+// exit. Only the member's own still-ungraded ted turn is written. Returns the remaining count.
+profileRoutes.post('/:email/ted-thread/ack', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  let body: any; try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const id = typeof body.ted_turn_id === 'string' ? body.ted_turn_id : '';
+  const grade = ['great', 'good', 'bad'].includes(body.grade) ? body.grade : 'good';
+  if (!id) return c.json({ error: 'ted_turn_id required' }, 400);
+  await c.env.DB.prepare(
+    "UPDATE pierre_chat SET grade = ? WHERE id = ? AND user_email = ? AND role = 'ted' AND COALESCE(grade,'') = ''",
+  ).bind(grade, id, email).run();
+  const pendRow = await c.env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM pierre_chat WHERE user_email = ? AND role = 'ted' AND COALESCE(grade,'') = ''",
+  ).bind(email).first<{ n: number }>();
+  return c.json({ ok: true, pending: pendRow?.n ?? 0 });
+});
+
 // Record the outcome of the microphone permission ask (folded into room building). One
 // row per member, latest outcome wins. This is only the permission event, never audio.
 profileRoutes.post('/:email/mic-permission', async (c) => {
@@ -326,14 +367,27 @@ const MANUAL = new Set(['stopped', 'comfort']);   // buckets the auto-recompute 
 // member set a manual bucket (stopped/comfort). Mirrors the client's bucketOf.
 async function recomputeTitle(env: Env, email: string, titleId: string): Promise<{ status: string; current: string | null } | null> {
   const t = await env.DB.prepare('SELECT status, total_episodes FROM titles WHERE title_id = ?').bind(titleId).first<any>();
-  const wt = await env.DB.prepare('SELECT status FROM watch_title WHERE user_email = ? AND title_id = ?').bind(email, titleId).first<any>();
+  const wt = await env.DB.prepare('SELECT status, active_map_id FROM watch_title WHERE user_email = ? AND title_id = ?').bind(email, titleId).first<any>();
   if (!t || !wt) return null;
-  const total = t.total_episodes || 0;
-  const watched = (await env.DB.prepare('SELECT COUNT(*) AS c FROM watch_episode WHERE user_email=? AND title_id=? AND done=1').bind(email, titleId).first<{ c: number }>())?.c ?? 0;
-  const released = (await env.DB.prepare("SELECT COUNT(*) AS c FROM episodes WHERE title_id=? AND airdate IS NOT NULL AND airdate <= date('now')").bind(titleId).first<{ c: number }>())?.c ?? 0;
-  // First not-done episode in air order = the resume pointer (else the finale).
-  const cur = await env.DB.prepare('SELECT e.episode_id FROM episodes e LEFT JOIN watch_episode we ON we.user_email=? AND we.episode_id=e.episode_id WHERE e.title_id=? AND COALESCE(we.done,0)=0 ORDER BY e.season, e.number LIMIT 1').bind(email, titleId).first<{ episode_id: string }>();
-  const last = await env.DB.prepare('SELECT episode_id FROM episodes WHERE title_id=? ORDER BY season DESC, number DESC LIMIT 1').bind(titleId).first<{ episode_id: string }>();
+  const mapId = (wt.active_map_id || '') as string;
+  let total: number, watched: number, released: number;
+  let cur: { episode_id: string } | null, last: { episode_id: string } | null;
+  if (mapId) {
+    // Map mode: everything is scoped to the map's steps, in map order — so status +
+    // resume pointer follow the marathon, not canonical air order.
+    total = (await env.DB.prepare('SELECT COUNT(*) AS c FROM map_steps WHERE map_id=?').bind(mapId).first<{ c: number }>())?.c ?? 0;
+    watched = (await env.DB.prepare('SELECT COUNT(*) AS c FROM map_steps ms JOIN watch_episode we ON we.user_email=? AND we.episode_id=ms.episode_id AND we.done=1 WHERE ms.map_id=?').bind(email, mapId).first<{ c: number }>())?.c ?? 0;
+    released = (await env.DB.prepare("SELECT COUNT(*) AS c FROM map_steps ms JOIN episodes e ON e.episode_id=ms.episode_id WHERE ms.map_id=? AND e.airdate IS NOT NULL AND e.airdate <= date('now')").bind(mapId).first<{ c: number }>())?.c ?? 0;
+    cur = await env.DB.prepare('SELECT ms.episode_id FROM map_steps ms LEFT JOIN watch_episode we ON we.user_email=? AND we.episode_id=ms.episode_id WHERE ms.map_id=? AND COALESCE(we.done,0)=0 ORDER BY ms.position LIMIT 1').bind(email, mapId).first<{ episode_id: string }>();
+    last = await env.DB.prepare('SELECT episode_id FROM map_steps WHERE map_id=? ORDER BY position DESC LIMIT 1').bind(mapId).first<{ episode_id: string }>();
+  } else {
+    total = t.total_episodes || 0;
+    watched = (await env.DB.prepare('SELECT COUNT(*) AS c FROM watch_episode WHERE user_email=? AND title_id=? AND done=1').bind(email, titleId).first<{ c: number }>())?.c ?? 0;
+    released = (await env.DB.prepare("SELECT COUNT(*) AS c FROM episodes WHERE title_id=? AND airdate IS NOT NULL AND airdate <= date('now')").bind(titleId).first<{ c: number }>())?.c ?? 0;
+    // First not-done episode in air order = the resume pointer (else the finale).
+    cur = await env.DB.prepare('SELECT e.episode_id FROM episodes e LEFT JOIN watch_episode we ON we.user_email=? AND we.episode_id=e.episode_id WHERE e.title_id=? AND COALESCE(we.done,0)=0 ORDER BY e.season, e.number LIMIT 1').bind(email, titleId).first<{ episode_id: string }>();
+    last = await env.DB.prepare('SELECT episode_id FROM episodes WHERE title_id=? ORDER BY season DESC, number DESC LIMIT 1').bind(titleId).first<{ episode_id: string }>();
+  }
   const current = cur?.episode_id ?? last?.episode_id ?? null;
 
   let status = wt.status as string;
@@ -376,6 +430,27 @@ profileRoutes.get('/:email/titles', async (c) => {
       const rel = await ensureReleaseDate(c.env, t.title_id).catch(() => null);
       if (rel) t.premiered = rel;
     }
+    // Marathon (curated map) tiles: the WATCH tile is the MARATHON QUEUE, not the whole
+    // series. Re-scope total/watched/released/last-position to the map's steps (in map
+    // order) and carry the marathon's name so the tile can brand itself. Without this the
+    // tile counts every watch_episode row and reads as "all episodes" (see recomputeTitle,
+    // which already scopes status/current the same way).
+    if (t.active_map_id) {
+      const mapId = t.active_map_id as string;
+      const [mp, tot, wat, rel, lastDone] = await Promise.all([
+        c.env.DB.prepare('SELECT name FROM maps WHERE map_id=?').bind(mapId).first<{ name: string }>(),
+        c.env.DB.prepare('SELECT COUNT(*) AS c FROM map_steps WHERE map_id=?').bind(mapId).first<{ c: number }>(),
+        c.env.DB.prepare('SELECT COUNT(*) AS c FROM map_steps ms JOIN watch_episode we ON we.user_email=? AND we.episode_id=ms.episode_id AND we.done=1 WHERE ms.map_id=?').bind(email, mapId).first<{ c: number }>(),
+        c.env.DB.prepare("SELECT COUNT(*) AS c FROM map_steps ms JOIN episodes e ON e.episode_id=ms.episode_id WHERE ms.map_id=? AND e.airdate IS NOT NULL AND e.airdate <= date('now')").bind(mapId).first<{ c: number }>(),
+        c.env.DB.prepare('SELECT e.season, e.number FROM map_steps ms JOIN episodes e ON e.episode_id=ms.episode_id JOIN watch_episode we ON we.user_email=? AND we.episode_id=ms.episode_id AND we.done=1 WHERE ms.map_id=? ORDER BY ms.position DESC LIMIT 1').bind(email, mapId).first<{ season: number; number: number }>(),
+      ]);
+      t.total = tot?.c ?? 0;
+      t.watched = wat?.c ?? 0;
+      t.released = rel?.c ?? 0;
+      t.last_season = lastDone?.season ?? null;
+      t.last_number = lastDone?.number ?? null;
+      t.map_name = mp?.name ?? null;
+    }
   }));
   return c.json({ titles: list });
 });
@@ -385,18 +460,39 @@ profileRoutes.get('/:email/titles', async (c) => {
 profileRoutes.get('/:email/titles/:title_id', async (c) => {
   const email = c.req.param('email').toLowerCase();
   const titleId = c.req.param('title_id');
-  const title = await c.env.DB.prepare('SELECT * FROM titles WHERE title_id = ?').bind(titleId).first<any>();
+  let title = await c.env.DB.prepare('SELECT * FROM titles WHERE title_id = ?').bind(titleId).first<any>();
   if (!title) return c.json({ error: 'not found' }, 404);
+  // Auto-heal a catalog left stale by "materialize ONCE" (aired episode still carrying an
+  // ingest-time placeholder name/runtime): re-pull from TVmaze in-band so the LOG face shows
+  // real episode data on this open. TTL-gated inside maybeHealTitle; no-op for movies/fresh.
+  const healed = await maybeHealTitle(c.env, title);
+  if (healed) title = healed;
   // Fill a missing synopsis once (titles tracked before the summary column existed).
   if (title.summary == null) title.summary = await ensureTitleSummary(c.env, titleId);
-  const watch_title = await c.env.DB.prepare('SELECT * FROM watch_title WHERE user_email=? AND title_id=?').bind(email, titleId).first();
-  const eps = await c.env.DB.prepare(
-    `SELECT e.episode_id, e.season, e.number, e.name, e.runtime, e.airdate, e.summary, e.next_episode_id,
-            COALESCE(we.done,0) AS done, COALESCE(we.minute,0) AS minute, COALESCE(we.bp,0) AS bp, we.sessions
-       FROM episodes e LEFT JOIN watch_episode we ON we.user_email=? AND we.episode_id=e.episode_id
-      WHERE e.title_id=? ORDER BY e.season, e.number`).bind(email, titleId).all();
+  const watch_title = await c.env.DB.prepare('SELECT * FROM watch_title WHERE user_email=? AND title_id=?').bind(email, titleId).first<any>();
+  // Map mode: when this title is in a curated marathon, return its episodes in MAP order with
+  // the map's next-links, so the LOG face follows the marathon. Else canonical air order.
+  const mapId = (watch_title && watch_title.active_map_id) || null;
+  let mapMeta: { id: string; name: string } | null = null;
+  let eps;
+  if (mapId) {
+    const mp = await c.env.DB.prepare('SELECT map_id, name FROM maps WHERE map_id=?').bind(mapId).first<{ map_id: string; name: string }>();
+    if (mp) mapMeta = { id: mp.map_id, name: mp.name };
+    eps = await c.env.DB.prepare(
+      `SELECT e.episode_id, e.season, e.number, e.name, e.runtime, e.airdate, e.summary, ms.next_episode_id AS next_episode_id,
+              COALESCE(we.done,0) AS done, COALESCE(we.minute,0) AS minute, COALESCE(we.bp,0) AS bp, we.sessions
+         FROM map_steps ms JOIN episodes e ON e.episode_id=ms.episode_id
+              LEFT JOIN watch_episode we ON we.user_email=? AND we.episode_id=e.episode_id
+        WHERE ms.map_id=? ORDER BY ms.position`).bind(email, mapId).all();
+  } else {
+    eps = await c.env.DB.prepare(
+      `SELECT e.episode_id, e.season, e.number, e.name, e.runtime, e.airdate, e.summary, e.next_episode_id,
+              COALESCE(we.done,0) AS done, COALESCE(we.minute,0) AS minute, COALESCE(we.bp,0) AS bp, we.sessions
+         FROM episodes e LEFT JOIN watch_episode we ON we.user_email=? AND we.episode_id=e.episode_id
+        WHERE e.title_id=? ORDER BY e.season, e.number`).bind(email, titleId).all();
+  }
   const episodes = (eps.results || []).map((r: any) => ({ ...r, sessions: r.sessions ? safeParse(r.sessions) : [] }));
-  return c.json({ title, watch_title, episodes });
+  return c.json({ title, watch_title, episodes, map: mapMeta });
 });
 
 // The member's emergent PATH through a title: watched episodes in the order they
@@ -634,6 +730,55 @@ profileRoutes.patch('/:email/titles/:title_id', async (c) => {
   if (status) await c.env.DB.prepare('UPDATE watch_title SET status=?, updated_at=? WHERE user_email=? AND title_id=?').bind(status, now, email, titleId).run();
   const recomputed = await recomputeTitle(c.env, email, titleId);   // fixes resume pointer; respects manual buckets
   return c.json({ ok: true, status: recomputed?.status });
+});
+
+// POST /:email/titles/:title_id/map { map_id | null } — put this title into a curated map
+// (a comfort marathon) or clear it back to canonical air order. Setting a map re-points the
+// resume pointer to the first not-done map step (via recomputeTitle). Materializes the title
+// first so a not-yet-tracked show can be dropped straight into a marathon.
+profileRoutes.post('/:email/titles/:title_id/map', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  const titleId = c.req.param('title_id');
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const mapId = body.map_id == null || body.map_id === '' ? null : str(body.map_id, 120);
+  if (mapId) {
+    const mp = await c.env.DB.prepare('SELECT map_id FROM maps WHERE map_id = ? AND (title_id = ? OR title_id IS NULL)').bind(mapId, titleId).first();
+    if (!mp) return c.json({ error: 'unknown map for this title' }, 404);
+  }
+  const now = Date.now();
+  const t = await c.env.DB.prepare('SELECT name FROM titles WHERE title_id = ?').bind(titleId).first<{ name: string }>();
+  await c.env.DB.prepare(
+    `INSERT INTO watch_title (user_email, title_id, show_name, status, active_map_id, updated_at)
+     VALUES (?, ?, ?, 'current', ?, ?)
+     ON CONFLICT(user_email, title_id) DO UPDATE SET active_map_id=excluded.active_map_id, updated_at=excluded.updated_at`,
+  ).bind(email, titleId, t?.name || '', mapId, now).run();
+  const recomputed = await recomputeTitle(c.env, email, titleId);
+  return c.json({ ok: true, active_map_id: mapId, status: recomputed?.status, current_episode_id: recomputed?.current });
+});
+
+// GET /:email/marathons — the COLLECT view (Browse tab). Curated marathons (the `maps` table)
+// split into the ones this member OWNS (YOUR MARATHONS) and everyone else's / global ones
+// (COMMUNITY MARATHONS). Ownership: a map whose owner_email matches the member is "yours"; any
+// other owner — including NULL = global (a community-seeded marathon like Psych) — is "community".
+// So the SAME map (e.g. Moonlighting owned by Ted) reads as YOURS to its owner and COMMUNITY to
+// everyone else. Each entry carries name / kind / step count / a poster (from its title when the
+// map is single-title) for the COLLECT tile.
+profileRoutes.get('/:email/marathons', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  const rows = await c.env.DB.prepare(
+    `SELECT m.map_id, m.name, m.kind, m.title_id, m.owner_email, t.poster AS poster, t.name AS title_name,
+            (SELECT COUNT(*) FROM map_steps ms WHERE ms.map_id = m.map_id) AS steps
+       FROM maps m LEFT JOIN titles t ON t.title_id = m.title_id
+      ORDER BY m.created_at DESC`).all<any>();
+  const all = rows.results || [];
+  const mine = (r: any) => !!r.owner_email && String(r.owner_email).toLowerCase() === email;
+  const shape = (r: any) => ({ map_id: r.map_id, name: r.name, kind: r.kind, title_id: r.title_id || null,
+    poster: r.poster || null, title_name: r.title_name || null, steps: r.steps || 0 });
+  return c.json({
+    yours: all.filter(mine).map(shape),
+    community: all.filter((r: any) => !mine(r)).map(shape),
+  });
 });
 
 // Withdraw a title: a FULL delete of this member's copy — title + episode progress,

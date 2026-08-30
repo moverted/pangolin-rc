@@ -213,6 +213,53 @@
     width:56px;height:56px;pointer-events:none;color:#fff; }
   .send .rec-ring .rec-seg{ transition:opacity .15s; }
 
+  /* ── Flat-app composer tools row: CHAT PICKER · thumbs · GET TED. Only the
+     conventional /app shell shows this (body.flatapp, set from ?app=1); the 3D cube
+     keeps these controls in its own off-cube console band. It lives INSIDE the
+     composer footer so it rides just above the keyboard together with the input. In
+     the cube the wrapper is display:contents so textarea+send lay out exactly as before. */
+  .comp-input{ display:contents; }
+  #compTools{ display:none; }
+  body.flatapp .composer{ flex-direction:column; align-items:stretch; gap:9px; }
+  body.flatapp .comp-input{ display:flex; gap:8px; align-items:flex-end; }
+  body.flatapp #compTools{ position:relative; display:flex; align-items:center; gap:9px; padding:0 2px; }
+  #compTools .ct-pick{
+    flex:none; display:inline-flex; align-items:center; gap:5px;
+    background:transparent; border:1px solid rgba(239,177,78,.4); color:var(--amber);
+    font-family:'Space Mono'; font-size:10.5px; font-weight:700; letter-spacing:.1em; text-transform:uppercase;
+    padding:6px 11px; border-radius:999px; cursor:pointer;
+  }
+  #compTools .ct-pick:active{ transform:translateY(1px); }
+  #compTools .ct-pick .ct-caret{ font-size:8px; color:var(--ink-dim); }
+  #compTools .ct-spacer{ flex:1; }
+  #compTools .ct-btn{
+    flex:none; display:inline-flex; align-items:center; justify-content:center;
+    background:transparent; border:1px solid rgba(239,177,78,.4); color:var(--amber);
+    cursor:pointer; border-radius:999px; padding:6px; height:32px; min-width:34px;
+  }
+  #compTools .ct-btn.ct-getted{ padding:6px 12px; font-family:'Space Mono'; font-size:11px; font-weight:700; letter-spacing:.06em; }
+  #compTools .ct-btn svg{ width:18px; height:18px; }
+  #compTools .ct-btn:active{ transform:translateY(1px); }
+  #compTools .ct-btn:disabled{ opacity:.34; cursor:default; }
+  /* CHAT PICKER popup — opens upward so it never hides behind the keyboard */
+  #ctPickPop{
+    position:absolute; left:0; bottom:calc(100% + 8px);
+    background:var(--burrow-2); border:1px solid var(--line); border-radius:12px;
+    padding:5px; min-width:196px; z-index:20; box-shadow:0 12px 34px rgba(0,0,0,.55);
+  }
+  #ctPickPop[hidden]{ display:none; }
+  #ctPickPop .ct-opt{
+    display:block; width:100%; text-align:left; background:transparent; border:0; color:var(--ink);
+    font-family:'Inter'; font-size:13px; padding:9px 11px; border-radius:8px; cursor:pointer;
+  }
+  #ctPickPop .ct-opt:active{ background:rgba(239,177,78,.16); }
+  #ctPickPop .ct-opt.ct-disabled{ color:var(--ink-dim); opacity:.5; cursor:default; }
+  #ctPickPop .ct-opt.ct-disabled:active{ background:transparent; }
+  #ctPickPop .ct-soon{ font-size:11px; color:var(--ink-dim); }
+  #ctPickPop .ct-sep{ height:1px; background:var(--line); margin:4px 2px; }
+  #ctPickPop .ct-share{ color:var(--amber); }
+  #ctPickPop .ct-clear{ color:var(--screen); }
+
   .toast{
     position:absolute;left:50%;bottom:80px;transform:translateX(-50%) translateY(8px);
     z-index:5;
@@ -230,7 +277,43 @@
     .typing span{animation:none;opacity:.6;}
   }
 
+  /* ── Streaming shadow panel: a full-screen overlay to view and reshape the shadow.
+     position:fixed (not absolute-in-face) so it always has a bounded viewport height and
+     .sp-body can actually scroll on device. ── */
+  #shadowPanel{
+    position:fixed;inset:0;z-index:120;
+    background:linear-gradient(180deg,var(--burrow-2),var(--burrow));
+    display:flex;flex-direction:column;overflow:hidden;
+  }
+  #shadowPanel[hidden]{display:none;}
+  .sp-head{flex:none;display:flex;align-items:center;gap:10px;padding:14px 16px 10px;border-bottom:1px solid var(--line);}
+  .sp-title{font-family:'Space Mono',monospace;font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--amber);}
+  .sp-count{font-size:11px;color:var(--ink-dim);}
+  .sp-close{margin-left:auto;background:transparent;border:1px solid var(--line);color:var(--ink);border-radius:999px;width:32px;height:32px;font-size:17px;cursor:pointer;flex:none;}
+  .sp-tools{flex:none;display:flex;gap:8px;padding:10px 16px;border-bottom:1px solid var(--line);}
+  .sp-tools input{flex:1;min-width:0;background:var(--burrow-3);border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:9px 11px;font-size:14px;}
+  .sp-tools button{background:var(--amber);color:#20160a;border:0;font-weight:700;border-radius:10px;padding:9px 13px;cursor:pointer;font-size:13px;flex:none;}
+  .sp-body{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:6px 14px calc(28px + env(safe-area-inset-bottom));scrollbar-width:thin;scrollbar-color:var(--line) transparent;}
+  .sp-grouphdr{position:sticky;top:0;background:linear-gradient(180deg,var(--burrow-2),var(--burrow-2) 70%,transparent);display:flex;align-items:center;gap:8px;padding:12px 4px 6px;cursor:pointer;}
+  .sp-grouplabel{font-family:'Space Mono';font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-dim);}
+  .sp-caret{color:var(--ink-dim);font-size:11px;width:12px;}
+  .sp-group.collapsed .sp-row{display:none;}
+  .sp-row{display:flex;align-items:flex-start;gap:10px;padding:10px 6px;border-bottom:1px solid rgba(58,44,32,.5);}
+  .sp-row.cut{opacity:.4;}
+  .sp-main{flex:1;min-width:0;}
+  .sp-name{font-weight:700;color:var(--ink);font-size:14px;}
+  .sp-llm{margin-top:3px;font-size:11.5px;color:var(--ink-dim);line-height:1.35;font-style:italic;}
+  .sp-note{width:100%;margin-top:5px;background:transparent;border:0;border-bottom:1px dashed var(--line);color:var(--ink);font-size:12.5px;font-family:inherit;padding:3px 0;resize:none;line-height:1.4;}
+  .sp-note::placeholder{color:var(--ink-dim);}
+  .sp-note:focus{outline:none;border-bottom-color:var(--amber);}
+  .sp-sent{margin-top:7px;background:var(--burrow-3);border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:4px 7px;font-size:12px;}
+  .sp-cut{background:transparent;border:1px solid var(--line);color:var(--ink-dim);border-radius:999px;width:30px;height:30px;font-size:15px;cursor:pointer;flex:none;}
+  .sp-empty{color:var(--ink-dim);font-size:13px;text-align:center;padding:40px 20px;line-height:1.5;}
+  /* 125% block-text bump — chat message prose scaled ~1.25x (labels/mono chrome unchanged). */
+  .msg{font-size:18px}
 </style>
+<script src="/pg_share_qr.js"></script>
+<script src="/pg_share_card.js"></script>
 </head>
 <body>
   <main class="face" role="application" aria-label="Pierre, your TV companion">
@@ -250,10 +333,39 @@
     <div id="ts-widget" class="ts-widget"></div>
 
     <div class="composer">
-      <textarea id="input" rows="1" autocomplete="off" placeholder="Ask Pierre what to watch..." aria-label="Message Pierre"></textarea>
-      <button class="send" id="send" aria-label="Send">
-        <svg viewBox="0 0 24 24" fill="none"><path d="M4 12L20 12M20 12L13 5M20 12L13 19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </button>
+      <!-- Flat-app only (body.flatapp): the chat-type picker, thumbs, and Get Ted the
+           cube keeps in its console band. Rides above the keyboard with the input. -->
+      <div id="compTools">
+        <button class="ct-pick" id="ctPick" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Chat picker">
+          <span id="ctPickLabel">Chat</span><span class="ct-caret" aria-hidden="true">&#9650;</span>
+        </button>
+        <span class="ct-spacer"></span>
+        <button class="ct-btn ct-up" id="ctUp" type="button" aria-label="Thumbs up" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v11"/><path d="M7 10l4-7a2 2 0 0 1 3 1.7V9h4.5a2 2 0 0 1 2 2.4l-1.3 6.5a2 2 0 0 1-2 1.6H7"/><path d="M3 10h4v11H3z"/></svg>
+        </button>
+        <button class="ct-btn ct-getted" id="ctGetTed" type="button" aria-label="Get Ted" disabled>GET TED</button>
+        <button class="ct-btn ct-down" id="ctDown" type="button" aria-label="Thumbs down" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 14V3"/><path d="M17 14l-4 7a2 2 0 0 1-3-1.7V15H5.5a2 2 0 0 1-2-2.4l1.3-6.5a2 2 0 0 1 2-1.6H17"/><path d="M21 14h-4V3h4z"/></svg>
+        </button>
+        <div id="ctPickPop" role="menu" hidden>
+          <button class="ct-opt" type="button" data-ct="chat" role="menuitem">General TV Chat</button>
+          <button class="ct-opt" type="button" data-ct="series" role="menuitem">Add a series</button>
+          <button class="ct-opt" type="button" data-ct="movie" role="menuitem">Add a movie</button>
+          <button class="ct-opt" type="button" data-ct="ticket" role="menuitem">&#127903; Log a ticket</button>
+          <button class="ct-opt" type="button" data-ct="game" role="menuitem">Do you want to play a game?</button>
+          <button class="ct-opt ct-disabled" type="button" data-ct="__shadow" role="menuitem" disabled aria-disabled="true">Shadow <span class="ct-soon">(future)</span></button>
+          <button class="ct-opt ct-disabled" type="button" data-ct="device" role="menuitem" disabled aria-disabled="true">Device <span class="ct-soon">(future)</span></button>
+          <div class="ct-sep"></div>
+          <button class="ct-opt ct-share" type="button" data-ct="__share" role="menuitem">Share this chat</button>
+          <button class="ct-opt ct-clear" type="button" data-ct="__clear" role="menuitem">Clear chat</button>
+        </div>
+      </div>
+      <div class="comp-input">
+        <textarea id="input" rows="1" autocomplete="off" placeholder="Ask Pierre what to watch..." aria-label="Message Pierre"></textarea>
+        <button class="send" id="send" aria-label="Send">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M4 12L20 12M20 12L13 5M20 12L13 19" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
     </div>
   </main>
 
@@ -278,6 +390,10 @@
 
   // Demo build (remote.demo.pangolinrc.com, or ?demo=1 preview): Pierre's chat is closed.
   const IS_DEMO = location.hostname.split('.').includes('demo') || new URLSearchParams(location.search).has('demo');
+  // Embedded in the conventional /app shell (flat_shell.js passes ?app=1), not the 3D
+  // cube. The cube surfaces the chat picker / thumbs / Get Ted in its own console band;
+  // the flat app has none, so Pierre shows them in-composer (see initFlatComposer).
+  const IS_FLAT_APP = new URLSearchParams(location.search).has('app');
 
   // Cloudflare Turnstile bot check. Each token is single-use, so we render the
   // widget once and reset it after every send to mint a fresh token.
@@ -437,7 +553,7 @@
   let _awaitingTed=false, _tedPoll=null;
   function startTedPolling(){ if(_tedPoll) return; _tedPoll=setInterval(()=>{ if(_awaitingTed) fetchTedMessages(); else stopTedPolling(); }, 30000); }
   function stopTedPolling(){ if(_tedPoll){ clearInterval(_tedPoll); _tedPoll=null; } }
-  document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) fetchTedMessages(); });
+  document.addEventListener('visibilitychange', ()=>{ if(document.hidden) return; if(IS_FLAT_APP){ if(_tedMode && !_activeTedTurnId){ exitTedMode(); } loadTedThread(); } else { fetchTedMessages(); } });
   // Composer becomes a "Clear chat" button once a session is closed (Ted replied). Tapping
   // it wipes the thread and starts a fresh Pierre conversation.
   let _clearMode = false;
@@ -460,11 +576,72 @@
   }
   // The single reset lives at the other clearChat() below (also wired to the context
   // picker's Clear chat). Tapping the "Start new chat" composer runs it.
-  input.addEventListener('click', ()=>{ if(_clearMode) clearChat(); });
+  input.addEventListener('click', ()=>{ if(_tedMode){ tedExit('good', ()=>clearChat()); return; } if(_clearMode) clearChat(); });
 
   // Feedback band (👍 / GET TED / 👎) lives in the shell but acts on THIS chat. Tell the
   // shell when it should be active (a reply has happened), and handle the taps here.
-  function fbReady(ready){ try{ if(window.parent!==window) window.parent.postMessage({type:'pierre:fb-ready', ready:!!ready}, '*'); }catch(_){} }
+  let _fbReady = false;
+  function fbReady(ready){ _fbReady=!!ready; try{ if(window.parent!==window) window.parent.postMessage({type:'pierre:fb-ready', ready:!!ready}, '*'); }catch(_){} try{ updateFlatFb(); }catch(_){} }
+  // Mirror the ready-gate onto the flat app's in-composer thumbs/Get Ted (no-op in cube).
+  // Thumbs ride the ready-gate; GET TED is additionally greyed while a Ted reply is open on
+  // screen (no re-escalating a thread Ted just answered).
+  function updateFlatFb(){
+    const dis=!_fbReady;
+    const up=document.getElementById('ctUp'), down=document.getElementById('ctDown'), gt=document.getElementById('ctGetTed');
+    if(up) up.disabled=dis;
+    if(down) down.disabled=dis;
+    if(gt) gt.disabled = dis || _tedMode;
+  }
+
+  // ── GET TED reply queue (flat app) ────────────────────────────────────────────
+  // Ted's answers arrive as role='ted' turns on the original conversation. The flat app shows
+  // them ONE AT A TIME as the full original thread (scroll up for the context Ted answered),
+  // read-only, until the member grades it — 👍 great / 👎 bad / any other chat exit good.
+  // Grading acks it server-side (its turn grade leaves 'ungraded') and advances to the next.
+  // Ungraded = still waiting, so a thread survives navigation and reloads on every return.
+  // Detours (game / add show) leave the thread ungraded, so it resurfaces at the next opening.
+  let _tedMode=false, _activeTedTurnId=null;
+  function setTedBadge(n){ try{ if(window.parent!==window) window.parent.postMessage({type:'pierre:ted-waiting', count:(n|0)}, '*'); }catch(_){} }
+  async function loadTedThread(){
+    if(!IS_FLAT_APP || _tedMode) return _tedMode;   // cube uses inline delivery; don't stack
+    const em=pgSession(); if(!em) return false;
+    let d; try{ const r=await fetch(`${API}/profile/${encodeURIComponent(em)}/ted-thread`); if(!r.ok) return false; d=await r.json(); }catch(_){ return false; }
+    setTedBadge((d&&d.pending)||0);
+    if(!d || !d.thread || !((d.thread.messages)||[]).length) return false;
+    enterTedMode(d.thread);
+    return true;
+  }
+  function enterTedMode(thread){
+    _tedMode=true; _activeTedTurnId=thread.ted_turn_id;
+    log.innerHTML='';                                  // replace the view with the full thread
+    (thread.messages||[]).forEach(m=>{
+      if(m.role==='ted') addTed(m.text);
+      else if(m.role==='user') addUser(m.text);
+      else addPierre(m.text);
+    });
+    scrollLogBottom();
+    _awaitingTed=false; stopTedPolling();
+    setClearChatMode(true);                            // read-only: engage via thumbs / picker
+    try{ input.placeholder='Thumbs or the picker to continue'; }catch(_){}
+    fbReady(true);                                     // arm thumbs (updateFlatFb greys GET TED)
+  }
+  function exitTedMode(){ _tedMode=false; _activeTedTurnId=null; setClearChatMode(false); }
+  async function ackTed(grade){
+    const id=_activeTedTurnId, em=pgSession();
+    _activeTedTurnId=null;
+    if(id && em){ try{
+      const r=await fetch(`${API}/profile/${encodeURIComponent(em)}/ted-thread/ack`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ted_turn_id:id, grade})});
+      const d=await r.json(); setTedBadge((d&&d.pending)||0);
+    }catch(_){ } }
+  }
+  // A chat exit FROM a Ted thread: grade it, then show the next unacked thread if any, else run
+  // the fallthrough (the fresh chat the exit implies).
+  async function tedExit(grade, fallthrough){
+    await ackTed(grade);
+    exitTedMode();
+    const shown=await loadTedThread();
+    if(!shown && typeof fallthrough==='function') fallthrough();
+  }
   function onBandFeedback(kind){
     const email=pgSession();
     if(email){ try{ fetch(`${API}/feedback`,{method:'POST',headers:{'Content-Type':'application/json'},
@@ -475,15 +652,16 @@
     const email=pgSession();
     if(email){ try{ fetch(`${API}/pierre/escalate`,{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({ email, conversation_id:PIERRE_CONVO })}); }catch(_){} }
-    addPierre("Calling my manager on this one. Ted will give it a look and get back to you right here.");
-    _awaitingTed=true; startTedPolling();
-    setClearChatMode(true);   // this session is closed out; Ted's reply lands here
-    fbReady(false);
+    // The escalation is filed to Ted's queue (he follows up there); reset the window now.
+    clearChat("Calling my manager on that one. Ted will take a look and follow up. Fresh start in the meantime, what are you after?");
   }
   window.addEventListener('message', (e)=>{
     if(!e.data) return;
     if(e.data.type==='fb:vote') onBandFeedback(e.data.kind==='down'?'down':'up');
     else if(e.data.type==='fb:getted') onBandGetTed();
+    // Flat app: switching to the Pierre tab re-checks the Ted queue (the iframe stays loaded,
+    // so visibilitychange won't fire on a tab switch — cube:focus is the reliable signal).
+    else if(e.data.type==='cube:focus' && IS_FLAT_APP){ if(_tedMode && !_activeTedTurnId){ exitTedMode(); } loadTedThread(); scheduleExitCheck(); }
   });
 
   // ── Share the conversation ───────────────────────────────────────────────
@@ -620,7 +798,7 @@
     const defaults=roster.filter(c=>c.is_default);
     const chips=[];
     if(defaults.length) chips.push({label:'With '+defaults.map(c=>c.display_name).join(' & '), onClick:()=>setAndGo({use_default:true})});
-    chips.push({label:'Just me', onClick:()=>{}});
+    chips.push({label:'Just me', onClick:()=>addPierre('Solo it is — just you on that one.')});
     chips.push({label:'Someone else', onClick:()=>pickCoviewers({id:titleId, name}, roster, setAndGo)});
     pierreSay("Who watched "+name+" with you?", chips);
   }
@@ -634,6 +812,48 @@
     if(!m) return {clean:text, watched:null};
     return {clean:text.replace(m[0],'').trim(), watched:{
       show:(m[1]||'').trim(), ep:(m[2]||'').trim(), day:(m[3]||'').trim(), withWhom:(m[4]||'').trim() }};
+  }
+  // [SHADOW: title | feel | sentiment] — Pierre silently records a title the member reacted
+  // to into their streaming shadow. There can be several in one message. The tag is stripped
+  // (never shown) and each POSTs fire-and-forget; nothing is confirmed to the member.
+  // [SHADOW: title | feel | sentiment | kind | tier] — the last two are optional; when a
+  // tier (top 10/25/50/100) is present Pierre is ranking it into a tier, so route to /place.
+  function parseShadow(text){
+    const re=/\[SHADOW:\s*([^\]]*)\]/ig;
+    const shadows=[]; let m;
+    while((m=re.exec(text))!==null){
+      const parts=(m[1]||'').split('|').map(s=>s.trim());
+      const title=parts[0]||'';
+      if(title) shadows.push({ title, feel:parts[1]||'', sentiment:(parts[2]||'').toLowerCase(), kind:(parts[3]||'').toLowerCase(), tier:parts[4]||'' });
+    }
+    return { clean:text.replace(re,'').trim(), shadows };
+  }
+  function recordShadow(sh){
+    const email=pgSession(); if(!email) return;
+    const hasTier = sh.tier && /\b(10|25|50)\b/.test(sh.tier);
+    const url = hasTier ? `${API}/shadow/place` : `${API}/shadow`;
+    const body = hasTier
+      ? { email, title_name:sh.title, feel:sh.feel||'', sentiment:sh.sentiment||'', kind:sh.kind||'', tier:sh.tier }
+      : { email, title_name:sh.title, feel:sh.feel||'', sentiment:sh.sentiment||'' };
+    try{ fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); }catch(_){}
+  }
+  // [TRT: title | episode | minutes] — a member tells Pierre the real running time of an
+  // episode or film. The client resolves the title + episode and hands back ONE confirm chip;
+  // only that tap applies it (via /catalog/runtime-report — an admin's value lands on the
+  // catalog instantly, anyone else feeds the 2-user consensus). `episode` is blank for a film.
+  function parseTRT(text){
+    const m = text.match(/\[TRT:\s*([^|\]]+?)\s*(?:\|\s*([^|\]]*?)\s*)?(?:\|\s*([^\]]*?)\s*)?\]/i);
+    if(!m) return {clean:text, trt:null};
+    return {clean:text.replace(m[0],'').trim(), trt:{
+      title:(m[1]||'').trim(), ep:(m[2]||'').trim(), mins:(m[3]||'').trim() }};
+  }
+  // "42" / "42 min" / "1h 30m" / "1h30" / "2h 17m" → whole minutes (null if no number).
+  function parseMinutes(s){
+    const t=String(s||'').trim().toLowerCase();
+    const hm=t.match(/(\d+)\s*h(?:ours?)?\s*(\d+)?/);   // 1h 30m · 2h17 · 1h
+    if(hm) return (+hm[1])*60 + (hm[2]?+hm[2]:0);
+    const m=t.match(/(\d+)/);
+    return m ? +m[1] : null;
   }
   // "S4E3" / "s04e03" / "4x03" → {season, number}; "latest"/blank → null (means latest aired).
   function parseEpCode(s){
@@ -722,6 +942,93 @@
     }
   }
 
+  // ── Runtime correction ([TRT]) ─────────────────────────────────────────────
+  // Resolve the title (film or series), pin the episode for a series, then hand back ONE
+  // confirm chip. Only the tap applies it — mirrors the [WATCHED] shape so nothing changes
+  // silently and the member sees exactly what will land.
+  async function runTRT(t){
+    const email=pgSession(); if(!email) return;
+    const mins=parseMinutes(t.mins);
+    if(!(mins>0)){ addPierre("Tell me the actual running time in minutes and I'll fix it — like \"42 minutes\"."); return; }
+    showTyping();
+    // A title can be a film or a series (same name happens), so search BOTH and let the
+    // member pick if it's ambiguous — never auto-guess the wrong type.
+    const cands=[];
+    try{ const r=await fetch(`${API}/tmdb/search?q=`+encodeURIComponent(t.title));
+      if(r.ok){ const d=await r.json(); (d.results||[]).slice(0,3).forEach(m=>cands.push({ id:m.id, title_id:'tmdb:'+m.id, name:m.title, year:m.year||(m.release_date||'').slice(0,4), poster:m.poster||null, kind:'movie' })); } }catch(_){}
+    try{ const r=await fetch('https://api.tvmaze.com/search/shows?q='+encodeURIComponent(t.title));
+      if(r.ok){ const arr=await r.json(); (arr||[]).slice(0,3).forEach(x=>{ const s=x&&x.show; if(s) cands.push({ id:s.id, title_id:'tvmaze:'+s.id, name:s.name, year:(s.premiered||'').slice(0,4), poster:(s.image&&(s.image.medium||s.image.original))||null, kind:'show' }); }); } }catch(_){}
+    clearTyping();
+    if(!cands.length){
+      selfEscalate('TRT: could not find "'+t.title+'" to set its runtime.');
+      addPierre("I could not find "+t.title+" to fix its runtime, and I won't fake it. Calling my manager — Ted will take a look.");
+      return;
+    }
+    // An episode code means they mean a series → prefer the series hit over a same-named film.
+    if(cands.length>1 && parseEpCode(t.ep)){ const s=cands.find(c=>c.kind==='show'); if(s){ proposeTRT(s, t, mins); return; } }
+    proposeTRT(cands[0], t, mins);
+  }
+
+  async function proposeTRT(cd, t, mins){
+    let season=1, number=1, epName='', code='';
+    if(cd.kind==='show'){
+      // Resolve the episode: an explicit SxEy, else the latest AIRED episode from TVmaze.
+      showTyping();
+      season=null; number=null;
+      const explicit=parseEpCode(t.ep);
+      try{
+        const r=await fetch('https://api.tvmaze.com/shows/'+cd.id+'/episodes');
+        if(r.ok){ const eps=await r.json();
+          let target=null;
+          if(explicit){ target=eps.find(e=>e.season===explicit.season && e.number===explicit.number)||null; }
+          else{ const now=Date.now(); const aired=eps.filter(e=>e.airdate && new Date(e.airdate+'T23:59:59').getTime()<=now); target=aired.length?aired[aired.length-1]:null; }
+          if(target){ season=target.season; number=target.number; epName=target.name||''; }
+        }
+      }catch(_){}
+      clearTyping();
+      if(season==null||number==null){
+        selfEscalate('TRT: found '+cd.name+' but could not resolve '+(t.ep||'the episode')+'.');
+        addPierre("I found "+cd.name+" but couldn't pin down "+(t.ep||'which episode')+" to set its runtime. Tell me the episode (like S4E3) and I'll fix it.");
+        return;
+      }
+      code='S'+String(season).padStart(2,'0')+'E'+String(number).padStart(2,'0');
+    }
+    const what = cd.name + (code?(' '+code):'') + (epName?' “'+epName+'”':'');
+    pierreSay("Got it — I'll set the runtime. Tap to confirm:", [
+      { label:'✓ '+what+' · '+mins+' min', poster:cd.poster, onClick:()=>applyTRT(cd, season, number, mins, what) },
+      { label:'Something else', onClick:()=>addPierre("No problem — tell me the title, the episode, or the minutes again and I'll get it right.") }
+    ]);
+  }
+
+  async function applyTRT(cd, season, number, mins, what){
+    const email=pgSession(); if(!email) return;
+    showTyping();
+    let d=null, status=0;
+    try{ const r=await fetch(`${API}/catalog/runtime-report`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ email, title_id:cd.title_id, season, number, observed_runtime:mins })});
+      status=r.status; if(r.ok) d=await r.json();
+    }catch(_){}
+    clearTyping();
+    // Applied to the global catalog → tell the shell so an OPEN LOG face (possibly mid-watch,
+    // with this episode's total shown) updates its cached runtime live instead of needing a
+    // quit/reopen. No-op if the LOG isn't showing this title/episode.
+    if(d && d.ok && d.applied){
+      try{ window.parent.postMessage({ type:'pg:runtimeApplied', titleId:cd.title_id, season, number, minutes:mins }, '*'); }catch(_){}
+    }
+    if(d && d.ok && d.applied && d.byAuthority){
+      addPierre('Done — '+what+' is set to '+mins+' minutes in the catalog now.');
+    } else if(d && d.ok && d.applied){
+      addPierre('That matches what another viewer reported — '+what+' is now '+mins+' minutes for everyone.');
+    } else if(d && d.ok){
+      addPierre('Noted '+mins+' minutes for '+what+'. Once one more viewer agrees (or Ted applies it), it updates the catalog.');
+    } else if(status===404){
+      addPierre("I couldn't pin down "+what+" to set its runtime — double-check the title and episode and I'll try again.");
+    } else {
+      selfEscalate('TRT: could not set runtime for '+cd.name+' ('+cd.title_id+' s'+season+'e'+number+' → '+mins+').');
+      addPierre("Something tripped me up setting that runtime, and I won't pretend it worked. Calling my manager — Ted will look.");
+    }
+  }
+
   // Client-side self-escalation (a backfill dead end): record a Get Ted so it lands in the
   // admin queue with context, and start watching for Ted's reply.
   function selfEscalate(note){
@@ -732,12 +1039,14 @@
   }
 
   function addPierre(text){
-    let clean, route, ctx, opts, backfill, watched;
+    let clean, route, ctx, opts, backfill, watched, shadows, trt;
     ({clean, route} = parseRoute(text));
     ({clean, ctx}   = parseSwitch(clean));
     ({clean, opts}  = parseAsk(clean));
     ({clean, backfill} = parseBackfill(clean));   // [BACKFILL: title | day | rating] → real log
     ({clean, watched}  = parseWatched(clean));    // [WATCHED: show | ep | day | with] → confirm-chip episode log
+    ({clean, trt}      = parseTRT(clean));        // [TRT: title | ep | minutes] → confirm-chip runtime fix
+    ({clean, shadows}  = parseShadow(clean));     // [SHADOW: title | feel | sentiment] → silent shadow write
     if(/\[GETTED\]/i.test(text)){ _awaitingTed=true; startTedPolling(); }   // handoff fired: watch for Ted's reply
     clean = clean.replace(/\[GETTED\]/ig, '').trim();   // silent Ted-escalation signal, never shown
     const wrap = document.createElement('div');
@@ -779,6 +1088,13 @@
     // A watched-episode tag: resolve the real episode + date + companions, then hand back a
     // confirm chip. Nothing logs until the member taps it.
     if(watched && watched.show) runWatched(watched);
+    // A runtime-correction tag: resolve the title/episode, then hand back a confirm chip.
+    // Nothing changes until the member taps it (admin applies instantly; others need consensus).
+    if(trt && trt.title) runTRT(trt);
+    // Streaming-shadow tags: silently record each title the member reacted to.
+    if(shadows && shadows.length) shadows.forEach(recordShadow);
+    // If this message left the member with a hidden composer and nothing to tap, un-strand them.
+    scheduleExitCheck();
     return clean;
   }
 
@@ -790,7 +1106,7 @@
     log.appendChild(wrap);
     scrollLogBottom();
   }
-  function clearTyping(){ const t=document.getElementById('typing'); if(t) t.remove(); }
+  function clearTyping(){ const t=document.getElementById('typing'); if(t) t.remove(); scheduleExitCheck(); }
 
   // Recall: notes the member auto-journaled on the WATCH/LOG face live in a shared
   // same-origin journal (pg_journal). Surface the recent ones to Pierre once, as
@@ -825,6 +1141,30 @@
   // Comment step). Typing is the fallback — tap the text box and the focus handler morphs
   // the mic into the send arrow. suppressBandMic stays for the old band mic (now removed).
   function flowChrome(show){ showComposer(show); suppressBandMic(!show); if(show) setSendMode('mic'); }
+  // ── Dead-end guard ────────────────────────────────────────────────────────────
+  // A flow branch can hide the composer (flowChrome(false) at a fork / share / error step) and
+  // then END without restoring it — leaving no composer, no picker, no thumbs/Get Ted. The member
+  // is stranded and can only hard-quit and reopen. This watchdog recognizes that exact shape —
+  // composer hidden, no enabled chip left to tap, nothing mid-flight — and brings the composer
+  // back so there is ALWAYS a way forward. It's debounced so a flow's own restore (flowChrome
+  // (true)) or its next picker settles first; pickers always carry a "type another" chip, so a
+  // live picker never looks stranded and never trips this.
+  let _exitCheckT=0;
+  function scheduleExitCheck(){ clearTimeout(_exitCheckT); _exitCheckT=setTimeout(ensureExit, 600); }
+  function ensureExit(){
+    try{
+      const comp=document.querySelector('.composer');
+      if(comp && comp.style.display!=='none') return;                  // composer already usable
+      if(document.getElementById('typing')) return;                     // a reply is still coming
+      if(sendMode==='rec' || sendMode==='busy') return;                 // mid record / transcribe
+      // Any enabled button in the conversation is a way forward (chips, poster picks, room-guess
+      // cards, "type another"…) — only restore when there is NONE. Erring toward leaving a live
+      // flow alone is deliberate: a false restore over a picker is worse than a missed rescue.
+      if(log.querySelector('button:not([disabled])')) return;
+      flowChrome(true);                                                 // genuinely stranded → restore
+      try{ if(input && !input.value) input.placeholder='Ask Pierre what to watch...'; }catch(_){}
+    }catch(_){}
+  }
   // Pin the conversation to the bottom AFTER layout settles (a double rAF) — arriving at
   // the finish fork and hiding the composer both reflow the log, so a synchronous
   // scrollTop lands short and clips the newest message behind the console band.
@@ -1073,7 +1413,8 @@
     const S=next.season, E=next.number;
     // After either choice, pop back out to the spinning cube (the shell's unlock).
     const backToCube=(ms)=>setTimeout(()=>{ try{ window.parent.postMessage({type:'pangolin-back'}, '*'); }catch(_){} }, ms);
-    pierreSay((show||'That show')+" S"+S+"E"+E+" drops "+(tg||'soon')+". Want me to flag it when it's out?", [
+    pierreSay((show||'That show')+" S"+S+"E"+E+" drops "+(tg||'soon')+". Want me to flag it when it's out? "
+      +"And if you already have early access to it, long-press the greyed START on the log to force it through.", [
       {label:'Notify me', onClick:()=>{ const em=pgSession(); if(em && window.WoW) WoW.store.notify(em, titleId, next.id||('S'+S+'E'+E)); addPierre("Done. I'll flag S"+S+"E"+E+" when it drops."); backToCube(1100); }},
       {label:"I'll check back", onClick:()=>{ backToCube(300); }}
     ]);
@@ -1232,6 +1573,12 @@
     let cid=null; try{ cid=(window.top&&window.top.__pgReflectCommentId)||window.__pgReflectCommentId||null; }catch(_){}
     try{
       if(cid){
+        // A recorded clip uploaded with Whisper's raw text; the member's edits live only in
+        // the composer. Persist the correction first (PATCH /transcribe/:id), then finalize
+        // stamps endnote/spoiler — otherwise the shared comment keeps the auto-transcription.
+        const edited=(text||'').trim();
+        if(edited){ try{ await fetch(`${API}/transcribe/${encodeURIComponent(cid)}`,{ method:'PATCH',
+          headers:{'Content-Type':'application/json'}, body:JSON.stringify({ email, text:edited }) }); }catch(_){} }
         await fetch(`${API}/transcribe/comments/${encodeURIComponent(cid)}/finalize`,{ method:'POST',
           headers:{'Content-Type':'application/json'},
           body:JSON.stringify({ email, spoiler:noteSpoiler, publish:!!publish }) });
@@ -1381,139 +1728,28 @@
     const t=document.createElement('canvas'); t.width=tw; t.height=th;
     t.getContext('2d').drawImage(c,x0,y0,tw,th,0,0,tw,th); return t;
   }
+  // Poster-forward 9:16 show card — same object as the IRL ticket card. The poster
+  // fills the frame; a small block carries the show/episode, the reflection (hidden
+  // when it's a spoiler), the sharer's avatar + name, and a QR to pangolinrc.com.
+  // Rendered by the shared pg_share_card.js. scope: episode | movie | season | series.
   async function buildReflectionCard(o){
-    const S=1080, M=110, cv=document.createElement('canvas'); cv.width=S; cv.height=S; const g=cv.getContext('2d');
-    const bg=g.createLinearGradient(0,0,S,S); bg.addColorStop(0,'#17110b'); bg.addColorStop(1,'#0b0907');
-    g.fillStyle=bg; g.fillRect(0,0,S,S);
-    g.fillStyle='rgba(240,169,59,0.10)'; _rr(g,40,40,S-80,S-80,36); g.fill();
-    g.textBaseline='alphabetic';
-    // poster (top-right), top-aligned to the uniform M margin (pX+pW = S-M).
-    let poster=await loadImg(o.poster,true);
-    const pW=300, pH=Math.round(pW*444/300), pX=S-M-pW, pY=M;
-    if(poster){ try{ g.save(); _rr(g,pX,pY,pW,pH,18); g.clip();
-      const tr=pW/pH; let sw=poster.width,sh=poster.height,sx=0,sy=0;
-      if(poster.width/poster.height>tr){ sw=poster.height*tr; sx=(poster.width-sw)/2; } else { sh=poster.width/tr; sy=(poster.height-sh)/2; }
-      g.drawImage(poster,sx,sy,sw,sh,pX,pY,pW,pH); g.restore(); }catch(_){ poster=null; } }
-    if(!poster){ g.fillStyle='rgba(255,255,255,0.05)'; _rr(g,pX,pY,pW,pH,18); g.fill(); }
-    // action copy — top-aligned (no wordmark). Name falls back username → email → "Someone".
-    // scope: 'episode' (SxxExx) | 'movie' (single film) | 'season' | 'series'.
-    const who=(o.username||'I');   // username, else first-person "I" (no email fallback)
     const scope=o.scope||'episode';
-    const perUnit=(scope==='episode'||scope==='movie');   // a single watched thing (ep or film)
-    const unitWord=(scope==='movie'?'movie':'episode');
-    g.fillStyle='rgba(248,242,232,0.85)'; g.font='700 40px Inter, system-ui, sans-serif';
-    g.fillText(who+(perUnit?' just watched':' just finished'), M, 158);
-    g.fillStyle='#fff'; g.font='800 52px Inter, system-ui, sans-serif';
-    const titleText = scope==='series' ? (o.show||'a show')
-                    : scope==='season' ? ('season '+(o.seasonNum!=null?o.seasonNum:'?')+' of '+(o.show||'a show'))
-                    : scope==='movie'  ? (o.show||'a movie')
-                    : ((o.epCode?o.epCode+' of ':'')+(o.show||'a show'));
-    const l2=_wrapFlow(g, titleText, M,226,58, pX-M-18, S-2*M, pY+pH).slice(0,3);
-    l2.forEach(o2=> g.fillText(o2.text, M, o2.y));
-    const titleBottom=(l2.length?l2[l2.length-1].y:226);
-    let by=titleBottom+56;   // full line-gap so the platform never crashes the title
-    if(o.platform){ g.fillStyle='rgba(248,242,232,0.65)'; g.font='500 32px Inter, system-ui, sans-serif';
-      g.fillText('on '+o.platform, M, by); }
-    const pB=pY+pH, colW=pX-M-18;
-    // ── Teaser comments: hook + a single hidden-times list. The list shows as many
-    // times as fit and elides the rest with "…", so its count always reconciles with
-    // the header (never looks like we miscounted).
-    const teasers=Array.isArray(o.teasers)?o.teasers:[];
-    const cCount=o.commentCount||teasers.length;
-    const ty=(o.platform?by:titleBottom)+62;
-    // (The hero "WATCH WITH PANGOLINRC…" CTA now lives below the box — see further down.)
-    if(!perUnit){
-      // Season / series digest: comments across episodes, watch span (in-season days
-      // only — hiatus excluded), the dominant mode, and (series) seasons + year range.
-      const epsN=o.episodeCount||0, days=o.daysWatched||0;
-      g.fillStyle='#f0a93b'; g.font='800 34px Inter, system-ui, sans-serif';
-      g.fillText(cCount>0 ? (cCount+' comment'+(cCount===1?'':'s')+' on '+epsN+' episode'+(epsN===1?'':'s'))
-                          : ('finished '+epsN+' episode'+(epsN===1?'':'s')), M, ty);
-      let yy=ty+40; g.fillStyle='rgba(248,242,232,0.6)'; g.font='500 28px Inter, system-ui, sans-serif';
-      if(scope==='series'){
-        const sc=o.seasonCount, ys=o.yearsSpan; let seasonsLine='';
-        if(sc) seasonsLine=sc+' season'+(sc===1?'':'s');
-        if(ys>=1) seasonsLine=(seasonsLine?seasonsLine+' ':'')+'over '+ys+' year'+(ys===1?'':'s');
-        if(seasonsLine){ g.fillText(seasonsLine, M, yy); yy+=38; }
-      }
-      const bits=[]; if(days) bits.push('watched '+days+' day'+(days===1?'':'s'));
-      if(o.watchMode) bits.push('mostly '+wowCardLabel(o.watchMode));
-      if(bits.length){ g.fillText(bits.join(' · '), M, yy); yy+=38; }
-    } else if(cCount>0){
-      g.fillStyle='#f0a93b'; g.font='800 34px Inter, system-ui, sans-serif';
-      g.fillText(cCount+' comment'+(cCount===1?'':'s')+' on this '+unitWord, M, ty);
-      const times=teasers.map(cardMins);
-      if(times.length){
-        // Below the poster so the times list can run full-width (all fit, or "…" for the rest).
-        const listY=Math.max(ty+52, pB+40), listW=S-2*M;
-        g.fillStyle='rgba(248,242,232,0.55)'; g.font='600 28px Inter, system-ui, sans-serif';
-        const lead='Comments hidden at ', shown=[];
-        for(const t of times){ const more=shown.length+1<cCount;
-          const trial=lead+[...shown,t].join(', ')+(more?', …':'');
-          if(g.measureText(trial).width<=listW) shown.push(t); else break; }
-        const text=lead+(shown.length?shown.join(', '):'')+(shown.length<cCount?(shown.length?', …':'…'):'');
-        g.fillText(text, M, listY);
-      }
-    }
-    // watch-state stamp: a red rubber stamp cocked in the gap between the poster's
-    // lower edge and the green box, centered under the poster (MORE! reads as BINGE).
-    // Episode scope only — season/series state the mode in the digest text instead.
-    if(o.watchMode && scope==='episode'){
-      const label=wowCardLabel(o.watchMode);
-      g.save();
-      g.font='800 42px Inter, system-ui, sans-serif';
-      const tw=g.measureText(label).width, padX=28, bh=72, bw=tw+padX*2;
-      g.translate(pX+pW/2, (pB + (S-M-250))/2);   // midpoint of poster-bottom → green-box-top
-      g.rotate(-0.13);                            // cocked a little more than before
-      g.translate(-bw/2,-bh/2);
-      g.lineWidth=4; g.strokeStyle='#e0322c';
-      _rr(g,0,0,bw,bh,12); g.stroke();
-      g.fillStyle='#e0322c'; g.textBaseline='middle';
-      g.fillText(label, padX, bh/2+2);
-      g.restore(); g.textBaseline='alphabetic';
-    }
-    // comment area (spoiler-aware) — bottom-anchored to the uniform margin (cy+ch = S-M).
-    const cx=M, cw=S-2*M, ch=226, cy=714;   // lifted + shorter to leave a hero-CTA strip below
-    // Pierre — cut out, seated on the box's bottom edge, bottom-LEFT. Loaded first so the
-    // quote text can inset past his silhouette with a clear buffer.
-    const pierre=await loadImg('/pierre.png',false);
-    let px2=cx+16, pw2=0, ph2=0, pc=null;
-    if(pierre){ pc=_cutout(pierre); ph2=136; pw2=Math.round(ph2*pc.width/pc.height); }   // 20% smaller than before
-    const tx=(pc?px2+pw2+30:cx+40), tw2=cx+cw-40-tx;   // 30px buffer keeps text off Pierre
-    const spoiler=o.spoiler||!o.comment;
-    g.fillStyle= spoiler ? 'rgba(224,50,44,0.15)' : 'rgba(91,191,123,0.15)'; _rr(g,cx,cy,cw,ch,24); g.fill();
-    // Label sits over Pierre's head (not in the quote column), so the quote gets the
-    // full right column — up to 4 lines instead of 3.
-    const labelText= spoiler ? '⚠ SPOILER' : 'SPOILER-FREE';
-    g.font='800 26px Inter, system-ui, sans-serif'; g.fillStyle= spoiler ? '#ff9d5c' : '#5bbf7b';
-    const lw=g.measureText(labelText).width; let lx= pc ? (px2+pw2/2-lw/2) : (cx+40); if(lx<cx+30) lx=cx+30;
-    g.fillText(labelText, lx, cy+66);
-    if(spoiler){
-      g.fillStyle='rgba(248,242,232,0.6)'; g.font='500 30px Inter, system-ui, sans-serif';
-      _wrap(g,'Hidden — watch it first, then see the comment in pangolinRC', tw2)
-        .slice(0,4).forEach((ln,i)=> g.fillText(ln, tx, cy+92+i*40));
-    } else {
-      g.fillStyle='rgba(248,242,232,0.78)'; g.font='600 34px Inter, system-ui, sans-serif';   // a touch greyer so the white CTA + title pop
-      // Overrun past 4 lines → truncate the last line with an ellipsis, keeping the quote closed.
-      let lines=_wrap(g,'“'+o.comment+'”', tw2);
-      if(lines.length>4){ lines=lines.slice(0,4); let last=lines[3].replace(/”$/,'');
-        while(last && g.measureText(last+'…”').width>tw2){ last=last.replace(/\s*\S+$/,''); }
-        lines[3]=last.replace(/\s+$/,'')+'…”'; }
-      lines.forEach((ln,i)=> g.fillText(ln, tx, cy+64+i*46));
-    }
-    if(pc){ g.drawImage(pc, px2, cy+ch-ph2, pw2, ph2); }
-    // ── Hero CTA — the reason for the card. One big WHITE line just below the box,
-    // "hear all comments" when there are comments, else a plain co-watch invite. Size
-    // is locked to the long line and reused for the short one (centered, same size).
-    const ctaText = cCount>0 ? 'watch with pangolinRC to hear all comments in real time'
-                             : ('watch along with '+(o.username?o.username.toLowerCase():'me')+' on pangolinRC');
-    const fitStr='watch with pangolinRC to hear all comments in real time';   // always size to the long line
-    let cfs=48; g.font='800 '+cfs+'px Inter, system-ui, sans-serif';
-    while(cfs>16 && g.measureText(fitStr).width>cw){ cfs-=1; g.font='800 '+cfs+'px Inter, system-ui, sans-serif'; }
-    g.fillStyle='#fff'; g.textAlign='center';
-    g.fillText(ctaText, S/2, cy+ch+46);   // tighter to the box
-    g.textAlign='left';
-    return await new Promise(res=> cv.toBlob(b=>res(b),'image/png',0.92));
+    const unit = scope==='series' ? 'The complete series'
+               : scope==='season' ? ('Season '+(o.seasonNum!=null?o.seasonNum:'?'))
+               : scope==='movie'  ? 'Movie'
+               : (o.epCode||'Episode');
+    const meta=[unit, o.platform?('on '+o.platform):''].filter(Boolean).join('  ·  ');
+    let avatar=''; try{ avatar=localStorage.getItem('pg_avatar')||''; }catch(_){}
+    return PGShareCard.buildPoster({
+      poster: o.poster||'', proxyBase: API,
+      brand: 'PANGOLINRC',
+      title: o.show || (scope==='movie'?'a movie':'a show'),
+      quote: o.comment||'',
+      meta,
+      spoiler: !!o.spoiler,
+      name: o.username || (o.email||'').split('@')[0] || '',
+      avatar
+    });
   }
   function addCardPreview(blob){
     try{ const url=URL.createObjectURL(blob);
@@ -1559,11 +1795,31 @@
     }catch(_){}
     return false;
   }
-  // The shell reports back what the native share sheet did → confirm a Photos save.
+  // A varied "where to next?" so returning from the iOS share sheet lands back on a fresh
+  // Pierre prompt (never the same twice in a row) instead of the leftover share chips.
+  const WHERE_NEXT = [
+    "Out into the world it goes. Where to next?",
+    "Sent. Want another, or something new to watch?",
+    "Done and done. What are we doing next?",
+    "There it is. What now, chief?",
+    "Off it goes. What is next on the list?",
+    "Nicely shared. Pick our next move.",
+    "That one is out there now. Where to from here?",
+    "Shared. Back to it, what are you in the mood for?",
+  ];
+  let _lastWhereNext = -1;
+  function whereNextLine(){
+    let i; do { i = Math.floor(Math.random() * WHERE_NEXT.length); } while (WHERE_NEXT.length > 1 && i === _lastWhereNext);
+    _lastWhereNext = i; return WHERE_NEXT[i];
+  }
+  // The shell reports back what the native share sheet did → confirm a Photos save, then
+  // re-engage with a fresh prompt (the composer was already restored by flowChrome(true)).
   try{ window.addEventListener('message', function(e){
     if(e && e.data && e.data.type==='pg:shareDone'){
       const at=String((e.data.activityType)||'');
       if(at.indexOf('SaveToCameraRoll')>=0 || at.indexOf('save-to-camera-roll')>=0) addPierre('Saved to Photos ✓');
+      try{ flowChrome(true); }catch(_){}
+      addPierre(whereNextLine());
     }
   }); }catch(_){}
   async function doShareCard(blob, ctx, text){
@@ -1577,16 +1833,13 @@
   }
 
   // ── #4: share the card as a 9:16 VIDEO with the reflection audio ─────────────
-  // Frame: the 1:1 card anchored at the TOP on the card gradient; the lower third stays
-  // clear so the user can add copy in Stories.
+  // The card is already a full-bleed 9:16 poster, so the frame just paints it edge to
+  // edge (it carries its own brand + QR — no extra wordmark).
   async function buildStoryFrame(cardBlob){
     const W=1080, H=1920, cv=document.createElement('canvas'); cv.width=W; cv.height=H; const g=cv.getContext('2d');
-    const bg=g.createLinearGradient(0,0,0,H); bg.addColorStop(0,'#17110b'); bg.addColorStop(1,'#0b0907');
-    g.fillStyle=bg; g.fillRect(0,0,W,H);
+    g.fillStyle='#0b0907'; g.fillRect(0,0,W,H);
     const card=await loadImg(URL.createObjectURL(cardBlob), false);
-    if(card){ g.drawImage(card, 0, 96, W, W); }   // 1:1 card, top-anchored (y 96 → 1176)
-    g.fillStyle='rgba(240,169,59,0.45)'; g.font='600 34px Inter, system-ui, sans-serif'; g.textAlign='center';
-    g.fillText('pangolinRC', W/2, W+180); g.textAlign='left';
+    if(card){ g.drawImage(card, 0, 0, W, H); }
     return cv;
   }
   // Compose the still frame + the audio clip into a video via MediaRecorder (web/PWA;
@@ -1601,11 +1854,8 @@
     const W=1080,H=1920, cv=document.createElement('canvas'); cv.width=W; cv.height=H; const g=cv.getContext('2d');
     const card=await loadImg(URL.createObjectURL(cardBlob), false);
     const drawFrame=()=>{
-      const bg=g.createLinearGradient(0,0,0,H); bg.addColorStop(0,'#17110b'); bg.addColorStop(1,'#0b0907');
-      g.fillStyle=bg; g.fillRect(0,0,W,H);
-      if(card) g.drawImage(card,0,96,W,W);   // 1:1 card, top-anchored
-      g.fillStyle='rgba(240,169,59,0.45)'; g.font='600 34px Inter, system-ui, sans-serif'; g.textAlign='center';
-      g.fillText('pangolinRC', W/2, W+180); g.textAlign='left';
+      g.fillStyle='#0b0907'; g.fillRect(0,0,W,H);
+      if(card) g.drawImage(card,0,0,W,H);   // full-bleed 9:16 card
     };
     drawFrame();
     const audio=new Audio(); audio.src=audioUrl; audio.preload='auto'; audio.crossOrigin='anonymous';
@@ -1668,6 +1918,9 @@
      When a season wraps on the Watch face, the shell routes here so Pierre asks
      for a thought before the next season. Saved to the shared journal. */
   let seasonNoteFlow=false, seasonNote=null;
+  // Game lane state: 'pair' = waiting on the member's two titles (in one entry); null once
+  // the guess is delivered, so follow-up turns become normal chat and Pierre can react.
+  let gamePhase=null;
   function enterSeasonNoteFlow(p){
     if(IS_DEMO) return;
     addFlow=null; acctFlow=null; joinFlow=null; noteCtx=null;
@@ -1697,7 +1950,7 @@
       const res = await fetch(`${API}/pierre/chat`,{
         method:"POST",
         headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({ messages: history, token, appToken, email: pgSession()||undefined, conversation_id: PIERRE_CONVO })
+        body:JSON.stringify({ messages: history, token, appToken, email: pgSession()||undefined, conversation_id: PIERRE_CONVO, kind: (currentCtx==='game'?'game':'chat') })
       });
       const data = await res.json();
       const reply = ((data && data.reply) || "").trim();
@@ -1758,6 +2011,8 @@
     // Name step: the typed line is a title, not a chat turn. Route by kind (TMDB
     // for a film, TVmaze for a series). Drop the keyboard so results show full-face.
     if(addFlow==='name'){ input.blur(); (addKind==='movie'?resolveMovieName:resolveShowName)(text); return; }
+    // Game lane: the member's single entry carries both titles → one grounded guess, no question back.
+    if(gamePhase==='pair'){ input.blur(); submitGame(text); return; }
     setSendMode('mic'); input.blur();   // voice-first: settle back on the mic after each turn
     ask(text);
   }
@@ -1819,6 +2074,7 @@
   const CONTEXTS = [
     {id:'chat',    label:'Chat'},
     {id:'add',     label:'Add a show'},
+    {id:'game',    label:'Game'},        // "Do you want to play a game?" — streaming-shadow game
     {id:'account', label:'Account'},
     {id:'device',  label:'Device'},
     {id:'note',    label:'Note'},        // cube-triggered only; shown, not a menu target
@@ -1830,6 +2086,7 @@
   function setCtxIndicator(id){
     currentCtx = id;
     try{ if(window.parent!==window && window.parent._pierreCtx) window.parent._pierreCtx(id); }catch(_){}
+    try{ const l=document.getElementById('ctPickLabel'); if(l) l.textContent=labelFor(id); }catch(_){}   // flat app pick label
   }
 
   // Enter a lane from a tap (shell picker → __pierreSwitch) or an NL [SWITCH] tag.
@@ -1839,7 +2096,7 @@
     if(IS_DEMO) return;
     if(ctx === 'chat'){
       addFlow=null; acctFlow=null; joinFlow=null; noteCtx=null; clearReflectComment();
-      seasonNoteFlow=false; seasonNote=null;
+      seasonNoteFlow=false; seasonNote=null; gamePhase=null;
       inputSecret(false); input.placeholder = "Ask Pierre what to watch..."; refreshKb();
       setCtxIndicator('chat');
       if(opts.viaUser) addPierre("Back to it. What are you after?");
@@ -1850,23 +2107,102 @@
     if(ctx === 'series')  return enterAddFlow([], 'show');
     if(ctx === 'movie')   return enterAddFlow([], 'movie');
     if(ctx === 'ticket')  return enterAddFlow([], 'ticket');
+    if(ctx === 'game')    return enterGameFlow();
     if(ctx === 'account') return enterJoinFlow();
     if(ctx === 'device')  return enterDeviceFlow();
   }
 
+  // ── "Do you want to play a game?" — the streaming-shadow game (WarGames nod).
+  // First cut: Pierre frames the game in-conversation and the normal chat turn (LLM)
+  // improvises the third pick and reacts. The intro lives in the visible history, so
+  // the model has the rules in context. NOTE: persisting the "streaming shadow" (a
+  // stored media-taste profile the member can later edit) is not built yet — that is
+  // the backend follow-up; for now the game is a conversation.
+  function enterGameFlow(){
+    if(IS_DEMO) return;
+    addFlow=null; acctFlow=null; joinFlow=null; noteCtx=null;
+    inputSecret(false); refreshKb();
+    setCtxIndicator('game');
+    gamePhase='pair';                              // the next entry carries both titles → one guess
+    input.placeholder = "Name two titles you have seen...";
+    addPierre("Shall we play a game? Movies and TV only. Name me two things you have seen, shows or films or one of each, and I will name a third. If you have watched my pick, tell me how it landed and I will add that to your streaming shadow. The idea: I live in your phone and only see the slivers of taste you hand me, so your shadow is the shape of you I can draw from those slivers. You can reshape it later, add or cut whatever you like. So. Two titles. Go.");
+    try{ input.classList.add('cue'); setTimeout(()=>{ try{ input.classList.remove('cue'); }catch(_){} }, 2400); }catch(_){}
+    setSendMode('mic'); try{ input.blur(); }catch(_){}   // voice-first rest
+  }
+
+  // The game turn. One entry from the member carries BOTH titles (shows, films, or one of
+  // each); we split them out and ask the grounded room-guess engine for a single real TV
+  // show plus the thread that ties the pair. Never a question back — the only reason to ask
+  // again is if we genuinely got one title, not two.
+  function parseTwoTitles(text){
+    return String(text||'')
+      .split(/\n|,|;|\/|\s+&\s+|\s+\+\s+|\s+and\s+|\s+vs\.?\s+/i)   // "Severance and The Bear", "X, Y", "X / Y"
+      .map(s=>cleanTitleQuery(s))
+      .filter(Boolean);
+  }
+  async function submitGame(text){
+    const parts = parseTwoTitles(text);
+    if(parts.length < 2){
+      pierreSay("Two, not one. Name a second thing you have seen and I will find the thread.");
+      return;   // still gamePhase==='pair'
+    }
+    const [a, b] = parts;
+    gamePhase = null;                              // consume the pair; reactions after this are chat
+    recordGameTitle(a); recordGameTitle(b);        // the two titles they named are taste signals → shadow
+    showTyping();
+    let data=null;
+    try{
+      const { token, appToken } = await pierreAuthPair();
+      const r=await fetch(API+'/pierre/room-guess/one',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ show1:a, show2:b, token, appToken, email:pgSession()||undefined })});
+      if(r.ok) data=await r.json();
+    }catch(_){}
+    clearTyping();
+    if(!data || !data.pick){
+      pierreSay("My guesser slipped on those two, and I will not invent a title I cannot place. Try two others, or let me get Ted.", tedChip());
+      gamePhase = 'pair';                          // let them offer another pair
+      return;
+    }
+    deliverGameGuess(data.thread||'', data.pick);
+  }
+  function deliverGameGuess(thread, pick){
+    if(thread) addPierre(thread);
+    const line = pick.name + (pick.reason ? (' — ' + pick.reason) : '');
+    pierreSay(line, [{ label:'Put it on', poster:pick.poster||null, onClick:()=>putOnGamePick(pick) }], true);
+    addPierre("Seen it? Tell me how it landed and I will fold that into your streaming shadow.");
+    setSendMode('mic'); try{ input.blur(); }catch(_){}
+  }
+  // Record a title that ran through the game (the member's named pair, or a pick they put on)
+  // into the streaming shadow. Silent; source 'game'. Kind/sentiment fill in later via classify.
+  function recordGameTitle(name){
+    const email=pgSession(); if(!email || !name) return;
+    try{ fetch(`${API}/shadow`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ email, title_name:name, source:'game' })}); }catch(_){}
+  }
+  async function putOnGamePick(pick){
+    if(!pick || !pick.tvmazeId) return;
+    if(pick.name) recordGameTitle(pick.name);     // they put on Pierre's pick → into the shadow
+    showTyping();
+    let show=null;
+    try{ const r=await fetch('https://api.tvmaze.com/shows/'+pick.tvmazeId); if(r.ok) show=await r.json(); }catch(_){}
+    clearTyping();
+    if(show && show.id){ addKind='show'; resolveShow(show); }   // hand into the normal series put-on flow
+    else pierreSay("I could not pull it up just now. Try adding it from the WATCH list.");
+  }
+
   // Clear chat: a genuine new conversation. The only hard wipe.
-  function clearChat(){
+  function clearChat(openingLine){
     if(IS_DEMO) return;
     history.length = 0; log.innerHTML = '';
     PIERRE_CONVO = newConvoId();   // a fresh chat is its own transcript
     addFlow=null; acctFlow=null; joinFlow=null; noteCtx=null;
-    seasonNoteFlow=false; seasonNote=null; roomPhase=null;
+    seasonNoteFlow=false; seasonNote=null; roomPhase=null; gamePhase=null;
     _intentSeen=false; _nudged=false; _eggChecked=false; _awaitingTed=false; stopTedPolling();
     try{ setClearChatMode(false); }catch(_){}   // leave the "Start new chat" state if we were in it
     inputSecret(false); input.placeholder = "Ask Pierre what to watch...";
     setCtxIndicator('chat');
     fbReady(false);                             // band goes inactive until Pierre replies again
-    addPierre("Fresh start. What are you in the mood for?");
+    addPierre(openingLine || "Fresh start. What are you in the mood for?");
     setSendMode('mic'); try{ input.blur(); }catch(_){}   // voice-first: rest on the mic
   }
 
@@ -1875,6 +2211,101 @@
   window.__pierreSwitch = function(ctx){ switchTo(ctx, {viaUser:true}); };
   window.__pierreClear  = function(){ clearChat(); };
   window.__pierreGetCtx = function(){ return currentCtx; };
+
+  // ── Streaming shadow panel ─────────────────────────────────────────────────
+  // The member's editable view of their shadow: what Pierre has drawn from the
+  // slivers of taste they have handed him. They can retune the feel + sentiment
+  // per title, cut one out, or add one by hand. Backed by /shadow.
+  // Flat, scrollable, filterable list (grouping was too much on a phone). Each row: title,
+  // the LLM "feel" read-only, an editable personal note, a sentiment read, and cut/restore.
+  let _shadowRows=[];
+  const SENT_OPTS=[['love','Love'],['like','Like'],['meh','Meh'],['nope','Nope'],['','— set a read']];
+  async function openShadowPanel(){
+    const email=pgSession();
+    if(!email){ addPierre("Sign in and I can show you the shadow I have drawn of your taste."); return; }
+    let panel=document.getElementById('shadowPanel');
+    if(!panel){ panel=buildShadowPanel(); }
+    panel.hidden=false;
+    await loadShadowRows();
+    try{ document.getElementById('spFilter').focus({preventScroll:true}); }catch(_){}
+  }
+  function closeShadowPanel(){ const p=document.getElementById('shadowPanel'); if(p) p.hidden=true; }
+  function buildShadowPanel(){
+    const panel=document.createElement('div'); panel.id='shadowPanel'; panel.hidden=true;
+    const head=document.createElement('div'); head.className='sp-head';
+    const title=document.createElement('div'); title.className='sp-title'; title.textContent='Your streaming shadow';
+    const count=document.createElement('span'); count.className='sp-count'; count.id='spCount';
+    const close=document.createElement('button'); close.className='sp-close'; close.type='button'; close.textContent='×'; close.setAttribute('aria-label','Close'); close.onclick=closeShadowPanel;
+    head.appendChild(title); head.appendChild(count); head.appendChild(close);
+    const tools=document.createElement('div'); tools.className='sp-tools';
+    const filt=document.createElement('input'); filt.type='text'; filt.id='spFilter'; filt.placeholder='Filter titles, or type a new one'; filt.autocomplete='off';
+    filt.addEventListener('input',renderShadowList);
+    const addBtn=document.createElement('button'); addBtn.type='button'; addBtn.textContent='+ Add';
+    const doAdd=async()=>{ const v=filt.value.trim(); if(!v) return; addBtn.disabled=true; await shadowAdd(v); filt.value=''; addBtn.disabled=false; await loadShadowRows(); };
+    addBtn.onclick=doAdd;
+    filt.addEventListener('keydown',e=>{ if(e.key==='Enter'){ const q=filt.value.trim().toLowerCase();
+      const match=_shadowRows.some(r=>(r.title_name||'').toLowerCase().includes(q));
+      if(q && !match){ e.preventDefault(); doAdd(); } } });
+    tools.appendChild(filt); tools.appendChild(addBtn);
+    const body=document.createElement('div'); body.className='sp-body'; body.id='spBody';
+    panel.appendChild(head); panel.appendChild(tools); panel.appendChild(body);
+    document.body.appendChild(panel);   // body is position:fixed;inset:0 → fixed panel gets a bounded, scrollable viewport
+    return panel;
+  }
+  async function loadShadowRows(){
+    const email=pgSession(); if(!email) return;
+    try{ const r=await fetch(`${API}/shadow?email=`+encodeURIComponent(email)+'&all=1'); _shadowRows = r.ok ? ((await r.json()).shadow||[]) : []; }
+    catch(_){ _shadowRows=[]; }
+    renderShadowList();
+  }
+  function renderShadowList(){
+    const body=document.getElementById('spBody'); if(!body) return;
+    const filt=(document.getElementById('spFilter')?.value||'').trim().toLowerCase();
+    const rows=_shadowRows.filter(r=>!filt || (r.title_name||'').toLowerCase().includes(filt));
+    const cnt=document.getElementById('spCount');
+    if(cnt) cnt.textContent = _shadowRows.length ? (filt ? rows.length+' of '+_shadowRows.length : String(_shadowRows.length)) : '';
+    body.innerHTML='';
+    if(!_shadowRows.length){
+      const e=document.createElement('div'); e.className='sp-empty';
+      e.textContent='Nothing here yet. Talk to me about what you watch, or type a title above and tap + Add.';
+      body.appendChild(e); return;
+    }
+    if(!rows.length){ const e=document.createElement('div'); e.className='sp-empty'; e.textContent='No titles match that filter. Tap + Add to add it.'; body.appendChild(e); return; }
+    rows.forEach(row=>body.appendChild(shadowRowEl(row)));
+  }
+  function shadowRowEl(row){
+    const el=document.createElement('div'); el.className='sp-row'+(row.hidden?' cut':'');
+    const main=document.createElement('div'); main.className='sp-main';
+    const name=document.createElement('div'); name.className='sp-name'; name.textContent=row.title_name;
+    main.appendChild(name);
+    if(row.feel){ const llm=document.createElement('div'); llm.className='sp-llm'; llm.textContent='Pierre: '+row.feel; main.appendChild(llm); }
+    const note=document.createElement('textarea'); note.className='sp-note'; note.rows=1; note.value=row.note||''; note.placeholder='Add your own note…';
+    note.addEventListener('blur',()=>{ if((note.value||'')!==(row.note||'')){ shadowSave(row.id,{note:note.value}); row.note=note.value; } });
+    main.appendChild(note);
+    const sent=document.createElement('select'); sent.className='sp-sent';
+    SENT_OPTS.forEach(([v,l])=>{ const o=document.createElement('option'); o.value=v; o.textContent=l; if((row.sentiment||'')===v) o.selected=true; sent.appendChild(o); });
+    sent.addEventListener('change',()=>{ shadowSave(row.id,{sentiment:sent.value}); row.sentiment=sent.value; });
+    main.appendChild(sent);
+    const cut=document.createElement('button'); cut.className='sp-cut'; cut.type='button';
+    cut.textContent=row.hidden?'↺':'×'; cut.title=row.hidden?'Bring it back':'Cut from shadow';
+    cut.onclick=async()=>{ if(row.hidden){ await shadowSave(row.id,{hidden:0}); row.hidden=0; } else { await shadowCut(row.id); row.hidden=1; } renderShadowList(); };
+    el.appendChild(main); el.appendChild(cut);
+    return el;
+  }
+  async function shadowSave(id, patch){
+    const email=pgSession(); if(!email) return;
+    try{ await fetch(`${API}/shadow/`+encodeURIComponent(id),{method:'PUT',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(Object.assign({email},patch))}); }catch(_){}
+  }
+  async function shadowCut(id){
+    const email=pgSession(); if(!email) return;
+    try{ await fetch(`${API}/shadow/`+encodeURIComponent(id)+'?email='+encodeURIComponent(email),{method:'DELETE'}); }catch(_){}
+  }
+  async function shadowAdd(title){
+    const email=pgSession(); if(!email) return;
+    try{ await fetch(`${API}/shadow`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({email, title_name:title})}); }catch(_){}
+  }
   // Voice-first entry: the shell asks whether to raise the keyboard (only text flows —
   // email/password) or rest on the mic (general chat).
   window.__pierreWantsKeyboard = function(){ return !!(joinFlow || acctFlow); };
@@ -1912,7 +2343,7 @@
           const t=document.createElement('span'); t.className='chip-label'; t.textContent=ch.label; b.appendChild(t);
         } else { b.textContent=ch.label; }
         if(keepFocus) b.addEventListener('mousedown', e=>e.preventDefault());  // don't blur the input
-        b.onclick=()=>{ c.querySelectorAll('button').forEach(x=>x.disabled=true); ch.onClick(); };
+        b.onclick=()=>{ c.querySelectorAll('button').forEach(x=>x.disabled=true); ch.onClick(); scheduleExitCheck(); };
         c.appendChild(b); });
       wrap.appendChild(c);
     }
@@ -1984,8 +2415,9 @@
   function enterAddFlow(vlog, startKind){
     flowChrome(true);                 // ensure the composer is back if a prior picker hid it
     addHistory=Array.isArray(vlog)?vlog:[];
-    addFlow='kind'; addKind='show'; addFailCount=0; joinFlow=null; acctFlow=null; noteCtx=null;
+    addFlow='kind'; addKind='show'; addFailCount=0; joinFlow=null; acctFlow=null; noteCtx=null; gamePhase=null;
     setCtxIndicator('add');           // keep the chat; switching no longer wipes history
+    input.placeholder = "A show or a movie…";   // reset any stale lane placeholder (e.g. the game's)
     if(startKind==='ticket'){ startTicketFlow(); return; }
     if(startKind==='show' || startKind==='movie'){ chooseAddKind(startKind); return; }
     // No specific kind → offer the spread.
@@ -2034,16 +2466,34 @@
   }
   function chooseAddKind(kind){
     addKind=kind; addFlow='name';
+    input.placeholder = kind==='movie' ? "Name a movie…" : "Name a series…";
     pierreSay(kind==='movie'
       ? "A movie. Which one, or just put one on now?"
       : "A series. What do you want to add, or just put on right now?");
   }
 
+  // Pull a real title out of a spoken/typed sentence before searching. People say
+  // "I want to add Sterling Point" or "put on The Bear" — strip the lead-in verbs so
+  // the lookup sees just the title. A trailing "by <Name>" (author/creator/director) is
+  // NOT stripped here; it's tried as a fallback only when the full title misses (see the
+  // resolve*Name retries below), so a real title like "Live by Night" still searches whole.
+  function cleanTitleQuery(text){
+    let t = String(text||'').trim();
+    t = t.replace(/^["'“”‘’]+|["'“”‘’]+$/g,'').trim();               // drop wrapping quotes
+    // leading intent: (I/I'd/can you/please…) (want to/wanna/like to…)* add|watch|put on|log|see|start…
+    t = t.replace(/^\s*(?:i(?:'d| would| wanna|'?ll)?\s+)?(?:just\s+)?(?:want(?:ed)?\s+to\s+|wanna\s+|would\s+like\s+to\s+|like\s+to\s+|need\s+to\s+|can\s+you\s+|could\s+you\s+|please\s+)*(?:add|watch|log|put\s+on|see|start|track)\s+(?:the\s+(?:show|movie|film|series)\s+)?/i,'').trim();
+    t = t.replace(/^\s*i\s+(?:just\s+)?(?:saw|watched|finished)\s+/i,'').trim();   // "I just watched X"
+    return t || String(text||'').trim();
+  }
+  // Fallback title with a trailing attribution removed: "Sterling Point by Megan Park" → "Sterling Point".
+  const stripByTail = (q)=> String(q||'').replace(/\s+by\s+.+$/i,'').trim();
+
   // No kind chosen: the member typed a title without tapping Series or Movie.
   // Don't guess. Search both worlds at once (TVMaze for series, TMDB for films)
   // and lay out the full spread, so "Jack Ryan" surfaces the Prime series AND the
   // Clancy films together and they pick the unit they actually meant.
-  async function resolveAnyName(text){
+  async function resolveAnyName(text, _retry){
+    text = _retry ? text : cleanTitleQuery(text);
     showTyping();
     // The log wins across both worlds: an exact title on their list skips the spread.
     try{
@@ -2077,6 +2527,7 @@
       return;
     }
     if(!shows.length && !movies.length){
+      if(!_retry && / by /i.test(text)){ return resolveAnyName(stripByTail(text), true); }   // "X by <Name>" → try just X
       addFailCount++;
       if(addFailCount>=2){ pierreSay("Still cannot place it, and I will not pretend I can. I am a pangolin, that I read at all is amazing. Let me get Ted, he is the human here.", tedChip()); return; }
       pierreSay("I cannot find that one, series or film. Try the full title?");
@@ -2144,7 +2595,8 @@
       lastWatched:(t.last_season!=null)?{season:t.last_season, number:t.last_number}:null});
   }
 
-  async function resolveShowName(text){
+  async function resolveShowName(text, _retry){
+    text = _retry ? text : cleanTitleQuery(text);
     showTyping();
     // The log wins: a series already on their list resolves straight to it, with
     // its resume position — no disambiguating against the world's other Hackses.
@@ -2168,6 +2620,7 @@
     }
     results=(results||[]).filter(x=>x&&x.show);
     if(!results.length){
+      if(!_retry && / by /i.test(text)){ return resolveShowName(stripByTail(text), true); }   // "X by <Name>" → try just X
       addFailCount++; addFlow='name';
       if(addFailCount>=2){ pierreSay("Still cannot place it, and I will not pretend I can. I am a pangolin, that I read at all is amazing. Let me get Ted, he is the human here.", tedChip()); return; }
       pierreSay("I cannot find that one. Try the full title?");
@@ -2295,7 +2748,8 @@
   }
 
   // FILM handoff: TMDB instead of TVmaze, single unit, loads via the movie payload.
-  async function resolveMovieName(text){
+  async function resolveMovieName(text, _retry){
+    text = _retry ? text : cleanTitleQuery(text);
     showTyping();
     // The log wins here too: a film on their list goes straight to the screen.
     try{
@@ -2320,6 +2774,7 @@
       return;
     }
     if(!results.length){
+      if(!_retry && / by /i.test(text)){ return resolveMovieName(stripByTail(text), true); }   // "X by <Name>" → try just X
       addFailCount++;
       if(addFailCount>=2){ pierreSay("Still cannot place that film, and I will not pretend I can. Let me get Ted.", tedChip()); return; }
       pierreSay("I cannot find that film. Try the full title?");
@@ -2821,7 +3276,8 @@
     // After the room settles, if nothing steered Pierre into a flow, check whether a
     // tracked show is in RAMP and, if so, deliver the scheduler nudge (once).
     setTimeout(()=>{ if(!_intentSeen && !addFlow && !joinFlow && !acctFlow && !noteCtx){ try{ wowProactiveNudge(); }catch(_){} } }, 1300);
-    fetchTedMessages();   // surface any reply Ted left since last time
+    if(IS_FLAT_APP) loadTedThread();   // flat app: one-at-a-time Ted queue
+    else fetchTedMessages();           // cube: inline delivery, surface any reply since last time
   });
 
   // ── embedded in cube face ──
@@ -2898,9 +3354,87 @@
     // double-tap empty chat area to exit too
     let _dt2 = 0;
     document.addEventListener('click', e => {
-      if (e.target.closest('button,a,input,textarea,select,label,[role=button],.chip,.chips,.send')) { _dt2 = 0; return; }
+      if (e.target.closest('button,a,input,textarea,select,label,[role=button],.chip,.chips,.send,#compTools')) { _dt2 = 0; return; }
       const n = Date.now(); if (n - _dt2 < 350) { _dt2 = 0; window.parent.postMessage({type:'pangolin-back'}, '*'); } else _dt2 = n;
     }, true);
+
+    // ── Conventional /app shell only: surface the chat picker / thumbs / Get Ted in the
+    //    composer footer (the cube keeps them in its off-cube band) and keep that footer
+    //    riding above the soft keyboard. ──
+    if (IS_FLAT_APP) initFlatComposer();
+  }
+
+  function shareFlatChat(){
+    let body=''; try{ if(window.__pierreTranscript) body=window.__pierreTranscript()||''; }catch(_){}
+    if(!body.trim()) return;
+    const title='My chat with Pierre — pangolinRC';
+    const text=body+'\n\n— shared from pangolinRC';
+    try{ if(navigator.share){ navigator.share({title, text}).catch(()=>{}); return; } }catch(_){}
+    try{ window.location.href='mailto:?subject='+encodeURIComponent(title)+'&body='+encodeURIComponent(text); }catch(_){}
+  }
+
+  function initFlatComposer(){
+    document.body.classList.add('flatapp');   // reveals #compTools + stacks the composer
+    const pick=document.getElementById('ctPick'), pop=document.getElementById('ctPickPop');
+    const up=document.getElementById('ctUp'), down=document.getElementById('ctDown'), gt=document.getElementById('ctGetTed');
+    try{ setCtxIndicator(currentCtx); }catch(_){}   // truthful lane label
+    try{ updateFlatFb(); }catch(_){}                // thumbs/Get Ted start disabled until a reply
+
+    // CHAT PICKER popup — mirrors the cube context menu, driving the same face logic.
+    const closePop=()=>{ if(pop) pop.hidden=true; if(pick) pick.setAttribute('aria-expanded','false'); };
+    const openPop =()=>{ if(pop) pop.hidden=false; if(pick) pick.setAttribute('aria-expanded','true'); };
+    if(pick){
+      // NB: no preventDefault on pointerdown — on iOS WKWebView that suppresses the
+      // synthesized tap so the menu never opens / options never fire ("not connected").
+      // First click opens the picker (starts a session); clicking the picker again while
+      // it's open resets the conversation — same reset rule as the thumbs and Get Ted.
+      // (Tapping anywhere else still just closes the menu via the document listener below.)
+      pick.addEventListener('click', e=>{
+        e.stopPropagation();
+        if(pop && !pop.hidden){ closePop(); if(_tedMode) tedExit('good', ()=>clearChat()); else clearChat(); return; }
+        openPop();
+      });
+    }
+    if(pop) pop.querySelectorAll('.ct-opt').forEach(b=>{
+      b.addEventListener('click', ()=>{
+        if(b.classList.contains('ct-disabled')) return;   // Shadow / Device (future): no-op
+        const ct=b.getAttribute('data-ct');
+        // From a Ted thread, "chat" exits (General TV Chat / Share / Clear) ack it GOOD and pull
+        // the next; detours (add series/movie/ticket, game) leave it ungraded so it waits.
+        if(ct==='__clear'){ if(_tedMode) tedExit('good', ()=>clearChat()); else clearChat(); }
+        else if(ct==='__share'){ shareFlatChat(); if(_tedMode) tedExit('good', ()=>clearChat()); }
+        else if(ct==='chat'){ if(_tedMode) tedExit('good', ()=>switchTo('chat',{viaUser:true})); else switchTo('chat',{viaUser:true}); }
+        else { if(_tedMode) exitTedMode(); switchTo(ct, {viaUser:true}); }
+        closePop();
+      });
+    });
+    document.addEventListener('click', ()=>{ if(pop && !pop.hidden) closePop(); });
+
+    // thumbs + Get Ted (gated on a reply, same as the cube band). On a Ted thread the thumb
+    // grades Ted's answer (👍 great / 👎 bad) and advances; otherwise it ends the Pierre chat.
+    if(up)   up.addEventListener('click',   ()=>{ if(!_fbReady) return; if(_tedMode) tedExit('great', ()=>clearChat()); else onBandFeedback('up'); });
+    if(down) down.addEventListener('click', ()=>{ if(!_fbReady) return; if(_tedMode) tedExit('bad', ()=>clearChat()); else onBandFeedback('down'); });
+    if(gt)   gt.addEventListener('click',   ()=>{ if(_fbReady && !_tedMode) onBandGetTed(); });
+
+    // Keyboard lift. The /app shell shrinks the panel via the PARENT's visualViewport, but
+    // the native WKWebView keyboard doesn't reliably feed the parent — so the face lifts
+    // its own footer using ITS OWN visualViewport, where the focused input lives. If the
+    // parent already shrank us, our vv reports no overlap and this is a no-op (no double
+    // lift). body is position:fixed; inset:0 here, so overriding `bottom` frees the footer.
+    const vv = window.visualViewport;
+    if(vv){
+      let sT=0;
+      const toBottom=()=>{ clearTimeout(sT); sT=setTimeout(()=>{ try{ log.scrollTop=log.scrollHeight; }catch(_){} }, 60); };
+      const applyLift=()=>{
+        const kb=Math.max(0, Math.round(window.innerHeight - (vv.height + vv.offsetTop)));
+        document.body.style.bottom = kb>40 ? kb+'px' : '0px';
+        if(kb>40) toBottom();
+      };
+      vv.addEventListener('resize', applyLift);
+      vv.addEventListener('scroll', applyLift);
+      input.addEventListener('focus', toBottom);
+      applyLift();
+    }
   }
 </script>
 

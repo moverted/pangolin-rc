@@ -65,7 +65,7 @@ public class CardVideoPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    // Write the still image as a video of `duration` (one frame held start→end).
+    // Write the still image as a constant-30fps video spanning `duration` (still repeated).
     private func writeStillVideo(image: UIImage, duration: CMTime, size: CGSize, to url: URL, completion: @escaping (Bool) -> Void) {
         try? FileManager.default.removeItem(at: url)
         guard let writer = try? AVAssetWriter(outputURL: url, fileType: .mp4) else { completion(false); return }
@@ -90,19 +90,30 @@ public class CardVideoPlugin: CAPPlugin, CAPBridgedPlugin {
         guard let buffer = pixelBuffer(from: image, size: size) else {
             writer.cancelWriting(); completion(false); return
         }
+        // Emit a REAL constant-frame-rate video (30fps) that repeats the still for the whole
+        // duration — NOT just two samples at 0 and end. AVPlayer honors sample timestamps, so a
+        // 2-frame clip looks right IN THE APP, but Instagram's Story importer assumes a normal
+        // frame rate: it sees 2 frames and plays them at ~30fps, so the video "goes super
+        // quickly." A proper CFR still (duration×30 identical frames) plays at the right speed.
+        let fps: Int32 = 30
+        let frameDur = CMTime(value: 1, timescale: fps)                 // 1/30 s
+        let total = max(1, Int((duration.seconds * Double(fps)).rounded()))
         let queue = DispatchQueue(label: "com.pangolinrc.cardvideo")
-        var appended = false
+        var frame = 0
         input.requestMediaDataWhenReady(on: queue) {
-            // Run exactly once, when the input can take data. Two identical frames (start + end)
-            // plus an explicit endSession make the still hold for the whole audio length — a lone
-            // sample at .zero collapses the track to ~0 length, which reads back as a blank video.
-            guard !appended, input.isReadyForMoreMediaData else { return }
-            appended = true
-            adaptor.append(buffer, withPresentationTime: .zero)
-            if input.isReadyForMoreMediaData { adaptor.append(buffer, withPresentationTime: duration) }
-            input.markAsFinished()
-            writer.endSession(atSourceTime: duration)
-            writer.finishWriting { completion(writer.status == .completed) }
+            while input.isReadyForMoreMediaData {
+                if frame >= total {
+                    input.markAsFinished()
+                    writer.endSession(atSourceTime: CMTime(value: CMTimeValue(total), timescale: fps))
+                    writer.finishWriting { completion(writer.status == .completed) }
+                    return
+                }
+                let pts = CMTimeMultiply(frameDur, multiplier: Int32(frame))
+                if !adaptor.append(buffer, withPresentationTime: pts) {
+                    writer.cancelWriting(); completion(false); return
+                }
+                frame += 1
+            }
         }
     }
 

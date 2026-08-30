@@ -454,7 +454,7 @@
             <script>
               (function(){
                 var KEY='pg_mode';
-                function cur(){ try{ return localStorage.getItem(KEY)==='flat'?'flat':'cube'; }catch(e){ return 'cube'; } }
+                function cur(){ try{ return localStorage.getItem(KEY)==='cube'?'cube':'flat'; }catch(e){ return 'flat'; } }
                 var wrap=document.getElementById('modeToggle'); if(!wrap) return;
                 function paint(){ var m=cur(); wrap.querySelectorAll('.mt-opt').forEach(function(b){ b.classList.toggle('on', b.dataset.mode===m); }); }
                 wrap.querySelectorAll('.mt-opt').forEach(function(b){
@@ -463,6 +463,44 @@
                     try{ localStorage.setItem(KEY, m); }catch(e){}
                     var dest = m==='flat' ? '/app.html' : '/index.html';
                     try{ (window.top||window).location.href = dest; }catch(e){ location.href = dest; }
+                  });
+                });
+                paint();
+              })();
+            </script>
+            <!-- Screen while watching: keep the app open and just darken it after a few idle
+                 seconds (default), or let the phone sleep normally. Read live by the flat shell
+                 (pg_screen); posts to window.top so a change takes effect mid-watch, no reload. -->
+            <style>
+              #screenToggle{display:flex;align-items:center;justify-content:space-between;gap:12px;
+                margin:2px 0 16px;padding:10px 12px;border:1px solid rgba(239,177,78,.28);
+                border-radius:12px;background:rgba(239,177,78,.05);}
+              #screenToggle .mt-label{font-family:var(--body,'Inter',sans-serif);font-size:14px;color:#e9dcc4;}
+              #screenToggle .mt-seg{display:flex;background:rgba(0,0,0,.35);border-radius:9px;padding:3px;}
+              #screenToggle .mt-opt{appearance:none;border:0;background:none;cursor:pointer;
+                font-family:var(--body,'Inter',sans-serif);font-weight:700;font-size:13px;
+                color:#8c8172;padding:6px 16px;border-radius:7px;transition:background .15s,color .15s;}
+              #screenToggle .mt-opt.on{background:#f0a93b;color:#1a1206;}
+            </style>
+            <div id="screenToggle">
+              <span class="mt-label">Screen while watching</span>
+              <div class="mt-seg" role="group" aria-label="Screen while watching">
+                <button type="button" class="mt-opt" data-screen="on">Always On</button>
+                <button type="button" class="mt-opt" data-screen="sleep">Sleep</button>
+              </div>
+            </div>
+            <script>
+              (function(){
+                var KEY='pg_screen';
+                function cur(){ try{ return localStorage.getItem(KEY)==='sleep'?'sleep':'on'; }catch(e){ return 'on'; } }
+                var wrap=document.getElementById('screenToggle'); if(!wrap) return;
+                function paint(){ var m=cur(); wrap.querySelectorAll('.mt-opt').forEach(function(b){ b.classList.toggle('on', b.dataset.screen===m); }); }
+                wrap.querySelectorAll('.mt-opt').forEach(function(b){
+                  b.addEventListener('click', function(){
+                    var m=b.dataset.screen; if(m===cur()) return;
+                    try{ localStorage.setItem(KEY, m); }catch(e){}
+                    paint();
+                    try{ (window.top||window).postMessage({type:'pg:screenmode', mode:m}, '*'); }catch(e){}
                   });
                 });
                 paint();

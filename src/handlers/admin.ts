@@ -50,7 +50,7 @@ type Pivot = { label: string; columns: { key: string; label: string }[]; sql: (f
 // the bound id + value come from the request, and value is validated against options.
 // `enum` writes (default) validate value ∈ options → a dropdown. `int` writes take a
 // free whole number (e.g. episode runtime) → a number input, no options.
-type Write = { table: string; column: string; idColumn: string; kind?: 'enum' | 'int'; options?: readonly string[] };
+type Write = { table: string; column: string; idColumn: string; kind?: 'enum' | 'int' | 'text' | 'bool'; options?: readonly string[] };
 
 interface Resource {
   label: string;
@@ -60,6 +60,7 @@ interface Resource {
   cols: Col[];                // SELECT list + column metadata for the frontend
   searchExprs: string[];      // OR-LIKE'd against `q`
   filters?: Filter[];         // exact-match dropdown filters
+  defaultFilters?: Record<string, string>; // filter key → value applied on open (e.g. hide Cut rows)
   sortDefault: string;        // a col key
   defaultOrder?: string;      // author-controlled ORDER BY expr used when the default sort is active
                               // (e.g. group rows by conversation, then turn order). Overrides sortDefault's single-col sort.
@@ -67,6 +68,9 @@ interface Resource {
   groupHeaderCols?: string[]; // col keys shown once in a group-header row (and dropped from the per-row columns)
   pivots?: Record<string, Pivot>;
   writes?: Record<string, Write>; // col key → inline-edit spec
+  reorder?: string;           // col key whose value is a 1..N rank the frontend can drag-reorder (renumbers + saves)
+  reorderScope?: string;      // optional col key that sub-scopes the reorder (ranks are per this value, e.g. per kind)
+  reorderCutCol?: string;     // optional bool col whose truthiness removes a row from ranking; toggling it compacts the scope
   note?: string;              // shown in the UI (caveats, read-only, etc.)
 }
 
@@ -81,6 +85,11 @@ const LIST_TYPE_EXPR = "COALESCE(NULLIF(waitlist.list_type,''),'waitlist')";
 // Millisecond epoch → local-ish date bucket. All created_at/updated_at are ms.
 const monthOf = (col: string) => `strftime('%Y-%m', ${col}/1000, 'unixepoch')`;
 const weekOf  = (col: string) => `strftime('%Y-W%W', ${col}/1000, 'unixepoch')`;
+
+// Streaming-shadow tier is now a STORED subjective bucket (Top 10/25/50), not a rank band.
+// Display/filter fall back to '—' when unset; TIER_ORDER sorts Top 10 first, unset last.
+const SHADOW_TIER_DISP = "COALESCE(NULLIF(ss.tier,''),'—')";
+const SHADOW_TIER_ORDER = "CASE ss.tier WHEN 'Top 10' THEN 0 WHEN 'Top 25' THEN 1 WHEN 'Top 50' THEN 2 ELSE 3 END";
 
 // watch_comment derived dimensions (shared between the list columns, filters, and
 // pivots so they always agree).
@@ -109,7 +118,7 @@ const SHARED_EXPR = `CASE
 const EPISODE_COMMENTS_FROM = `(
   SELECT wc.show_id AS show_id, wc.episode_id AS episode_id,
          COUNT(*) AS comments, MAX(wc.created_at) AS last_at,
-         (SELECT GROUP_CONCAT(line, char(10)) FROM (
+         ('To listen along join.pangolinrc.com' || char(10) || char(10) || (SELECT GROUP_CONCAT(line, char(10)) FROM (
             SELECT CASE
                      WHEN w2.is_reflection = 1 OR w2.is_endnote = 1
                        THEN CASE WHEN w2.spoiler = 1 THEN 'SPLR ' ELSE 'NOSP ' END
@@ -120,7 +129,7 @@ const EPISODE_COMMENTS_FROM = `(
                AND COALESCE(w2.hidden, 0) = 0 AND COALESCE(w2.transcription, '') <> ''
              ORDER BY (CASE WHEN w2.is_reflection = 1 OR w2.is_endnote = 1 THEN 1 ELSE 0 END) ASC,
                       w2.timestamp_ms ASC, w2.created_at ASC
-         )) AS all_comments
+         ))) AS all_comments
     FROM watch_comment wc
    WHERE COALESCE(wc.hidden, 0) = 0 AND COALESCE(wc.transcription, '') <> ''
    GROUP BY wc.show_id, wc.episode_id
@@ -207,6 +216,63 @@ const RESOURCES: Record<string, Resource> = {
       relationship: countPivot('By relationship', "COALESCE(NULLIF(coviewer.relationship,''),'—')", 'Relationship'),
       linked:       countPivot('Linked vs name-only', "CASE WHEN coviewer.linked_email IS NOT NULL AND coviewer.linked_email <> '' THEN 'linked' ELSE 'name-only' END", 'Account'),
       top_owners:   countPivot('Roster size by user', 'coviewer.owner_email', 'Owner'),
+    },
+  },
+
+  streaming_shadow: {
+    label: 'Streaming shadows',
+    group: 'secondary',
+    from: 'streaming_shadow ss',
+    idExpr: 'ss.id',
+    cols: [
+      { key: 'user_email',  label: 'User',        expr: 'ss.user_email' },
+      { key: 'rank',        label: 'Rank',        expr: 'ss.rank' },                 // 1..N PER KIND; drag rows or type a number
+      { key: 'hidden',      label: 'Cut',         expr: 'ss.hidden' },               // 2nd column: raw 0/1 for the checkbox editor
+      { key: 'title_name',  label: 'Title',       expr: 'ss.title_name' },
+      { key: 'kind',        label: 'Kind',        expr: 'ss.kind' },                 // editable enum (series/miniseries/anthology/film)
+      { key: 'tier',        label: 'Tier',        expr: 'ss.tier' },                  // subjective bucket, editable enum
+      { key: 'sentiment',   label: 'Sentiment',   expr: 'ss.sentiment' },            // raw so the editor reflects the true value ('' = unset)
+      { key: 'feel',        label: 'Pierre Feel', expr: 'ss.feel' },                 // LLM-written from their comments, read-only
+      { key: 'note',        label: 'User Feel',   expr: 'ss.note' },                 // free-text, editable
+      { key: 'source',      label: 'Source',      expr: 'ss.source' },               // editable enum
+      { key: 'weight',      label: 'Weight',      expr: 'ss.weight' },
+      { key: 'updated_at',  label: 'Updated',     expr: 'ss.updated_at' },
+    ],
+    searchExprs: ['ss.user_email', 'ss.title_name', 'ss.feel', 'ss.note'],
+    filters: [
+      { key: 'kind',      label: 'Kind',      expr: "COALESCE(NULLIF(ss.kind,''),'—')", options: ['series', 'miniseries', 'anthology', 'film', '—'] },
+      { key: 'tier',      label: 'Tier',      expr: SHADOW_TIER_DISP, options: ['Top 10', 'Top 25', 'Top 50', '—'] },
+      { key: 'sentiment', label: 'Sentiment', expr: "COALESCE(NULLIF(ss.sentiment,''),'—')", options: ['love', 'like', 'meh', 'nope', '—'] },
+      { key: 'source',    label: 'Source',    expr: 'ss.source', options: ['watch', 'game', 'chat', 'manual'] },
+      { key: 'hidden',    label: 'Cut?',      expr: "CASE WHEN ss.hidden = 1 THEN 'cut' ELSE 'kept' END", options: ['cut', 'kept'] },
+    ],
+    sortDefault: 'rank',
+    // Cluster by user, then kind, then tier (Top 10 first), then rank within.
+    defaultOrder: `ss.user_email ASC, ss.kind ASC, ${SHADOW_TIER_ORDER} ASC, CASE WHEN ss.rank > 0 THEN ss.rank ELSE 999999 END ASC, ss.weight DESC, ss.updated_at DESC`,
+    defaultFilters: { kind: 'series', hidden: 'kept' },   // open on Series, uncut only; change the filters to see the rest
+    groupBy: 'user_email',
+    groupHeaderCols: ['user_email'],   // one header row per user; email drops off the per-row columns
+    reorder: 'rank',                   // drag a row to reposition → renumbers + saves
+    reorderScope: 'kind',              // ranks are per-kind: drag/renumber only within the same category
+    reorderCutCol: 'hidden',           // ticking Cut removes a row from ranking → compact the kind (close the gap, shift up)
+    writes: {
+      // All inline-editable (autosave on change; Save all flushes any stragglers).
+      rank:      { table: 'streaming_shadow', column: 'rank',      idColumn: 'id', kind: 'int' },
+      kind:      { table: 'streaming_shadow', column: 'kind',      idColumn: 'id', options: ['series', 'miniseries', 'anthology', 'film', ''] },
+      tier:      { table: 'streaming_shadow', column: 'tier',      idColumn: 'id', options: ['Top 10', 'Top 25', 'Top 50', ''] },
+      sentiment: { table: 'streaming_shadow', column: 'sentiment', idColumn: 'id', options: ['love', 'like', 'meh', 'nope', ''] },
+      note:      { table: 'streaming_shadow', column: 'note',      idColumn: 'id', kind: 'text' },
+      source:    { table: 'streaming_shadow', column: 'source',    idColumn: 'id', options: ['watch', 'game', 'chat', 'manual'] },
+      hidden:    { table: 'streaming_shadow', column: 'hidden',    idColumn: 'id', kind: 'bool' },
+    },
+    note: "Each user's streaming shadow — every title they have watched, mentioned, or reacted to with Pierre. Opens on Series (change the Kind filter for the rest). `Kind` (series / mini-series / anthology / film) is auto-classified (best-guess LLM; editable). `Tier` (Top 10 / Top 25 / Top 50) is a SUBJECTIVE bucket, not a count — a Top 10 can hold 30 shows; Pierre places titles into a tier through conversation, editable here. `Rank` is the fine 1..N order within a kind (drag a row by its ⠿ handle, or type a number); rows sort by kind, then tier, then rank. `Pierre Feel` is LLM-written from their comments (read-only); `User Feel` is free text you can edit; `Sentiment`, `Source`, `Cut` are editable inline. `Weight` = how often a title has come up. `Cut` (hidden) rows are kept for context but not shown to the member.",
+    pivots: {
+      kind:      countPivot('By kind', "COALESCE(NULLIF(ss.kind,''),'—')", 'Kind'),
+      tier:      countPivot('By tier', SHADOW_TIER_DISP, 'Tier'),
+      sentiment: countPivot('By sentiment', "COALESCE(NULLIF(ss.sentiment,''),'—')", 'Sentiment'),
+      source:    countPivot('By source', 'ss.source', 'Source'),
+      top_titles: countPivot('Most-shadowed titles', 'ss.title_name', 'Title'),
+      by_user:   countPivot('Shadow size by user', 'ss.user_email', 'User'),
     },
   },
 
@@ -359,7 +425,7 @@ const RESOURCES: Record<string, Resource> = {
     ],
     searchExprs: ['titles.name', 'ec.episode_id', 'ec.all_comments'],
     sortDefault: 'last_at',
-    note: 'Serialized feeder: every episode with visible comments, all of them concatenated in play order — "mm:ss text" for timed comments, "SPLR text" for spoilers. Hidden comments are excluded. Read-only.',
+    note: 'Serialized feeder: every episode with visible comments, all of them concatenated in play order — "mm:ss text" for timed comments, "SPLR text" for spoilers. Each feed opens with the call-to-action line "To listen along join.pangolinrc.com". Hidden comments are excluded. Read-only.',
   },
 
   waitlist: {
@@ -488,23 +554,28 @@ const RESOURCES: Record<string, Resource> = {
     cols: [
       { key: 'conversation_id', label: 'Session', expr: 'substr(pc.conversation_id,1,8)' },
       { key: 'user_email',      label: 'User',    expr: "COALESCE(NULLIF(pc.user_email,''),'anon')" },
+      // Session Type: "Game Session" if any turn in the conversation is a game turn.
+      { key: 'type',            label: 'Type',    expr: "CASE WHEN EXISTS(SELECT 1 FROM pierre_chat pk WHERE pk.conversation_id=pc.conversation_id AND pk.kind='game') THEN 'Game Session' ELSE 'Chat' END" },
+      // Session Grade: 👍 if graded good/great with no poor/bad, 👎 if any poor/bad, else —.
+      { key: 'sgrade',          label: 'Grade',   expr: "CASE WHEN EXISTS(SELECT 1 FROM pierre_chat pgg WHERE pgg.conversation_id=pc.conversation_id AND pgg.grade IN ('great','good')) AND NOT EXISTS(SELECT 1 FROM pierre_chat pbb WHERE pbb.conversation_id=pc.conversation_id AND pbb.grade IN ('poor','bad')) THEN '👍' WHEN EXISTS(SELECT 1 FROM pierre_chat pb2 WHERE pb2.conversation_id=pc.conversation_id AND pb2.grade IN ('poor','bad')) THEN '👎' ELSE '—' END" },
       { key: 'seq',             label: '#',       expr: 'pc.seq' },
       { key: 'role',            label: 'Who',     expr: 'pc.role' },
       { key: 'content',         label: 'Message', expr: 'pc.content' },
       { key: 'needs_reply',     label: 'Ted?',    expr: "CASE WHEN pc.needs_ted=1 AND COALESCE(pc.ted_status,'')<>'handled' THEN 1 ELSE 0 END" },
-      { key: 'grade',           label: 'Grade',   expr: "COALESCE(NULLIF(pc.grade,''),'ungraded')" },
+      { key: 'grade',           label: 'Turn grade', expr: "COALESCE(NULLIF(pc.grade,''),'ungraded')" },
       { key: 'created_at',      label: 'When',    expr: 'pc.created_at' },
     ],
     searchExprs: ['pc.user_email', 'pc.content', 'pc.conversation_id'],
     filters: [
       { key: 'role',  label: 'Who',   expr: 'pc.role', options: ['user', 'pierre'] },
+      { key: 'type',  label: 'Type',  expr: "CASE WHEN EXISTS(SELECT 1 FROM pierre_chat pk2 WHERE pk2.conversation_id=pc.conversation_id AND pk2.kind='game') THEN 'Game Session' ELSE 'Chat' END", options: ['Game Session', 'Chat'] },
       { key: 'grade', label: 'Grade', expr: "COALESCE(NULLIF(pc.grade,''),'ungraded')", options: ['ungraded', 'great', 'good', 'poor', 'bad'] },
     ],
     sortDefault: 'created_at',
     // Group by conversation: newest session first (by its first turn), turns in order.
     defaultOrder: '(SELECT MIN(p2.created_at) FROM pierre_chat p2 WHERE p2.conversation_id = pc.conversation_id) DESC, pc.conversation_id ASC, pc.seq ASC',
     groupBy: 'conversation_id',
-    groupHeaderCols: ['conversation_id', 'user_email'],   // Session + User → group header, not per-row columns
+    groupHeaderCols: ['conversation_id', 'user_email', 'type', 'sgrade'],   // Session · User · Type · Grade → group header
     writes: {
       // Grade Pierre’s turns inline. 'ungraded' clears it back.
       grade: { table: 'pierre_chat', column: 'grade', idColumn: 'id', options: ['ungraded', 'great', 'good', 'poor', 'bad'] },
@@ -638,7 +709,11 @@ adminRoutes.get('/meta', async (c) => {
     sortDefault: r.sortDefault,
     groupBy: r.groupBy ?? null,
     groupHeaderCols: r.groupHeaderCols ?? null,
+    reorder: r.reorder ?? null,
+    reorderScope: r.reorder ? (r.reorderScope ?? null) : null,
+    reorderCutCol: r.reorder ? (r.reorderCutCol ?? null) : null,
     filters: (r.filters ?? []).map((f) => ({ key: f.key, label: f.label, options: f.options ?? null })),
+    defaultFilters: r.defaultFilters ?? null,
     pivots: r.pivots ? Object.entries(r.pivots).map(([pk, p]) => ({ key: pk, label: p.label })) : [],
   }));
   return c.json({ ok: true, resources });
@@ -756,11 +831,16 @@ adminRoutes.post('/write/:resource', async (c) => {
   const value = typeof body.value === 'string' ? body.value : '';
   if (!id) return c.json({ error: 'id required' }, 400);
   let bound: string | number = value;
-  if ((w.kind ?? 'enum') === 'int') {
+  const kind = w.kind ?? 'enum';
+  if (kind === 'int') {
     const n = Math.trunc(Number(value));
     if (value.trim() === '' || !Number.isFinite(n) || n < 0 || n > 100000)
       return c.json({ error: 'must be a whole number of minutes (0–100000)' }, 400);
     bound = n;
+  } else if (kind === 'bool') {
+    bound = value === '1' || value === 'true' ? 1 : 0;   // checkbox → 0/1 into an INTEGER column
+  } else if (kind === 'text') {
+    bound = value.slice(0, 2000);                         // free text (e.g. a personal note)
   } else if (!w.options || !w.options.includes(value)) {
     return c.json({ error: 'invalid value', allowed: w.options ?? [] }, 400);
   }

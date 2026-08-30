@@ -167,6 +167,20 @@
   #finishBtn:active { transform: scale(0.985); }
   .nextup { font-family: var(--mono); font-size: 10px; color: var(--dim); text-align: center; margin-top: 7px; }
   .nextup b { color: var(--text); font-weight: 600; }
+  .watchapp { display: block; width: 100%; margin-top: 8px; padding: 10px; border-radius: 10px;
+    border: 1px solid var(--amber-dim); background: transparent; color: var(--amber-dim);
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase;
+    font-weight: 700; cursor: pointer; }
+  .watchapp:active { background: rgba(224,169,59,0.12); }
+
+  /* Primary "Start this marathon" CTA — filled amber, sits under the marathon subline. */
+  .startmar { display: block; width: 100%; margin: 12px 0 2px; padding: 13px 12px; border-radius: 12px;
+    border: none; background: var(--amber); color: #1c1206;
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
+    font-weight: 700; cursor: pointer; box-shadow: 0 3px 14px rgba(242,163,60,0.28); }
+  .startmar:active { transform: translateY(1px); box-shadow: 0 1px 6px rgba(242,163,60,0.3); }
+  .startmar.started { background: transparent; color: var(--amber);
+    border: 1px solid var(--amber-dim); box-shadow: none; }
 
   /* complete state */
   #doneCard { text-align: center; padding: 10px 0 4px; }
@@ -318,8 +332,8 @@
         <div class="kicker">comfort &middot; curated rewatch</div>
         <div class="prebeta">PRE-BETA</div>
       </div>
-      <h1><span class="pine">&#127821;</span> Tressany's PSYCH-O Marathon!</h1>
-      <div class="subline">12 episodes &middot; 20 years of psych &middot; july 7, 2026</div>
+      <h1 id="marTitle"><span class="pine">&#127821;</span> Tressany's PSYCH-O Marathon!</h1>
+      <div class="subline" id="marSub">12 episodes &middot; 20 years of psych &middot; july 7, 2026</div>
       <div id="barwrap">
         <div id="popcorn">&#127871;</div>
         <div id="bar"></div>
@@ -329,13 +343,17 @@
         <span id="bingeTag">&#127871; BINGE MODE!</span>
         <span id="metaRight"></span>
       </div>
+      <!-- Primary CTA: starting the marathon drops its QUEUE into the real WATCH tab
+           (sets the curated map on this member's watch of the show). Shown only for a
+           marathon that has a map wired (CFG.map); JS toggles the label once started. -->
+      <button id="startMar" class="startmar" hidden></button>
       <div id="heroBody"></div>
     </div>
   </div>
   <div id="list"></div>
   <div id="foot">
-    hand built for <b>@tressandthecity</b>, whose list this is. pre-beta: progress saves on this
-    device only, and if something wobbles, tell us. that is the whole point.
+    <span id="footDesc">hand built for <b>@tressandthecity</b>, whose list this is. pre-beta: progress saves on this
+    device only, and if something wobbles, tell us. that is the whole point.</span>
     <button id="reset">reset marathon</button>
     <div id="srcnote">episode data: tvmaze (live) &middot; pangolinrc</div>
   </div>
@@ -365,8 +383,83 @@
 (function () {
   'use strict';
 
-  var STORE_KEY = 'pangolin_comfort_psycho_v2';
-  var SHOW_URL = 'https://api.tvmaze.com/shows/517?embed=episodes';
+  /* Data-driven marathons: pick one by ?m=<id> (default the original Psych list). A new
+     marathon is another entry here + a row in the WATCH face's MARATHONS — not a new layout.
+     `episodes` is the curated list IN ORDER; "next up" always follows this order. */
+  var CONFIGS = {
+    psycho: {
+      store: 'pangolin_comfort_psycho_v2', show: 517,
+      emoji: '\u{1F34D}', title: "Tressany's PSYCH-O Marathon!",
+      sub: '12 episodes · 20 years of psych · july 7, 2026',
+      foot: 'hand built for <b>@tressandthecity</b>, whose list this is. pre-beta: progress saves on this device only, and if something wobbles, tell us. that is the whole point.',
+      episodes: [
+        { s: 1, n: 1,  title: 'Pilot',                        airdate: '2006-07-07' },
+        { s: 1, n: 15, title: "Scary Sherry: Bianca's Toast", airdate: null },
+        { s: 2, n: 13, title: 'Lights, Camera... Homicidio',  airdate: null },
+        { s: 3, n: 15, title: 'Tuesday the 17th',             airdate: null },
+        { s: 3, n: 16, title: 'An Evening with Mr. Yang',     airdate: null },
+        { s: 4, n: 7,  title: 'High Top Fade Out',            airdate: null },
+        { s: 4, n: 16, title: 'Mr. Yin Presents...',          airdate: null },
+        { s: 5, n: 12, title: 'Dual Spires',                  airdate: '2010-12-01' },
+        { s: 5, n: 16, title: 'Yang 3 in 2D',                 airdate: '2010-12-22' },
+        { s: 6, n: 14, title: 'Autopsy Turvy',                airdate: '2012-03-28' },
+        { s: 7, n: 11, title: 'Office Space',                 airdate: '2013-05-08' },
+        { s: 8, n: 10, title: 'The Break Up',                 airdate: '2014-03-26' }
+      ]
+    },
+    moonlighting: {
+      store: 'pangolin_comfort_moonlighting_v1', show: 1487,
+      map: 'map:moonlighting-ultimate',   // wires "watch in the app" → real Current/Next follows this order
+      emoji: '\u{1F576}', title: 'The Ultimate Moonlighting Rewatch',
+      sub: '7 essential episodes · David & Maddie at their best',
+      foot: 'a curated Moonlighting rewatch — the seven that show off everything the series could do, in order. pre-beta: progress saves on this device only.',
+      episodes: [
+        { s: 1, n: 1,  title: 'Pilot (feature-length)',                airdate: '1985-03-03' },
+        { s: 2, n: 2,  title: 'The Lady in the Iron Mask',             airdate: null },
+        { s: 2, n: 4,  title: 'The Dream Sequence Always Rings Twice', airdate: null },
+        { s: 3, n: 6,  title: 'Big Man on Mulberry Street',            airdate: null },
+        { s: 3, n: 7,  title: 'Atomic Shakespeare',                    airdate: null },
+        { s: 3, n: 8,  title: "It's a Wonderful Job",                  airdate: null },
+        { s: 4, n: 13, title: "Here's Living With You, Kid",           airdate: null }
+      ]
+    }
+  };
+  var CFG = CONFIGS[(new URLSearchParams(location.search).get('m') || 'psycho')] || CONFIGS.psycho;
+  var STORE_KEY = CFG.store;
+  var SHOW_URL = 'https://api.tvmaze.com/shows/' + CFG.show + '?embed=episodes';
+  // Header text is per-marathon (the DOM is ready — this script runs at end of body).
+  (function () {
+    var t = document.getElementById('marTitle'); if (t) t.innerHTML = '<span class="pine">' + CFG.emoji + '</span> ' + CFG.title;
+    var s = document.getElementById('marSub'); if (s) s.textContent = CFG.sub;
+    var f = document.getElementById('footDesc'); if (f) f.innerHTML = CFG.foot;
+  })();
+
+  // Primary "Start this marathon" CTA (only for a marathon wired to a real map). Starting
+  // drops the marathon's QUEUE into the WATCH tab: it sets the curated map on this member's
+  // watch of the show and opens the LOG at the current (first-unwatched) step. Ask the WATCH
+  // face (our parent) to do the wiring — faces never call each other directly.
+  var STARTED_KEY = CFG.store + '_started';
+  (function () {
+    var btn = document.getElementById('startMar');
+    if (!btn || !CFG.map) return;                         // no map → no real WATCH queue to seed
+    var started = false; try { started = localStorage.getItem(STARTED_KEY) === '1'; } catch (_) {}
+    function paintStart() {
+      btn.hidden = false;
+      btn.classList.toggle('started', started);
+      btn.innerHTML = (started ? '▸ Continue in the WATCH tab' : '▸ Start this marathon in the app');
+    }
+    paintStart();
+    btn.addEventListener('click', function () {
+      var cur = currentIndex();                            // first unwatched step; -1 once complete
+      var step = eps[cur >= 0 ? cur : 0];
+      try { localStorage.setItem(STARTED_KEY, '1'); } catch (_) {}
+      started = true; paintStart();
+      try {
+        window.parent.postMessage({ type: 'comfort:watch', titleId: 'tvmaze:' + CFG.show, mapId: CFG.map,
+          pattern: { kind: 'at', season: step.s, number: step.n } }, '*');
+      } catch (_) {}
+    });
+  })();
 
   /* the wire mic (matches the console mic) — restored on the button between takes */
   var MIC_SVG = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" '
@@ -375,21 +468,8 @@
     + '<path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>'
     + '<line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>';
 
-  /* Tressany's list, in marathon order. Verified against TVMaze show 517. */
-  var MARATHON = [
-    { s: 1, n: 1,  title: 'Pilot',                        airdate: '2006-07-07' },
-    { s: 1, n: 15, title: "Scary Sherry: Bianca's Toast", airdate: null },
-    { s: 2, n: 13, title: 'Lights, Camera... Homicidio',  airdate: null },
-    { s: 3, n: 15, title: 'Tuesday the 17th',             airdate: null },
-    { s: 3, n: 16, title: 'An Evening with Mr. Yang',     airdate: null },
-    { s: 4, n: 7,  title: 'High Top Fade Out',            airdate: null },
-    { s: 4, n: 16, title: 'Mr. Yin Presents...',          airdate: null },
-    { s: 5, n: 12, title: 'Dual Spires',                  airdate: '2010-12-01' },
-    { s: 5, n: 16, title: 'Yang 3 in 2D',                 airdate: '2010-12-22' },
-    { s: 6, n: 14, title: 'Autopsy Turvy',                airdate: '2012-03-28' },
-    { s: 7, n: 11, title: 'Office Space',                 airdate: '2013-05-08' },
-    { s: 8, n: 10, title: 'The Break Up',                 airdate: '2014-03-26' }
-  ];
+  /* The selected marathon's curated list, IN ORDER (next-up always follows this order). */
+  var MARATHON = CFG.episodes;
 
   /* runtime episode data: baked list above, enriched by the live fetch */
   var eps = MARATHON.map(function (e) {
@@ -780,6 +860,7 @@
           '<button id="finishBtn">' +
             (next ? 'FINISHED! ROLL THE NEXT ONE &#9656;' : 'FINISHED! THAT&#39;S THE MARATHON &#127821;') +
           '</button>' +
+          (CFG.map ? '<button id="watchApp" class="watchapp">&#9654; watch this in the app</button>' : '') +
           (next ? '<div class="nextup">next up: <b>' + code(next) + ' ' + next.title + '</b></div>'
                 : '<div class="nextup">this is the one. series finale.</div>') +
         '</div>';
@@ -787,6 +868,13 @@
       hb.querySelector('.epsyn').textContent = e.summary || '';
       document.getElementById('heroArt').style.backgroundImage = e.img ? 'url(' + e.img + ')' : '';
       hb.querySelector('#finishBtn').addEventListener('click', finish);
+      // "watch in the app": activate the curated map on the real watch + open the LOG at this
+      // step, so the app's Current/Next follows the marathon. (Parent = cube_watch_face.)
+      var wa = hb.querySelector('#watchApp');
+      if (wa) wa.addEventListener('click', function () {
+        try { window.parent.postMessage({ type: 'comfort:watch', titleId: 'tvmaze:' + CFG.show, mapId: CFG.map,
+          pattern: { kind: 'at', season: e.s, number: e.n } }, '*'); } catch (_) {}
+      });
     }
 
     /* Two parts: YOUR RANKING (watched, in rank order, drag the gripper to

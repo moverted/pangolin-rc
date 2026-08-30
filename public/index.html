@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, interactive-widget=overlays-content, viewport-fit=cover">
   <title>pangolinRC</title>
   <script>
-    // Launch router — honor the member's saved app-style preference (set from the
-    // Profile toggle or the Flat-view button) so they land where they left off across
-    // restarts. Runs before the cube (three.js) loads; replace() keeps it out of history.
-    try { if (localStorage.getItem('pg_mode') === 'flat') location.replace('/app.html'); } catch (e) {}
+    // Launch router — flat is the default surface for everyone now; only a member who
+    // deliberately picked Cube (pg_mode='cube', via the Profile toggle) stays on the cube.
+    // Runs before the cube (three.js) loads; replace() keeps it out of history.
+    try { if (localStorage.getItem('pg_mode') !== 'cube') location.replace('/app.html'); } catch (e) {}
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

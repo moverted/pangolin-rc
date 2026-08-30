@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { tmdbFetch } from './tmdb';
+import { shadowTitleNames } from './shadow';
 
 // Pierre's persona lives server-side so the system prompt, the seed context, and
 // the Anthropic API key never ship to the browser. The client sends only the
@@ -77,7 +78,10 @@ OFFERING A HANDOFF
 - Use at most one tag per message, and only when it is genuinely useful. Most messages have none. Put nothing after the tag.
 
 LOGGING SOMETHING THEY ALREADY WATCHED (a backfill) — a HARD rule
-- This is a movie OR a show they finished and want on their log ("put The Leftovers in my completed", "I watched My Fault: London Sunday"). It works the same for both, a film or a series.
+- This is a movie OR a show they FINISHED and want on their log ("put The Leftovers in my completed", "I watched My Fault: London Sunday"). It works the same for both, a film or a series. [BACKFILL] marks the whole thing COMPLETED, so only use it when they are actually done with it.
+- NOT a backfill, two cases you must never [BACKFILL]:
+  - FUTURE / WANT-TO: "I'd like to watch Sharp Objects", "I want to watch X", "I'm going to start Y", "put X on my list", "add X". They have NOT watched it. This is a put-on, not a log — offer the handoff instead: [ROUTE: Episodes | Put it on | <title>] for a series, or [ROUTE: Movie | Put it on | <title>] for a film. That lands it in their Current, never Completed. Do not [BACKFILL], and never say it is completed or done.
+  - PARTWAY THROUGH: they have seen only SOME of a series ("I watched the first episode of Black Rabbit but want to watch the rest", "I'm a few episodes into X"). That is the [WATCHED] single-episode path below, which keeps the show IN PROGRESS — never [BACKFILL], which would wrongly mark the whole series completed.
 - You have NO way to log anything by saying so. The ONLY thing that logs is the [BACKFILL] tag. If you say "done", "logged", "shelved", "added to your completed", or anything past-tense WITHOUT the tag in that same message, nothing happens and you have lied to the member. That is the single worst thing you can do here. So never confirm a log in words. Either emit the tag, or do not claim it.
 - Gather the exact title, the day they watched it (a weekday like "Sunday", "yesterday", or a date), and their rating or reaction if they offer one. You can log with just the title (day defaults to today), but a warm quick ask for the day and reaction is better.
 - When you have the title, end your message with this tag on its own line, exactly:
@@ -88,6 +92,7 @@ LOGGING SOMETHING THEY ALREADY WATCHED (a backfill) — a HARD rule
 
 LOGGING ONE EPISODE THEY JUST WATCHED (the conversational backfill) — use the [WATCHED] tag
 - Different from the whole-show [BACKFILL] above. Use [WATCHED] when they mention watching ONE episode of an ongoing series: "I watched the latest episode of Ted Lasso yesterday with Audrey", "caught last night's Severance", "we saw The Bear S3E4 on Sunday". Reach for this whenever someone reports a single episode, not a finished series.
+- ALSO use [WATCHED] for partway-through: "I watched the first episode of Black Rabbit but want to watch the rest", "I'm one in on X". Log the episode they named (or the first) — that keeps the show IN PROGRESS in their log so they can pick it up. Never [BACKFILL] a partly-watched series; that wrongly completes it.
 - Do the human part in words first: a warm, forward-looking line — "Cool, I'll log it" or "Nice, getting that in your log". NEVER say it is done; the confirm chip is what logs. Claiming a past-tense log without the tag means nothing happened and you have lied to them.
 - You do NOT need to know the episode number or the date. Pass the member's own words — the app resolves "the latest episode" to the real code (S4E3), "yesterday"/"Sunday" to the actual date, and the names to their people. Do not invent an episode number or a date.
 - End your message with the tag on its own line, exactly four pipe-separated fields — show, episode, day, who:
@@ -98,6 +103,28 @@ LOGGING ONE EPISODE THEY JUST WATCHED (the conversational backfill) — use the 
   - who: the companions they named, comma or & separated — blank if solo or unstated.
 - The app hands the member ONE confirm chip (show + episode + date + who) plus a "Something else" tap; only the tap logs, and it logs just that one episode while keeping the show in progress. Your line before the tag stays forward-looking, never past tense.
 - If they name several episodes or a whole finished run, that is the [BACKFILL] path, not this one.
+
+BUILDING THEIR STREAMING SHADOW (silent, always on) — the [SHADOW] tag
+- The streaming shadow is the shape of a member you can draw from the slivers of taste they hand you: every title they have watched, mentioned, or reacted to, with a one-line feel. You keep it quietly as you talk, and they can reshape it later.
+- Whenever a member reacts to or discusses a real show or film — they love it, hate it, are curious, are comparing it, tell you how a pick landed — record it by appending this tag on its own line at the very end, AFTER any other tag:
+  [SHADOW: Severance | the office-as-purgatory thing really got them | love]
+  Three pipe-separated fields: the plain title, a one-line feel in THEIR register (why it came up / what they think), and a sentiment from exactly one of: love, like, meh, nope. Leave the sentiment blank only if it is genuinely unclear.
+- You may emit more than one [SHADOW] tag in a message if they touched more than one title. It is silent — never mention it, never explain it, never confirm it in words. It records only what THEY reacted to, not titles you merely suggested that they ignored.
+- This is separate from logging: [SHADOW] never counts as a watch. Use it alongside a [BACKFILL]/[WATCHED]/[ROUTE] when both apply.
+- PLACING INTO A TIER: their shadow sorts each kind (series, mini-series, anthology, film) into three SUBJECTIVE tiers — Top 10, Top 25, Top 50. These are loose buckets, NOT counts: a "Top 10" tier might hold thirty shows. It is a playful way for them to place a title broadly, then refine. When you discuss a new title (from the game or a conversation), help them place it into a tier — start broad ("does this feel like a top-10 or more of a top-50 for you?"), then, as they say more, you can move it up or down a tier. When they land on one, emit the tag with two extra fields, the kind and the tier:
+  [SHADOW: Severance | office-as-purgatory, really got them | love | series | Top 10]
+  Fields: title | feel | sentiment | kind | tier. kind is one of series / miniseries / anthology / film. tier is Top 10 / Top 25 / Top 50. Only add the last two fields when you are actually placing it into a tier; otherwise use the plain three-field form. You can read their current tiers from THEIR STREAMING SHADOW above, so answer "what's in my top 10?" directly and suggest which tier a new title belongs in.
+
+CORRECTING A RUNTIME (how long an episode or film actually runs) — the [TRT] tag
+- Sometimes a member tells you the real running time of something: "that episode was only 42 minutes, not 50", "Sinners actually runs 2h 17m", "the finale was 68 minutes". The catalog's runtime drives their watch timer, so a wrong one is worth fixing — reach for [TRT] whenever they hand you a real duration for a title.
+- Only use it when they state an actual NUMBER of minutes for a SPECIFIC title (and, for a series, a specific episode). "It felt long" is not a runtime — if they are vague or give a range, ask for the real number instead of guessing.
+- Do the human part first in words, forward-looking ("Let me get that fixed"), and NEVER claim it is changed without the tag — the confirm chip is what applies it. Past-tense without the tag means nothing happened and you have lied to them.
+- End your message with the tag on its own line, exactly three pipe-separated fields — title, episode, minutes:
+  [TRT: Ted Lasso | S4E3 | 42]
+  - title: the plain title (series or film name).
+  - episode: for a series, the episode they mean — a code like "S4E3", or "latest" if they said the latest/last one. For a FILM, leave this field blank; a film is one runtime.
+  - minutes: the running time as a whole number of minutes. Convert "2h 17m" to 137. No units, just the number.
+- The app resolves the title and episode, hands the member ONE confirm chip, and only that tap applies it. If you are the one correcting it, it updates the shared catalog right away; from anyone else it needs a second member to agree or Ted to apply it. Your line before the tag stays forward-looking, never past tense.
 
 SWITCHING WHERE THEY ARE (the cube has modes, you can move them)
 - There are four places you can put someone: Chat with you (the default), Add a show, their Account (sign in or sign up), or Connect a device.
@@ -289,6 +316,45 @@ async function tasteBlock(env: Env, email: string): Promise<string> {
   }
 }
 
+// The member's streaming shadow, folded into Pierre's context so he references what he
+// already knows and does not re-offer it. Grouped by KIND and ordered by per-kind RANK, so
+// Pierre can talk about their ranked tiers ("your top 10 films"). Best-effort.
+async function shadowBlock(env: Env, email: string): Promise<string> {
+  try {
+    const rs = await env.DB.prepare(
+      `SELECT title_name, kind, feel, sentiment, tier, rank FROM streaming_shadow
+        WHERE user_email = ?1 AND hidden = 0
+        ORDER BY kind ASC, CASE tier WHEN 'Top 10' THEN 0 WHEN 'Top 25' THEN 1 WHEN 'Top 50' THEN 2 ELSE 3 END ASC,
+                 CASE WHEN rank > 0 THEN rank ELSE 999999 END ASC, weight DESC LIMIT 120`,
+    ).bind(email).all<{ title_name: string; kind: string; feel: string; sentiment: string; tier: string; rank: number }>();
+    const rows = rs.results ?? [];
+    if (!rows.length) return '';
+    const KLABEL: Record<string, string> = { series: 'Series', miniseries: 'Mini-series', anthology: 'Anthology', film: 'Films' };
+    const groups: Record<string, typeof rows> = {};
+    for (const r of rows) (groups[r.kind || 'other'] ||= []).push(r);
+    const secs: string[] = [];
+    for (const k of ['series', 'miniseries', 'anthology', 'film', 'other']) {
+      const g = groups[k]; if (!g || !g.length) continue;
+      const lines = g.slice(0, 40).map((r) => {
+        const bits = [(r.tier ? '[' + r.tier + '] ' : '') + r.title_name];
+        if (r.sentiment) bits.push('(' + r.sentiment + ')');
+        if (r.feel) bits.push('— ' + r.feel);
+        return '  ' + bits.join(' ');
+      });
+      secs.push((KLABEL[k] || 'Other') + ':\n' + lines.join('\n'));
+    }
+    return (
+      '\n\nTHEIR STREAMING SHADOW — their taste, sorted per kind into their SUBJECTIVE tiers (Top 10 / Top 25 / ' +
+      'Top 50 — loose buckets, not counts; a tier can hold many titles). Reference it, build on it, do NOT re-offer ' +
+      'titles already here as new. When they place or move a title into a tier, use the [SHADOW] tag with kind + tier ' +
+      '(see the streaming-shadow rule).\n' +
+      secs.join('\n')
+    );
+  } catch {
+    return '';
+  }
+}
+
 // ── Pierre's tools ──────────────────────────────────────────────────────────
 // Server-side lookups riding the existing TMDB key (handlers/tmdb.ts). No new
 // public routes: these run only inside the chat handler, model-invoked.
@@ -451,7 +517,7 @@ export const pierreRoutes = new Hono<{ Bindings: Env }>();
 
 // Frontend (cube_pierre_face.html) → POST /pierre/chat  { messages: [{role, content}] }
 pierreRoutes.post('/chat', async (c) => {
-  let body: { messages?: unknown; token?: unknown; appToken?: unknown; email?: unknown; mode?: unknown; context?: unknown; conversation_id?: unknown };
+  let body: { messages?: unknown; token?: unknown; appToken?: unknown; email?: unknown; mode?: unknown; context?: unknown; conversation_id?: unknown; kind?: unknown };
   try {
     body = await c.req.json();
   } catch {
@@ -509,6 +575,7 @@ pierreRoutes.post('/chat', async (c) => {
       ? body.email.trim().toLowerCase().slice(0, 120)
       : '';
   const taste = email ? await tasteBlock(c.env, email) : SEED_TASTE;
+  const shadow = email ? await shadowBlock(c.env, email) : '';
 
   // Moderation trail: if this turn is a request for porn/explicit content, log it to
   // the flagged-request object for admin review. Pierre still declines in-chat via his
@@ -535,7 +602,7 @@ pierreRoutes.post('/chat', async (c) => {
       '\n- If their thought stands on its own, no question in it, respond to it and ask once if they want to share the thought with their people. If they say yes, put [PANEL: Share] alone on the last line. Never use that tag any other way, and never mention it.';
   }
 
-  const system = PIERRE + '\n\n' + taste + modeBlock;
+  const system = PIERRE + '\n\n' + taste + shadow + modeBlock;
 
   let data: { content?: Array<any>; stop_reason?: string };
   for (let round = 0; ; round++) {
@@ -593,9 +660,12 @@ pierreRoutes.post('/chat', async (c) => {
   // reflection flow doesn't send a conversation_id, so those turns are not saved here.
   const conversationId =
     typeof body.conversation_id === 'string' && body.conversation_id ? body.conversation_id.slice(0, 80) : '';
+  // Chat type (lane) so the admin can tell a game session from free chat. Only 'game' is
+  // meaningful today; everything else stores 'chat'.
+  const chatKind = body.kind === 'game' ? 'game' : 'chat';
   if (conversationId)
     c.executionCtx.waitUntil(
-      persistChatTurns(c.env, conversationId, email, lastUser, reply).catch((e) => console.error('pierre_chat persist', e)),
+      persistChatTurns(c.env, conversationId, email, lastUser, reply, chatKind).catch((e) => console.error('pierre_chat persist', e)),
     );
 
   return c.json({ reply });
@@ -668,7 +738,7 @@ async function generateRoomGuesses(
 // before it goes back, and any that does not resolve is regenerated, so the client only
 // ever renders real shows.
 pierreRoutes.post('/room-guess', async (c) => {
-  let body: { show1?: unknown; show2?: unknown; token?: unknown; appToken?: unknown };
+  let body: { show1?: unknown; show2?: unknown; token?: unknown; appToken?: unknown; email?: unknown };
   try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
 
   // Same bot gate as /chat: the native app secret, or a Turnstile token on web.
@@ -688,23 +758,31 @@ pierreRoutes.post('/room-guess', async (c) => {
   const show2 = typeof body.show2 === 'string' ? body.show2.trim().slice(0, 200) : '';
   if (!show1 || !show2) return c.json({ error: 'two show names required' }, 400);
 
-  const avoid = new Set([_norm(show1), _norm(show2)]);
+  const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+  // HARD avoid = the pair + picks already accepted (never repeat). SOFT avoid = the member's
+  // shadow (nice not to re-offer). A big shadow used to starve the model of groundable picks,
+  // so pass 0 honors the shadow and pass 1 DROPS it — the room never fails just because they
+  // have a large shadow. Capped small to keep the prompt lean.
+  const shadowNames = email ? await shadowTitleNames(c.env, email, 30) : [];
+  const hard = new Set([_norm(show1), _norm(show2)]);
+  const soft = shadowNames.map(_norm);
   const picks: Array<{ name: string; reason: string; tvmazeId: number; poster: string | null }> = [];
   let thread = '';
-  // Up to three rounds: ask, ground each against TVMaze, keep the real ones, ask again
-  // for whatever is still missing. Never render an ungrounded guess.
-  for (let round = 0; round < 3 && picks.length < 3; round++) {
-    const gen = await generateRoomGuesses(c.env, show1, show2, [...avoid], 3 - picks.length);
-    if (gen.thread && !thread) thread = gen.thread;
-    for (const g of gen.picks) {
-      if (picks.length >= 3) break;
-      const key = _norm(g.name);
-      if (avoid.has(key)) continue;
-      avoid.add(key);
-      const resolved = await tvmazeResolve(g.name);
-      if (resolved) picks.push({ name: resolved.name, reason: g.reason, tvmazeId: resolved.id, poster: resolved.poster });
+  for (let pass = 0; pass < 2 && picks.length < 3; pass++) {
+    const avoid = new Set(pass === 0 ? [...hard, ...soft] : [...hard]);
+    for (let round = 0; round < 3 && picks.length < 3; round++) {
+      const gen = await generateRoomGuesses(c.env, show1, show2, [...avoid], 3 - picks.length);
+      if (gen.thread && !thread) thread = gen.thread;
+      for (const g of gen.picks) {
+        if (picks.length >= 3) break;
+        const key = _norm(g.name);
+        if (hard.has(key) || avoid.has(key)) continue;
+        avoid.add(key);
+        const resolved = await tvmazeResolve(g.name);
+        if (resolved) { picks.push({ name: resolved.name, reason: g.reason, tvmazeId: resolved.id, poster: resolved.poster }); hard.add(_norm(resolved.name)); }
+      }
+      if (!gen.picks.length) break;   // model gave nothing this round
     }
-    if (!gen.picks.length) break;   // model gave nothing, do not spin
   }
   if (picks.length < 3) return c.json({ error: 'could not ground three picks', thread, picks }, 502);
   return c.json({ thread, picks });
@@ -713,7 +791,7 @@ pierreRoutes.post('/room-guess', async (c) => {
 // POST /pierre/room-guess/one  { show1, show2, avoid: [names], token?, appToken? }
 // A single grounded replacement for a rerolled card. Same gate, same grounding.
 pierreRoutes.post('/room-guess/one', async (c) => {
-  let body: { show1?: unknown; show2?: unknown; avoid?: unknown; token?: unknown; appToken?: unknown };
+  let body: { show1?: unknown; show2?: unknown; avoid?: unknown; token?: unknown; appToken?: unknown; email?: unknown };
   try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
   if (c.env.TURNSTILE_SECRET_KEY) {
     const appToken = typeof body.appToken === 'string' ? body.appToken : '';
@@ -730,17 +808,25 @@ pierreRoutes.post('/room-guess/one', async (c) => {
   const show2 = typeof body.show2 === 'string' ? body.show2.trim().slice(0, 200) : '';
   if (!show1 || !show2) return c.json({ error: 'two show names required' }, 400);
   const avoidArr = Array.isArray(body.avoid) ? (body.avoid as unknown[]).filter((x) => typeof x === 'string').map((x) => _norm(x as string)) : [];
-  const avoid = new Set([_norm(show1), _norm(show2), ...avoidArr]);
-  for (let round = 0; round < 3; round++) {
-    const gen = await generateRoomGuesses(c.env, show1, show2, [...avoid], 1);
-    for (const g of gen.picks) {
-      const key = _norm(g.name);
-      if (avoid.has(key)) continue;
-      avoid.add(key);
-      const resolved = await tvmazeResolve(g.name);
-      if (resolved) return c.json({ thread: gen.thread || '', pick: { name: resolved.name, reason: g.reason, tvmazeId: resolved.id, poster: resolved.poster } });
+  // HARD avoid = pair + the caller's seen list. SOFT avoid = the member's shadow, honored on
+  // pass 0 and dropped on pass 1 so a big shadow can't starve the pick (was failing the game).
+  const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+  const shadowNames = email ? await shadowTitleNames(c.env, email, 30) : [];
+  const hard = new Set([_norm(show1), _norm(show2), ...avoidArr]);
+  const soft = shadowNames.map(_norm);
+  for (let pass = 0; pass < 2; pass++) {
+    const avoid = new Set(pass === 0 ? [...hard, ...soft] : [...hard]);
+    for (let round = 0; round < 3; round++) {
+      const gen = await generateRoomGuesses(c.env, show1, show2, [...avoid], 1);
+      for (const g of gen.picks) {
+        const key = _norm(g.name);
+        if (hard.has(key) || avoid.has(key)) continue;
+        avoid.add(key);
+        const resolved = await tvmazeResolve(g.name);
+        if (resolved) return c.json({ thread: gen.thread || '', pick: { name: resolved.name, reason: g.reason, tvmazeId: resolved.id, poster: resolved.poster } });
+      }
+      if (!gen.picks.length) break;
     }
-    if (!gen.picks.length) break;
   }
   return c.json({ error: 'could not ground a pick' }, 502);
 });
@@ -768,7 +854,7 @@ pierreRoutes.post('/escalate', async (c) => {
 
 // Append one exchange (the user turn + Pierre's reply) to the transcript, in order.
 // seq continues from the conversation's current max, so a session builds turn by turn.
-async function persistChatTurns(env: Env, conversationId: string, email: string, userText: string, replyText: string): Promise<void> {
+async function persistChatTurns(env: Env, conversationId: string, email: string, userText: string, replyText: string, kind: string = 'chat'): Promise<void> {
   const row = await env.DB
     .prepare('SELECT COALESCE(MAX(seq), 0) AS m FROM pierre_chat WHERE conversation_id = ?')
     .bind(conversationId)
@@ -782,8 +868,8 @@ async function persistChatTurns(env: Env, conversationId: string, email: string,
   const cleanReply = replyText.replace(/\[GETTED\]/gi, '').trim();
   const ins = (role: string, content: string, flag: number) =>
     env.DB.prepare(
-      'INSERT INTO pierre_chat (id, conversation_id, user_email, seq, role, content, grade, needs_ted, ted_status, created_at) VALUES (?, ?, ?, ?, ?, ?, \'\', ?, \'\', ?)',
-    ).bind(crypto.randomUUID(), conversationId, email || null, ++seq, role, content, flag, now);
+      'INSERT INTO pierre_chat (id, conversation_id, user_email, seq, role, content, grade, needs_ted, ted_status, kind, created_at) VALUES (?, ?, ?, ?, ?, ?, \'\', ?, \'\', ?, ?)',
+    ).bind(crypto.randomUUID(), conversationId, email || null, ++seq, role, content, flag, kind, now);
   const stmts = [];
   if (userText) stmts.push(ins('user', userText.slice(0, 4000), 0));
   if (cleanReply) stmts.push(ins('pierre', cleanReply.slice(0, 8000), needsTed));

@@ -327,6 +327,15 @@
   .addbtn.on{background:var(--panel-2);color:var(--amber);border:1px solid var(--line)}
   .addbtn:active{transform:translateY(1px)}
   .shelf{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+  /* COLLECT marathon tiles: poster-forward card with a name + episode count below. */
+  .mar-shelf{margin-bottom:6px}
+  .mar-tile{display:flex;flex-direction:column;text-align:left;padding:0;border:0;background:none;cursor:pointer;color:inherit}
+  .mar-tile:active{transform:translateY(1px)}
+  .mar-poster{width:100%;aspect-ratio:2/3;border-radius:8px;object-fit:cover;border:1px solid var(--line);background:#000;display:block}
+  .mar-poster.noimg{background:linear-gradient(150deg,#241c12,#0f0b06)}
+  .mar-name{font-size:10.5px;font-weight:600;line-height:1.2;margin-top:5px;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .mar-sub{font-family:var(--mono);font-size:8px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-top:2px}
   .mcard{position:relative;aspect-ratio:2/3;border-radius:8px;overflow:hidden;border:1px solid var(--line);
     background:#000 center/cover;cursor:pointer}
   .mcard .spine{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:flex-end;
@@ -343,8 +352,12 @@
   .camstatus.bad{color:var(--amber-soft)}
 
   /* Floating cube — back to cube navigation (shared across trunk sides) */
+  /* 125% block-text bump — onboarding prompt prose scaled ~1.25x (labels/chrome unchanged). */
+  .bubble{font-size:21px}
 </style>
 <script src="zxing.min.js"></script>
+<script src="pg_share_qr.js"></script>
+<script src="pg_share_card.js"></script>
 </head>
 <body>
 <div class="face">
@@ -452,20 +465,60 @@ function openTitle(titleId, name){
   }
 }
 
+// ── COLLECT: curated marathons (the maps system) ─────────────────────────────
+// Two sections split by ownership (server: GET /:email/marathons): YOUR MARATHONS (maps the
+// member owns) and COMMUNITY MARATHONS (everyone else's / global). Tapping a marathon activates
+// its map on the title (active_map_id) and opens it in the Watch/Log so Current/Next follow the
+// curated order. Single-title maps only for now (Moonlighting, Psych).
+const _marEsc = s => String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function marathonTile(m){
+  const poster = m.poster ? `<img class="mar-poster" src="${_marEsc(m.poster)}" alt="" loading="lazy">`
+                          : `<div class="mar-poster noimg"></div>`;
+  const steps = (m.steps||0) + (m.steps===1 ? ' episode' : ' episodes');
+  return `<button class="mar-tile" data-map="${_marEsc(m.map_id)}" data-title="${_marEsc(m.title_id||'')}" data-name="${_marEsc(m.title_name||m.name)}">`
+       + `${poster}<span class="mar-name">${_marEsc(m.name)}</span><span class="mar-sub">${steps}</span></button>`;
+}
+function openMarathon(mapId, titleId, name){
+  const email = memberEmail();
+  if(!titleId){ return; }   // cross-title marathons aren't playable via a single title yet
+  if(email){
+    // Activate the marathon on this title (fire-and-forget), then open it in the Watch/Log.
+    try{ fetch(ART_API + '/profile/' + encodeURIComponent(email) + '/titles/' + encodeURIComponent(titleId) + '/map',
+      { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ map_id:mapId }) }); }catch(_){}
+  }
+  openTitle(titleId, name);
+}
+async function renderCollect(pane){
+  pane.innerHTML = '<div class="bempty">Loading marathons…</div>';
+  const data = _marathonsCache || await loadMarathons();
+  const section = (title, list, emptyBold, emptyGrey) => {
+    let h = `<div class="shelfhead"><h2>${title}</h2></div>`;
+    h += (list && list.length)
+      ? `<div class="shelf mar-shelf">${list.map(marathonTile).join('')}</div>`
+      : `<div class="bempty"><b>${emptyBold}</b><br>${emptyGrey}</div>`;
+    return h;
+  };
+  pane.innerHTML =
+    section('YOUR MARATHONS', data.yours, 'No marathons of your own yet.', 'Build one with Pierre and it lands here.') +
+    section('COMMUNITY MARATHONS', data.community, 'No community marathons yet.', 'Curated runs from the community show up here. Nothing faked.');
+  pane.querySelectorAll('[data-map]').forEach(el => el.onclick = () =>
+    openMarathon(el.getAttribute('data-map'), el.getAttribute('data-title'), el.getAttribute('data-name')));
+}
+
 // Worker API base (mirrors the other faces) — backs the TMDB movie search proxy.
 const API_BASE = (location.protocol === 'http:' && location.hostname === 'localhost')
   ? 'http://localhost:8787'
   : 'https://pangolin-rc.edward-m-willett.workers.dev';
 
-// ── IRL face: three tabs on the member view ──────────────────────────────────
-//   SUGGESTIONS — the old Browse rails (Pierre's picks + friends' shares)
-//   TICKETS     — the theater ticket stubs the member has logged (watch_ticket)
-//   MEDIA       — scan/log the physical discs the member owns ("the shelf")
-// The JOIN intake above is untouched; this only renders once the device is a member.
+// ── BROWSE face: two tabs on the member view (nav restructure) ────────────────
+//   SUGGEST — the old Browse rails (Pierre's picks + friends' shares), unchanged
+//   COLLECT — curated MARATHONS: YOUR MARATHONS + COMMUNITY MARATHONS (the maps system)
+// TICKETS and the physical-media SHELF moved to the WATCH tab (as TICKETS / STACK); their
+// render functions (renderTickets / renderMedia) stay in this file for that port. The JOIN
+// intake above is untouched; this only renders once the device is a member.
 const IRL_TABS = [
   { key:'suggestions', label:'Suggest', badge:'DISCOVER' },
-  { key:'tickets',     label:'Tickets', badge:'+ Stubs' },
-  { key:'media',       label:'Shelf',   badge:'PHYSICAL' },
+  { key:'collect',     label:'Collect', badge:'MARATHONS' },
 ];
 let irlTab = 'suggestions';
 // Dev/layout preview only: ?seed populates sample stubs + discs so the layout can be
@@ -480,24 +533,30 @@ function renderBrowse(opts){
     <div class="head"><span class="label">IRL</span><span class="badge" id="irlBadge">${active.badge}</span></div>
     <div class="tabs" id="irlTabs">${IRL_TABS.map(t=>
       `<button class="tab ${t.key===irlTab?'on':''}" data-tab="${t.key}">${t.label}${
-        (t.key==='tickets'||t.key==='media') ? `<span class="ct" id="irlct-${t.key}"></span>` : ''}</button>`).join('')}</div>
+        t.key==='collect' ? `<span class="ct" id="irlct-collect"></span>` : ''}</button>`).join('')}</div>
     <div class="bscroll" id="irlPane"></div>`;
   b.querySelectorAll('#irlTabs .tab').forEach(el => el.onclick = () => switchTab(el.dataset.tab));
   switchTab(irlTab, opts);
   refreshIrlCounts();
 }
 
-// Populate the TICKETS + SHELF tab counts. Media is a local list (sync); tickets load
-// from the server (async). Empty leaves the chip blank rather than a lonely "0".
+// Populate the COLLECT tab count (total marathons visible to this member). Empty leaves the
+// chip blank rather than a lonely "0". Cached on _marathonsCache so renderCollect can reuse it.
+let _marathonsCache = null;
+async function loadMarathons(){
+  const email = memberEmail();
+  if(!email) return { yours:[], community:[] };
+  try{
+    const r = await fetch(ART_API + '/profile/' + encodeURIComponent(email) + '/marathons');
+    if(r.ok){ _marathonsCache = await r.json(); return _marathonsCache; }
+  }catch(_){}
+  return { yours:[], community:[] };
+}
 async function refreshIrlCounts(){
   try{
-    let media = loadMedia();
-    if(SEED && !media.length && typeof sampleMedia==='function') media = sampleMedia();
-    const em = document.getElementById('irlct-media'); if(em) em.textContent = media.length ? String(media.length) : '';
-  }catch(_){}
-  try{
-    const tix = await loadTickets();
-    const et = document.getElementById('irlct-tickets'); if(et) et.textContent = (tix && tix.length) ? String(tix.length) : '';
+    const m = await loadMarathons();
+    const n = (m.yours ? m.yours.length : 0) + (m.community ? m.community.length : 0);
+    const el = document.getElementById('irlct-collect'); if(el) el.textContent = n ? String(n) : '';
   }catch(_){}
 }
 
@@ -508,8 +567,7 @@ function switchTab(key, opts){
   const badge = document.getElementById('irlBadge'); if(badge) badge.textContent = active.badge;
   const pane = document.getElementById('irlPane'); if(!pane) return;
   pane.scrollTop = 0;
-  if(key==='tickets')      renderTickets(pane, opts);
-  else if(key==='media')   renderMedia(pane);
+  if(key==='collect')      renderCollect(pane);
   else                     renderSuggestions(pane);
 }
 
@@ -1028,67 +1086,21 @@ async function tixShareCard(tx){
     const b64 = await blobB64(blob); (window.top||window).postMessage({type:'pg:shareFile', dataB64:b64, name:'ticket-card.png', caption}, '*'); _txHint(tx,'opening share…');
   }catch(_){ _txHint(tx,"couldn't build the card",'bad'); }
 }
-// Compose a portrait share card: poster (via the CORS-safe /img proxy) under a scrim,
-// with the film, the reflection quote, and the theater · date footer.
-// Seeded torn-bottom polygon in pixels — the card's version of tearClip (same band / feel).
-function tearPolyPx(id, W, H){
-  let s=2166136261>>>0; const str=String(id||'seed');
-  for(let i=0;i<str.length;i++){ s^=str.charCodeAt(i); s=Math.imul(s,16777619)>>>0; }
-  const rand=()=>{ s^=s<<13; s>>>=0; s^=s>>17; s^=s<<5; s>>>=0; return s/4294967296; };
-  const n=22, pts=[];
-  for(let i=0;i<=n;i++){ const x=i/n*W;
-    const band=(i%2===0)?[95.5,97.4]:[98,99.7];
-    const y=(band[0]+rand()*(band[1]-band[0]))/100*H;
-    pts.push([x,y]); }
-  return pts;
-}
+// Poster-forward 9:16 (Reels/Stories) share card — the poster fills the frame, a
+// small text block (film · reflection · theater/date) rides the lower-left with the
+// sharer's avatar, and a scannable QR to pangolinrc.com anchors the bottom. The
+// shared renderer lives in pg_share_card.js (+ pg_share_qr.js) so the IRL ticket and
+// the PIERRE show card read as the same object.
 function buildTicketCard(o){
-  return new Promise((resolve,reject)=>{
-    // Full-screen 9:16 (Reels/Stories) so nothing is cropped — the poster fills, the perf
-    // rides the very top and the tear the very bottom. All COPY lives inside the Reel
-    // title-safe box: left inset PAD, a text column TW wide that clears the right action
-    // rail, and a bottom anchor B that keeps text above the caption/audio/CTA zone.
-    const W=1080, H=1920, c=document.createElement('canvas'); c.width=W; c.height=H;
-    const PAD=96, TW=724, B=1560;
-    const ctx=c.getContext('2d');
-    const draw=(posterImg)=>{
-      ctx.fillStyle='#0f0b08'; ctx.fillRect(0,0,W,H);
-      if(posterImg){ const s=Math.max(W/posterImg.width, H/posterImg.height); const pw=posterImg.width*s, ph=posterImg.height*s;
-        ctx.globalAlpha=0.85; ctx.drawImage(posterImg,(W-pw)/2,(H-ph)/2,pw,ph); ctx.globalAlpha=1; }
-      const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,'rgba(9,6,4,.45)'); g.addColorStop(.5,'rgba(9,6,4,.72)'); g.addColorStop(1,'rgba(9,6,4,.97)');
-      ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
-      ctx.textAlign='left';
-      ctx.fillStyle='#e89f3d'; ctx.font='600 30px "IBM Plex Mono", monospace';
-      ctx.fillText('PANGOLINRC · IRL', PAD, 230);
-      // film title (wrap up to 2 lines)
-      ctx.fillStyle='#f3ebe0'; ctx.font='700 76px "Space Grotesk", system-ui, sans-serif';
-      const words=(o.film||'').split(' '); let line='', y=B-430; const lines=[];
-      for(const w of words){ const test=line?line+' '+w:w; if(ctx.measureText(test).width>TW && line){ lines.push(line); line=w; } else line=test; }
-      if(line) lines.push(line); lines.slice(0,2).forEach((ln,i)=>ctx.fillText(ln, PAD, y+i*84));
-      // quote
-      if(o.text){ ctx.fillStyle='#e7dccb'; ctx.font='italic 40px "Inter", system-ui, sans-serif';
-        const qw=(o.text||'').split(' '); let ql='', qy=B-250; const qlines=[];
-        for(const w of qw){ const test=ql?ql+' '+w:w; if(ctx.measureText('“'+test+'”').width>TW && ql){ qlines.push(ql); ql=w; } else ql=test; }
-        if(ql) qlines.push(ql); qlines.slice(0,3).forEach((ln,i)=>ctx.fillText((i===0?'“':'')+ln+(i===Math.min(qlines.length,3)-1?'”':''), PAD, qy+i*52)); }
-      // footer
-      ctx.fillStyle='#c9a44f'; ctx.font='500 32px "IBM Plex Mono", monospace';
-      ctx.fillText([o.theater,o.date].filter(Boolean).join('  ·  '), PAD, B-100);
-      // Mirror the ticket's edges: scalloped perforation across the top, seeded torn bottom.
-      ctx.globalCompositeOperation='destination-out';
-      const scR=24, step=68;
-      for(let x=-scR; x<W+scR; x+=step){ ctx.beginPath(); ctx.arc(x, 0, scR, 0, Math.PI*2); ctx.fill(); }
-      const tp=tearPolyPx(o.id, W, H);
-      ctx.beginPath(); ctx.moveTo(0, H); ctx.lineTo(tp[0][0], tp[0][1]);
-      for(const [px,py] of tp) ctx.lineTo(px, py);
-      ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
-      ctx.globalCompositeOperation='source-over';
-      c.toBlob(b=>b?resolve(b):reject(new Error('toBlob failed')),'image/png');
-    };
-    if(o.poster && /^https:\/\/image\.tmdb\.org\//.test(o.poster)){
-      const img=new Image(); img.crossOrigin='anonymous';
-      img.onload=()=>draw(img); img.onerror=()=>draw(null);
-      img.src = ART_API + '/img?u=' + encodeURIComponent(o.poster);
-    } else draw(null);
+  let avatar=''; try{ avatar=localStorage.getItem('pg_avatar')||''; }catch(_){}
+  return PGShareCard.buildPoster({
+    poster: o.poster||'', proxyBase: ART_API,
+    brand: 'PANGOLINRC · IRL',
+    title: o.film||'',
+    quote: o.text||'',
+    meta:  [o.theater,o.date].filter(Boolean).join('  ·  '),
+    name:  memberName() || (memberEmail()||'').split('@')[0] || '',
+    avatar
   });
 }
 
