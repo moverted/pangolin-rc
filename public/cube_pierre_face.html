@@ -1038,14 +1038,68 @@
     _awaitingTed=true; startTedPolling();
   }
 
+  // ── Marathon builder ([MARATHON]) ──────────────────────────────────────────
+  // [MARATHON: show | name | blurb | S4E18, S5E09, …] — Pierre assembles a curated run of
+  // specific episodes of ONE show. The client resolves the show (TVmaze top match) and each
+  // episode code, POSTs to build a member-owned marathon, then hands back a chip that deep-links
+  // into BROWSE > COLLECT with it open. Same discipline as [BACKFILL]: the tag is the only build,
+  // and nothing is confirmed in words unless it actually landed.
+  function parseMarathon(text){
+    const m = text.match(/\[MARATHON:\s*([^|\]]+?)\s*\|\s*([^|\]]*?)\s*\|\s*([^|\]]*?)\s*\|\s*([^\]]*?)\s*\]/i);
+    if(!m) return {clean:text, marathon:null};
+    const eps = (m[4]||'').split(',').map(s=>s.trim()).filter(Boolean);
+    return {clean:text.replace(m[0],'').trim(), marathon:{
+      show:(m[1]||'').trim(), name:(m[2]||'').trim(), blurb:(m[3]||'').trim(), eps }};
+  }
+  // Rotate the shell to BROWSE and open a specific marathon in the COLLECT editor.
+  function openInCollect(mapId){
+    const payload={ tab:'collect', openMarathon:mapId };
+    if(window.parent!==window){
+      if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('join', payload);
+      else window.parent.postMessage({type:'cube:rotateTo', face:'join', payload}, '*');
+    }
+  }
+  async function runMarathon(mar){
+    const email=pgSession(); if(!email) return;
+    showTyping();
+    // Resolve the show to a TVmaze title_id (top match — Pierre named it explicitly).
+    let show=null;
+    try{ const r=await fetch('https://api.tvmaze.com/singlesearch/shows?q='+encodeURIComponent(mar.show));
+      if(r.ok){ const s=await r.json(); if(s&&s.id) show={ title_id:'tvmaze:'+s.id, name:s.name }; } }catch(_){}
+    // Resolve the episode codes to {season, number}; drop any unparseable ones.
+    const episodes=(mar.eps||[]).map(parseEpCode).filter(Boolean);
+    if(!show || !episodes.length){
+      clearTyping();
+      selfEscalate('Marathon: could not build "'+mar.name+'" for show "'+mar.show+'".');
+      addPierre("I tried to build that marathon and couldn't pin down "+(show?'the episodes':(mar.show||'the show'))+", and I won't fake it. Calling my manager — Ted will sort it and get back to you.");
+      return;
+    }
+    let d=null;
+    try{ const r=await fetch(`${API}/profile/${encodeURIComponent(email)}/marathons`,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ title_id:show.title_id, name:mar.name||show.name, blurb:mar.blurb||'', episodes })});
+      if(r.ok) d=await r.json();
+    }catch(_){}
+    clearTyping();
+    if(d && d.ok && d.map_id){
+      const miss=(d.missing&&d.missing.length)?' (couldn’t place '+d.missing.join(', ')+', so I left those out)':'';
+      const n=d.steps|0;
+      pierreSay('I built it! "'+(mar.name||show.name)+'" is in your marathons — '+n+(n===1?' episode':' episodes')+miss+'. Check it out and edit it over at BROWSE › PROGRAM.',
+        [{label:'Open it in PROGRAM', onClick:()=>openInCollect(d.map_id)}]);
+    } else {
+      selfEscalate('Marathon: build failed for "'+mar.name+'" ('+(show?show.title_id:'?')+').');
+      addPierre("Something tripped me up building that marathon, and I won't pretend it worked. Calling my manager — Ted will look and get back to you.");
+    }
+  }
+
   function addPierre(text){
-    let clean, route, ctx, opts, backfill, watched, shadows, trt;
+    let clean, route, ctx, opts, backfill, watched, shadows, trt, marathon;
     ({clean, route} = parseRoute(text));
     ({clean, ctx}   = parseSwitch(clean));
     ({clean, opts}  = parseAsk(clean));
     ({clean, backfill} = parseBackfill(clean));   // [BACKFILL: title | day | rating] → real log
     ({clean, watched}  = parseWatched(clean));    // [WATCHED: show | ep | day | with] → confirm-chip episode log
     ({clean, trt}      = parseTRT(clean));        // [TRT: title | ep | minutes] → confirm-chip runtime fix
+    ({clean, marathon} = parseMarathon(clean));   // [MARATHON: show | name | blurb | eps] → build a marathon
     ({clean, shadows}  = parseShadow(clean));     // [SHADOW: title | feel | sentiment] → silent shadow write
     if(/\[GETTED\]/i.test(text)){ _awaitingTed=true; startTedPolling(); }   // handoff fired: watch for Ted's reply
     clean = clean.replace(/\[GETTED\]/ig, '').trim();   // silent Ted-escalation signal, never shown
@@ -1091,6 +1145,9 @@
     // A runtime-correction tag: resolve the title/episode, then hand back a confirm chip.
     // Nothing changes until the member taps it (admin applies instantly; others need consensus).
     if(trt && trt.title) runTRT(trt);
+    // A marathon tag: resolve the show + episodes, build the member's marathon, then hand back a
+    // chip that deep-links into BROWSE > COLLECT. Nothing is claimed built unless it landed.
+    if(marathon && marathon.show) runMarathon(marathon);
     // Streaming-shadow tags: silently record each title the member reacted to.
     if(shadows && shadows.length) shadows.forEach(recordShadow);
     // If this message left the member with a hidden composer and nothing to tap, un-strand them.
@@ -3258,6 +3315,9 @@
       // scoped share card), not the old journal-only note. p.scope carries the scope.
       else if(p.intent==='season-note' || p.intent==='series-note') enterNoteFlow(p);
       else if(p.intent==='reshare') enterReshareFlow(p);   // stage 3: share a past reflection
+      // "Edit with Pierre" from a COMMUNITY marathon in COLLECT: open named to it so the member
+      // can converse. v1 rebuilds a fresh version via [MARATHON] rather than editing in place.
+      else if(p.intent==='marathon-edit') pierreSay('Let’s reshape "'+(p.name||'that marathon')+'". Tell me what you want — swap episodes in or out, change the order, or rename it — and I’ll build you an updated version.');
     }
   });
 

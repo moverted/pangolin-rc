@@ -2523,3 +2523,75 @@ Entry format:
   unless `pg_mode==='cube'`. Profile App-style toggle (`cube_profile_face.html`) reads unset as
   flat. Flat header "Back to the cube" button now sets `pg_mode='cube'` before navigating so the
   cube stays reachable for a deliberate opt-in (otherwise the new redirect bounces it back).
+
+## 2026-08-30 — Marathon creator/editor (member-built marathons via Pierre) — DEPLOYED (web); iOS pending
+- **D1 migration `0053_marathon_editor.sql`**: `ALTER TABLE maps ADD COLUMN blurb TEXT` +
+  `ADD COLUMN updated_at INTEGER`. A member-built marathon is a `maps` row with `kind='user'` +
+  `owner_email=<member>` (reuses the 0012 `maps`/`map_steps` tables). Applied **LOCAL only**
+  (`wrangler d1 migrations apply pangolin-rc --local`). **Remote apply still pending** — run
+  `wrangler d1 migrations apply pangolin-rc --remote` at ship time.
+- **New Worker routes** (`src/handlers/profile.ts`): `POST /:email/marathons` (build — materializes
+  the title, resolves an ordered `[{season,number}]` list to episode_ids, echoes unresolved codes
+  in `missing[]`), `GET /:email/marathons/:map_id` (editor detail + `is_owner`),
+  `PUT /:email/marathons/:map_id` (owner-only edit of name/blurb/order → 403 otherwise),
+  `POST /:email/marathons/:map_id/fork` (clone any marathon into the caller's — the community
+  "manual edit" path), `DELETE /:email/marathons/:map_id` (owner-only). New helper
+  `ensureEpisodes(env, titleId)` exported from `src/handlers/catalog.ts` (materialize-then-load).
+- **Pierre skill**: prompt in `src/handlers/pierre.ts` gains a "BUILDING A MARATHON" section + the
+  `[MARATHON: show | name | blurb | S4E18, S5E09, …]` tag (single-title v1; same "no build without
+  the tag" discipline as `[BACKFILL]`). Client `parseMarathon`/`runMarathon` in
+  `public/cube_pierre_face.html` resolves the show (TVmaze singlesearch) + episode codes, POSTs the
+  build, and posts an "I built it!" line with an **Open it in COLLECT** deep-link chip.
+- **COLLECT UI** (`public/cube_browse_face.html`): pencil on each marathon tile → YOURS opens the
+  in-pane editor (title/blurb/↑↓ reorder/× remove/+ add-from-catalog/Save/Put it on); COMMUNITY
+  opens a fork-or-Pierre sheet. Deep-link: `cube:payload{face:'join', payload:{openMarathon}}` lands
+  on COLLECT with the editor open (reuses existing shell `cubeRotateTo` — no flat_shell change).
+- Verified locally via curl against `wrangler dev`: build→get→edit→owner-guard(403)→fork→delete all
+  pass; `missing[]` correctly echoes a bogus S99E99.
+- **SHIPPED**: remote migration 0053 applied; Worker `cad3bedd`; Pages deploy → remote.pangolinrc.com.
+  Built the live "Supernatural: The Meta Run" under ted@pangolinrc.com and round-tripped an edit.
+  iOS bundle NOT yet rebuilt.
+
+## 2026-08-30 — Make seeded marathons editable (data fix)
+- `UPDATE maps SET owner_email='ted@pangolinrc.com' WHERE name LIKE '%PSYCH%' AND owner_email IS NULL`
+  on **remote** D1. Psych ("Tressany's PSYCH-O Marathon") had a NULL owner (global) → editable by
+  nobody. Moonlighting was already Ted-owned. Now all three seeded/user marathons show under YOUR
+  MARATHONS for Ted with in-place edit; they stay COMMUNITY for other members. (If Psych should be
+  Tressany's, reassign owner_email to her.)
+
+## 2026-08-30 — Marathon COLLECT detail redesign (web DEPLOYED; iOS pending)
+- **Worker** `af6e412a`: `GET /:email/marathons/:map_id` now also returns `series_blurb` — the
+  show's own synopsis (`titles.summary`, lazy-filled via `ensureTitleSummary`) — for the new
+  MARATHON/SERIES blurb toggle. No schema change.
+- **Pages** (`public/cube_browse_face.html`): tapping a COLLECT tile now opens an in-place **detail**
+  (no more jump-to-Watch). Detail has: MARATHON/SERIES blurb tabs (SERIES = read-only series
+  synopsis; tapping the blurb or a tab flips), an **Edit** button (owners → in-place edit mode where
+  only the marathon blurb is editable; community → fork-or-Pierre sheet), and a **▶ Watch** button
+  (activates the marathon + opens the first episode in Watch). Editor is now a two-mode
+  (`view`/`edit`) `renderMarathon`; `openMarathonEditor`→`openMarathonDetail`. Fork opens the copy
+  straight into edit mode. Verified `series_blurb` live + UI markers on remote.pangolinrc.com.
+
+## 2026-08-30 — Marathon blurb attribution / byline (web DEPLOYED; iOS pending)
+- **D1 migration `0054_marathon_blurb_by.sql`**: `ALTER TABLE maps ADD COLUMN blurb_by TEXT`.
+  Applied **local + remote**. The byline: a blurb starts as Pierre's draft (`blurb_by =
+  'Pierre the Pangolin'`) and re-attributes to the member ('Ted') the moment they edit the prose.
+- **Worker** `2da7841c` (`src/handlers/profile.ts`): `POST /marathons` defaults `blurb_by` to
+  'Pierre the Pangolin' whenever a blurb is present (build path is always Pierre); `PUT` accepts
+  `blurb_by` (client sends the member's name when the prose changed, else the existing author, so a
+  title/order-only edit keeps Pierre's credit); `GET` returns `blurb_by`; fork copies it. Verified
+  the full cycle live (build→Pierre, edit→Ted).
+- **Pages** (`public/cube_browse_face.html`): view-mode renders a byline "— {blurb_by}" under the
+  MARATHON blurb (never SERIES); edit-mode textarea holds prose only + a "your edits will sign it
+  {name}" hint; `saveEditor` computes attribution by diffing prose vs the pristine `blurb0`.
+  `_authorName()` = username or capitalized email local-part.
+- **Data**: set the Moonlighting marathon's blurb (Pierre's draft, byline 'Pierre the Pangolin')
+  from session e6d02fc4 (Lady in the Iron Mask / Atomic Shakespeare) + general Moonlighting reviews,
+  via `PUT` (curl — note: Cloudflare 403s the `python-urllib` User-Agent; use curl for prod calls).
+
+## 2026-08-30 — Rename COLLECT→PROGRAM + marathon three-button header (web DEPLOYED; iOS pending)
+- **Worker** `f27081e2`: Pierre's marathon-skill prompt now says "BROWSE > PROGRAM" (was COLLECT).
+- **Pages**: BROWSE tab label 'Collect'→'Program' (internal tab key stays `'collect'` + `renderCollect`
+  + `irlct-collect` id — deep-link plumbing unchanged); Pierre chip 'Open it in PROGRAM' + "BROWSE ›
+  PROGRAM" line. Marathon detail VIEW header is now a three-button bar `[‹ Marathons] [Edit] [Watch ›]`
+  (`.mar-nav3`); EDIT mode keeps a plain back + bottom Cancel/Save. Remaining "COLLECT" strings are
+  code comments only. Verified label + `mar-nav3` + PROGRAM chip live on remote.pangolinrc.com.

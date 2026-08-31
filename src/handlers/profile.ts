@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
-import { ensureTitleSummary, ensureReleaseDate, maybeHealTitle } from './catalog';
+import { ensureTitleSummary, ensureReleaseDate, maybeHealTitle, ensureEpisodes } from './catalog';
 import { fetchTmdbMovie } from './tmdb';
 
 // Account + device API. SEAM:identity — email is the key, no auth in this build.
@@ -779,6 +779,162 @@ profileRoutes.get('/:email/marathons', async (c) => {
     yours: all.filter(mine).map(shape),
     community: all.filter((r: any) => !mine(r)).map(shape),
   });
+});
+
+// ── Member-built marathons (the COLLECT creator/editor) ──────────────────────
+// A member marathon is a `maps` row with kind='user' + owner_email=<member>, backed by
+// ordered `map_steps`. The steps live inside one title (single-title v1), so once activated
+// on that title (POST /titles/:id/map) the existing active_map_id play path drives Watch/Log.
+
+// The catalog episode-id format, mirrored from catalog.ts's private epId.
+const marEpId = (titleId: string, season: number, number: number) => `${titleId}:s${season}e${number}`;
+
+// Materialize the title, then map an ordered [{season,number}] list to the episode_ids that
+// actually exist in the catalog — preserving order, echoing back any that don't resolve (a bad
+// SxEy) so the caller can surface them instead of the builder silently fabricating a step.
+async function resolveSteps(env: Env, titleId: string, episodes: any[]):
+  Promise<{ steps: string[]; missing: string[] }> {
+  const eps = await ensureEpisodes(env, titleId);
+  const have = new Set(eps.map((e) => e.episode_id));
+  const steps: string[] = [], missing: string[] = [];
+  for (const raw of Array.isArray(episodes) ? episodes : []) {
+    const s = Number(raw?.season), n = Number(raw?.number);
+    if (!Number.isFinite(s) || !Number.isFinite(n)) continue;
+    const id = marEpId(titleId, s, n);
+    if (have.has(id) && !steps.includes(id)) steps.push(id);   // dedupe: a step can appear once
+    else if (!have.has(id)) missing.push(`S${s}E${n}`);
+  }
+  return { steps, missing };
+}
+
+// Write the ordered map_steps for a map (position + forward next_episode_id link, NULL on the
+// last). Replaces any existing steps. Caller owns the map row + validation.
+async function writeSteps(env: Env, mapId: string, steps: string[]): Promise<void> {
+  const stmts = [env.DB.prepare('DELETE FROM map_steps WHERE map_id = ?').bind(mapId)];
+  steps.forEach((epId, i) => {
+    stmts.push(env.DB.prepare(
+      'INSERT INTO map_steps (map_id, position, episode_id, next_episode_id) VALUES (?,?,?,?)')
+      .bind(mapId, i + 1, epId, steps[i + 1] || null));
+  });
+  await env.DB.batch(stmts);
+}
+
+// POST /:email/marathons { title_id, name, blurb?, episodes:[{season,number}] } — Pierre's
+// build target. Materializes the title, resolves the ordered episode list, and creates a
+// member-owned marathon. Single-title only for v1.
+profileRoutes.post('/:email/marathons', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const titleId = str(body.title_id, 120);
+  const name = str(body.name, 120);
+  const blurb = str(body.blurb, 500);
+  // The build path is always Pierre → a blurb here is Pierre's draft. Accept an override for
+  // completeness, but default the byline to Pierre whenever a blurb is present.
+  const blurbBy = blurb ? (str(body.blurb_by, 60) || 'Pierre the Pangolin') : null;
+  if (!titleId || !name) return c.json({ error: 'title_id and name required' }, 400);
+  const { steps, missing } = await resolveSteps(c.env, titleId, body.episodes);
+  if (!steps.length) return c.json({ error: 'no valid episodes resolved', missing }, 422);
+  const mapId = 'map:u:' + crypto.randomUUID();
+  const now = Date.now();
+  await c.env.DB.prepare(
+    `INSERT INTO maps (map_id, title_id, name, kind, owner_email, blurb, blurb_by, created_at, updated_at)
+     VALUES (?,?,?,'user',?,?,?,?,?)`).bind(mapId, titleId, name, email, blurb || null, blurbBy, now, now).run();
+  await writeSteps(c.env, mapId, steps);
+  return c.json({ ok: true, map_id: mapId, title_id: titleId, steps: steps.length, missing });
+});
+
+// GET /:email/marathons/:map_id — the detail: header (name/blurb/poster/title), the SERIES
+// synopsis (the show's own summary, shown behind the MARATHON/SERIES blurb toggle — read-only,
+// never the marathon blurb), plus the ordered steps joined to episode metadata. is_owner gates
+// edit vs fork on the client.
+profileRoutes.get('/:email/marathons/:map_id', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  const mapId = c.req.param('map_id');
+  const m = await c.env.DB.prepare(
+    `SELECT m.map_id, m.name, m.blurb, m.blurb_by, m.kind, m.title_id, m.owner_email, t.poster AS poster, t.name AS title_name, t.summary AS series_blurb
+       FROM maps m LEFT JOIN titles t ON t.title_id = m.title_id WHERE m.map_id = ?`).bind(mapId).first<any>();
+  if (!m) return c.json({ error: 'not found' }, 404);
+  // Lazy-fill the series synopsis for titles materialized before summaries were stored, so the
+  // SERIES blurb tab isn't empty on older shows.
+  let seriesBlurb = m.series_blurb;
+  if (m.title_id && seriesBlurb == null) { try { seriesBlurb = await ensureTitleSummary(c.env, m.title_id); } catch { /* leave null */ } }
+  const rows = await c.env.DB.prepare(
+    `SELECT ms.position, ms.episode_id, e.season, e.number, e.name AS ep_name
+       FROM map_steps ms LEFT JOIN episodes e ON e.episode_id = ms.episode_id
+      WHERE ms.map_id = ? ORDER BY ms.position`).bind(mapId).all<any>();
+  return c.json({
+    map_id: m.map_id, name: m.name, blurb: m.blurb || '', blurb_by: m.blurb_by || null, kind: m.kind,
+    title_id: m.title_id || null, title_name: m.title_name || null, poster: m.poster || null,
+    series_blurb: seriesBlurb || '',
+    owner_email: m.owner_email || null,
+    is_owner: !!m.owner_email && String(m.owner_email).toLowerCase() === email,
+    steps: (rows.results || []).map((r: any) => ({
+      episode_id: r.episode_id, season: r.season, number: r.number, ep_name: r.ep_name || null })),
+  });
+});
+
+// PUT /:email/marathons/:map_id { name?, blurb?, episodes?:[{season,number}] } — owner-only edit.
+// A non-owner must fork first (the "manual edit" path clones a community marathon into theirs).
+profileRoutes.put('/:email/marathons/:map_id', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  const mapId = c.req.param('map_id');
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const m = await c.env.DB.prepare('SELECT owner_email, title_id FROM maps WHERE map_id = ?').bind(mapId).first<any>();
+  if (!m) return c.json({ error: 'not found' }, 404);
+  if (!m.owner_email || String(m.owner_email).toLowerCase() !== email) return c.json({ error: 'not your marathon' }, 403);
+  let missing: string[] = [];
+  if (Array.isArray(body.episodes)) {
+    const r = await resolveSteps(c.env, m.title_id, body.episodes);
+    if (!r.steps.length) return c.json({ error: 'no valid episodes resolved', missing: r.missing }, 422);
+    missing = r.missing;
+    await writeSteps(c.env, mapId, r.steps);
+  }
+  const sets: string[] = ['updated_at = ?']; const binds: any[] = [Date.now()];
+  if (typeof body.name === 'string')  { sets.push('name = ?');  binds.push(str(body.name, 120)); }
+  if (typeof body.blurb === 'string') {
+    // The client sends blurb_by alongside a blurb: itself when the member changed the prose,
+    // or the existing author when they didn't (so a title-only edit keeps Pierre's byline).
+    sets.push('blurb = ?');    binds.push(str(body.blurb, 500) || null);
+    sets.push('blurb_by = ?'); binds.push(str(body.blurb_by, 60) || null);
+  }
+  binds.push(mapId);
+  await c.env.DB.prepare(`UPDATE maps SET ${sets.join(', ')} WHERE map_id = ?`).bind(...binds).run();
+  return c.json({ ok: true, map_id: mapId, missing });
+});
+
+// POST /:email/marathons/:map_id/fork — clone any marathon into YOURS (the community "manual
+// edit" path: you never mutate a shared run, you edit your own copy). Owner becomes the caller.
+profileRoutes.post('/:email/marathons/:map_id/fork', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  const srcId = c.req.param('map_id');
+  const src = await c.env.DB.prepare('SELECT title_id, name, blurb, blurb_by FROM maps WHERE map_id = ?').bind(srcId).first<any>();
+  if (!src) return c.json({ error: 'not found' }, 404);
+  const steps = await c.env.DB.prepare('SELECT episode_id FROM map_steps WHERE map_id = ? ORDER BY position').bind(srcId).all<{ episode_id: string }>();
+  const newId = 'map:u:' + crypto.randomUUID();
+  const now = Date.now();
+  await c.env.DB.prepare(
+    `INSERT INTO maps (map_id, title_id, name, kind, owner_email, blurb, blurb_by, created_at, updated_at)
+     VALUES (?,?,?,'user',?,?,?,?,?)`).bind(newId, src.title_id || null, `${src.name} (your copy)`, email, src.blurb || null, src.blurb_by || null, now, now).run();
+  await writeSteps(c.env, newId, (steps.results || []).map((r) => r.episode_id));
+  return c.json({ ok: true, map_id: newId });
+});
+
+// DELETE /:email/marathons/:map_id — owner-only delete of a member marathon (steps + row). Any
+// member with it active is defended by the map POST's existence check; a stale active_map_id just
+// falls back to air order on the next recompute.
+profileRoutes.delete('/:email/marathons/:map_id', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  const mapId = c.req.param('map_id');
+  const m = await c.env.DB.prepare('SELECT owner_email FROM maps WHERE map_id = ?').bind(mapId).first<any>();
+  if (!m) return c.json({ error: 'not found' }, 404);
+  if (!m.owner_email || String(m.owner_email).toLowerCase() !== email) return c.json({ error: 'not your marathon' }, 403);
+  await c.env.DB.batch([
+    c.env.DB.prepare('DELETE FROM map_steps WHERE map_id = ?').bind(mapId),
+    c.env.DB.prepare('DELETE FROM maps WHERE map_id = ?').bind(mapId),
+  ]);
+  return c.json({ ok: true });
 });
 
 // Withdraw a title: a FULL delete of this member's copy — title + episode progress,

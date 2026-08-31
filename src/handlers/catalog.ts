@@ -126,6 +126,17 @@ async function materializeTitle(env: Env, source: string, ref: string, titleId: 
   return { episodes, titleRow, created: true };
 }
 
+// Ensure a title's episodes exist in the catalog, then return them in air order.
+// Wraps materializeTitle (which is deduped + idempotent — a no-op when the title is
+// already present) so callers outside this file (e.g. the marathon builder in
+// profile.ts) can resolve SxEy → episode_id authoritatively without touching the
+// private materializer. Returns [] for an unparseable/unknown title id.
+export async function ensureEpisodes(env: Env, titleId: string): Promise<EpisodeRow[]> {
+  const parts = splitTitleId(titleId);
+  if (parts) { try { await materializeTitle(env, parts.source, parts.ref, titleId); } catch { /* fall through to whatever's stored */ } }
+  return loadEpisodes(env, titleId);
+}
+
 // Lazy backfill: titles materialized before the `summary` column existed have a
 // NULL summary. On the next detail read we fetch it once from the source and
 // persist it, so old shows pick up a synopsis without a bulk migration. Best

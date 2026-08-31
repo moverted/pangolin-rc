@@ -336,6 +336,74 @@
   .mar-name{font-size:10.5px;font-weight:600;line-height:1.2;margin-top:5px;
     display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
   .mar-sub{font-family:var(--mono);font-size:8px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-top:2px}
+  /* Edit affordance: a pencil in the poster's top-right corner (a real button — the tile itself
+     is also a button, so the pencil sits as a sibling in a relative cell, not nested). */
+  .mar-cell{position:relative;display:flex}
+  .mar-edit{position:absolute;top:4px;right:4px;width:24px;height:24px;border:none;border-radius:50%;
+    background:rgba(8,6,4,.82);color:var(--amber);font-size:12px;line-height:1;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}
+  .mar-edit:active{transform:scale(.9)}
+  /* Community edit → a two-choice sheet (fork a copy vs edit with Pierre). */
+  .mar-sheet{position:fixed;inset:0;z-index:200;background:rgba(6,4,2,.72);display:flex;align-items:flex-end;
+    -webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px)}
+  .mar-sheet .card{width:100%;background:var(--panel-2,#1a140d);border-top-left-radius:16px;border-top-right-radius:16px;
+    border:1px solid var(--line);padding:16px 16px calc(16px + env(safe-area-inset-bottom));}
+  .mar-sheet h3{margin:2px 0 3px;font-size:15px}
+  .mar-sheet p{margin:0 0 12px;font-size:12px;color:var(--muted)}
+  .mar-sheet .opt{display:block;width:100%;text-align:left;margin-top:8px;padding:12px 13px;border-radius:11px;
+    border:1px solid var(--line);background:var(--panel);color:var(--text);cursor:pointer;font-size:13.5px;font-weight:600}
+  .mar-sheet .opt small{display:block;font-weight:400;color:var(--muted);margin-top:2px;font-size:11px}
+  .mar-sheet .opt:active{transform:translateY(1px)}
+  .mar-sheet .cancel{margin-top:10px;width:100%;background:none;border:0;color:var(--muted);font-size:12px;cursor:pointer;padding:8px}
+  /* The marathon editor (replaces the pane). */
+  .mar-ed{display:flex;flex-direction:column;gap:12px}
+  .mar-ed .edtop{display:flex;gap:11px;align-items:flex-start}
+  .mar-ed .edposter{width:74px;aspect-ratio:2/3;border-radius:7px;object-fit:cover;border:1px solid var(--line);background:#000;flex:0 0 auto}
+  .mar-ed .edposter.noimg{background:linear-gradient(150deg,#241c12,#0f0b06)}
+  .mar-ed .edmeta{flex:1;min-width:0}
+  .mar-ed label{display:block;font-family:var(--mono);font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:0 0 4px}
+  .mar-ed input.ttl,.mar-ed textarea.blurb{width:100%;background:var(--panel);border:1px solid var(--line);border-radius:8px;
+    color:var(--text);font:inherit;font-size:14px;padding:8px 9px;resize:none}
+  .mar-ed input.ttl{font-weight:700}
+  .mar-ed textarea.blurb{font-size:12.5px;min-height:52px}
+  .mar-ed .epsub{font-family:var(--mono);font-size:8px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:2px 0 0}
+  .mar-eprow{display:flex;align-items:center;gap:8px;padding:8px 9px;border:1px solid var(--line);border-radius:9px;background:var(--panel);margin-top:7px}
+  .mar-eprow .code{font-family:var(--mono);font-size:10.5px;color:var(--amber);flex:0 0 auto;min-width:44px}
+  .mar-eprow .epn{flex:1;min-width:0;font-size:12px;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .mar-eprow button{width:26px;height:26px;flex:0 0 auto;border:1px solid var(--line);border-radius:7px;
+    background:var(--panel-2,#1a140d);color:var(--text);cursor:pointer;font-size:13px;line-height:1;display:flex;align-items:center;justify-content:center}
+  .mar-eprow button:disabled{opacity:.3}
+  .mar-eprow button.rm{color:#e07a6b}
+  .mar-ed .edactions{display:flex;gap:9px;margin-top:6px}
+  .mar-ed .edactions button{flex:1;padding:12px;border-radius:11px;border:1px solid var(--line);font-size:13.5px;font-weight:700;cursor:pointer}
+  .mar-ed .edactions .save{background:var(--amber);color:#241a08;border-color:var(--amber)}
+  .mar-ed .edactions .play{background:var(--amber);color:#241a08;border-color:var(--amber)}   /* WATCH = primary */
+  .mar-ed .edactions .editbtn,.mar-ed .edactions .cancel2{background:var(--panel);color:var(--text)}
+  .mar-ed .edback{background:none;border:0;color:var(--muted);font-size:12px;cursor:pointer;padding:2px 0;align-self:flex-start}
+  /* View-mode three-button header: [‹ Marathons]  … push right …  [Edit] [Watch ›] */
+  .mar-nav3{display:flex;align-items:center;gap:8px}
+  .mar-nav3 .edback{padding:8px 2px;margin-right:auto}
+  .mar-nav3 .editbtn,.mar-nav3 .play{padding:8px 14px;border-radius:10px;border:1px solid var(--line);
+    font-size:12.5px;font-weight:700;cursor:pointer}
+  .mar-nav3 .editbtn{background:var(--panel);color:var(--text)}
+  .mar-nav3 .play{background:var(--amber);color:#241a08;border-color:var(--amber)}
+  .mar-nav3 .editbtn:active,.mar-nav3 .play:active{transform:translateY(1px)}
+  .mar-ed .edadd{background:none;border:1px dashed var(--line);border-radius:9px;color:var(--muted);
+    padding:9px;font-size:12px;cursor:pointer;margin-top:7px;width:100%}
+  .mar-ed .savemsg{font-size:11.5px;color:var(--green,#7fca6b);min-height:14px;margin-top:2px}
+  /* View-mode title + MARATHON/SERIES blurb toggle */
+  .mar-ed .mar-title{margin:0;font-size:17px;line-height:1.2;font-weight:800}
+  .mar-btabs{display:flex;gap:6px;margin-bottom:7px}
+  .mar-btabs .bt{background:none;border:0;padding:2px 0;margin-right:12px;cursor:pointer;
+    font-family:var(--mono);font-size:9px;letter-spacing:.11em;text-transform:uppercase;color:var(--muted);
+    border-bottom:2px solid transparent}
+  .mar-btabs .bt.on{color:var(--amber);border-bottom-color:var(--amber)}
+  .mar-blurb{font-size:12.5px;line-height:1.4;color:var(--text);cursor:pointer}
+  .mar-blurb.series{color:var(--muted)}
+  .mar-byline{margin-top:6px;font-size:11px;font-style:italic;color:var(--amber-soft,#d8a24a)}
+  .mar-byline.edit{font-style:normal;color:var(--muted)}
+  .mar-byline.edit span{opacity:.7}
+  .mar-eprow.ro{cursor:default}
   .mcard{position:relative;aspect-ratio:2/3;border-radius:8px;overflow:hidden;border:1px solid var(--line);
     background:#000 center/cover;cursor:pointer}
   .mcard .spine{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:flex-end;
@@ -471,11 +539,13 @@ function openTitle(titleId, name){
 // its map on the title (active_map_id) and opens it in the Watch/Log so Current/Next follow the
 // curated order. Single-title maps only for now (Moonlighting, Psych).
 const _marEsc = s => String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+// The tile is a single tap target: it opens the marathon's DETAIL inside COLLECT (not a jump to
+// Watch — that's the WATCH button inside the detail). Edit lives inside the detail too.
 function marathonTile(m){
   const poster = m.poster ? `<img class="mar-poster" src="${_marEsc(m.poster)}" alt="" loading="lazy">`
                           : `<div class="mar-poster noimg"></div>`;
   const steps = (m.steps||0) + (m.steps===1 ? ' episode' : ' episodes');
-  return `<button class="mar-tile" data-map="${_marEsc(m.map_id)}" data-title="${_marEsc(m.title_id||'')}" data-name="${_marEsc(m.title_name||m.name)}">`
+  return `<button class="mar-tile" data-map="${_marEsc(m.map_id)}">`
        + `${poster}<span class="mar-name">${_marEsc(m.name)}</span><span class="mar-sub">${steps}</span></button>`;
 }
 function openMarathon(mapId, titleId, name){
@@ -486,11 +556,13 @@ function openMarathon(mapId, titleId, name){
     try{ fetch(ART_API + '/profile/' + encodeURIComponent(email) + '/titles/' + encodeURIComponent(titleId) + '/map',
       { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ map_id:mapId }) }); }catch(_){}
   }
-  openTitle(titleId, name);
+  openTitle(titleId, name);   // → WATCH tab, first episode of the marathon
 }
-async function renderCollect(pane){
+async function renderCollect(pane, openMapId){
   pane.innerHTML = '<div class="bempty">Loading marathons…</div>';
   const data = _marathonsCache || await loadMarathons();
+  // A deep-link (Pierre's "Open it in COLLECT" chip) jumps straight into the detail.
+  if(openMapId){ openMarathonDetail(pane, openMapId); return; }
   const section = (title, list, emptyBold, emptyGrey) => {
     let h = `<div class="shelfhead"><h2>${title}</h2></div>`;
     h += (list && list.length)
@@ -501,8 +573,215 @@ async function renderCollect(pane){
   pane.innerHTML =
     section('YOUR MARATHONS', data.yours, 'No marathons of your own yet.', 'Build one with Pierre and it lands here.') +
     section('COMMUNITY MARATHONS', data.community, 'No community marathons yet.', 'Curated runs from the community show up here. Nothing faked.');
-  pane.querySelectorAll('[data-map]').forEach(el => el.onclick = () =>
-    openMarathon(el.getAttribute('data-map'), el.getAttribute('data-title'), el.getAttribute('data-name')));
+  pane.querySelectorAll('.mar-tile').forEach(el =>
+    el.onclick = () => openMarathonDetail(pane, el.getAttribute('data-map')));
+}
+
+// ── COLLECT marathon detail + editor ─────────────────────────────────────────
+// One screen, two modes (_edState.mode = 'view' | 'edit'). VIEW shows the marathon with a
+// MARATHON/SERIES blurb toggle (the SERIES tab is the show's own synopsis, read-only), an Edit
+// button (→ edit mode for owners, fork-or-Pierre sheet for community), and a WATCH button
+// (activates the marathon + opens the first episode in the Watch tab). EDIT makes the title,
+// the MARATHON blurb (never the series one), and the episode order/roster editable.
+let _edState = null;   // { map_id,title_id,title_name,poster,name,blurb,series_blurb,steps,allEps,is_owner,mode,tab }
+async function openMarathonDetail(pane, mapId, startEdit){
+  const email = memberEmail();
+  pane.innerHTML = '<div class="bempty">Loading…</div>';
+  let d=null;
+  try{ const r = await fetch(ART_API + '/profile/' + encodeURIComponent(email) + '/marathons/' + encodeURIComponent(mapId));
+    if(r.ok) d = await r.json(); }catch(_){}
+  if(!d){ pane.innerHTML = '<div class="bempty"><b>Could not open that marathon.</b><br>Try again in a moment.</div>'; return; }
+  _edState = { map_id:mapId, title_id:d.title_id, title_name:d.title_name, poster:d.poster,
+    name:d.name, blurb:d.blurb||'', blurb0:d.blurb||'', blurb_by:d.blurb_by||null, blurb_by0:d.blurb_by||null,
+    series_blurb:d.series_blurb||'', steps:(d.steps||[]).slice(),
+    allEps:null, is_owner:!!d.is_owner, mode:(startEdit && d.is_owner)?'edit':'view', tab:'marathon' };
+  renderMarathon(pane);
+}
+// Whose name signs a member-authored blurb. Prefer the display username, fall back to a
+// capitalized email local-part so the byline is never blank.
+function _authorName(){
+  const n = (memberName()||'').trim(); if(n) return n;
+  const local = (memberEmail().split('@')[0]||'you'); return local.charAt(0).toUpperCase()+local.slice(1);
+}
+function _epCode(s){ return 'S'+(s.season==null?'?':s.season)+'E'+(s.number==null?'?':s.number); }
+// Pull any in-progress title/blurb edits out of the DOM into state, so re-renders (a tab flip,
+// an episode reorder) don't drop what the member just typed.
+function captureEdits(pane){
+  const s=_edState; if(!s || s.mode!=='edit') return;
+  const t=pane.querySelector('.ttl'); if(t) s.name=t.value;
+  const b=pane.querySelector('.blurb'); if(b) s.blurb=b.value;   // the marathon-blurb textarea only
+}
+function renderMarathon(pane){
+  const s=_edState, edit=(s.mode==='edit'), series=(s.tab==='series');
+  const poster = s.poster ? `<img class="edposter" src="${_marEsc(s.poster)}" alt="">` : `<div class="edposter noimg"></div>`;
+  const titleHtml = edit
+    ? `<label>Marathon title</label><input class="ttl" type="text" maxlength="120" value="${_marEsc(s.name)}">`
+    : `<h2 class="mar-title">${_marEsc(s.name)}</h2>`;
+  // Blurb block: MARATHON/SERIES toggle + the active blurb. SERIES is always read-only text; the
+  // MARATHON blurb is a textarea in edit mode, tappable text otherwise.
+  const tabs = `<div class="mar-btabs">
+      <button class="bt ${series?'':'on'}" data-b="marathon">MARATHON</button>
+      <button class="bt ${series?'on':''}" data-b="series">SERIES</button></div>`;
+  // A marathon blurb carries a byline (Pierre's draft, or the member once they edit it). The
+  // SERIES synopsis has no byline — it's the show's own text.
+  const byline = s.blurb_by ? `<div class="mar-byline">— ${_marEsc(s.blurb_by)}</div>` : '';
+  let blurbBody;
+  if(series){
+    blurbBody = `<div class="mar-blurb series">${_marEsc(s.series_blurb||'No series synopsis yet.')}</div>`;
+  } else if(edit){
+    blurbBody = `<textarea class="blurb" maxlength="500" placeholder="What is this run?">${_marEsc(s.blurb)}</textarea>`
+      + (s.blurb_by ? `<div class="mar-byline edit">— ${_marEsc(s.blurb_by)}<span> · your edits will sign it ${_marEsc(_authorName())}</span></div>` : '');
+  } else {
+    blurbBody = `<div class="mar-blurb">${_marEsc(s.blurb||'No blurb yet — tap Edit to add one.')}</div>` + byline;
+  }
+  // Episode list: read-only rows in view, reorder/remove controls in edit.
+  const rows = s.steps.map((ep,i)=> edit ? `
+    <div class="mar-eprow" data-i="${i}">
+      <span class="code">${_marEsc(_epCode(ep))}</span>
+      <span class="epn">${_marEsc(ep.ep_name||'')}</span>
+      <button data-mv="up" ${i===0?'disabled':''} aria-label="Move up">↑</button>
+      <button data-mv="down" ${i===s.steps.length-1?'disabled':''} aria-label="Move down">↓</button>
+      <button class="rm" data-mv="rm" aria-label="Remove">×</button>
+    </div>` : `
+    <div class="mar-eprow ro">
+      <span class="code">${_marEsc(_epCode(ep))}</span>
+      <span class="epn">${_marEsc(ep.ep_name||'')}</span>
+    </div>`).join('');
+  // Header: VIEW mode is the three-button bar [‹ Marathons] [Edit] [Watch ›]; EDIT mode keeps a
+  // plain back link (Save/Cancel live at the bottom while editing).
+  const header = edit
+    ? `<button class="edback">‹ Marathons</button>`
+    : `<div class="mar-nav3">
+         <button class="edback">‹ Marathons</button>
+         <button class="editbtn">Edit</button>
+         <button class="play">Watch ›</button>
+       </div>`;
+  const footer = edit
+    ? `<div class="savemsg" id="edSaveMsg"></div>
+       <div class="edactions"><button class="cancel2">Cancel</button><button class="save">Save</button></div>`
+    : '';
+  pane.innerHTML = `
+    <div class="mar-ed">
+      ${header}
+      <div class="edtop">${poster}<div class="edmeta">${titleHtml}<p class="epsub">${_marEsc(s.title_name||'')}</p></div></div>
+      <div>${tabs}${blurbBody}</div>
+      <div>
+        <label>Episodes — in watch order</label>
+        <div class="eplist">${rows || '<div class="bempty">No episodes yet.</div>'}</div>
+        ${edit ? '<button class="edadd">+ Add an episode</button>' : ''}
+      </div>
+      ${footer}
+    </div>`;
+  pane.querySelector('.edback').onclick = () => { _marathonsCache=null; renderCollect(pane); };
+  // Blurb toggle: the tabs, and tapping the read-only blurb text, both flip MARATHON↔SERIES.
+  const flip = (to) => { captureEdits(pane); s.tab = to || (series?'marathon':'series'); renderMarathon(pane); };
+  pane.querySelectorAll('.mar-btabs .bt').forEach(b => b.onclick = () => flip(b.getAttribute('data-b')));
+  const bl = pane.querySelector('.mar-blurb'); if(bl) bl.onclick = () => flip();
+  if(edit){
+    pane.querySelectorAll('.mar-eprow [data-mv]').forEach(b => b.onclick = () => {
+      captureEdits(pane);
+      const i = +b.closest('.mar-eprow').getAttribute('data-i'), mv = b.getAttribute('data-mv');
+      if(mv==='up' && i>0){ const t=s.steps[i-1]; s.steps[i-1]=s.steps[i]; s.steps[i]=t; }
+      else if(mv==='down' && i<s.steps.length-1){ const t=s.steps[i+1]; s.steps[i+1]=s.steps[i]; s.steps[i]=t; }
+      else if(mv==='rm'){ s.steps.splice(i,1); }
+      renderMarathon(pane);
+    });
+    pane.querySelector('.edadd').onclick = () => addEpisodeFlow(pane);
+    pane.querySelector('.cancel2').onclick = () => openMarathonDetail(pane, s.map_id);   // re-fetch → discard
+    pane.querySelector('.save').onclick = () => saveEditor(pane);
+  } else {
+    // Edit: owners edit in place; community marathons fork or go to Pierre.
+    pane.querySelector('.editbtn').onclick = () => {
+      if(s.is_owner){ s.mode='edit'; s.tab='marathon'; renderMarathon(pane); }
+      else openCommunitySheet(pane, s.map_id, s.name);
+    };
+    pane.querySelector('.play').onclick = () => openMarathon(s.map_id, s.title_id, s.name);
+  }
+}
+async function addEpisodeFlow(pane){
+  const s = _edState;
+  const msg = document.getElementById('edSaveMsg');
+  if(!s.allEps){
+    if(msg) msg.textContent = 'Loading episodes…';
+    try{ const r = await fetch(ART_API + '/catalog/titles/' + encodeURIComponent(s.title_id) + '/episodes');
+      if(r.ok){ const j = await r.json(); s.allEps = (j.episodes||j||[]); } }catch(_){}
+    if(msg) msg.textContent = '';
+  }
+  const have = new Set(s.steps.map(e=>e.episode_id));
+  const avail = (s.allEps||[]).filter(e => !have.has(e.episode_id));
+  if(!avail.length){ if(msg) msg.textContent = 'Every episode is already in this marathon.'; return; }
+  // Reuse the community sheet chrome for a compact episode picker.
+  const sheet = document.createElement('div'); sheet.className = 'mar-sheet';
+  sheet.innerHTML = `<div class="card"><h3>Add an episode</h3><p>Tap to append to the run.</p>
+    <div style="max-height:44vh;overflow:auto">${avail.map((e,i)=>
+      `<button class="opt" data-i="${i}">${_marEsc(_epCode(e))} · ${_marEsc(e.name||e.ep_name||'')}</button>`).join('')}</div>
+    <button class="cancel">Cancel</button></div>`;
+  document.body.appendChild(sheet);
+  const close = () => sheet.remove();
+  sheet.querySelector('.cancel').onclick = close;
+  sheet.addEventListener('click', e => { if(e.target===sheet) close(); });
+  sheet.querySelectorAll('.opt').forEach(b => b.onclick = () => {
+    captureEdits(pane);
+    const e = avail[+b.getAttribute('data-i')];
+    s.steps.push({ episode_id:e.episode_id, season:e.season, number:e.number, ep_name:e.name||e.ep_name||'' });
+    close(); renderMarathon(pane);
+  });
+}
+async function saveEditor(pane){
+  const s = _edState, email = memberEmail();
+  captureEdits(pane);
+  const msg = document.getElementById('edSaveMsg');
+  const name = (s.name||'').trim();
+  if(!name){ if(msg){ msg.style.color='#e07a6b'; msg.textContent='Give it a title.'; } return; }
+  if(!s.steps.length){ if(msg){ msg.style.color='#e07a6b'; msg.textContent='Keep at least one episode.'; } return; }
+  s.name = name;
+  // Attribution: touching the blurb prose re-signs it to the member; leaving it re-uses the
+  // existing byline (so a title/order-only edit keeps Pierre's draft credited to Pierre). An
+  // emptied blurb drops the byline entirely.
+  const blurb = (s.blurb||'').trim();
+  const changed = blurb !== (s.blurb0||'').trim();
+  const blurbBy = !blurb ? null : (changed ? _authorName() : (s.blurb_by0 || _authorName()));
+  if(msg){ msg.style.color=''; msg.textContent='Saving…'; }
+  let ok=false;
+  try{ const r = await fetch(ART_API + '/profile/' + encodeURIComponent(email) + '/marathons/' + encodeURIComponent(s.map_id),
+    { method:'PUT', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ name, blurb, blurb_by:blurbBy, episodes: s.steps.map(e=>({season:e.season, number:e.number})) }) });
+    ok = r.ok;
+  }catch(_){}
+  _marathonsCache = null;   // list is stale after an edit
+  if(ok){ s.blurb=blurb; s.blurb0=blurb; s.blurb_by=blurbBy; s.blurb_by0=blurbBy; s.mode='view'; renderMarathon(pane); }
+  else if(msg){ msg.style.color='#e07a6b'; msg.textContent='Save failed — try again.'; }
+}
+// Community marathon edit → fork a private copy (manual edit) or hand it to Pierre.
+function openCommunitySheet(pane, mapId, name){
+  const email = memberEmail();
+  const sheet = document.createElement('div'); sheet.className = 'mar-sheet';
+  sheet.innerHTML = `<div class="card">
+    <h3>Edit "${_marEsc(name||'this marathon')}"</h3>
+    <p>This is a community marathon. Make it yours to edit.</p>
+    <button class="opt" data-act="fork">Edit a copy<small>Copies it into YOUR MARATHONS and edits the copy. The community version stays put.</small></button>
+    <button class="opt" data-act="pierre">Edit with Pierre<small>Talk it through and Pierre rebuilds an updated version for you.</small></button>
+    <button class="cancel">Cancel</button></div>`;
+  document.body.appendChild(sheet);
+  const close = () => sheet.remove();
+  sheet.querySelector('.cancel').onclick = close;
+  sheet.addEventListener('click', e => { if(e.target===sheet) close(); });
+  sheet.querySelector('[data-act="fork"]').onclick = async () => {
+    const card = sheet.querySelector('.card'); if(card) card.style.opacity='.5';
+    let newId=null;
+    try{ const r = await fetch(ART_API + '/profile/' + encodeURIComponent(email) + '/marathons/' + encodeURIComponent(mapId) + '/fork',
+      { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+      if(r.ok) newId = (await r.json()).map_id; }catch(_){}
+    close(); _marathonsCache = null;
+    if(newId) openMarathonDetail(pane, newId, true); else renderCollect(pane);   // open the copy in edit mode
+  };
+  sheet.querySelector('[data-act="pierre"]').onclick = () => {
+    close();
+    if(window.parent!==window){
+      if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('pierre', { intent:'marathon-edit', map_id:mapId, name });
+      else window.parent.postMessage({ type:'cube:rotateTo', face:'pierre', payload:{ intent:'marathon-edit', map_id:mapId, name } }, '*');
+    }
+  };
 }
 
 // Worker API base (mirrors the other faces) — backs the TMDB movie search proxy.
@@ -518,7 +797,7 @@ const API_BASE = (location.protocol === 'http:' && location.hostname === 'localh
 // intake above is untouched; this only renders once the device is a member.
 const IRL_TABS = [
   { key:'suggestions', label:'Suggest', badge:'DISCOVER' },
-  { key:'collect',     label:'Collect', badge:'MARATHONS' },
+  { key:'collect',     label:'Program', badge:'MARATHONS' },   // internal key stays 'collect'; UI label is PROGRAM
 ];
 let irlTab = 'suggestions';
 // Dev/layout preview only: ?seed populates sample stubs + discs so the layout can be
@@ -567,7 +846,7 @@ function switchTab(key, opts){
   const badge = document.getElementById('irlBadge'); if(badge) badge.textContent = active.badge;
   const pane = document.getElementById('irlPane'); if(!pane) return;
   pane.scrollTop = 0;
-  if(key==='collect')      renderCollect(pane);
+  if(key==='collect')      renderCollect(pane, opts && opts.openMarathon);
   else                     renderSuggestions(pane);
 }
 
@@ -1314,12 +1593,15 @@ if ((isMember() || forcedMember()) && !DEMO) renderBrowse();
 window.addEventListener('message', (e) => {
   if (!e.data) return;
   // A ticket capture (Pierre / LOG finish) swings here → open the Tickets tab.
-  if (e.data.type === 'cube:payload' && e.data.face === 'join' && e.data.payload && e.data.payload.tab
+  if (e.data.type === 'cube:payload' && e.data.face === 'join' && e.data.payload
+      && (e.data.payload.tab || e.data.payload.openMarathon)
       && (isMember() || forcedMember()) && !DEMO) {
-    irlTab = e.data.payload.tab;
     const p = e.data.payload;
-    const opts = (p.addedTicketId || p.openTicketId)
-      ? { awaitId: p.addedTicketId || null, openTicketId: p.openTicketId || null } : undefined;
+    // Pierre's "Open it in COLLECT" chip carries openMarathon → land on COLLECT and open the editor.
+    irlTab = p.tab || (p.openMarathon ? 'collect' : irlTab);
+    const opts = p.openMarathon ? { openMarathon: p.openMarathon }
+      : (p.addedTicketId || p.openTicketId)
+        ? { awaitId: p.addedTicketId || null, openTicketId: p.openTicketId || null } : undefined;
     if (document.getElementById('browse').classList.contains('show')) switchTab(irlTab, opts);
     else renderBrowse(opts);
     return;
