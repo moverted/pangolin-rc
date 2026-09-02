@@ -2595,3 +2595,32 @@ Entry format:
   PROGRAM" line. Marathon detail VIEW header is now a three-button bar `[‹ Marathons] [Edit] [Watch ›]`
   (`.mar-nav3`); EDIT mode keeps a plain back + bottom Cancel/Save. Remaining "COLLECT" strings are
   code comments only. Verified label + `mar-nav3` + PROGRAM chip live on remote.pangolinrc.com.
+
+## 2026-09-01 — watch_title derived-count cache (queue read cost cut; NOT deployed, branch perf/titles-derived-cache)
+
+Context: D1 free-tier daily row-read cap was hit → `/profile/:email/titles` (and all reads)
+returned 500 → app showed an empty queue ("nothing logged yet"), looking like an unlinked
+account. Root cause was read volume: the queue query ran ~4 correlated per-user subqueries PER
+tracked title on every load (100+ titles = 1,000+ reads/load). Ted upgraded to Workers Paid
+($5/mo) which cleared the immediate cap; this change removes the amplification so it can't
+recur.
+
+- **Migration `0055_watch_title_derived_cache.sql`** — adds `watched_count`, `minute_sum`,
+  `last_season`, `last_number` to `watch_title` + a one-time backfill from `watch_episode`.
+  NOT YET APPLIED to remote (run `npm run db:migrate:remote`). Applied + verified locally.
+- **`src/handlers/watch_rollup.ts`** (new) — `refreshCounts(env,email,titleId)` recomputes the
+  four cached per-user aggregates from the raw `watch_episode` rows and writes ONLY those columns
+  (never status/current/updated_at). Own module to avoid a profile↔catalog circular import.
+- **`src/handlers/profile.ts`** — `recomputeTitle` now calls `refreshCounts` (covers the normal
+  progress + rewatch paths). `GET /:email/titles` flattened: reads the 4 cached columns instead
+  of subqueries; `runtime`/`released` stay live indexed subqueries (must reflect newly-aired
+  episodes, no cron); the 3 ticket subqueries collapse to one latest-ticket join. Marathon
+  (map) tiles still re-scope live — cache is series-scoped.
+- **`src/handlers/catalog.ts`** — the 3 direct `watch_episode` writers (`/initiate`,
+  `/backfill`, `/backfill-episode`) now call `refreshCounts` after their writes (drift-killer),
+  since they set watch_title directly, not via `recomputeTitle`. The full-withdraw DELETE
+  (`profile.ts` `DELETE /:email/titles/:title_id`) drops the watch_title row, so no refresh
+  needed there.
+- Verified: `tsc --noEmit` clean; migration applies on local D1; flattened query + backfill
+  produce byte-identical results to the old subqueries on a seeded fixture (watched/minutes/
+  last-position all match). Deploy (Worker + remote migration) left to Ted.

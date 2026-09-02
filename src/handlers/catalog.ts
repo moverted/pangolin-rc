@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
 import { fetchTmdbMovie, fetchTmdbTvRuntime, searchAll } from './tmdb';
+import { refreshCounts } from './watch_rollup';
 
 // ─── Shared catalog + server-side materialization ────────────────────────────
 //
@@ -329,6 +330,10 @@ catalogRoutes.post('/initiate', async (c) => {
       .bind(w.user_email, w.episode_id, w.title_id, w.show_name, w.episode_name, w.done, w.minute, w.bp, w.sessions, w.updated_at)),
   ];
   await c.env.DB.batch(stmts);
+  // This writer sets watch_title/watch_episode directly (not via recomputeTitle), so refresh
+  // the denormalized per-user rollups the flat /titles read depends on. Keep the pointer/status
+  // it just set — refreshCounts only touches the count columns.
+  await refreshCounts(c.env, email, ref.titleId);
 
   return c.json({ title_id: ref.titleId, kind: titleRow.kind, episodes: episodes.length, current_episode_id: currentEp });
 });
@@ -407,6 +412,9 @@ catalogRoutes.post('/backfill', async (c) => {
     ).bind(crypto.randomUUID(), email, refEp, rating, watchedAt, titleId));
   }
   await c.env.DB.batch(tail);
+  // Direct watch_episode/watch_title writer → refresh the denormalized rollups (keeps the
+  // 'completed' status this endpoint set; refreshCounts only updates the count columns).
+  await refreshCounts(c.env, email, titleId);
   return c.json({ ok: true, title_id: titleId, name: mat.titleRow.name, kind: isMovie ? 'movie' : 'show', poster: mat.titleRow.poster || null, watched_at: watchedAt, episodes: eps.length });
 });
 
@@ -462,6 +470,9 @@ catalogRoutes.post('/backfill-episode', async (c) => {
      VALUES (?, ?, ?, 'current', ?, ?, ?)
      ON CONFLICT(user_email, title_id) DO UPDATE SET current_episode_id=excluded.current_episode_id, updated_at=excluded.updated_at`,
   ).bind(email, titleId, mat.titleRow.name, ep.episode_id, watchedAt, watchedAt).run();
+  // Direct watch_episode/watch_title writer → refresh the denormalized rollups (keeps the
+  // in-progress status/pointer this endpoint set; refreshCounts only updates the count columns).
+  await refreshCounts(c.env, email, titleId);
 
   if (rating) {
     const refEp = 'S' + String(ep.season ?? 1).padStart(2, '0') + 'E' + String(ep.number ?? 1).padStart(2, '0');

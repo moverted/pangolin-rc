@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { Env } from '../types';
 import { ensureTitleSummary, ensureReleaseDate, maybeHealTitle, ensureEpisodes } from './catalog';
 import { fetchTmdbMovie } from './tmdb';
+import { refreshCounts } from './watch_rollup';
 
 // Account + device API. SEAM:identity — email is the key, no auth in this build.
 export const profileRoutes = new Hono<{ Bindings: Env }>();
@@ -401,26 +402,36 @@ async function recomputeTitle(env: Env, email: string, titleId: string): Promise
   const now = Date.now();
   await env.DB.prepare('UPDATE watch_title SET status=?, current_episode_id=?, updated_at=? WHERE user_email=? AND title_id=?')
     .bind(status, current, now, email, titleId).run();
+  // Keep the denormalized per-user rollups (watched_count/minute_sum/last_*) in step with
+  // the raw watch_episode rows this recompute reflects, so the flat /titles read stays exact.
+  await refreshCounts(env, email, titleId);
   return { status, current };
 }
 
 // List a member's tracked titles for the Log, with derived counts.
 profileRoutes.get('/:email/titles', async (c) => {
   const email = c.req.param('email').toLowerCase();
+  // The per-user aggregates (watched / minutes / last-watched position) are read from the
+  // denormalized watch_title cache (migration 0055, kept fresh by refreshCounts on every
+  // write) instead of ~4 correlated subqueries per row — this is what took the queue load
+  // off D1's per-load read cliff. `runtime` and `released` stay live: they are single
+  // indexed lookups over the shared catalog and must reflect newly-aired episodes with no
+  // cron. The 3 ticket subqueries collapse to one join to the member's latest ticket row.
   const rows = await c.env.DB.prepare(
     `SELECT wt.title_id, t.name, t.kind, t.status AS title_status, t.poster, t.platform,
             t.premiered, t.summary, t.total_episodes AS total, wt.status, wt.active_map_id,
             wt.current_episode_id, wt.started_at, wt.updated_at,
-            (SELECT COUNT(*) FROM watch_episode we WHERE we.user_email=wt.user_email AND we.title_id=wt.title_id AND we.done=1) AS watched,
-            (SELECT COALESCE(SUM(we.minute),0) FROM watch_episode we WHERE we.user_email=wt.user_email AND we.title_id=wt.title_id) AS minutes,
+            wt.watched_count AS watched, wt.minute_sum AS minutes,
+            wt.last_season AS last_season, wt.last_number AS last_number,
             (SELECT e.runtime FROM episodes e WHERE e.title_id=wt.title_id ORDER BY e.season, e.number LIMIT 1) AS runtime,
             (SELECT COUNT(*) FROM episodes e WHERE e.title_id=wt.title_id AND e.airdate IS NOT NULL AND e.airdate <= date('now')) AS released,
-            (SELECT e.season FROM episodes e JOIN watch_episode we ON we.episode_id=e.episode_id AND we.user_email=wt.user_email WHERE e.title_id=wt.title_id AND (we.done=1 OR we.minute>0) ORDER BY e.season DESC, e.number DESC LIMIT 1) AS last_season,
-            (SELECT e.number FROM episodes e JOIN watch_episode we ON we.episode_id=e.episode_id AND we.user_email=wt.user_email WHERE e.title_id=wt.title_id AND (we.done=1 OR we.minute>0) ORDER BY e.season DESC, e.number DESC LIMIT 1) AS last_number,
-            (SELECT wtk.created_at FROM watch_ticket wtk WHERE wtk.user_email=wt.user_email AND wtk.show_id=wt.title_id ORDER BY wtk.created_at DESC LIMIT 1) AS ticket_at,
-            (SELECT wtk.ticket_date FROM watch_ticket wtk WHERE wtk.user_email=wt.user_email AND wtk.show_id=wt.title_id ORDER BY wtk.created_at DESC LIMIT 1) AS ticket_date,
-            (SELECT wtk.ticket_time FROM watch_ticket wtk WHERE wtk.user_email=wt.user_email AND wtk.show_id=wt.title_id ORDER BY wtk.created_at DESC LIMIT 1) AS ticket_time
+            tk.created_at AS ticket_at, tk.ticket_date AS ticket_date, tk.ticket_time AS ticket_time
        FROM watch_title wt JOIN titles t ON t.title_id = wt.title_id
+       LEFT JOIN watch_ticket tk
+              ON tk.user_email = wt.user_email AND tk.show_id = wt.title_id
+             AND NOT EXISTS (SELECT 1 FROM watch_ticket t2
+                              WHERE t2.user_email = tk.user_email AND t2.show_id = tk.show_id
+                                AND t2.created_at > tk.created_at)
       WHERE wt.user_email = ? ORDER BY wt.updated_at DESC`).bind(email).all();
   const list = (rows.results || []) as any[];
   // Ticketed films drive the freshness badge → make sure their release date is real
