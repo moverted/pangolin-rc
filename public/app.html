@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0c0a08">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>pangolinRC</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden; background: #0c0a08;
+    -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
+    overscroll-behavior: none;
+  }
+
+  /* Horizontal pager: six face panels, native scroll-snap. The faces scroll
+     vertically inside themselves, so horizontal swipes fall through to this
+     container. The tab bar below is the guaranteed nav (taps land on the parent,
+     never intercepted by an iframe). */
+  #stage {
+    position: fixed; top: env(safe-area-inset-top, 0px); left: 0; right: 0;
+    bottom: calc(56px + env(safe-area-inset-bottom));
+    display: flex; overflow-x: auto; overflow-y: hidden;
+    scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  #stage::-webkit-scrollbar { display: none; }
+  .panel { flex: 0 0 100%; height: 100%; scroll-snap-align: start; position: relative; }
+  .panel iframe {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    border: 0; background: transparent;
+  }
+
+  /* keyboard up → hide the tab bar (it would sit behind the keyboard anyway) */
+  body.kb #tabbar { display: none; }
+  #tabbar {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    height: calc(56px + env(safe-area-inset-bottom));
+    padding-bottom: env(safe-area-inset-bottom);
+    display: flex; background: #14110c; border-top: 1px solid #2a2418; z-index: 10;
+  }
+  .tab {
+    flex: 1; background: none; border: 0; color: #8c8172; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 4px; padding: 6px 0;
+    font-family: Nunito, system-ui, sans-serif; font-weight: 800; font-size: 12px; letter-spacing: .2px;
+  }
+  .tab .tab-ic {
+    height: 26px; width: auto; display: block;
+    opacity: .8; transition: opacity .15s ease, transform .15s ease;
+  }
+  .tab .lbl { line-height: 1; }
+  .tab.on { color: #f0a93b; }            /* selected tab → theme amber (was off-white) */
+  .tab.on .tab-ic { opacity: 1; transform: scale(1.06); }
+  .tab:active { color: #f0a93b; }
+
+  /* PIERRE is the hero: dead-center, bigger portrait bumped up out of the bar so he
+     pops above the strip. Since he sits in the chat area when open, his tab hides
+     itself while PIERRE is the active face (body.pierre-open), leaving a clean gap. */
+  .tab.hero { position: relative; }
+  .tab.hero .tab-ic {
+    height: 54px; margin-top: -30px; opacity: 1;
+    filter: drop-shadow(0 4px 10px rgba(0,0,0,.55));   /* Pierre's own outline pops off the bar — no oval */
+  }
+  .tab.hero .lbl { margin-top: 2px; }
+  .tab.hero.on .tab-ic { transform: scale(1.04); }
+  /* PIERRE selected: he's sitting on the chat text box, so drop his portrait but keep the
+     centered PIERRE word — the tab reverts to a plain text label, no bump. */
+  body.pierre-open .tab.hero .tab-ic { display: none; }
+  body.pierre-open .tab.hero .lbl { margin-top: 0; }
+  /* "Ted is waiting" badge — a count in a circle over the remote in Pierre's hands. The cold
+     TV-glow blue of a Ted reply (#5fd6e0), never red: nothing dire, just replies to read. */
+  .tab.hero .ted-badge {
+    position: absolute; left: 50%; top: 3px; transform: translateX(-50%);
+    min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px;
+    background: #5fd6e0; color: #06222a;
+    font: 700 11px/18px 'Space Mono', ui-monospace, monospace; text-align: center;
+    border: 1.5px solid rgba(0,0,0,.4); box-shadow: 0 1px 5px rgba(0,0,0,.55);
+    z-index: 3; pointer-events: none;
+  }
+  .tab.hero .ted-badge[hidden] { display: none; }
+  body.pierre-open .tab.hero .ted-badge { display: none; }   /* not while you're reading it */
+
+  /* Profile avatar — Profile's entry point now that it left the tab bar. Top-LEFT (the
+     top-right slot crashed into face controls like the LOG "ON" toggle). Fallback head
+     glyph; a loaded profile image can replace the glyph later. */
+  #profile-av {
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 8px);
+    left: calc(env(safe-area-inset-left, 0px) + 10px);
+    z-index: 60;
+    width: 34px; height: 34px; padding: 0;
+    border: 1px solid #3a2f22; border-radius: 50%;
+    background: rgba(20,16,12,0.55); color: #b9ab97;
+    -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; -webkit-tap-highlight-color: transparent;
+    transition: transform .1s, color .15s;
+  }
+  #profile-av:active { transform: scale(0.92); color: #f0a93b; }
+  #profile-av svg { width: 20px; height: 20px; }
+  body.profile-open #profile-av { display: none; }   /* already on Profile → hide its own entry */
+
+  /* Return to the 3D cube. Mirrors the cube's bug button (top-right, same shape),
+     tinted JOIN-blue so it reads as "the blue bug" that takes you back. */
+  #cube-btn {
+    /* Hidden while in TestFlight (confusing next to TestFlight's own feedback). To bring
+       the blue bug back at go-live, flip this to `flex`. The align/justify below stay so
+       it renders centered when re-enabled. */
+    display: none;
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 8px);
+    right: calc(env(safe-area-inset-right, 0px) + 8px);
+    z-index: 9999;
+    width: 34px; height: 34px; padding: 0;
+    border: none; border-radius: 50%;
+    background: rgba(20,16,12,0.45);
+    -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+    color: #00BBEE;
+    align-items: center; justify-content: center;
+    cursor: pointer; opacity: 0.7;
+    transition: opacity .2s, transform .1s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #cube-btn:active { transform: scale(0.9); opacity: 1; }
+
+  /* "Go dark but stay open": while a watch timer runs and Screen = Always On, a black overlay
+     fades in after a few idle seconds so the app darkens without closing. A tap anywhere wakes
+     it. Sits above everything (incl. #cube-btn) and, only when lit, captures that first tap. On
+     OLED the near-black is effectively off, so it dims AND saves power. */
+  #screen-dim {
+    position: fixed; inset: 0; background: #000; z-index: 100000;
+    opacity: 0; pointer-events: none; transition: opacity .8s ease;
+  }
+  #screen-dim.on { opacity: .94; pointer-events: auto; }
+  #screen-dim .dim-hint {
+    position: absolute; left: 0; right: 0; bottom: 14%; text-align: center;
+    color: rgba(240,169,59,.28); letter-spacing: .09em;
+    font-family: Nunito, system-ui, sans-serif; font-weight: 700; font-size: 13px;
+  }
+</style>
+</head>
+<body>
+  <div id="stage"></div>
+  <button id="profile-av" type="button" aria-label="Profile">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+  </button>
+  <nav id="tabbar" aria-label="Faces"></nav>
+  <button id="cube-btn" type="button" aria-label="Back to the cube"
+    onclick="try{localStorage.setItem('pg_mode','cube')}catch(e){};location.href='/index.html'+location.search"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2l1.88 1.88"/><path d="M14.12 3.88L16 2"/><path d="M9 7.13v-1a3 3 0 1 1 6 0v1"/><path d="M18 11a4 4 0 0 0-4-4h-4a4 4 0 0 0-4 4v3c0 3.3 2.7 6 6 6s6-2.7 6-6z"/><path d="M12 20v-9"/><path d="M6.53 9C4.6 8.8 3 7.1 3 5"/><path d="M6 13H2"/><path d="M3 21c0-2.1 1.7-3.9 3.8-4"/><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"/><path d="M22 13h-4"/><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/></svg></button>
+  <script type="module" src="/flat_shell.js"></script>
+</body>
+</html>

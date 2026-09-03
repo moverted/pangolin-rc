@@ -1,5 +1,7 @@
 import Foundation
 import Capacitor
+import UIKit
+import UserNotifications
 
 /**
  * WebosLan — a thin native WebSocket transport for driving an LG webOS TV directly
@@ -136,5 +138,70 @@ public class WebosLanPlugin: CAPPlugin, CAPBridgedPlugin, URLSessionWebSocketDel
         } else {
             completionHandler(.performDefaultHandling, nil)
         }
+    }
+}
+
+/**
+ * AppAuth — hands the web layer a shared secret so the native app can clear the
+ * Pierre chat's bot gate. Turnstile (the web bot check on POST /pierre/chat)
+ * cannot run inside this WKWebview, so the app sends this token as `appToken`
+ * instead; the Worker matches it against its APP_NATIVE_SECRET.
+ *
+ * This secret lives ONLY here in the compiled app binary — never in the web
+ * bundle (public/ → www/), which is served publicly and would leak it. Rotate
+ * by changing BOTH this constant and the Worker's APP_NATIVE_SECRET together.
+ *
+ * Lives in this file (already in the app target) so no project.pbxproj change is
+ * needed; Capacitor auto-discovers it and exposes it as Capacitor.Plugins.AppAuth.
+ *
+ * JS: const { value } = await Capacitor.Plugins.AppAuth.token()
+ *
+ * NOTE: not compiled in this environment — build in Xcode.
+ */
+@objc(AppAuthPlugin)
+public class AppAuthPlugin: CAPPlugin, CAPBridgedPlugin {
+    public let identifier = "AppAuthPlugin"
+    public let jsName = "AppAuth"
+    public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "token", returnType: CAPPluginReturnPromise)
+    ]
+
+    // Must equal the Worker's APP_NATIVE_SECRET (set via `wrangler secret put`).
+    private static let appToken = "ed53bbc5823a4e8e7604c5a64b3a2db268b3f2feeec6c9cb9c730b425d989714"
+
+    @objc func token(_ call: CAPPluginCall) {
+        call.resolve(["value": AppAuthPlugin.appToken])
+    }
+}
+
+/**
+ * AppBadge — sets the app-icon badge number natively. The WKWebView can't set the
+ * iOS home-screen icon badge, so the shell calls this for an admin account to mirror
+ * the admin panel's waitlist "new" count onto the app icon.
+ *
+ * JS: await Capacitor.registerPlugin('AppBadge').set({ count: n })
+ *
+ * Best-effort: displaying a badge requires the badge notification authorization the
+ * app already requests via LocalNotifications; if it wasn't granted this silently
+ * no-ops. count is clamped at 0 (0 clears the badge).
+ */
+@objc(AppBadgePlugin)
+public class AppBadgePlugin: CAPPlugin, CAPBridgedPlugin {
+    public let identifier = "AppBadgePlugin"
+    public let jsName = "AppBadge"
+    public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "set", returnType: CAPPluginReturnPromise)
+    ]
+
+    @objc func set(_ call: CAPPluginCall) {
+        let count = max(0, call.getInt("count") ?? 0)
+        DispatchQueue.main.async {
+            if #available(iOS 16.0, *) {
+                UNUserNotificationCenter.current().setBadgeCount(count)
+            } else {
+                UIApplication.shared.applicationIconBadgeNumber = count
+            }
+        }
+        call.resolve()
     }
 }

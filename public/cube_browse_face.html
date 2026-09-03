@@ -14,7 +14,7 @@
 <title>PangolinRC . Join</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
   :root{
     --base:#17120e; --panel:#211a13; --panel-2:#2b2218; --line:#3a2f22;
@@ -51,9 +51,18 @@
   .splash h1{font-family:var(--display);font-weight:700;
     font-size:25px;line-height:1.06;letter-spacing:-.01em;margin:7px 0 5px}
   .splash .sub{margin:0;color:var(--muted);font-size:12.5px;line-height:1.4}
-  .video{margin:13px 0;border-radius:12px;overflow:hidden;border:1px solid var(--line);
-    background:#000;aspect-ratio:16/9;flex:0 0 auto}
-  .video iframe{display:block;width:100%;height:100%;border:0}
+  /* Static promo card (replaced the YouTube embed, which threw Error 153 in the app's
+     WKWebview since capacitor://localhost is not an allowed embedding referer). A plain
+     link opens pangolinrc.com in the system browser and can never fail to load. */
+  .promo{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
+    margin:13px 0;border-radius:12px;border:1px solid var(--line);aspect-ratio:16/9;flex:0 0 auto;
+    text-align:center;text-decoration:none;padding:16px;cursor:pointer;
+    background:radial-gradient(circle at 50% 35%, rgba(232,159,61,.14), rgba(0,0,0,.28));
+    transition:border-color .15s,background .15s}
+  .promo:active{border-color:var(--amber)}
+  .promo-kicker{font-family:var(--mono);font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted)}
+  .promo-hed{font-family:var(--display);font-weight:700;font-size:20px;color:var(--text);line-height:1.15}
+  .promo-cta{font-family:var(--mono);font-size:12px;letter-spacing:.05em;color:var(--amber);font-weight:600}
   .join{margin-top:auto;width:100%;font-family:var(--display);font-weight:700;
     font-size:17px;letter-spacing:.04em;color:#1a130b;background:var(--amber);
     border:0;border-radius:12px;padding:15px 16px;cursor:pointer;
@@ -167,8 +176,256 @@
   .signout{margin-top:auto;padding-top:14px;font-family:var(--mono);font-size:10px;
     letter-spacing:.06em;color:#7d7060;text-align:center;flex:0 0 auto}
   .signout button{background:none;border:0;color:var(--amber-soft);cursor:pointer;font:inherit;text-decoration:underline}
+
+  /* ---- IRL tab bar (Suggestions / Tickets / Physical media) ---- */
+  .tabs{display:flex;gap:6px;padding:0 16px 10px;flex-shrink:0}
+  .tab{flex:1;font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;font-weight:700;
+    color:var(--muted);background:var(--panel-2);border:1px solid var(--line);border-radius:9px;
+    padding:8px 4px;cursor:pointer;transition:color .15s,border-color .15s,background .15s;white-space:nowrap;
+    display:flex;align-items:center;justify-content:center;gap:5px}
+  .tab:hover{color:var(--text)}
+  .tab .ct{font-weight:700;opacity:.55;font-size:8.5px}
+  .tab.on{color:#1a130b;background:var(--amber);border-color:var(--amber)} .tab.on .ct{opacity:.75}
+
+  /* ---- Tickets: physical stubs stacked like Apple Wallet passes ---- */
+  /* Each ticket is an edge-to-edge slice with a perforated top edge; cards OVERLAP so the list
+     scrolls as a stack of physical cards — you see each header strip, the last one full. */
+  .tixgrid{display:flex;flex-direction:column;gap:0;margin:16px -16px 0}
+  /* Today divider between upcoming (above) and past (below) — also resets the stack. */
+  .tixtoday{display:flex;align-items:center;gap:9px;margin:16px 18px 6px;font-family:var(--mono);font-size:9px;
+    letter-spacing:.18em;text-transform:uppercase;color:var(--amber)}
+  .tixtoday::before,.tixtoday::after{content:"";flex:1;height:1px;background:rgba(232,159,61,.35)}
+  .tix{position:relative;cursor:pointer;transition:transform .12s;
+    -webkit-mask:radial-gradient(circle 9px at 18px 0,#0000 8.5px,#000 9px) -18px 0/36px 15px repeat-x,
+      linear-gradient(#000,#000) 0 14px/100% 100% no-repeat;
+    mask:radial-gradient(circle 9px at 18px 0,#0000 8.5px,#000 9px) -18px 0/36px 15px repeat-x,
+      linear-gradient(#000,#000) 0 14px/100% 100% no-repeat;
+    filter:drop-shadow(0 -3px 7px rgba(0,0,0,.6))}
+  .tix + .tix{margin-top:-24px}              /* perforation tucks over the card below → stacked passes */
+  .tix:active{transform:scale(.994)}
+  .tix-row{position:relative;display:flex;align-items:stretch;min-height:116px;background:#000 top/cover}
+  .tix-row::before{content:"";position:absolute;inset:0;pointer-events:none;
+    background:linear-gradient(90deg,rgba(9,6,4,.94) 0%,rgba(9,6,4,.8) 42%,rgba(9,6,4,.34) 78%,rgba(9,6,4,.12) 100%)}
+  .tix .body{position:relative;z-index:1;flex:1 1 auto;min-width:0;padding:24px 16px 18px;display:flex;
+    flex-direction:column;justify-content:flex-start;gap:6px}
+  .tix .film{font-family:var(--display);font-weight:700;font-size:26px;line-height:1.05;color:var(--text);
+    text-shadow:0 2px 10px rgba(0,0,0,.85);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .tix .where{font-family:var(--mono);font-size:9.5px;color:#e0cfb0;text-shadow:0 1px 5px rgba(0,0,0,.85);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tix-hasrefl{margin-left:8px;font-size:11px;color:var(--amber);vertical-align:2px;text-shadow:0 1px 4px rgba(0,0,0,.8)}
+  .tix-hasrefl svg{width:15px;height:15px;vertical-align:-2px;filter:drop-shadow(0 1px 3px rgba(0,0,0,.85))}
+  /* Recorder (inside the full-face view): mic + 10s countdown ring, then the editor. */
+  .tix-rec{display:flex;flex-direction:column;align-items:center;gap:10px;padding:15px 12px 16px;
+    border-top:1px dashed var(--line);background:rgba(0,0,0,.3)}
+  .tixmic{position:relative;width:64px;height:64px;border-radius:50%;border:1px solid var(--line);
+    background:var(--panel);color:var(--amber);cursor:pointer;display:flex;align-items:center;justify-content:center;
+    box-shadow:0 6px 18px -10px rgba(232,159,61,.6)}
+  .tixmic:active{transform:scale(.96)}
+  .tixmic svg{width:28px;height:28px}
+  .tixmic.rec{color:#e0554e;border-color:rgba(224,85,78,.65)}
+  .tixmic.busy{color:var(--muted)}
+  .tixmic .rec-ring,.tixcompose .tixmic .rec-ring{position:absolute;inset:-1px;width:calc(100% + 2px);height:calc(100% + 2px)}
+  .tixmic .rec-seg{transition:opacity .15s}
+  .tixmic .rec-num{font-family:var(--mono);font-weight:700;font-size:18px}
+  .tixhint{font-family:var(--mono);font-size:9.5px;letter-spacing:.04em;color:var(--muted)}
+  .tixhint.ok{color:var(--green)} .tixhint.bad{color:var(--amber-soft)}
+  /* Composer: type on the left, mic (→ send arrow when there's text) on the right. */
+  .tixcompose{display:flex;gap:10px;align-items:flex-end;width:100%}
+  .tixin{flex:1 1 auto;box-sizing:border-box;min-height:52px;max-height:120px;resize:none;font-family:var(--body);
+    font-size:13px;line-height:1.35;color:var(--text);background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:9px 10px}
+  .tixin:focus{outline:none;border-color:var(--amber-soft)}
+  .tixin::placeholder{color:var(--muted)}
+  .tixcompose .tixmic{flex:0 0 auto;width:52px;height:52px;box-shadow:0 5px 15px -9px rgba(232,159,61,.6)}
+  .tixcompose .tixmic svg{width:24px;height:24px}
+  .tixmic.send{color:var(--amber);border-color:rgba(232,159,61,.6)}
+  .tixmic.send svg{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+  /* After a take: a replay button + editable transcript, then the 4 actions. */
+  .tixtx{width:100%;display:flex;flex-direction:column;gap:9px}
+  /* Reflection clip — a round play button + the transcript, matching the app's clips. */
+  .tixtxrow{display:flex;gap:10px;align-items:center}
+  .tixplay{position:relative;flex:0 0 auto;width:44px;height:44px;border-radius:50%;border:1px solid var(--line);
+    background:var(--panel-2);color:var(--amber);cursor:pointer;display:flex;align-items:center;justify-content:center;
+    box-shadow:0 4px 12px -8px rgba(232,159,61,.7)}
+  .tixplay:hover{border-color:var(--amber-soft)} .tixplay:active{transform:scale(.94)}
+  .tixplay .tp-icon{position:relative;z-index:1;display:flex;align-items:center;justify-content:center}
+  .tixplay .tp-icon svg{width:18px;height:18px;fill:currentColor}
+  .tixplay .tp-ring{position:absolute;inset:0;width:44px;height:44px;transform:rotate(-90deg)}
+  .tixplay .tp-bg{fill:none;stroke:rgba(255,255,255,.1);stroke-width:2}
+  .tixplay .tp-arc{fill:none;stroke:var(--amber);stroke-width:2.5;stroke-linecap:round;
+    stroke-dasharray:125.66;stroke-dashoffset:125.66;transition:stroke-dashoffset .12s linear}
+  .tixplay.playing{color:#e0554e;border-color:rgba(224,85,78,.55)}
+  .tixplay.playing .tp-arc{stroke:#e0554e}
+  .tixtx textarea{flex:1 1 auto;width:100%;box-sizing:border-box;min-height:48px;resize:vertical;font-family:var(--body);
+    font-size:13px;line-height:1.35;color:var(--text);background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:9px 10px}
+  .tixtx textarea:focus{outline:none;border-color:var(--amber-soft)}
+  .tixacts{display:flex;gap:6px}
+  /* Half-height row buttons: icon on the left, label (wraps to 2 lines) on the right. */
+  .tixacts button{flex:1;display:flex;flex-direction:row;align-items:center;gap:5px;padding:4px 6px;border:1px solid var(--line);
+    border-radius:8px;background:var(--panel-2);color:var(--muted);font-family:var(--mono);font-size:7.5px;letter-spacing:.04em;
+    text-transform:uppercase;text-align:left;cursor:pointer;line-height:1.05}
+  .tixacts button span{flex:1 1 auto;min-width:0}
+  .tixacts button:active{transform:translateY(1px)}
+  .tixacts button svg{flex:0 0 auto;width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+  .tixacts .a-trash:hover{color:var(--red);border-color:rgba(157,74,63,.6)}
+  .tixacts .a-journal{color:var(--amber);border-color:rgba(232,159,61,.45)}
+  .tixacts .a-journal:hover{background:rgba(232,159,61,.12)}
+  .tixacts .a-card:hover,.tixacts .a-audio:hover{color:var(--text);border-color:var(--amber-soft)}
+
+  /* ---- Open ticket = full-face detail: poster fills the cube, torn bottom edge ---- */
+  .tixfull{position:absolute;inset:0;z-index:20;display:flex;flex-direction:column;justify-content:space-between;
+    background:#000 top/cover;overflow:hidden;animation:tfin .26s ease both}
+  @keyframes tfin{from{opacity:0;transform:scale(1.02)}to{opacity:1;transform:none}}
+  .tixfull::before{content:"";position:absolute;inset:0;pointer-events:none;
+    background:linear-gradient(180deg,rgba(9,6,4,.22) 28%,rgba(9,6,4,.1) 44%,rgba(9,6,4,.72) 72%,rgba(9,6,4,.96) 100%)}
+  /* Top sliver: identical to the closed stub's head (.tix .body) so open just reveals below. */
+  .tf-head{position:relative;z-index:2;padding:20px 16px 18px;display:flex;flex-direction:column;gap:6px;
+    background:linear-gradient(90deg,rgba(9,6,4,.94) 0%,rgba(9,6,4,.8) 42%,rgba(9,6,4,.34) 78%,rgba(9,6,4,.12) 100%)}
+  /* TOP edge = a clean, regular perforation (scalloped tear-line). The BOTTOM edge is a
+     per-ticket randomized torn edge applied as a clip-path in JS (see tearClip). */
+  .tixfull{-webkit-mask:radial-gradient(circle 9px at 18px 0,#0000 8.5px,#000 9px) -18px 0/36px 15px repeat-x,
+    linear-gradient(#000,#000) 0 14px/100% 100% no-repeat;
+    mask:radial-gradient(circle 9px at 18px 0,#0000 8.5px,#000 9px) -18px 0/36px 15px repeat-x,
+    linear-gradient(#000,#000) 0 14px/100% 100% no-repeat}
+  .tf-close{position:absolute;top:14px;right:14px;z-index:3;width:34px;height:34px;border-radius:50%;
+    border:none;background:rgba(8,6,4,.6);color:#fff;font-size:16px;line-height:1;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+  .tf-body{position:relative;z-index:2;padding:16px 16px 44px;display:flex;flex-direction:column;gap:11px}
+  .tf-date{font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--amber);text-shadow:0 1px 5px rgba(0,0,0,.8)}
+  .tf-film{font-family:var(--display);font-weight:700;font-size:26px;line-height:1.05;color:var(--text);text-shadow:0 2px 10px rgba(0,0,0,.85)}
+  .tf-meta{font-family:var(--mono);font-size:9.5px;color:#e0cfb0;text-shadow:0 1px 5px rgba(0,0,0,.85)}
+  .tixfull .tix-rec{border-top:none;background:rgba(9,6,4,.4);border:1px solid rgba(255,255,255,.12);border-radius:12px;margin-top:4px;backdrop-filter:blur(3px)}
+
+  /* ---- Physical media: scanner viewport + the collected shelf ---- */
+  .cam{position:relative;flex:0 0 auto;border:1px solid var(--line);border-radius:12px;overflow:hidden;
+    background:#0a0806;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center}
+  .addpanel{margin-top:14px;animation:rise .28s ease both}
+  .camclose{position:absolute;top:8px;right:8px;z-index:4;width:26px;height:26px;border-radius:50%;
+    border:0;background:rgba(8,6,4,.82);color:#fff;font-size:13px;line-height:1;cursor:pointer;
+    display:flex;align-items:center;justify-content:center}
+  .cam img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  .cam .placeholder{font-family:var(--mono);font-size:10.5px;color:#6d6152;text-align:center;line-height:1.6;padding:0 24px;z-index:1}
+  .cam .reticle{position:absolute;left:14%;right:14%;top:38%;bottom:38%;border:2px solid rgba(232,159,61,.85);
+    border-radius:8px;box-shadow:0 0 0 100vmax rgba(6,4,2,.32);z-index:2}
+  .cam .laser{position:absolute;left:16%;right:16%;top:50%;height:2px;background:rgba(232,159,61,.9);
+    box-shadow:0 0 8px rgba(232,159,61,.8);z-index:3;animation:scan 2.2s ease-in-out infinite}
+  @keyframes scan{0%,100%{top:40%}50%{top:60%}}
+  @media (prefers-reduced-motion:reduce){.cam .laser{animation:none}}
+  .camrow{display:flex;gap:8px;margin-top:10px}
+  .camrow button{flex:1;font-family:var(--display);font-weight:700;font-size:12.5px;letter-spacing:.03em;
+    border:0;border-radius:10px;padding:11px;cursor:pointer}
+  .camrow .scan{color:#1a130b;background:var(--amber)}
+  .camrow .manual{color:var(--text);background:var(--panel-2);border:1px solid var(--line)}
+  .camrow button:active{transform:translateY(1px)}
+  .shelfhead{display:flex;justify-content:space-between;align-items:center;margin:18px 0 8px;flex:0 0 auto}
+  .shelfhead h2{font-family:var(--display);font-size:14px;font-weight:700;margin:0}
+  .shelfright{display:flex;align-items:center;gap:10px}
+  .shelfright em{font-family:var(--mono);font-style:normal;font-size:9px;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--muted)}
+  .addbtn{width:27px;height:27px;border-radius:50%;border:0;background:var(--amber);color:#1a130b;
+    font-size:19px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;
+    box-shadow:0 6px 16px -8px rgba(232,159,61,.85)}
+  .addbtn.on{background:var(--panel-2);color:var(--amber);border:1px solid var(--line)}
+  .addbtn:active{transform:translateY(1px)}
+  .shelf{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+  /* COLLECT marathon tiles: poster-forward card with a name + episode count below. */
+  .mar-shelf{margin-bottom:6px}
+  .mar-tile{display:flex;flex-direction:column;text-align:left;padding:0;border:0;background:none;cursor:pointer;color:inherit}
+  .mar-tile:active{transform:translateY(1px)}
+  .mar-poster{width:100%;aspect-ratio:2/3;border-radius:8px;object-fit:cover;border:1px solid var(--line);background:#000;display:block}
+  .mar-poster.noimg{background:linear-gradient(150deg,#241c12,#0f0b06)}
+  .mar-name{font-size:10.5px;font-weight:600;line-height:1.2;margin-top:5px;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .mar-sub{font-family:var(--mono);font-size:8px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-top:2px}
+  /* Edit affordance: a pencil in the poster's top-right corner (a real button — the tile itself
+     is also a button, so the pencil sits as a sibling in a relative cell, not nested). */
+  .mar-cell{position:relative;display:flex}
+  .mar-edit{position:absolute;top:4px;right:4px;width:24px;height:24px;border:none;border-radius:50%;
+    background:rgba(8,6,4,.82);color:var(--amber);font-size:12px;line-height:1;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}
+  .mar-edit:active{transform:scale(.9)}
+  /* Community edit → a two-choice sheet (fork a copy vs edit with Pierre). */
+  .mar-sheet{position:fixed;inset:0;z-index:200;background:rgba(6,4,2,.72);display:flex;align-items:flex-end;
+    -webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px)}
+  .mar-sheet .card{width:100%;background:var(--panel-2,#1a140d);border-top-left-radius:16px;border-top-right-radius:16px;
+    border:1px solid var(--line);padding:16px 16px calc(16px + env(safe-area-inset-bottom));}
+  .mar-sheet h3{margin:2px 0 3px;font-size:15px}
+  .mar-sheet p{margin:0 0 12px;font-size:12px;color:var(--muted)}
+  .mar-sheet .opt{display:block;width:100%;text-align:left;margin-top:8px;padding:12px 13px;border-radius:11px;
+    border:1px solid var(--line);background:var(--panel);color:var(--text);cursor:pointer;font-size:13.5px;font-weight:600}
+  .mar-sheet .opt small{display:block;font-weight:400;color:var(--muted);margin-top:2px;font-size:11px}
+  .mar-sheet .opt:active{transform:translateY(1px)}
+  .mar-sheet .cancel{margin-top:10px;width:100%;background:none;border:0;color:var(--muted);font-size:12px;cursor:pointer;padding:8px}
+  /* The marathon editor (replaces the pane). */
+  .mar-ed{display:flex;flex-direction:column;gap:12px}
+  .mar-ed .edtop{display:flex;gap:11px;align-items:flex-start}
+  .mar-ed .edposter{width:74px;aspect-ratio:2/3;border-radius:7px;object-fit:cover;border:1px solid var(--line);background:#000;flex:0 0 auto}
+  .mar-ed .edposter.noimg{background:linear-gradient(150deg,#241c12,#0f0b06)}
+  .mar-ed .edmeta{flex:1;min-width:0}
+  .mar-ed label{display:block;font-family:var(--mono);font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin:0 0 4px}
+  .mar-ed input.ttl,.mar-ed textarea.blurb{width:100%;background:var(--panel);border:1px solid var(--line);border-radius:8px;
+    color:var(--text);font:inherit;font-size:14px;padding:8px 9px;resize:none}
+  .mar-ed input.ttl{font-weight:700}
+  .mar-ed textarea.blurb{font-size:12.5px;min-height:52px}
+  .mar-ed .epsub{font-family:var(--mono);font-size:8px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:2px 0 0}
+  .mar-eprow{display:flex;align-items:center;gap:8px;padding:8px 9px;border:1px solid var(--line);border-radius:9px;background:var(--panel);margin-top:7px}
+  .mar-eprow .code{font-family:var(--mono);font-size:10.5px;color:var(--amber);flex:0 0 auto;min-width:44px}
+  .mar-eprow .epn{flex:1;min-width:0;font-size:12px;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .mar-eprow button{width:26px;height:26px;flex:0 0 auto;border:1px solid var(--line);border-radius:7px;
+    background:var(--panel-2,#1a140d);color:var(--text);cursor:pointer;font-size:13px;line-height:1;display:flex;align-items:center;justify-content:center}
+  .mar-eprow button:disabled{opacity:.3}
+  .mar-eprow button.rm{color:#e07a6b}
+  .mar-ed .edactions{display:flex;gap:9px;margin-top:6px}
+  .mar-ed .edactions button{flex:1;padding:12px;border-radius:11px;border:1px solid var(--line);font-size:13.5px;font-weight:700;cursor:pointer}
+  .mar-ed .edactions .save{background:var(--amber);color:#241a08;border-color:var(--amber)}
+  .mar-ed .edactions .play{background:var(--amber);color:#241a08;border-color:var(--amber)}   /* WATCH = primary */
+  .mar-ed .edactions .editbtn,.mar-ed .edactions .cancel2{background:var(--panel);color:var(--text)}
+  .mar-ed .edback{background:none;border:0;color:var(--muted);font-size:12px;cursor:pointer;padding:2px 0;align-self:flex-start}
+  /* View-mode three-button header: [‹ Marathons]  … push right …  [Edit] [Watch ›] */
+  .mar-nav3{display:flex;align-items:center;gap:8px}
+  .mar-nav3 .edback{padding:8px 2px;margin-right:auto}
+  .mar-nav3 .editbtn,.mar-nav3 .play{padding:8px 14px;border-radius:10px;border:1px solid var(--line);
+    font-size:12.5px;font-weight:700;cursor:pointer}
+  .mar-nav3 .editbtn{background:var(--panel);color:var(--text)}
+  .mar-nav3 .play{background:var(--amber);color:#241a08;border-color:var(--amber)}
+  .mar-nav3 .editbtn:active,.mar-nav3 .play:active{transform:translateY(1px)}
+  .mar-ed .edadd{background:none;border:1px dashed var(--line);border-radius:9px;color:var(--muted);
+    padding:9px;font-size:12px;cursor:pointer;margin-top:7px;width:100%}
+  .mar-ed .savemsg{font-size:11.5px;color:var(--green,#7fca6b);min-height:14px;margin-top:2px}
+  /* View-mode title + MARATHON/SERIES blurb toggle */
+  .mar-ed .mar-title{margin:0;font-size:17px;line-height:1.2;font-weight:800}
+  .mar-btabs{display:flex;gap:6px;margin-bottom:7px}
+  .mar-btabs .bt{background:none;border:0;padding:2px 0;margin-right:12px;cursor:pointer;
+    font-family:var(--mono);font-size:9px;letter-spacing:.11em;text-transform:uppercase;color:var(--muted);
+    border-bottom:2px solid transparent}
+  .mar-btabs .bt.on{color:var(--amber);border-bottom-color:var(--amber)}
+  .mar-blurb{font-size:12.5px;line-height:1.4;color:var(--text);cursor:pointer}
+  .mar-blurb.series{color:var(--muted)}
+  .mar-byline{margin-top:6px;font-size:11px;font-style:italic;color:var(--amber-soft,#d8a24a)}
+  .mar-byline.edit{font-style:normal;color:var(--muted)}
+  .mar-byline.edit span{opacity:.7}
+  .mar-eprow.ro{cursor:default}
+  .mcard{position:relative;aspect-ratio:2/3;border-radius:8px;overflow:hidden;border:1px solid var(--line);
+    background:#000 center/cover;cursor:pointer}
+  .mcard .spine{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:flex-end;
+    padding:6px;background:linear-gradient(180deg,rgba(0,0,0,0) 40%,rgba(6,4,2,.88))}
+  .mcard .mtitle{font-size:10px;font-weight:600;line-height:1.15;color:var(--text);
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .mcard .fmt{position:absolute;top:5px;left:5px;font-family:var(--mono);font-size:7.5px;letter-spacing:.08em;
+    padding:2px 5px;border-radius:5px;background:rgba(6,4,2,.78);color:var(--amber)}
+  .mcard .x{position:absolute;top:4px;right:4px;width:19px;height:19px;border:none;border-radius:50%;
+    background:rgba(8,6,4,.8);color:#fff;font-size:11px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .camstatus{font-family:var(--mono);font-size:10px;letter-spacing:.03em;color:var(--muted);
+    text-align:center;margin-top:9px;min-height:14px;line-height:1.35}
+  .camstatus.ok{color:var(--green)}
+  .camstatus.bad{color:var(--amber-soft)}
+
   /* Floating cube — back to cube navigation (shared across trunk sides) */
+  /* 125% block-text bump — onboarding prompt prose scaled ~1.25x (labels/chrome unchanged). */
+  .bubble{font-size:21px}
 </style>
+<script src="zxing.min.js"></script>
+<script src="pg_share_qr.js"></script>
+<script src="pg_share_card.js"></script>
 </head>
 <body>
 <div class="face">
@@ -178,12 +435,11 @@
       <div class="eyebrow">PangolinRC</div>
       <h1>Watch what you want, when you want. For less.</h1>
       <p class="sub">Pierre learns your taste and builds your room in a minute.</p>
-      <div class="video">
-        <iframe src="https://www.youtube.com/embed/brdzZG3Bas8?si=R_mptZFrb39IQ15H"
-          title="YouTube video player"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-          referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
-      </div>
+      <a class="promo" href="https://pangolinrc.com" target="_blank" rel="noopener">
+        <span class="promo-kicker">Take a look</span>
+        <span class="promo-hed">See how the room works</span>
+        <span class="promo-cta">pangolinrc.com &#8599;</span>
+      </a>
       <button class="join" id="joinBtn">JOIN / LOGIN</button>
     </section>
 
@@ -225,6 +481,11 @@ if (DEMO) { const jb = document.getElementById('joinBtn'); if (jb) jb.style.disp
 function isMember(){ try{ return !!localStorage.getItem('pg_user'); }catch(_){ return false; } }
 function memberName(){ try{ return localStorage.getItem('pg_username') || ''; }catch(_){ return ''; } }
 function memberEmail(){ try{ return localStorage.getItem('pg_user') || ''; }catch(_){ return ''; } }
+// Dev convenience (localhost ONLY): ?as=<email> signs in as that member so the real
+// tickets/shelf load without a full login. Guarded to localhost so it can't be used to
+// view another member's data in production.
+try{ if(location.hostname==='localhost' || location.hostname==='127.0.0.1'){
+  const _as=new URLSearchParams(location.search).get('as'); if(_as) localStorage.setItem('pg_user', _as); } }catch(_){}
 // Preview/testing convenience: ?member=1 on the shell forces BROWSE without a real
 // signup. The iframe reads the parent's query (same-origin); falls back to its own.
 function forcedMember(){
@@ -272,47 +533,1023 @@ function openTitle(titleId, name){
   }
 }
 
+// ── COLLECT: curated marathons (the maps system) ─────────────────────────────
+// Two sections split by ownership (server: GET /:email/marathons): YOUR MARATHONS (maps the
+// member owns) and COMMUNITY MARATHONS (everyone else's / global). Tapping a marathon activates
+// its map on the title (active_map_id) and opens it in the Watch/Log so Current/Next follow the
+// curated order. Single-title maps only for now (Moonlighting, Psych).
+const _marEsc = s => String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+// The tile is a single tap target: it opens the marathon's DETAIL inside COLLECT (not a jump to
+// Watch — that's the WATCH button inside the detail). Edit lives inside the detail too.
+function marathonTile(m){
+  const poster = m.poster ? `<img class="mar-poster" src="${_marEsc(m.poster)}" alt="" loading="lazy">`
+                          : `<div class="mar-poster noimg"></div>`;
+  const steps = (m.steps||0) + (m.steps===1 ? ' episode' : ' episodes');
+  return `<button class="mar-tile" data-map="${_marEsc(m.map_id)}">`
+       + `${poster}<span class="mar-name">${_marEsc(m.name)}</span><span class="mar-sub">${steps}</span></button>`;
+}
+function openMarathon(mapId, titleId, name){
+  const email = memberEmail();
+  if(!titleId){ return; }   // cross-title marathons aren't playable via a single title yet
+  if(email){
+    // Activate the marathon on this title (fire-and-forget), then open it in the Watch/Log.
+    try{ fetch(ART_API + '/profile/' + encodeURIComponent(email) + '/titles/' + encodeURIComponent(titleId) + '/map',
+      { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ map_id:mapId }) }); }catch(_){}
+  }
+  openTitle(titleId, name);   // → WATCH tab, first episode of the marathon
+}
+async function renderCollect(pane, openMapId){
+  pane.innerHTML = '<div class="bempty">Loading marathons…</div>';
+  const data = _marathonsCache || await loadMarathons();
+  // A deep-link (Pierre's "Open it in COLLECT" chip) jumps straight into the detail.
+  if(openMapId){ openMarathonDetail(pane, openMapId); return; }
+  const section = (title, list, emptyBold, emptyGrey) => {
+    let h = `<div class="shelfhead"><h2>${title}</h2></div>`;
+    h += (list && list.length)
+      ? `<div class="shelf mar-shelf">${list.map(marathonTile).join('')}</div>`
+      : `<div class="bempty"><b>${emptyBold}</b><br>${emptyGrey}</div>`;
+    return h;
+  };
+  pane.innerHTML =
+    section('YOUR MARATHONS', data.yours, 'No marathons of your own yet.', 'Build one with Pierre and it lands here.') +
+    section('COMMUNITY MARATHONS', data.community, 'No community marathons yet.', 'Curated runs from the community show up here. Nothing faked.');
+  pane.querySelectorAll('.mar-tile').forEach(el =>
+    el.onclick = () => openMarathonDetail(pane, el.getAttribute('data-map')));
+}
+
+// ── COLLECT marathon detail + editor ─────────────────────────────────────────
+// One screen, two modes (_edState.mode = 'view' | 'edit'). VIEW shows the marathon with a
+// MARATHON/SERIES blurb toggle (the SERIES tab is the show's own synopsis, read-only), an Edit
+// button (→ edit mode for owners, fork-or-Pierre sheet for community), and a WATCH button
+// (activates the marathon + opens the first episode in the Watch tab). EDIT makes the title,
+// the MARATHON blurb (never the series one), and the episode order/roster editable.
+let _edState = null;   // { map_id,title_id,title_name,poster,name,blurb,series_blurb,steps,allEps,is_owner,mode,tab }
+async function openMarathonDetail(pane, mapId, startEdit){
+  const email = memberEmail();
+  pane.innerHTML = '<div class="bempty">Loading…</div>';
+  let d=null;
+  try{ const r = await fetch(ART_API + '/profile/' + encodeURIComponent(email) + '/marathons/' + encodeURIComponent(mapId));
+    if(r.ok) d = await r.json(); }catch(_){}
+  if(!d){ pane.innerHTML = '<div class="bempty"><b>Could not open that marathon.</b><br>Try again in a moment.</div>'; return; }
+  _edState = { map_id:mapId, title_id:d.title_id, title_name:d.title_name, poster:d.poster,
+    name:d.name, blurb:d.blurb||'', blurb0:d.blurb||'', blurb_by:d.blurb_by||null, blurb_by0:d.blurb_by||null,
+    series_blurb:d.series_blurb||'', steps:(d.steps||[]).slice(),
+    allEps:null, is_owner:!!d.is_owner, mode:(startEdit && d.is_owner)?'edit':'view', tab:'marathon' };
+  renderMarathon(pane);
+}
+// Whose name signs a member-authored blurb. Prefer the display username, fall back to a
+// capitalized email local-part so the byline is never blank.
+function _authorName(){
+  const n = (memberName()||'').trim(); if(n) return n;
+  const local = (memberEmail().split('@')[0]||'you'); return local.charAt(0).toUpperCase()+local.slice(1);
+}
+function _epCode(s){ return 'S'+(s.season==null?'?':s.season)+'E'+(s.number==null?'?':s.number); }
+// Pull any in-progress title/blurb edits out of the DOM into state, so re-renders (a tab flip,
+// an episode reorder) don't drop what the member just typed.
+function captureEdits(pane){
+  const s=_edState; if(!s || s.mode!=='edit') return;
+  const t=pane.querySelector('.ttl'); if(t) s.name=t.value;
+  const b=pane.querySelector('.blurb'); if(b) s.blurb=b.value;   // the marathon-blurb textarea only
+}
+function renderMarathon(pane){
+  const s=_edState, edit=(s.mode==='edit'), series=(s.tab==='series');
+  const poster = s.poster ? `<img class="edposter" src="${_marEsc(s.poster)}" alt="">` : `<div class="edposter noimg"></div>`;
+  const titleHtml = edit
+    ? `<label>Marathon title</label><input class="ttl" type="text" maxlength="120" value="${_marEsc(s.name)}">`
+    : `<h2 class="mar-title">${_marEsc(s.name)}</h2>`;
+  // Blurb block: MARATHON/SERIES toggle + the active blurb. SERIES is always read-only text; the
+  // MARATHON blurb is a textarea in edit mode, tappable text otherwise.
+  const tabs = `<div class="mar-btabs">
+      <button class="bt ${series?'':'on'}" data-b="marathon">MARATHON</button>
+      <button class="bt ${series?'on':''}" data-b="series">SERIES</button></div>`;
+  // A marathon blurb carries a byline (Pierre's draft, or the member once they edit it). The
+  // SERIES synopsis has no byline — it's the show's own text.
+  const byline = s.blurb_by ? `<div class="mar-byline">— ${_marEsc(s.blurb_by)}</div>` : '';
+  let blurbBody;
+  if(series){
+    blurbBody = `<div class="mar-blurb series">${_marEsc(s.series_blurb||'No series synopsis yet.')}</div>`;
+  } else if(edit){
+    blurbBody = `<textarea class="blurb" maxlength="500" placeholder="What is this run?">${_marEsc(s.blurb)}</textarea>`
+      + (s.blurb_by ? `<div class="mar-byline edit">— ${_marEsc(s.blurb_by)}<span> · your edits will sign it ${_marEsc(_authorName())}</span></div>` : '');
+  } else {
+    blurbBody = `<div class="mar-blurb">${_marEsc(s.blurb||'No blurb yet — tap Edit to add one.')}</div>` + byline;
+  }
+  // Episode list: read-only rows in view, reorder/remove controls in edit.
+  const rows = s.steps.map((ep,i)=> edit ? `
+    <div class="mar-eprow" data-i="${i}">
+      <span class="code">${_marEsc(_epCode(ep))}</span>
+      <span class="epn">${_marEsc(ep.ep_name||'')}</span>
+      <button data-mv="up" ${i===0?'disabled':''} aria-label="Move up">↑</button>
+      <button data-mv="down" ${i===s.steps.length-1?'disabled':''} aria-label="Move down">↓</button>
+      <button class="rm" data-mv="rm" aria-label="Remove">×</button>
+    </div>` : `
+    <div class="mar-eprow ro">
+      <span class="code">${_marEsc(_epCode(ep))}</span>
+      <span class="epn">${_marEsc(ep.ep_name||'')}</span>
+    </div>`).join('');
+  // Header: VIEW mode is the three-button bar [‹ Marathons] [Edit] [Watch ›]; EDIT mode keeps a
+  // plain back link (Save/Cancel live at the bottom while editing).
+  const header = edit
+    ? `<button class="edback">‹ Marathons</button>`
+    : `<div class="mar-nav3">
+         <button class="edback">‹ Marathons</button>
+         <button class="editbtn">Edit</button>
+         <button class="play">Watch ›</button>
+       </div>`;
+  const footer = edit
+    ? `<div class="savemsg" id="edSaveMsg"></div>
+       <div class="edactions"><button class="cancel2">Cancel</button><button class="save">Save</button></div>`
+    : '';
+  pane.innerHTML = `
+    <div class="mar-ed">
+      ${header}
+      <div class="edtop">${poster}<div class="edmeta">${titleHtml}<p class="epsub">${_marEsc(s.title_name||'')}</p></div></div>
+      <div>${tabs}${blurbBody}</div>
+      <div>
+        <label>Episodes — in watch order</label>
+        <div class="eplist">${rows || '<div class="bempty">No episodes yet.</div>'}</div>
+        ${edit ? '<button class="edadd">+ Add an episode</button>' : ''}
+      </div>
+      ${footer}
+    </div>`;
+  pane.querySelector('.edback').onclick = () => { _marathonsCache=null; renderCollect(pane); };
+  // Blurb toggle: the tabs, and tapping the read-only blurb text, both flip MARATHON↔SERIES.
+  const flip = (to) => { captureEdits(pane); s.tab = to || (series?'marathon':'series'); renderMarathon(pane); };
+  pane.querySelectorAll('.mar-btabs .bt').forEach(b => b.onclick = () => flip(b.getAttribute('data-b')));
+  const bl = pane.querySelector('.mar-blurb'); if(bl) bl.onclick = () => flip();
+  if(edit){
+    pane.querySelectorAll('.mar-eprow [data-mv]').forEach(b => b.onclick = () => {
+      captureEdits(pane);
+      const i = +b.closest('.mar-eprow').getAttribute('data-i'), mv = b.getAttribute('data-mv');
+      if(mv==='up' && i>0){ const t=s.steps[i-1]; s.steps[i-1]=s.steps[i]; s.steps[i]=t; }
+      else if(mv==='down' && i<s.steps.length-1){ const t=s.steps[i+1]; s.steps[i+1]=s.steps[i]; s.steps[i]=t; }
+      else if(mv==='rm'){ s.steps.splice(i,1); }
+      renderMarathon(pane);
+    });
+    pane.querySelector('.edadd').onclick = () => addEpisodeFlow(pane);
+    pane.querySelector('.cancel2').onclick = () => openMarathonDetail(pane, s.map_id);   // re-fetch → discard
+    pane.querySelector('.save').onclick = () => saveEditor(pane);
+  } else {
+    // Edit: owners edit in place; community marathons fork or go to Pierre.
+    pane.querySelector('.editbtn').onclick = () => {
+      if(s.is_owner){ s.mode='edit'; s.tab='marathon'; renderMarathon(pane); }
+      else openCommunitySheet(pane, s.map_id, s.name);
+    };
+    pane.querySelector('.play').onclick = () => openMarathon(s.map_id, s.title_id, s.name);
+  }
+}
+async function addEpisodeFlow(pane){
+  const s = _edState;
+  const msg = document.getElementById('edSaveMsg');
+  if(!s.allEps){
+    if(msg) msg.textContent = 'Loading episodes…';
+    try{ const r = await fetch(ART_API + '/catalog/titles/' + encodeURIComponent(s.title_id) + '/episodes');
+      if(r.ok){ const j = await r.json(); s.allEps = (j.episodes||j||[]); } }catch(_){}
+    if(msg) msg.textContent = '';
+  }
+  const have = new Set(s.steps.map(e=>e.episode_id));
+  const avail = (s.allEps||[]).filter(e => !have.has(e.episode_id));
+  if(!avail.length){ if(msg) msg.textContent = 'Every episode is already in this marathon.'; return; }
+  // Reuse the community sheet chrome for a compact episode picker.
+  const sheet = document.createElement('div'); sheet.className = 'mar-sheet';
+  sheet.innerHTML = `<div class="card"><h3>Add an episode</h3><p>Tap to append to the run.</p>
+    <div style="max-height:44vh;overflow:auto">${avail.map((e,i)=>
+      `<button class="opt" data-i="${i}">${_marEsc(_epCode(e))} · ${_marEsc(e.name||e.ep_name||'')}</button>`).join('')}</div>
+    <button class="cancel">Cancel</button></div>`;
+  document.body.appendChild(sheet);
+  const close = () => sheet.remove();
+  sheet.querySelector('.cancel').onclick = close;
+  sheet.addEventListener('click', e => { if(e.target===sheet) close(); });
+  sheet.querySelectorAll('.opt').forEach(b => b.onclick = () => {
+    captureEdits(pane);
+    const e = avail[+b.getAttribute('data-i')];
+    s.steps.push({ episode_id:e.episode_id, season:e.season, number:e.number, ep_name:e.name||e.ep_name||'' });
+    close(); renderMarathon(pane);
+  });
+}
+async function saveEditor(pane){
+  const s = _edState, email = memberEmail();
+  captureEdits(pane);
+  const msg = document.getElementById('edSaveMsg');
+  const name = (s.name||'').trim();
+  if(!name){ if(msg){ msg.style.color='#e07a6b'; msg.textContent='Give it a title.'; } return; }
+  if(!s.steps.length){ if(msg){ msg.style.color='#e07a6b'; msg.textContent='Keep at least one episode.'; } return; }
+  s.name = name;
+  // Attribution: touching the blurb prose re-signs it to the member; leaving it re-uses the
+  // existing byline (so a title/order-only edit keeps Pierre's draft credited to Pierre). An
+  // emptied blurb drops the byline entirely.
+  const blurb = (s.blurb||'').trim();
+  const changed = blurb !== (s.blurb0||'').trim();
+  const blurbBy = !blurb ? null : (changed ? _authorName() : (s.blurb_by0 || _authorName()));
+  if(msg){ msg.style.color=''; msg.textContent='Saving…'; }
+  let ok=false;
+  try{ const r = await fetch(ART_API + '/profile/' + encodeURIComponent(email) + '/marathons/' + encodeURIComponent(s.map_id),
+    { method:'PUT', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ name, blurb, blurb_by:blurbBy, episodes: s.steps.map(e=>({season:e.season, number:e.number})) }) });
+    ok = r.ok;
+  }catch(_){}
+  _marathonsCache = null;   // list is stale after an edit
+  if(ok){ s.blurb=blurb; s.blurb0=blurb; s.blurb_by=blurbBy; s.blurb_by0=blurbBy; s.mode='view'; renderMarathon(pane); }
+  else if(msg){ msg.style.color='#e07a6b'; msg.textContent='Save failed — try again.'; }
+}
+// Community marathon edit → fork a private copy (manual edit) or hand it to Pierre.
+function openCommunitySheet(pane, mapId, name){
+  const email = memberEmail();
+  const sheet = document.createElement('div'); sheet.className = 'mar-sheet';
+  sheet.innerHTML = `<div class="card">
+    <h3>Edit "${_marEsc(name||'this marathon')}"</h3>
+    <p>This is a community marathon. Make it yours to edit.</p>
+    <button class="opt" data-act="fork">Edit a copy<small>Copies it into YOUR MARATHONS and edits the copy. The community version stays put.</small></button>
+    <button class="opt" data-act="pierre">Edit with Pierre<small>Talk it through and Pierre rebuilds an updated version for you.</small></button>
+    <button class="cancel">Cancel</button></div>`;
+  document.body.appendChild(sheet);
+  const close = () => sheet.remove();
+  sheet.querySelector('.cancel').onclick = close;
+  sheet.addEventListener('click', e => { if(e.target===sheet) close(); });
+  sheet.querySelector('[data-act="fork"]').onclick = async () => {
+    const card = sheet.querySelector('.card'); if(card) card.style.opacity='.5';
+    let newId=null;
+    try{ const r = await fetch(ART_API + '/profile/' + encodeURIComponent(email) + '/marathons/' + encodeURIComponent(mapId) + '/fork',
+      { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+      if(r.ok) newId = (await r.json()).map_id; }catch(_){}
+    close(); _marathonsCache = null;
+    if(newId) openMarathonDetail(pane, newId, true); else renderCollect(pane);   // open the copy in edit mode
+  };
+  sheet.querySelector('[data-act="pierre"]').onclick = () => {
+    close();
+    if(window.parent!==window){
+      if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('pierre', { intent:'marathon-edit', map_id:mapId, name });
+      else window.parent.postMessage({ type:'cube:rotateTo', face:'pierre', payload:{ intent:'marathon-edit', map_id:mapId, name } }, '*');
+    }
+  };
+}
+
 // Worker API base (mirrors the other faces) — backs the TMDB movie search proxy.
 const API_BASE = (location.protocol === 'http:' && location.hostname === 'localhost')
   ? 'http://localhost:8787'
   : 'https://pangolin-rc.edward-m-willett.workers.dev';
 
-// A film opens single-unit on the Watch face (and lands in the Log), same handoff
-// shape Pierre uses for a movie.
-async function renderBrowse(){
+// ── BROWSE face: two tabs on the member view (nav restructure) ────────────────
+//   SUGGEST — the old Browse rails (Pierre's picks + friends' shares), unchanged
+//   COLLECT — curated MARATHONS: YOUR MARATHONS + COMMUNITY MARATHONS (the maps system)
+// TICKETS and the physical-media SHELF moved to the WATCH tab (as TICKETS / STACK); their
+// render functions (renderTickets / renderMedia) stay in this file for that port. The JOIN
+// intake above is untouched; this only renders once the device is a member.
+const IRL_TABS = [
+  { key:'suggestions', label:'Suggest', badge:'DISCOVER' },
+  { key:'collect',     label:'Program', badge:'MARATHONS' },   // internal key stays 'collect'; UI label is PROGRAM
+];
+let irlTab = 'suggestions';
+// Dev/layout preview only: ?seed populates sample stubs + discs so the layout can be
+// screenshotted before real data exists. Never on for a real member (no query flag).
+const SEED = (()=>{ try{ return new URLSearchParams(location.search).has('seed'); }catch(_){ return false; } })();
+
+function renderBrowse(opts){
   document.querySelector('.track').style.display = 'none';
   const b = document.getElementById('browse'); b.classList.add('show');
-  const name = memberName();
+  const active = IRL_TABS.find(t=>t.key===irlTab) || IRL_TABS[0];
   b.innerHTML = `
-    <div class="head"><span class="label">BROWSE</span><span class="badge">DISCOVER</span></div>
-    <div class="bscroll">
-      <div class="rail">
-        <h2>Pierre's picks <em>live</em></h2>
-        <div class="why">shows worth your night</div>
-        <div class="cards" id="cardsPierre"><div class="why">loading…</div></div>
-      </div>
-      <div class="rail" id="railFriends">
-        <h2>From friends</h2>
-        <div class="cards" id="cardsFriends"><div class="why">loading…</div></div>
-      </div>
-      <div class="rail">
-        <h2>People you follow <em>soon</em></h2>
-        <div class="bempty"><b>Follow a few TV voices and their picks land here.</b><br>No one followed yet. Nothing faked.</div>
-      </div>
-      <div class="signout">signed in${name?(' as '+esc(name)):''} &middot; <button id="signout">not you?</button></div>
-    </div>`;
+    <div class="head"><span class="label">IRL</span><span class="badge" id="irlBadge">${active.badge}</span></div>
+    <div class="tabs" id="irlTabs">${IRL_TABS.map(t=>
+      `<button class="tab ${t.key===irlTab?'on':''}" data-tab="${t.key}">${t.label}${
+        t.key==='collect' ? `<span class="ct" id="irlct-collect"></span>` : ''}</button>`).join('')}</div>
+    <div class="bscroll" id="irlPane"></div>`;
+  b.querySelectorAll('#irlTabs .tab').forEach(el => el.onclick = () => switchTab(el.dataset.tab));
+  switchTab(irlTab, opts);
+  refreshIrlCounts();
+}
+
+// Populate the COLLECT tab count (total marathons visible to this member). Empty leaves the
+// chip blank rather than a lonely "0". Cached on _marathonsCache so renderCollect can reuse it.
+let _marathonsCache = null;
+async function loadMarathons(){
+  const email = memberEmail();
+  if(!email) return { yours:[], community:[] };
+  try{
+    const r = await fetch(ART_API + '/profile/' + encodeURIComponent(email) + '/marathons');
+    if(r.ok){ _marathonsCache = await r.json(); return _marathonsCache; }
+  }catch(_){}
+  return { yours:[], community:[] };
+}
+async function refreshIrlCounts(){
+  try{
+    const m = await loadMarathons();
+    const n = (m.yours ? m.yours.length : 0) + (m.community ? m.community.length : 0);
+    const el = document.getElementById('irlct-collect'); if(el) el.textContent = n ? String(n) : '';
+  }catch(_){}
+}
+
+function switchTab(key, opts){
+  irlTab = key;
+  const active = IRL_TABS.find(t=>t.key===key) || IRL_TABS[0];
+  document.querySelectorAll('#irlTabs .tab').forEach(el => el.classList.toggle('on', el.dataset.tab===key));
+  const badge = document.getElementById('irlBadge'); if(badge) badge.textContent = active.badge;
+  const pane = document.getElementById('irlPane'); if(!pane) return;
+  pane.scrollTop = 0;
+  if(key==='collect')      renderCollect(pane, opts && opts.openMarathon);
+  else                     renderSuggestions(pane);
+}
+
+// A film opens single-unit on the Watch face (and lands in the Log), same handoff
+// shape Pierre uses for a movie.
+async function renderSuggestions(pane){
+  const name = memberName();
+  pane.innerHTML = `
+    <div class="rail">
+      <h2>Pierre's picks <em>live</em></h2>
+      <div class="why">shows worth your night</div>
+      <div class="cards" id="cardsPierre"><div class="why">loading…</div></div>
+    </div>
+    <div class="rail" id="railFriends">
+      <h2>From friends</h2>
+      <div class="cards" id="cardsFriends"><div class="why">loading…</div></div>
+    </div>
+    <div class="rail">
+      <h2>People you follow <em>soon</em></h2>
+      <div class="bempty"><b>Follow a few TV voices and their picks land here.</b><br>No one followed yet. Nothing faked.</div>
+    </div>
+    <div class="signout">signed in${name?(' as '+esc(name)):''} &middot; <button id="signout">not you?</button></div>`;
   document.getElementById('signout').onclick = () => {
     try{ localStorage.removeItem('pg_user'); localStorage.removeItem('pg_username'); }catch(_){}
-    b.classList.remove('show'); document.querySelector('.track').style.display = '';
+    document.getElementById('browse').classList.remove('show'); document.querySelector('.track').style.display = '';
   };
   loadFriendShares();
   const wrap = document.getElementById('cardsPierre');
   const shows = (await Promise.all(PICKS_SEED.map(fetchShow))).filter(Boolean);
+  if (!wrap) return;   // tab switched away mid-fetch
   if (!shows.length){ wrap.innerHTML = `<div class="why">couldn't reach the guide just now</div>`; return; }
   wrap.innerHTML = shows.map(s => `<div class="bcard" data-id="${s.id}" data-name="${esc(s.name)}">
     <div class="pi" style="${s.img?`background-image:url('${s.img}')`:''}"></div>
     <div class="nm">${esc(s.name)}</div></div>`).join('');
   wrap.querySelectorAll('.bcard').forEach(el => el.onclick = () => openShow(+el.dataset.id, el.dataset.name));
+}
+
+// ── TICKETS: the member's logged theater stubs. Real data lives in watch_ticket
+//    (POST /ticket → OCR of date/time/theater); a user-wide list endpoint is still
+//    to come, so for now we render whatever loadTickets returns and fall back to an
+//    honest empty. Each stub shows film · theater · time, with the torn date end.
+const MONTHS = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+const MONTH_IDX = {JAN:0,FEB:1,MAR:2,APR:3,MAY:4,JUN:5,JUL:6,AUG:7,SEP:8,OCT:9,NOV:10,DEC:11,SEPT:8,
+  JANUARY:0,FEBRUARY:1,MARCH:2,APRIL:3,JUNE:5,JULY:6,AUGUST:7,SEPTEMBER:8,OCTOBER:9,NOVEMBER:10,DECEMBER:11};
+// Ticket dates arrive raw from OCR ("TUE, AUG 04", "AUG 6", "Saturday, June 20 8:15 a.m.",
+// or ISO). Pull the {day, month-abbr} for the torn stub end from whatever form it's in.
+function ticketDateBits(dateStr){
+  const s = String(dateStr||'');
+  let m = /(\d{4})-(\d{2})-(\d{2})/.exec(s);                                   // ISO (year present)
+  if(m) return { d:String(+m[3]), mo:MONTHS[(+m[2]-1)%12]||'', y:+m[1] };
+  m = /([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s*(\d{4}))?/.exec(s); // "AUG 6", "DEC 11, 2018"
+  if(m){ const i=MONTH_IDX[m[1].toUpperCase()]; if(i!=null) return { d:String(+m[2]), mo:MONTHS[i], y:m[3]?+m[3]:null }; }
+  m = /\b(\d{1,2})\s+([A-Za-z]{3,9})(?:,?\s*(\d{4}))?/.exec(s);                // "6 August 2018"
+  if(m){ const i=MONTH_IDX[m[2].toUpperCase()]; if(i!=null) return { d:String(+m[1]), mo:MONTHS[i], y:m[3]?+m[3]:null }; }
+  m = /\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/.exec(s);                             // "12/11/2018" (US m/d/y)
+  if(m) return { d:String(+m[2]), mo:MONTHS[(+m[1]-1)%12]||'', y:+m[3] };
+  return { d:'—', mo:'', y:null };
+}
+// "AUG 6" (this year) or "DEC 11, 2018" when the year isn't the current one — for the meta line.
+function ticketDateLabel(dateStr){
+  const {d,mo,y} = ticketDateBits(dateStr);
+  if(d==='—' || !mo) return '';
+  const base = mo+' '+d;
+  return (y && y !== new Date().getFullYear()) ? base+', '+y : base;
+}
+function sampleTickets(){
+  return [
+    { id:'s1', film:'Dune: Part Two',  theater:'Alamo Drafthouse',  date:'2026-03-14', time:'7:40 PM', poster:'' },
+    { id:'s2', film:'The Brutalist',   theater:'IFC Center',        date:'2026-01-22', time:'6:15 PM', poster:'' },
+    { id:'s3', film:'Anora',           theater:'Metrograph',        date:'2025-11-08', time:'9:00 PM', poster:'' },
+  ];
+}
+async function loadTickets(){
+  if(SEED) return sampleTickets();
+  const email = memberEmail();
+  if(!email) return [];
+  try{
+    const r = await fetch(ART_API + '/profile/' + encodeURIComponent(email) + '/tickets');
+    if(!r.ok) return [];
+    return (await r.json()).tickets || [];
+  }catch(_){ return []; }
+}
+// Comparable timestamp for a stub's date. An explicit year (year-confirmed old ticket) wins
+// outright; a year-less OCR date infers the year from when it was logged, nudged ±1yr across a
+// year boundary. Unparseable → logged time.
+function ticketDateValue(dateStr, createdAt){
+  const {d,mo,y} = ticketDateBits(dateStr);
+  const mi = MONTH_IDX[mo];
+  if(d==='—' || mi==null) return createdAt || 0;
+  if(y) return new Date(y, mi, +d).getTime();          // explicit year → use it directly
+  const base = createdAt ? new Date(createdAt) : new Date();
+  let dv = new Date(base.getFullYear(), mi, +d).getTime();
+  const HALF = 183*864e5;
+  if(createdAt){ if(dv - createdAt > HALF) dv = new Date(base.getFullYear()-1, mi, +d).getTime();
+                 else if(createdAt - dv > HALF) dv = new Date(base.getFullYear()+1, mi, +d).getTime(); }
+  return dv;
+}
+// The stub is the TOP SLIVER of the ticket: same image (top-anchored), same title size and
+// placement as the opened view. Opening just reveals the rest below — the top is not redrawn.
+function tixCardHTML(t){
+  const {d,mo} = ticketDateBits(t.date);
+  const img = t.poster || t.ticketUrl || '';   // catalog poster, else the real stub photo
+  const hasAudio = !!(t.reflection && t.reflection.audioUrl);
+  const refl = (t.reflection && (t.reflection.text || t.reflection.audioUrl))
+    ? `<span class="tix-hasrefl" title="reflection saved">${hasAudio ? IC_SPEAKER : IC_BUBBLE}</span>` : '';
+  const meta = [t.theater||'', ticketDateLabel(t.date), t.time||''].filter(Boolean).join(' · ');
+  return `<div class="tix" data-id="${esc(t.id)}">
+    <div class="tix-row" style="${img?`background-image:url('${esc(img)}')`:''}" data-poster="${esc(t.poster||'')}">
+      <div class="body">
+        <div class="film">${esc(t.film||'Untitled')}${refl}</div>
+        <div class="where">${esc(meta)}</div>
+      </div>
+    </div>
+  </div>`;
+}
+let _tixData = {};
+const _todayLabel = 'Today, ' + new Date().toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
+async function renderTickets(pane, opts){
+  opts = opts || {};
+  const awaitId = opts.awaitId || null, openId = opts.openTicketId || null, tries = opts.tries || 0;
+  if(!tries) pane.innerHTML = `<div class="tixgrid" id="tixGrid"><div class="why" style="margin-top:14px">loading…</div></div>`;
+  const tickets = await loadTickets();
+  const grid = document.getElementById('tixGrid'); if(!grid) return;
+  // A just-captured stub can beat its own write to the read replica — the row (and its
+  // healed poster) may not be visible on the immediate read. When we arrived from a fresh
+  // capture (awaitId) or a reflection-notification tap (openId), re-fetch a few times until
+  // that stub lands, so it fills in / opens on its own instead of needing a manual out-and-back.
+  const scheduleRetry = () => {
+    if(tries>=5) return;
+    const at = awaitId ? tickets.find(x=>x.id===awaitId) : null;
+    const aOk = !awaitId || (at && at.poster);
+    const oOk = !openId || !!_tixData[openId];
+    if(aOk && oOk) return;
+    setTimeout(()=>{ if(irlTab==='tickets') renderTickets(pane, {awaitId, openTicketId:openId, tries:tries+1}); }, 1000);
+  };
+  if(!tickets.length){
+    grid.innerHTML = `<div class="bempty" style="margin-top:14px"><b>Your ticket stubs live here.</b><br>
+      Log a theater watch with a photo of the ticket (LOG → Finish → IRL Theater, or ask Pierre) and it lands on this shelf.</div>`;
+    scheduleRetry();
+    return;
+  }
+  // Date order: upcoming/today above, past below, split by a Today bar.
+  const startToday = new Date(); startToday.setHours(0,0,0,0); const todayMs = startToday.getTime();
+  tickets.forEach(t => t._dv = ticketDateValue(t.date, t.createdAt));
+  tickets.sort((a,b) => b._dv - a._dv);                       // furthest-future → oldest
+  _tixData = {}; tickets.forEach(t => _tixData[t.id] = t);
+  let firstPast = tickets.findIndex(t => t._dv < todayMs);
+  let html = '';
+  tickets.forEach((t,i) => { if(i===firstPast) html += `<div class="tixtoday">${_todayLabel}</div>`; html += tixCardHTML(t); });
+  if(firstPast === -1) html += `<div class="tixtoday">${_todayLabel}</div>`;   // all upcoming → bar at the bottom
+  grid.innerHTML = html;
+  // The AI focal anchor is applied to BOTH the stub and the opened card, pixel-aligned so they
+  // share the exact same top — opening only reveals more below (no shift), and the subject is
+  // framed even on bottom-weighted posters.
+  const openH = (pane && pane.clientHeight) || 420;
+  grid.querySelectorAll('.tix').forEach(tx => {
+    const t = _tixData[tx.dataset.id];
+    tx.addEventListener('click', () => openTicketFull(t));
+    const row = tx.querySelector('.tix-row');
+    const poster = row ? row.dataset.poster : '';
+    const apply = (y)=>{ const bg = ticketBgPos(y, row.clientWidth || 360, openH); t._bgpos = bg; row.style.backgroundPosition = bg; };
+    if(row && typeof t.focalY === 'number'){ apply(t.focalY); }          // explicit override (e.g. seed demo)
+    else if(row && poster && /^https:\/\/image\.tmdb\.org\//.test(poster)){
+      fetch(ART_API + '/img/focal?u=' + encodeURIComponent(poster)).then(r=>r.ok?r.json():null).then(p=>{
+        if(p && typeof p.y==='number') apply(p.y);
+      }).catch(()=>{});
+    }
+  });
+  // Reflection-notification tap → open that stub's detail (with the comment composer).
+  if(openId && _tixData[openId]) openTicketFull(_tixData[openId]);
+  scheduleRetry();
+}
+// Turn the AI focal y into a pixel-aligned background-position shared by the stub and the opened
+// card: same image size (cover, width-driven) + same top offset → no shift on open. The offset
+// frames the focal subject ~45% down the opened card, clamped so the poster still covers.
+function ticketBgPos(focalY, w, openH){
+  const H = w * 1.5;                                  // TMDB posters are 2:3
+  let oy = focalY * H - openH * 0.45;                 // land the subject just above center
+  oy = Math.max(0, Math.min(oy, Math.max(0, H - openH)));
+  return '50% ' + (-oy).toFixed(0) + 'px';
+}
+// A per-ticket randomized torn BOTTOM edge (the top stays flat for the perforation mask).
+// Seeded by the ticket id so it's stable across re-renders; Y stays within a small band.
+function tearClip(id){
+  let s = 2166136261 >>> 0; const str = String(id||'seed');
+  for(let i=0;i<str.length;i++){ s ^= str.charCodeAt(i); s = Math.imul(s, 16777619) >>> 0; }
+  const rand = ()=>{ s ^= s<<13; s>>>=0; s ^= s>>17; s ^= s<<5; s>>>=0; return s/4294967296; };
+  const n = 22, pts = ['0% 0%','100% 0%'];
+  // Jagged bottom: each notch alternates shallow/deep within a bounded band for a torn look.
+  // Band kept low (near the edge) so the tear sits BELOW the action buttons and never clips them.
+  for(let i=n;i>=0;i--){ const x = i/n*100;
+    const band = (i%2===0) ? [95.5,97.4] : [98,99.7];   // alternate high/low → visible teeth
+    const y = band[0] + rand()*(band[1]-band[0]);
+    pts.push(x.toFixed(2)+'% '+y.toFixed(2)+'%'); }
+  return 'polygon('+pts.join(', ')+')';
+}
+// Open a ticket as a full-face view: the poster fills the cube, the reflection recorder /
+// clip sits at the bottom over the poster, top perforation + randomized torn bottom.
+async function openTicketFull(t){
+  if(!t) return;
+  closeTicketFull();
+  const browse = document.getElementById('browse'); if(!browse) return;
+  const {d,mo} = ticketDateBits(t.date);
+  const img = t.poster || t.ticketUrl || '';
+  const el = document.createElement('div');
+  el.className = 'tixfull';
+  el.style.clipPath = tearClip(t.id); el.style.webkitClipPath = tearClip(t.id);
+  // Tear off BELOW the tab bar so SUGGEST / TICKETS / SHELF stay visible and clickable.
+  const pane = document.getElementById('irlPane');
+  if(pane) el.style.top = pane.offsetTop + 'px';
+  el.dataset.id=t.id; el.dataset.show=t.showId||''; el.dataset.ep=t.episodeId||'';
+  el.dataset.film=t.film||''; el.dataset.poster=t.poster||''; el.dataset.theater=t.theater||''; el.dataset.date=t.date||'';
+  if(img) el.style.backgroundImage = `url('${img}')`;
+  const meta = [t.theater||'', ticketDateLabel(t.date), t.time||''].filter(Boolean).join(' · ');
+  // Header (film + theater · date) rides in the top sliver — the same info as the closed stub;
+  // opening just reveals the rest of the ticket beneath it (poster + recorder).
+  el.innerHTML = `<button class="tf-close" aria-label="Close">&#10005;</button>
+    <div class="tf-head">
+      <div class="tf-film">${esc(t.film||'Untitled')}</div>
+      <div class="tf-meta">${esc(meta)}</div>
+    </div>
+    <div class="tf-body">
+      <div class="tix-rec"></div>
+    </div>`;
+  browse.appendChild(el);
+  el.querySelector('.tf-close').onclick = closeTicketFull;
+  // Same AI-anchored crop the stub used (pixel-aligned) → the top matches exactly; opening just
+  // reveals more of the poster below. Falls back to top/cover until the focal point resolves.
+  if(t._bgpos) el.style.backgroundPosition = t._bgpos;
+  // A saved reflection loads as the current clip; otherwise the composer (type or record).
+  if(t.reflection && (t.reflection.text || t.reflection.audioUrl)){
+    let blob=null; try{ if(t.reflection.audioUrl){ const r=await fetch(t.reflection.audioUrl); if(r.ok) blob=await r.blob(); } }catch(_){}
+    showTranscript(el, t.reflection.text||'', blob, t.reflection.id||null);
+  } else resetTixRec(el);
+}
+function closeTicketFull(){
+  const el = document.querySelector('.tixfull'); if(!el) return;
+  try{ if(el._audioEl) el._audioEl.pause(); }catch(_){}
+  stopTixRec(el, true);
+  el.remove();
+}
+const MIC_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>';
+const IC_TRASH='<svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
+const IC_BOOK='<svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>';
+const IC_CARD='<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>';
+const IC_AUDIO='<svg viewBox="0 0 24 24"><path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>';
+// 10-segment countdown ring (matches the composer/LOG REC indicators).
+function tixRecRing(total){
+  const C=289.03, step=C/total, seg=Math.max(6, step-11); let s='';
+  for(let i=0;i<total;i++){ s+='<circle class="rec-seg" data-i="'+i+'" cx="50" cy="50" r="46" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" stroke-dasharray="'+seg.toFixed(2)+' '+(C-seg).toFixed(2)+'" stroke-dashoffset="'+(-step*i).toFixed(2)+'" transform="rotate(-90 50 50)"/>'; }
+  return '<svg class="rec-ring" viewBox="0 0 100 100" aria-hidden="true">'+s+'</svg>';
+}
+const blobB64 = blob => new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(String(r.result).split(',')[1]||''); r.onerror=rej; r.readAsDataURL(blob); });
+const IC_SEND='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13M12 6l6 6-6 6"/></svg>';
+const IC_SPEAKER='<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M16 9.2a3.6 3.6 0 0 1 0 5.6"/></svg>';
+const IC_BUBBLE='<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg>';
+// Composer state: a text box on the left, a mic on the right. Empty box → the mic records;
+// typed text → the mic becomes a send arrow to save the typed reflection. Blank it and the
+// mic comes back. (Same mic-until-typed logic as the Pierre composer.)
+function resetTixRec(tx){
+  const rec = tx.querySelector('.tix-rec'); if(!rec) return;
+  tx._audioBlob=null; tx._reflId=null; tx._savedText='';
+  rec.innerHTML = `<div class="tixcompose">
+      <textarea class="tixin" placeholder="type your reflection…"></textarea>
+      <button class="tixmic" aria-label="Record a reflection">${MIC_SVG}</button>
+    </div>
+    <div class="tixhint">tap the mic for a 10s take · or type it</div>`;
+  const ta = rec.querySelector('.tixin'), btn = rec.querySelector('.tixmic');
+  const refresh = ()=>{ const has = ta.value.trim().length>0;
+    btn.classList.toggle('send', has); btn.innerHTML = has ? IC_SEND : MIC_SVG;
+    btn.setAttribute('aria-label', has ? 'Save reflection' : 'Record a reflection'); };
+  ta.addEventListener('input', refresh);
+  btn.addEventListener('click', ()=>{ const v=ta.value.trim(); if(v) tixSubmitTyped(tx, v); else toggleTixRec(tx); });
+  refresh();
+}
+// Save a typed reflection (no audio) — stored like a recorded one, then shown as the clip.
+async function tixSubmitTyped(tx, text){
+  _txHint(tx, 'saving…');
+  try{
+    const fd = new FormData(); fd.append('text', text);
+    fd.append('episodeId', tx.dataset.ep || 'pierre-note');
+    if(tx.dataset.show) fd.append('showId', tx.dataset.show);
+    fd.append('reflection','1'); fd.append('private','1'); fd.append('userEmail', memberEmail()||'');
+    const r = await fetch(ART_API+'/transcribe', {method:'POST', body:fd, mode:'cors'});
+    if(r.ok){ const d=await r.json(); showTranscript(tx, d.transcription||text, null, d.id||null); }
+    else _txHint(tx, "couldn't save", 'bad');
+  }catch(_){ _txHint(tx, "couldn't save", 'bad'); }
+}
+let _tixRec=null, _tixChunks=[], _tixTimer=null, _tixLeft=0, _tixEl=null;
+function toggleTixRec(tx){ if(_tixTimer && _tixEl===tx) stopTixRec(tx); else startTixRec(tx); }
+async function startTixRec(tx){
+  if(_tixTimer) stopTixRec(_tixEl, true);
+  const mic = tx.querySelector('.tixmic'), hint = tx.querySelector('.tixhint');
+  let stream; try{ stream = await navigator.mediaDevices.getUserMedia({audio:true}); }
+  catch(_){ if(hint){ hint.textContent='mic blocked — allow microphone access'; hint.className='tixhint bad'; } return; }
+  _tixEl = tx; _tixChunks = []; _tixRec = new MediaRecorder(stream); _tixRec.ondataavailable = e=>_tixChunks.push(e.data); _tixRec.start();
+  _tixLeft = 10;
+  mic.classList.add('rec'); mic.innerHTML = tixRecRing(10) + '<span class="rec-num">10</span>';
+  if(hint){ hint.textContent='recording… tap to stop'; hint.className='tixhint'; }
+  const sync=()=>{ mic.querySelectorAll('.rec-seg').forEach(s=>{ s.style.opacity=(+s.getAttribute('data-i')<_tixLeft)?'1':'0'; });
+    const n=mic.querySelector('.rec-num'); if(n) n.textContent=Math.max(_tixLeft,0); };
+  sync();
+  _tixTimer = setInterval(()=>{ _tixLeft--; sync(); if(_tixLeft<=0) stopTixRec(tx); }, 1000);
+}
+function stopTixRec(tx, discard){
+  if(!tx || _tixEl!==tx){ return; }
+  if(_tixTimer){ clearInterval(_tixTimer); _tixTimer=null; }
+  if(!_tixRec || _tixRec.state==='inactive'){ if(discard) resetTixRec(tx); return; }
+  _tixRec.onstop = async()=>{
+    try{ _tixRec.stream.getTracks().forEach(t=>t.stop()); }catch(_){}
+    if(discard || !_tixChunks.length){ resetTixRec(tx); return; }
+    const mic = tx.querySelector('.tixmic'), hint = tx.querySelector('.tixhint');
+    if(mic){ mic.classList.remove('rec'); mic.classList.add('busy'); mic.innerHTML='…'; }
+    if(hint){ hint.textContent='transcribing…'; hint.className='tixhint'; }
+    const email = memberEmail();
+    const blob = new Blob(_tixChunks, { type:(_tixChunks[0]&&_tixChunks[0].type)||'audio/webm' });
+    let text='', id=null, ok=false;
+    try{
+      const fd = new FormData(); fd.append('audio', blob);
+      fd.append('episodeId', tx.dataset.ep || 'pierre-note');
+      if(tx.dataset.show) fd.append('showId', tx.dataset.show);
+      fd.append('timestampMs','0'); fd.append('reflection','1'); fd.append('private','1');
+      fd.append('userEmail', email||'');
+      const res = await fetch(ART_API + '/transcribe', { method:'POST', body:fd, mode:'cors' });
+      if(res.ok){ const d = await res.json(); text = (d&&d.transcription||'').trim(); id = (d&&d.id)||null; ok = true; }
+    }catch(_){}
+    if(!ok){ resetTixRec(tx); const h=tx.querySelector('.tixhint'); if(h){ h.textContent="didn't save — try again"; h.className='tixhint bad'; } return; }
+    showTranscript(tx, text, blob, id);
+  };
+  try{ _tixRec.stop(); }catch(_){ if(discard) resetTixRec(tx); }
+}
+// After a take: the mic becomes an editable transcript + trash / journal / share card /
+// share audio. The reflection is already saved (private); journal keeps it (saving any
+// edit), trash removes it, and the shares hand off through the shell's native/web sheet.
+const IC_PLAY='<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
+const IC_PAUSE='<svg viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>';
+// Keep the cached ticket's reflection in step with edits/re-records so a reopen is right,
+// AND update the closed-band stub's marker live (typed → bubble, recorded → speaker).
+function syncTicketReflection(tx, id, text){
+  const tid = tx && tx.dataset && tx.dataset.id; if(!tid || !_tixData || !_tixData[tid]) return;
+  const hasAudio = !!(tx && tx._audioBlob);        // typed reflections carry no audio
+  _tixData[tid].reflection = id
+    ? { id, text:text||'', audioUrl: hasAudio ? (ART_API+'/transcribe/audio/'+id) : null }
+    : null;
+  refreshStubMarker(tid);
+}
+// Add/replace/remove the ♪-style marker on the closed stub in the grid without a full re-render.
+function refreshStubMarker(id){
+  const grid = document.getElementById('tixGrid'); if(!grid) return;
+  const stub = grid.querySelector('.tix[data-id="'+(window.CSS&&CSS.escape?CSS.escape(id):id)+'"] .film');
+  if(!stub) return;
+  const old = stub.querySelector('.tix-hasrefl'); if(old) old.remove();
+  const r = _tixData[id] && _tixData[id].reflection;
+  if(r && (r.text || r.audioUrl)){
+    const span = document.createElement('span');
+    span.className = 'tix-hasrefl'; span.title = 'reflection saved';
+    span.innerHTML = r.audioUrl ? IC_SPEAKER : IC_BUBBLE;
+    stub.appendChild(span);
+  }
+}
+function showTranscript(tx, text, blob, id){
+  tx._audioBlob = blob; tx._reflId = id; tx._savedText = (text||'').trim(); tx._audioEl = null;
+  syncTicketReflection(tx, id, text);
+  const rec = tx.querySelector('.tix-rec');
+  const hasAudio = !!blob;
+  const playBtn = hasAudio
+    ? `<button class="tixplay" aria-label="Replay reflection"><svg class="tp-ring" viewBox="0 0 44 44"><circle class="tp-bg" cx="22" cy="22" r="20"/><circle class="tp-arc" cx="22" cy="22" r="20"/></svg><span class="tp-icon">${IC_PLAY}</span></button>`
+    : '';
+  rec.innerHTML = `<div class="tixtx">
+    <div class="tixtxrow">
+      ${playBtn}
+      <textarea class="tixtxt" placeholder="your reflection…">${esc(text||'')}</textarea>
+    </div>
+    <div class="tixacts">
+      <button class="a-trash">${IC_TRASH}<span>Start over</span></button>
+      <button class="a-journal">${IC_BOOK}<span>Journal</span></button>
+      <button class="a-card">${IC_CARD}<span>Share card</span></button>
+      <button class="a-audio">${IC_AUDIO}<span>Share audio</span></button>
+    </div>
+    <div class="tixhint"></div>
+  </div>`;
+  if(hasAudio) rec.querySelector('.tixplay').onclick = ()=> tixPlay(tx);
+  rec.querySelector('.a-trash').onclick   = ()=> tixTrash(tx);
+  rec.querySelector('.a-journal').onclick = ()=> tixJournal(tx);
+  rec.querySelector('.a-card').onclick    = ()=> tixShareCard(tx);
+  rec.querySelector('.a-audio').onclick   = ()=> tixShareAudio(tx);
+  // Seamless: clicking out of the transcript saves the edit.
+  rec.querySelector('.tixtxt').addEventListener('blur', ()=> tixAutoSave(tx));
+}
+// Save the transcript on blur if it changed (private reflections edit freely).
+async function tixAutoSave(tx){
+  const id = tx._reflId, ta = tx.querySelector('.tixtxt'); if(!id || !ta) return;
+  const text = ta.value.trim();
+  if(!text || text === tx._savedText) return;
+  try{
+    const r = await fetch(ART_API+'/transcribe/'+encodeURIComponent(id), {method:'PATCH',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify({email:memberEmail(), text})});
+    if(r.ok){ tx._savedText = text; syncTicketReflection(tx, id, text); _txHint(tx,'saved ✓','ok'); }
+    else _txHint(tx,"couldn't save the edit",'bad');
+  }catch(_){ _txHint(tx,"couldn't save the edit",'bad'); }
+}
+// Replay the captured take through one reused <audio> element per card.
+const TP_C = 2 * Math.PI * 20; // circumference of the r=20 progress ring
+function tixPlay(tx){
+  const btn = tx.querySelector('.tixplay'), blob = tx._audioBlob; if(!blob || !btn) return;
+  const icon = btn.querySelector('.tp-icon'), arc = btn.querySelector('.tp-arc');
+  const setArc = (frac)=>{ if(arc) arc.style.strokeDashoffset = String(TP_C * (1 - Math.max(0, Math.min(1, frac||0)))); };
+  if(arc && arc.style.strokeDasharray==='') arc.style.strokeDasharray = String(TP_C);
+  if(tx._audioEl && !tx._audioEl.paused){ tx._audioEl.pause(); return; }
+  if(!tx._audioEl){
+    tx._audioEl = new Audio(URL.createObjectURL(blob));
+    tx._audioEl.onplay  = ()=>{ btn.classList.add('playing'); if(icon) icon.innerHTML=IC_PAUSE; };
+    tx._audioEl.onpause = ()=>{ btn.classList.remove('playing'); if(icon) icon.innerHTML=IC_PLAY; };
+    tx._audioEl.onended = ()=>{ btn.classList.remove('playing'); if(icon) icon.innerHTML=IC_PLAY; setArc(0); };
+    tx._audioEl.ontimeupdate = ()=>{ const d=tx._audioEl.duration; if(d && isFinite(d)) setArc(tx._audioEl.currentTime/d); };
+  }
+  setArc(0);
+  tx._audioEl.currentTime = 0; tx._audioEl.play().catch(()=>{});
+}
+function _txHint(tx, msg, cls){ const h=tx.querySelector('.tix-rec .tixhint'); if(h){ h.textContent=msg; h.className='tixhint'+(cls?' '+cls:''); } }
+// Start over: delete this reflection (audio + transcript) and drop back to the mic.
+async function tixTrash(tx){
+  const id = tx._reflId, email = memberEmail();
+  try{ if(tx._audioEl) tx._audioEl.pause(); }catch(_){}
+  if(id){ try{ await fetch(ART_API+'/transcribe/'+encodeURIComponent(id), {method:'DELETE', headers:{'Content-Type':'application/json'}, body:JSON.stringify({email})}); }catch(_){} }
+  syncTicketReflection(tx, null);           // clear the cached reflection so a reopen shows the mic
+  tx._audioBlob=null; tx._reflId=null; tx._audioEl=null; tx._savedText='';
+  resetTixRec(tx);
+}
+async function tixJournal(tx){
+  const id = tx._reflId, email = memberEmail();
+  const text = (tx.querySelector('.tixtxt')||{}).value || '';
+  if(!id || !text.trim()){ _txHint(tx, 'nothing to save', 'bad'); return; }
+  try{
+    const r = await fetch(ART_API+'/transcribe/'+encodeURIComponent(id), {method:'PATCH',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify({email, text:text.trim()})});
+    if(r.ok){
+      _txHint(tx, 'journaled ✓', 'ok');   // stays with the card — no reset
+      // Keep the cached ticket in sync so a reopen shows the edited text.
+      if(_tixData){ for(const k in _tixData){ const rf=_tixData[k].reflection; if(rf && rf.id===id) rf.text = text.trim(); } }
+    } else _txHint(tx, "couldn't save the edit", 'bad');
+  }catch(_){ _txHint(tx, "couldn't save the edit", 'bad'); }
+}
+// Web: compose the card image + audio into a video WITH audio (a still image posts silent
+// to Stories — the share must be a video). Repaints each frame so captureStream keeps
+// emitting. Native uses CardVideo; this is the web/PWA path.
+async function buildTicketVideo(cardBlob, audioBlob){
+  if(!window.MediaRecorder) return null;
+  const W=1080,H=1920, cv=document.createElement('canvas'); cv.width=W; cv.height=H; const g=cv.getContext('2d');
+  const card = await new Promise(res=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=()=>res(null); i.src=URL.createObjectURL(cardBlob); });
+  const drawFrame=()=>{ g.fillStyle='#0f0b08'; g.fillRect(0,0,W,H);
+    if(card){ const s=Math.min(W/card.width,H/card.height), cw=card.width*s, ch=card.height*s; g.drawImage(card,(W-cw)/2,(H-ch)/2,cw,ch); } };
+  drawFrame();
+  const audio=new Audio(); audio.src=URL.createObjectURL(audioBlob); audio.preload='auto';
+  await new Promise(res=>{ audio.onloadedmetadata=res; audio.onerror=res; setTimeout(res,3000); });
+  let actx,dest,src; try{ actx=new (window.AudioContext||window.webkitAudioContext)();
+    dest=actx.createMediaStreamDestination(); src=actx.createMediaElementSource(audio); src.connect(dest); }catch(_){}
+  const vStream=cv.captureStream(30);
+  const tracks=[...vStream.getVideoTracks(), ...(dest?dest.stream.getAudioTracks():[])];
+  const mime = MediaRecorder.isTypeSupported('video/mp4')?'video/mp4'
+             : MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')?'video/webm;codecs=vp8,opus':'video/webm';
+  let rec; try{ rec=new MediaRecorder(new MediaStream(tracks),{mimeType:mime}); }catch(_){ return null; }
+  const parts=[]; rec.ondataavailable=e=>{ if(e.data&&e.data.size) parts.push(e.data); };
+  const stopped=new Promise(res=> rec.onstop=res);
+  try{ if(actx) await actx.resume(); }catch(_){}
+  let raf=null; const loop=()=>{ drawFrame(); raf=requestAnimationFrame(loop); }; raf=requestAnimationFrame(loop);
+  rec.start(100);
+  try{ await audio.play(); }catch(_){}
+  await new Promise(res=>{ audio.onended=res; setTimeout(res, ((audio.duration&&isFinite(audio.duration)?audio.duration:11)*1000)+800); });
+  try{ rec.stop(); }catch(_){} await stopped; if(raf) cancelAnimationFrame(raf); try{ if(actx) actx.close(); }catch(_){}
+  return parts.length ? new Blob(parts,{type:mime.split(';')[0]}) : null;
+}
+// Share audio = the same card + the audio, composed into a video. Native muxes the
+// card image + audio into an mp4 (CardVideo, the path Pierre uses); web falls back to
+// sharing the audio (+ card image) files.
+async function tixShareAudio(tx){
+  const blob = tx._audioBlob; if(!blob){ _txHint(tx,'no audio to share','bad'); return; }
+  _txHint(tx,'building video…');
+  const text = (tx.querySelector('.tixtxt')||{}).value || '';
+  const caption = (text?('“'+text+'” — '):'')+(tx.dataset.film||'');
+  let cardBlob=null; try{ cardBlob = await buildTicketCard({ id:tx.dataset.id||'', film:tx.dataset.film||'', theater:tx.dataset.theater||'',
+    date:tx.dataset.date||'', poster:tx.dataset.poster||'', text }); }catch(_){}
+  const type = blob.type||'audio/webm';
+  const ext = (type.includes('mp4')||type.includes('m4a')||type.includes('aac'))?'m4a'
+            : type.includes('wav')?'wav' : type.includes('mpeg')?'mp3' : type.includes('webm')?'webm':'m4a';
+  const Cap = window.Capacitor || (window.top && window.top.Capacitor);
+  if(cardBlob && Cap && Cap.isNativePlatform && Cap.isNativePlatform() && Cap.Plugins && Cap.Plugins.CardVideo){
+    try{
+      const res = await Cap.Plugins.CardVideo.compose({ image: await blobB64(cardBlob), audio: await blobB64(blob), audioExt: ext });
+      if(res && res.uri){ (window.top||window).postMessage({type:'pg:shareFile', name:'ticket-'+Date.now()+'.mp4', caption, fileUri:res.uri}, '*'); _txHint(tx,'opening share…'); return; }
+    }catch(_){}
+  }
+  // Web fallback: compose a video (card + audio) so the Story actually has sound.
+  try{
+    const vid = cardBlob ? await buildTicketVideo(cardBlob, blob).catch(()=>null) : null;
+    if(vid){
+      const vext = vid.type.indexOf('mp4')>=0 ? 'mp4' : 'webm';
+      const vfile = new File([vid], 'ticket-'+Date.now()+'.'+vext, {type:vid.type});
+      if(navigator.canShare && navigator.canShare({files:[vfile]})){ await navigator.share({files:[vfile], text:caption}); _txHint(tx,''); return; }
+      const b64 = await blobB64(vid); (window.top||window).postMessage({type:'pg:shareFile', dataB64:b64, name:vfile.name, caption}, '*'); _txHint(tx,'opening share…'); return;
+    }
+  }catch(_){}
+  // Last resort: share the raw audio file.
+  try{ const b64 = await blobB64(blob); (window.top||window).postMessage({type:'pg:shareFile', dataB64:b64, name:'reflection.'+ext, caption}, '*'); _txHint(tx,'opening share…'); }
+  catch(_){ _txHint(tx,"couldn't share",'bad'); }
+}
+async function tixShareCard(tx){
+  _txHint(tx,'building card…');
+  const text = (tx.querySelector('.tixtxt')||{}).value || '';
+  try{
+    const blob = await buildTicketCard({ id:tx.dataset.id||'', film:tx.dataset.film||'', theater:tx.dataset.theater||'', date:tx.dataset.date||'',
+      poster:tx.dataset.poster||'', text });
+    const caption = (text?('“'+text+'” — '):'')+(tx.dataset.film||'');
+    try{ const file = new File([blob],'ticket-card.png',{type:'image/png'});
+      if(navigator.canShare && navigator.canShare({files:[file]})){ await navigator.share({files:[file], text:caption}); _txHint(tx,''); return; } }catch(_){}
+    const b64 = await blobB64(blob); (window.top||window).postMessage({type:'pg:shareFile', dataB64:b64, name:'ticket-card.png', caption}, '*'); _txHint(tx,'opening share…');
+  }catch(_){ _txHint(tx,"couldn't build the card",'bad'); }
+}
+// Poster-forward 9:16 (Reels/Stories) share card — the poster fills the frame, a
+// small text block (film · reflection · theater/date) rides the lower-left with the
+// sharer's avatar, and a scannable QR to pangolinrc.com anchors the bottom. The
+// shared renderer lives in pg_share_card.js (+ pg_share_qr.js) so the IRL ticket and
+// the PIERRE show card read as the same object.
+function buildTicketCard(o){
+  let avatar=''; try{ avatar=localStorage.getItem('pg_avatar')||''; }catch(_){}
+  return PGShareCard.buildPoster({
+    poster: o.poster||'', proxyBase: ART_API,
+    brand: 'PANGOLINRC · IRL',
+    title: o.film||'',
+    quote: o.text||'',
+    meta:  [o.theater,o.date].filter(Boolean).join('  ·  '),
+    name:  memberName() || (memberEmail()||'').split('@')[0] || '',
+    avatar
+  });
+}
+
+// ── MEDIA (the shelf): scan a barcode (camera) or type it in, and the disc joins
+//    the member's collection. Camera is simulated locally from a screengrab the user
+//    supplies; the collection persists in localStorage until the backend exists.
+const MEDIA_KEY = 'pg_irl_media';
+function loadMedia(){
+  try{ const m = JSON.parse(localStorage.getItem(MEDIA_KEY)||'[]'); if(Array.isArray(m)) return m; }catch(_){}
+  return [];
+}
+function saveMedia(list){ try{ localStorage.setItem(MEDIA_KEY, JSON.stringify(list)); }catch(_){} }
+// Unique per call — Date.now() alone collides when two shelve back-to-back, which cross-
+// wired their async title/poster updates onto the same card.
+function mediaId(){ return 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+function addMedia(item){ const list = loadMedia(); list.unshift({ id:mediaId(), ...item }); saveMedia(list); }
+// ?seed preview shelf — real physical-edition box art (Amazon product images) so the
+// layout reads true without a live scan. Never shown to a real member (needs ?seed).
+function sampleMedia(){
+  return [
+    { id:'d1', title:'Homicide: Life on the Street', fmt:'DVD',     barcode:'', poster:'https://m.media-amazon.com/images/I/91adBKeJ4bL._SY679_.jpg' },
+    { id:'d2', title:'Mr. Robot',                    fmt:'BLU-RAY', barcode:'', poster:'https://m.media-amazon.com/images/I/81MzYDozu0L._SX522_.jpg' },
+    { id:'d3', title:'V for Vendetta',               fmt:'DVD',     barcode:'', poster:'https://m.media-amazon.com/images/I/915bUmAaOJL._SY679_.jpg' },
+  ];
+}
+// The camera/scan module is collapsed by default — the shelf shows first, and a (+)
+// opens the scanner only when the member wants to add a disc.
+let mediaAdding = false;
+function renderMedia(pane){
+  const addPanel = mediaAdding ? `
+    <div class="addpanel">
+      <div class="cam" id="cam">
+        <div class="placeholder" id="camPlaceholder">camera preview<br>tap to use your camera · or drop a screengrab</div>
+        <div class="reticle"></div><div class="laser"></div>
+        <button class="camclose" id="camClose" aria-label="Close">✕</button>
+      </div>
+      <div class="camrow">
+        <button class="scan" id="scanBtn">Scan barcode</button>
+        <button class="manual" id="manualBtn">Enter by hand</button>
+      </div>
+      <div class="camstatus" id="camStatus">point the camera at the barcode on the case</div>
+    </div>` : '';
+  pane.innerHTML = `
+    ${addPanel}
+    <div class="shelfhead"><h2>My shelf</h2>
+      <div class="shelfright"><em id="shelfCount"></em>
+        <button class="addbtn ${mediaAdding?'on':''}" id="addBtn" aria-label="Add a disc">${mediaAdding?'✕':'+'}</button></div>
+    </div>
+    <div class="shelf" id="shelf"></div>`;
+  document.getElementById('addBtn').onclick = () => { mediaAdding = !mediaAdding; renderMedia(pane); };
+
+  if(mediaAdding){
+    // Take a photo (or drop a screengrab) → ZXing decodes the barcode from the still and
+    // shelves it. Live camera streaming needs a secure origin (blocked on http-over-LAN
+    // on iOS), so this snap-and-decode path is what works for local testing; the iOS app
+    // swaps in a native scanner. ?cam=<url> preset feeds an image straight in.
+    const cam = document.getElementById('cam');
+    function setStatus(msg, cls){ const st = document.getElementById('camStatus');
+      if(st){ st.textContent = msg; st.classList.remove('ok','bad'); if(cls) st.classList.add(cls); } }
+    function loadImg(src){ return new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=()=>rej(new Error('load')); i.src=src; }); }
+    // A rotated + downscaled copy of the photo. Phone shots arrive sideways, and decoding
+    // at full 4K resolution over-reads into false positives, so every attempt runs on a
+    // reduced, re-oriented copy.
+    function variantCanvas(img, rot, scale){
+      const w=Math.round(img.naturalWidth*scale), h=Math.round(img.naturalHeight*scale);
+      const c=document.createElement('canvas');
+      if(rot===90||rot===270){ c.width=h; c.height=w; } else { c.width=w; c.height=h; }
+      const ctx=c.getContext('2d'); ctx.imageSmoothingQuality='high';
+      ctx.translate(c.width/2,c.height/2); ctx.rotate(rot*Math.PI/180); ctx.drawImage(img,-w/2,-h/2,w,h); return c;
+    }
+    async function readOnce(cv){
+      try{ const r=await new ZXing.BrowserMultiFormatReader(new Map([[ZXing.DecodeHintType.TRY_HARDER,true]]))
+                          .decodeFromImageUrl(cv.toDataURL('image/jpeg',0.92)); return (r.getText()||'').trim(); }
+      catch(_){ return null; }
+    }
+    // Consensus decode: a real barcode reads identically across orientations/scales, while
+    // a misread is a one-off. Accept the first code seen TWICE (which beats singleton
+    // garbage); never shelve an unconfirmed guess. Early-exit keeps a clean frame near
+    // instant (~2 reads); the sideways/glare case still lands, just a beat slower.
+    async function decodeBarcode(src){
+      if(!window.ZXing){ setStatus('scanner unavailable — use Enter by hand','bad'); return; }
+      setStatus('scanning…');
+      let img; try{ img=await loadImg(src); }catch(_){ setStatus('could not open that image — retake','bad'); return; }
+      const tally={}; let best=null, bestN=0;
+      for(const scale of [0.6,0.5]) for(const rot of [0,90,270,180]){
+        const code=await readOnce(variantCanvas(img,rot,scale));
+        if(!code) continue;
+        tally[code]=(tally[code]||0)+1;
+        if(tally[code]>bestN){ best=code; bestN=tally[code]; }
+        if(bestN>=2){ shelveBarcode(best); setStatus('found '+best+' · added to shelf','ok'); return; }
+      }
+      setStatus('no clear read — fill the frame, hold steady, and retake','bad');
+    }
+    function showCam(src){
+      let img = cam.querySelector('img');
+      if(!img){ img = document.createElement('img'); cam.insertBefore(img, cam.firstChild); }
+      img.src = src;
+      const ph = document.getElementById('camPlaceholder'); if(ph) ph.style.display='none';
+      decodeBarcode(src);
+    }
+    function openCapture(){
+      const inp = document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.capture='environment';
+      inp.onchange = () => { const f = inp.files && inp.files[0]; if(f) showCam(URL.createObjectURL(f)); };
+      inp.click();
+    }
+    cam.onclick = openCapture;
+    cam.addEventListener('dragover', e => e.preventDefault());
+    cam.addEventListener('drop', e => { e.preventDefault();
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if(f && /^image\//.test(f.type)) showCam(URL.createObjectURL(f)); });
+    try{ const preset = new URLSearchParams(location.search).get('cam'); if(preset) showCam(preset); }catch(_){}
+    document.getElementById('camClose').onclick = () => { mediaAdding = false; renderMedia(pane); };
+    document.getElementById('scanBtn').onclick = openCapture;
+    document.getElementById('manualBtn').onclick = () => {
+      const title = prompt('Title on the disc');
+      if(!title || !title.trim()) return;
+      const fmt = (prompt('Format (DVD / BLU-RAY / 4K UHD / VHS)','BLU-RAY')||'').trim().toUpperCase() || 'DISC';
+      addMedia({ title:title.trim(), fmt, barcode:'', poster:'' });
+      paintShelf();
+    };
+  }
+  paintShelf();
+}
+// ── Barcode → title + cover art ──────────────────────────────────────────────
+// A scanned UPC resolves through the Worker: GET /tmdb/resolve does the UPCitemdb
+// lookup + title cleanup + guarded TMDB poster match server-side (keys held there, no
+// CORS proxy). Localhost has no local API, so resolve always hits the public Worker.
+const ART_API = API_BASE.includes('localhost') ? 'https://pangolin-rc.edward-m-willett.workers.dev' : API_BASE;
+
+// Resolve a scanned code to { title, fmt, poster } via the Worker. Null on no match.
+async function resolveDiscArt(code){
+  try{
+    const r = await fetch(ART_API + '/tmdb/resolve?upc=' + encodeURIComponent(code));
+    if(!r.ok) return null;
+    const d = await r.json();
+    if(!d || !d.title) return null;
+    return { title:d.title, fmt:d.fmt || 'DISC', poster:d.poster || '' };
+  }catch(_){ return null; }
+}
+function updateMedia(id, patch){ saveMedia(loadMedia().map(m => m.id===id ? {...m, ...patch} : m)); paintShelf(); }
+// Shelve a decoded/typed barcode: drop a card in immediately ("Looking up…"), then fill
+// in the real title/poster/format async. If nothing resolves, keep the bare code.
+function shelveBarcode(code){
+  const id = mediaId();
+  const list = loadMedia(); list.unshift({ id, title:'Looking up…', fmt:'DISC', barcode:code, poster:'' });
+  saveMedia(list); paintShelf();
+  resolveDiscArt(code)
+    .then(res => updateMedia(id, res ? { title:res.title, fmt:res.fmt, poster:res.poster } : { title:'Barcode '+code }))
+    .catch(() => updateMedia(id, { title:'Barcode '+code }));
+}
+function addByBarcode(code){ shelveBarcode(code); }
+function paintShelf(){
+  const shelf = document.getElementById('shelf'); if(!shelf) return;
+  let list = loadMedia();
+  if(SEED && !list.length) list = sampleMedia();
+  const count = document.getElementById('shelfCount'); if(count) count.textContent = list.length ? list.length+' titles' : '';
+  if(!list.length){
+    // Keep #shelf in the DOM (message spans the grid) so later scans can repaint it.
+    shelf.innerHTML = `<div class="bempty" style="grid-column:1/-1"><b>Nothing on the shelf yet.</b><br>Tap <b>+</b> to scan a disc's barcode or add one by hand.</div>`;
+    return;
+  }
+  shelf.innerHTML = list.map(m=>`<div class="mcard" data-id="${esc(m.id)}" style="${m.poster?`background-image:url('${esc(m.poster)}')`:''}">
+    <span class="fmt">${esc(m.fmt||'DISC')}</span>
+    <button class="x" data-x="${esc(m.id)}" aria-label="Remove">✕</button>
+    <div class="spine"><div class="mtitle">${esc(m.title||'Untitled')}</div></div></div>`).join('');
+  shelf.querySelectorAll('[data-x]').forEach(x => x.onclick = (ev)=>{
+    ev.stopPropagation();
+    saveMedia(loadMedia().filter(m=>m.id!==x.dataset.x));
+    paintShelf();
+  });
 }
 
 // "From friends": real shares pushed to me by friends (see /profile/:email/share).
@@ -350,6 +1587,31 @@ async function dismissShare(email, id, card, wrap){
   if(wrap && !wrap.querySelector('.bcard')) friendsEmpty(wrap, 'When friends share a show with you, it shows up here.');
 }
 if ((isMember() || forcedMember()) && !DEMO) renderBrowse();
+
+// Login can happen in Pierre AFTER this face loaded, so re-check membership each time
+// the cube rotates in — otherwise the JOIN intake keeps obscuring the browse content.
+window.addEventListener('message', (e) => {
+  if (!e.data) return;
+  // A ticket capture (Pierre / LOG finish) swings here → open the Tickets tab.
+  if (e.data.type === 'cube:payload' && e.data.face === 'join' && e.data.payload
+      && (e.data.payload.tab || e.data.payload.openMarathon)
+      && (isMember() || forcedMember()) && !DEMO) {
+    const p = e.data.payload;
+    // Pierre's "Open it in COLLECT" chip carries openMarathon → land on COLLECT and open the editor.
+    irlTab = p.tab || (p.openMarathon ? 'collect' : irlTab);
+    const opts = p.openMarathon ? { openMarathon: p.openMarathon }
+      : (p.addedTicketId || p.openTicketId)
+        ? { awaitId: p.addedTicketId || null, openTicketId: p.openTicketId || null } : undefined;
+    if (document.getElementById('browse').classList.contains('show')) switchTab(irlTab, opts);
+    else renderBrowse(opts);
+    return;
+  }
+  if (e.data.type === 'cube:focus'
+      && (isMember() || forcedMember()) && !DEMO
+      && !document.getElementById('browse').classList.contains('show')) {
+    renderBrowse();
+  }
+});
 
 document.getElementById("joinBtn").onclick = () => {
   // In the cube, hand the intake to the real Pierre face. Standalone, run the

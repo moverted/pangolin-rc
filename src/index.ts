@@ -12,11 +12,13 @@ import { remoteRoutes }     from './handlers/remote';
 import { captionRoutes }    from './handlers/captions';
 import { pierreRoutes }     from './handlers/pierre';
 import { profileRoutes }    from './handlers/profile';
+import { waitlistRoutes }   from './handlers/waitlist';
+import { adminRoutes }      from './handlers/admin';
 import { streamerRoutes }   from './handlers/streamer';
 import { tmdbRoutes }       from './handlers/tmdb';
 import { schedulerRoutes }  from './handlers/scheduler';
 import { catalogRoutes }    from './handlers/catalog';
-import { syncRoutes, pullChanges, airtableEnabled, pushRow } from './handlers/airtable';
+import { shadowRoutes }     from './handlers/shadow';
 import { processQueue }     from './queue';
 
 export { ResourceCoordinator } from './do/resource-coordinator';
@@ -41,6 +43,11 @@ const COVIEW_REVEAL_OFFSET_MS = 30_000;
 // the LOG face mirrors it in the "X of 5" counter and disarms the new-comment mic.
 const COVIEW_MAX_COMMENTS_PER_EPISODE = 5;
 
+// A member may leave at most this many END-NOTES (end-of-episode reflections) per
+// episode. Separate from the 5-comment cap above and counted independently
+// (is_endnote = 1). See COMMENT_CLIP_SHARE.md "Revision — 2026-07-29".
+const ENDNOTE_MAX_PER_EPISODE = 1;
+
 // Transcribe endpoint - direct handler to avoid routing issues
 app.options('/transcribe', (c) => {
   return c.json({ ok: true });
@@ -57,18 +64,39 @@ app.post('/transcribe', async (c) => {
     // Optional: this audio is a REPLY to a friend's comment (the OTT reply path —
     // the second viewer's phone is free to record while the show is on the TV).
     const replyTo = ((formData.get('replyTo') as string) || '').trim();
+    // An END-NOTE is the end-of-episode reflection from the Pierre finish flow: it
+    // carries an explicit SPLR/NOSP label, reveals only when a friend FINISHES the
+    // episode, is capped at 1 per episode, and can't be replied to. An end-note is
+    // also a reflection (exempt from the 5-comment cap), so isEndnote implies it.
+    const isEndnote = ((formData.get('endnote') as string) || '') === '1';
+    const isSpoiler = ((formData.get('spoiler') as string) || '') === '1';
     // A finished-episode reflection is a co-view comment that is EXEMPT from the
     // per-episode cap — it neither gets rejected by it nor counts toward it.
-    const isReflection = ((formData.get('reflection') as string) || '') === '1';
+    const isReflection = isEndnote || ((formData.get('reflection') as string) || '') === '1';
     // Private (journal) reflection: stored + transcribed but kept OUT of the co-view feed
     // until the member taps Share (which flips it public via /publish). Reflections only.
     const isPrivate = ((formData.get('private') as string) || '') === '1';
+
+    const email = userEmail.trim();
+    // Typed reflection (no audio): store the typed text as the comment's transcription so
+    // it behaves like a recorded reflection everywhere (editable, trashable, on the ticket).
+    const typedText = ((formData.get('text') as string) || '').trim().slice(0, 2000);
+    if (!audio && typedText && episodeId) {
+      if (!email || email === 'anonymous') return c.json({ error: 'sign in required' }, 401);
+      const known = await c.env.DB.prepare('SELECT 1 FROM users WHERE email = ?').bind(email).first();
+      if (!known) return c.json({ error: 'unknown user' }, 401);
+      const id = crypto.randomUUID(); const now = Date.now();
+      await c.env.DB.prepare(
+        `INSERT INTO watch_comment (id, user_email, episode_id, show_id, timestamp_ms, transcription, audio_r2_key, reply_to, is_reflection, is_endnote, spoiler, reveal_on, private, created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      ).bind(id, email, episodeId, showId || null, 0, typedText, null, null, isReflection ? 1 : 0, 0, 0, null, isPrivate ? 1 : 0, now).run();
+      return c.json({ id, transcription: typedText, audioUrl: null });
+    }
 
     if (!audio || !episodeId) {
       return c.json({ error: 'missing audio or episodeId' }, 400);
     }
 
-    const email = userEmail.trim();
     const contentType = audio.type || 'audio/webm';
     console.log('Audio upload for', episodeId, 'email:', email, 'size:', audio.size);
 
@@ -95,10 +123,12 @@ app.post('/transcribe', async (c) => {
     let replyParent: string | null = null;
     if (replyTo) {
       const parent: any = await c.env.DB
-        .prepare('SELECT id, user_email, episode_id, show_id, timestamp_ms FROM watch_comment WHERE id = ?')
+        .prepare('SELECT id, user_email, episode_id, show_id, timestamp_ms, is_endnote FROM watch_comment WHERE id = ?')
         .bind(replyTo)
         .first();
       if (!parent) return c.json({ error: 'parent comment not found' }, 404);
+      // End-notes are terminal — react with your own end-note, never a reply.
+      if (parent.is_endnote) return c.json({ error: 'end-notes can\'t be replied to' }, 409);
       const mutual = await c.env.DB
         .prepare(
           `SELECT 1 FROM follows a
@@ -109,10 +139,34 @@ app.post('/transcribe', async (c) => {
         .bind(email, parent.user_email)
         .first();
       if (!mutual) return c.json({ error: 'not permitted to reply' }, 403);
+      // One reply per comment, first-come-locked. The UNIQUE(reply_to) index is the
+      // race-safe guard (caught on INSERT below); this pre-check avoids uploading audio
+      // to R2 for a reply that would be rejected anyway.
+      const answered = await c.env.DB
+        .prepare('SELECT 1 FROM watch_comment WHERE reply_to = ?')
+        .bind(parent.id)
+        .first();
+      if (answered) return c.json({ error: 'already answered', code: 'reply_locked' }, 409);
       replyParent = parent.id;
       episodeId = parent.episode_id;
       showId = parent.show_id || showId;
       timestampMs = parent.timestamp_ms;   // anchor at the parent's mark, not the device clock
+    } else if (isEndnote && showId) {
+      // End-note cap: at most ENDNOTE_MAX_PER_EPISODE per member per (show, episode),
+      // counted independently of the 5-comment cap (is_endnote = 1).
+      const existing = await c.env.DB
+        .prepare(
+          `SELECT COUNT(*) AS n FROM watch_comment
+            WHERE user_email = ? AND episode_id = ? AND show_id IS ? AND is_endnote = 1`
+        )
+        .bind(email, episodeId, showId || null)
+        .first<{ n: number }>();
+      if ((existing?.n ?? 0) >= ENDNOTE_MAX_PER_EPISODE) {
+        return c.json(
+          { error: 'You already left an end-of-episode note here.', code: 'endnote_capped' },
+          409
+        );
+      }
     } else if (showId && !isReflection) {
       // Original co-view comment (not a reply, not a reflection): cap at
       // COVIEW_MAX_COMMENTS_PER_EPISODE per member per (show, episode). Count this
@@ -160,12 +214,25 @@ app.post('/transcribe', async (c) => {
     }
 
     const now = Date.now();
-    await c.env.DB.prepare(
-      `INSERT INTO watch_comment (id, user_email, episode_id, show_id, timestamp_ms, transcription, audio_r2_key, reply_to, is_reflection, private, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-      .bind(commentId, email, episodeId, showId || null, timestampMs, transcription || null, r2Key, replyParent, isReflection ? 1 : 0, isPrivate ? 1 : 0, now)
-      .run();
+    // End-notes reveal on the friend's finish (not a minute); in-episode comments keep
+    // the mark-anchored reveal (reveal_on = NULL).
+    const revealOn = isEndnote ? 'finish' : null;
+    try {
+      await c.env.DB.prepare(
+        `INSERT INTO watch_comment (id, user_email, episode_id, show_id, timestamp_ms, transcription, audio_r2_key, reply_to, is_reflection, is_endnote, spoiler, reveal_on, private, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+        .bind(commentId, email, episodeId, showId || null, timestampMs, transcription || null, r2Key, replyParent, isReflection ? 1 : 0, isEndnote ? 1 : 0, isSpoiler ? 1 : 0, revealOn, isPrivate ? 1 : 0, now)
+        .run();
+    } catch (err) {
+      // UNIQUE(reply_to) — a racing reply beat this one to the parent. Purge the audio
+      // we just stored so it isn't orphaned, and report the lock.
+      if (replyParent && /UNIQUE/i.test(String(err))) {
+        await c.env.RAW_BUCKET.delete(r2Key).catch(() => {});
+        return c.json({ error: 'already answered', code: 'reply_locked' }, 409);
+      }
+      throw err;
+    }
 
     console.log(replyParent ? 'Audio reply saved:' : 'Audio comment saved:', commentId);
     return c.json({
@@ -194,14 +261,90 @@ app.get('/transcribe/audio/:id', async (c) => {
     .first<{ audio_r2_key: string | null }>();
   if (!row?.audio_r2_key) return c.json({ error: 'not found' }, 404);
 
-  const object = await c.env.RAW_BUCKET.get(row.audio_r2_key);
-  if (!object) return c.json({ error: 'audio not in storage' }, 404);
+  // Range support: media elements (esp. MP4/m4a, whose moov atom may sit at the end)
+  // request `Range: bytes=…` and expect a 206 with Content-Range. Without it the
+  // browser can stall on load / can't seek. Honor it; fall back to a full 200.
+  const head = await c.env.RAW_BUCKET.head(row.audio_r2_key);
+  if (!head) return c.json({ error: 'audio not in storage' }, 404);
+  const total = head.size;
+  const rangeHeader = c.req.header('range') || '';
+  const m = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim());
 
   const headers = new Headers();
-  object.writeHttpMetadata(headers);
+  head.writeHttpMetadata(headers);
   if (!headers.has('Content-Type')) headers.set('Content-Type', 'audio/webm');
   headers.set('Cache-Control', 'private, max-age=86400');
+  headers.set('Accept-Ranges', 'bytes');
+
+  if (m && (m[1] || m[2])) {
+    const g1 = m[1] || '', g2 = m[2] || '';
+    const start = g1 ? parseInt(g1, 10) : Math.max(0, total - parseInt(g2, 10));
+    const end = g1 ? (g2 ? Math.min(parseInt(g2, 10), total - 1) : total - 1) : total - 1;
+    if (Number.isNaN(start) || start > end || start >= total) {
+      headers.set('Content-Range', `bytes */${total}`);
+      return new Response(null, { status: 416, headers });
+    }
+    const object = await c.env.RAW_BUCKET.get(row.audio_r2_key, { range: { offset: start, length: end - start + 1 } });
+    if (!object) return c.json({ error: 'audio not in storage' }, 404);
+    headers.set('Content-Range', `bytes ${start}-${end}/${total}`);
+    headers.set('Content-Length', String(end - start + 1));
+    return new Response(object.body, { status: 206, headers });
+  }
+
+  const object = await c.env.RAW_BUCKET.get(row.audio_r2_key);
+  if (!object) return c.json({ error: 'audio not in storage' }, 404);
+  headers.set('Content-Length', String(total));
   return new Response(object.body, { headers });
+});
+
+// Log a completed EXTERNAL share of a comment/reflection clip. Fire-and-forget from
+// the shell's share bridge after the native Share sheet resolves; never on the app's
+// critical path. Best-effort moderation trail — see migration 0031. Auth follows the
+// same SEAM:identity posture as /transcribe (no gate): the share already happened on
+// the device; we're just recording it. user_email is derived from the comment, not
+// trusted from the client. Unknown commentId → 404 (nothing to anchor the share to).
+app.post('/transcribe/share', async (c) => {
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const commentId = (typeof body.commentId === 'string' ? body.commentId : '').trim();
+  if (!commentId) return c.json({ error: 'commentId required' }, 400);
+
+  const clip = await c.env.DB.prepare('SELECT user_email FROM watch_comment WHERE id = ?')
+    .bind(commentId).first<{ user_email: string | null }>();
+  if (!clip) return c.json({ error: 'unknown comment' }, 404);
+
+  const pick = (v: unknown, allowed: readonly string[], fallback: string) =>
+    (typeof v === 'string' && allowed.includes(v)) ? v : fallback;
+  const platform = pick(body.platform, ['instagram', 'photos', 'messages', 'whatsapp', 'other', 'unknown'], 'unknown');
+  const method   = pick(body.method,   ['reel', 'story', 'file'], 'file');
+  const activityType = (typeof body.activityType === 'string' ? body.activityType : '').slice(0, 200);
+
+  const id = crypto.randomUUID();
+  const now = Date.now();
+  await c.env.DB.prepare(
+    `INSERT INTO comment_share (id, comment_id, user_email, platform, method, activity_type, shared_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).bind(id, commentId, clip.user_email, platform, method, activityType || null, now).run();
+
+  return c.json({ ok: true, id, shared_at: now });
+});
+
+// Flag a comment for review (the red flag glyph next to the like). One report per
+// member (PK), idempotent — re-flagging is a no-op that still returns the count.
+// SEAM:identity: email-asserted like the other comment routes. Returns the running
+// report count so the admin Comments page can triage.
+app.post('/transcribe/comments/:id/flag', async (c) => {
+  const id = c.req.param('id');
+  let body: any; try { body = await c.req.json(); } catch { body = {}; }
+  const email = (typeof body.email === 'string' ? body.email : (typeof body.userEmail === 'string' ? body.userEmail : '')).trim().toLowerCase();
+  if (!email) return c.json({ error: 'email required' }, 400);
+  const exists = await c.env.DB.prepare('SELECT 1 FROM watch_comment WHERE id = ?').bind(id).first();
+  if (!exists) return c.json({ error: 'unknown comment' }, 404);
+  await c.env.DB.prepare(
+    'INSERT INTO comment_flag (comment_id, user_email, created_at) VALUES (?, ?, ?) ON CONFLICT(comment_id, user_email) DO NOTHING'
+  ).bind(id, email, Date.now()).run();
+  const cnt = await c.env.DB.prepare('SELECT COUNT(*) AS n FROM comment_flag WHERE comment_id = ?').bind(id).first<{ n: number }>();
+  return c.json({ ok: true, flags: cnt?.n ?? 0 });
 });
 
 // One-time transcription fix. The author corrects Whisper's text once; after
@@ -215,12 +358,15 @@ app.patch('/transcribe/:id', async (c) => {
   if (text.length > 2000) return c.json({ error: 'transcription too long' }, 400);
 
   const row: any = await c.env.DB
-    .prepare('SELECT user_email, transcript_edited FROM watch_comment WHERE id = ?')
+    .prepare('SELECT user_email, transcript_edited, COALESCE(private,0) AS private FROM watch_comment WHERE id = ?')
     .bind(id)
     .first();
   if (!row) return c.json({ error: 'not found' }, 404);
   if (row.user_email !== email) return c.json({ error: 'not your comment' }, 403);
-  if (row.transcript_edited) return c.json({ error: 'already corrected once' }, 409);
+  // The one-time-edit limit only guards SHARED co-view comments (so a transcript can't be
+  // gamed after others have seen it). A private journal reflection is the member's own —
+  // freely editable.
+  if (row.transcript_edited && !row.private) return c.json({ error: 'already corrected once' }, 409);
 
   const now = Date.now();
   await c.env.DB
@@ -281,7 +427,8 @@ app.get('/transcribe/comments', async (c) => {
 
   const { results } = await c.env.DB
     .prepare(
-      `SELECT id, episode_id, timestamp_ms, transcription, transcript_edited, reply_to, created_at
+      `SELECT id, episode_id, timestamp_ms, transcription, transcript_edited, reply_to,
+              is_endnote, spoiler, reveal_on, created_at
          FROM watch_comment
         WHERE show_id = ? AND user_email = ?
         ORDER BY created_at DESC`
@@ -297,6 +444,9 @@ app.get('/transcribe/comments', async (c) => {
     transcription: r.transcription || '',
     edited: !!r.transcript_edited,   // true → the one correction is spent, lock the pencil
     replyTo: r.reply_to || null,     // non-null → a reply; excluded from the per-episode cap count
+    endNote: !!r.is_endnote,         // true → render the SPLR/NOSP episode label, not a timecode
+    spoiler: !!r.spoiler,            // the SPLR/NOSP choice (only meaningful when endNote)
+    revealOn: r.reveal_on || null,   // 'finish' for end-notes
     createdAt: r.created_at,
     audioUrl: `${origin}/transcribe/audio/${r.id}`,
   }));
@@ -318,6 +468,105 @@ app.post('/transcribe/comments/:id/publish', async (c) => {
   return c.json({ ok: true });
 });
 
+// Finalize a RECORDED end-note. The shell mic uploads the clip the instant recording
+// stops (private=1) — before the member picks SPLR/NOSP and Share/Journal — so this
+// stamps the choice afterward: mark it an end-note (is_endnote + reveal_on='finish'),
+// persist the spoiler flag, and (on Share) flip it public. Journal leaves private=1.
+// Own-comment only. Named /finalize (not /endnote) so its static tail doesn't collide
+// with the standalone POST /transcribe/endnote in Hono's RegExpRouter. See
+// COMMENT_CLIP_SHARE.md "Revision — 2026-07-29".
+app.post('/transcribe/comments/:id/finalize', async (c) => {
+  const id = c.req.param('id');
+  const body = await c.req.json().catch(() => ({} as any));
+  const email = (body.email || '').trim();
+  const isSpoiler = body.spoiler === true || body.spoiler === 1 || body.spoiler === '1';
+  const publish = body.publish === true || body.publish === 1 || body.publish === '1';
+  if (!id || !email) return c.json({ error: 'id and email required' }, 400);
+  await c.env.DB
+    .prepare(
+      `UPDATE watch_comment
+          SET is_endnote = 1, is_reflection = 1, reveal_on = 'finish',
+              spoiler = ?, private = CASE WHEN ? THEN 0 ELSE private END
+        WHERE id = ? AND user_email = ?`
+    )
+    .bind(isSpoiler ? 1 : 0, publish ? 1 : 0, id, email)
+    .run();
+  return c.json({ ok: true, endNote: true, spoiler: isSpoiler, published: publish });
+});
+
+// A TYPED end-note (the finish flow's "type it" path). Unlike a recorded end-note
+// (POST /transcribe with endnote=1), there is no audio, so it lands here as a text-only
+// co-view comment. Same rules: is_endnote + reveal_on='finish', explicit SPLR/NOSP,
+// capped at 1 per episode, private until Share (Journal keeps private=1). See
+// COMMENT_CLIP_SHARE.md "Revision — 2026-07-29".
+app.post('/transcribe/endnote', async (c) => {
+  const body = await c.req.json().catch(() => ({} as any));
+  const email = (body.email || '').trim();
+  const showId = (body.showId || '').trim();
+  const episodeId = (body.episodeId || '').trim();
+  const text = (body.text || '').trim();
+  const isSpoiler = body.spoiler === true || body.spoiler === 1 || body.spoiler === '1';
+  const isPrivate = body.private === true || body.private === 1 || body.private === '1';
+  if (!email || !showId || !episodeId || !text) {
+    return c.json({ error: 'email, showId, episodeId and text are required' }, 400);
+  }
+  if (text.length > 2000) return c.json({ error: 'end-note too long' }, 400);
+
+  const known = await c.env.DB.prepare('SELECT 1 FROM users WHERE email = ?').bind(email).first();
+  if (!known) return c.json({ error: 'unknown user' }, 401);
+
+  // End-note cap: 1 per member per (show, episode), counted independently (is_endnote = 1).
+  const existing = await c.env.DB
+    .prepare(
+      `SELECT COUNT(*) AS n FROM watch_comment
+        WHERE user_email = ? AND episode_id = ? AND show_id IS ? AND is_endnote = 1`
+    )
+    .bind(email, episodeId, showId)
+    .first<{ n: number }>();
+  if ((existing?.n ?? 0) >= ENDNOTE_MAX_PER_EPISODE) {
+    return c.json({ error: 'You already left an end-of-episode note here.', code: 'endnote_capped' }, 409);
+  }
+
+  const id = crypto.randomUUID();
+  const now = Date.now();
+  await c.env.DB
+    .prepare(
+      `INSERT INTO watch_comment (id, user_email, episode_id, show_id, timestamp_ms, transcription, audio_r2_key, reply_to, is_reflection, is_endnote, spoiler, reveal_on, private, created_at)
+       VALUES (?, ?, ?, ?, 0, ?, NULL, NULL, 1, 1, ?, 'finish', ?, ?)`
+    )
+    .bind(id, email, episodeId, showId, text, isSpoiler ? 1 : 0, isPrivate ? 1 : 0, now)
+    .run();
+
+  return c.json({ id, endNote: true, spoiler: isSpoiler, private: isPrivate, createdAt: now });
+});
+
+// Quick feedback from the console band: thumbs up / down (Ted reviews by hand) and Get
+// Ted (opens a real escalation so it lands in the admin Get Ted queue, and Ted's reply
+// comes back through Pierre via the ted-messages fetch). Always records; no auth (it is
+// low-value and tied to the signed-in email the client sends).
+app.post('/feedback', async (c) => {
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const email = (typeof body.email === 'string' ? body.email : '').trim().toLowerCase();
+  const kind = typeof body.kind === 'string' ? body.kind.trim().slice(0, 20) : '';
+  const face = typeof body.face === 'string' ? body.face.trim().slice(0, 40) : '';
+  const note = typeof body.note === 'string' ? body.note.trim().slice(0, 500) : '';
+  if (!email || !['up', 'down', 'get_ted'].includes(kind)) return c.json({ error: 'email and valid kind required' }, 400);
+  const now = Date.now();
+  await c.env.DB.prepare('INSERT INTO feedback (user_email, kind, face, note, created_at) VALUES (?, ?, ?, ?, ?)')
+    .bind(email, kind, face || null, note || null, now).run();
+  if (kind === 'get_ted') {
+    // A one-turn synthetic conversation carrying the needs_ted flag, so the band's Get Ted
+    // rides the exact same admin queue + reply-delivery loop as a Pierre [GETTED] handoff.
+    const convo = crypto.randomUUID();
+    const content = note || `Tapped Get Ted from the ${face || 'app'} screen.`;
+    await c.env.DB.prepare(
+      "INSERT INTO pierre_chat (id, conversation_id, user_email, seq, role, content, grade, needs_ted, ted_status, created_at) VALUES (?, ?, ?, 1, 'user', ?, '', 1, '', ?)",
+    ).bind(crypto.randomUUID(), convo, email, content, now).run();
+  }
+  return c.json({ ok: true });
+});
+
 // Same-origin image proxy for CDNs that send no CORS header (image.tmdb.org movie posters),
 // so the share-card canvas can loadImg them crossOrigin and still toBlob() to share. TVmaze
 // (series) posters already send CORS and don't need this. Host-whitelisted; cached at the edge.
@@ -335,6 +584,57 @@ app.get('/img', async (c) => {
       'cache-control': 'public, max-age=86400',
     },
   });
+});
+
+// GET /img/focal?u=<image.tmdb.org poster> → { x, y } in 0..1 for the focal point of the
+// poster's main subject (face/eyes, or the single most iconic element), so a wide banner
+// crop centers on the hero (Spider-Man's eye, Odysseus's head). Vision call cached in KV.
+app.get('/img/focal', async (c) => {
+  const u = c.req.query('u') || '';
+  let url: URL;
+  try { url = new URL(u); } catch { return c.json({ error: 'bad url' }, 400); }
+  if (url.hostname !== 'image.tmdb.org') return c.json({ error: 'host not allowed' }, 403);
+  const CORS = { 'access-control-allow-origin': '*' };
+  const fallback = { x: 0.5, y: 0.45 };
+  const key = 'focal2:' + url.pathname;                 // v2 prompt — invalidates old cached points
+  const cached = await c.env.ACCESS_KV.get(key).catch(() => null);
+  if (cached) { try { return c.json(JSON.parse(cached), 200, CORS); } catch { /* re-derive */ } }
+  if (!c.env.ANTHROPIC_API_KEY) return c.json(fallback, 200, CORS);
+  try {
+    const up = await fetch(url.toString(), { cf: { cacheTtl: 86400, cacheEverything: true } } as any);
+    if (!up.ok) return c.json(fallback, 200, CORS);
+    const mtRaw = up.headers.get('content-type') || 'image/jpeg';
+    const mt = /^image\/(jpeg|png|gif|webp)$/.test(mtRaw) ? mtRaw : 'image/jpeg';
+    const bytes = new Uint8Array(await up.arrayBuffer());
+    let bin = ''; for (const b of bytes) bin += String.fromCharCode(b);
+    const b64 = btoa(bin);
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': c.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001', max_tokens: 60,
+        messages: [{ role: 'user', content: [
+          { type: 'image', source: { type: 'base64', media_type: mt, data: b64 } },
+          { type: 'text', text:
+            'This is a movie poster. Find the main human face(s), or the single most iconic subject if no ' +
+            'face. IMPORTANT: posters often place the people in the LOWER half of the frame, below the title ' +
+            'text and empty sky/background — report where the face/subject ACTUALLY is, even if it sits low ' +
+            'in the frame. Ignore title text and logos. Return ONLY compact JSON {"x":0.NN,"y":0.NN} for the ' +
+            'center of that face/subject, as fractions 0..1 from the top-left (y near 0 = top, y near 1 = ' +
+            'bottom). No prose.' },
+        ] }],
+      }),
+    });
+    if (!res.ok) return c.json(fallback, 200, CORS);
+    const d: any = await res.json();
+    const txt = (d?.content?.[0]?.text || '').trim();
+    const m = txt.match(/\{[^}]*\}/);
+    let pt = fallback;
+    if (m) { try { const j = JSON.parse(m[0]); if (typeof j.x === 'number' && typeof j.y === 'number')
+      pt = { x: Math.min(1, Math.max(0, j.x)), y: Math.min(1, Math.max(0, j.y)) }; } catch { /* keep fallback */ } }
+    await c.env.ACCESS_KV.put(key, JSON.stringify(pt), { expirationTtl: 60 * 60 * 24 * 90 }).catch(() => {});
+    return c.json(pt, 200, CORS);
+  } catch { return c.json(fallback, 200, CORS); }
 });
 
 // Co-viewing: friends' audio comments for a show (or one episode), ordered by
@@ -360,6 +660,11 @@ app.get('/transcribe/coview', async (c) => {
   const seenMs = parseInt(c.req.query('seenMs') ?? '', 10);   // NaN → reveal nothing
   const want = (c.req.query('with') ?? '')
     .split(',').map((s) => s.trim()).filter(Boolean);
+  // Episodes the CALLER has marked finished. End-notes (reveal_on = 'finish') reveal only
+  // once the viewer finishes the episode — runtimes drift, so we never trust a minute here.
+  const finishedEps = new Set(
+    (c.req.query('finishedEps') ?? '').split(',').map((s) => s.trim()).filter(Boolean)
+  );
   if (!showId || !email || !want.length) return c.json({ comments: [] });
 
   // Friends = mutual follow (A→B and B→A). Derive, then intersect with `want`.
@@ -383,13 +688,15 @@ app.get('/transcribe/coview', async (c) => {
   // client threads those under your own (non-coview) comment rows.
   const ph = allowed.map(() => '?').join(',');
   // c.private = 0 → journaled (private) reflections never reach a friend's co-view feed.
-  const where = ['c.show_id = ?', 'c.private = 0', `(c.user_email IN (${ph}) OR (c.user_email = ? AND c.reply_to IS NOT NULL))`];
+  // c.hidden = 0 → admin-hidden (moderated) comments are withheld from viewers too.
+  const where = ['c.show_id = ?', 'c.private = 0', 'c.hidden = 0', `(c.user_email IN (${ph}) OR (c.user_email = ? AND c.reply_to IS NOT NULL))`];
   const binds: any[] = [showId, ...allowed, email];
   if (episodeId) { where.push('c.episode_id = ?'); binds.push(episodeId); }
   const { results } = await c.env.DB
     .prepare(
       `SELECT c.id, c.user_email, c.episode_id, c.timestamp_ms, c.transcription,
-              c.audio_r2_key, c.reply_to, c.created_at, u.username, u.phone
+              c.audio_r2_key, c.reply_to, c.is_endnote, c.spoiler, c.reveal_on,
+              c.created_at, u.username, u.phone
          FROM watch_comment c
          LEFT JOIN users u ON u.email = c.user_email
         WHERE ${where.join(' AND ')}
@@ -401,16 +708,25 @@ app.get('/transcribe/coview', async (c) => {
   const origin = new URL(c.req.url).origin;
   const comments = (results || []).map((r: any) => {
     // who + when are always returned; the what — text, audio, AND the author's
-    // phone for the reply hand-off — is gated on having passed mark + the offset.
-    const revealed = Number.isFinite(seenMs) && seenMs >= r.timestamp_ms + COVIEW_REVEAL_OFFSET_MS;
+    // phone for the reply hand-off — is gated on the reveal rule for this comment.
+    // End-notes reveal once the viewer FINISHES the episode (both SPLR and NOSP —
+    // identical in-app gate; the spoiler flag only shapes the external card). Every
+    // other comment keeps the mark + offset gate.
+    const isEndnote = !!r.is_endnote;
+    const revealed = isEndnote
+      ? finishedEps.has(r.episode_id)
+      : Number.isFinite(seenMs) && seenMs >= r.timestamp_ms + COVIEW_REVEAL_OFFSET_MS;
     return {
       id: r.id,
       author: r.username || r.user_email,
       authorEmail: r.user_email,
       episodeId: r.episode_id,
       timestampMs: r.timestamp_ms,
-      // The instant the second viewer may see this — mark + offset.
-      revealMs: r.timestamp_ms + COVIEW_REVEAL_OFFSET_MS,
+      // When the viewer may see this. End-notes have no minute — they gate on finish.
+      revealMs: isEndnote ? null : r.timestamp_ms + COVIEW_REVEAL_OFFSET_MS,
+      endNote: isEndnote,           // render the SPLR/NOSP label; not repliable
+      spoiler: !!r.spoiler,         // shapes the external card only
+      revealOn: r.reveal_on || null,
       createdAt: r.created_at,
       replyTo: r.reply_to || null,
       revealed,
@@ -448,10 +764,12 @@ app.post('/transcribe/reply', async (c) => {
   if (!known) return c.json({ error: 'unknown user' }, 401);
 
   const parent: any = await c.env.DB
-    .prepare('SELECT id, user_email, episode_id, show_id, timestamp_ms FROM watch_comment WHERE id = ?')
+    .prepare('SELECT id, user_email, episode_id, show_id, timestamp_ms, is_endnote FROM watch_comment WHERE id = ?')
     .bind(replyTo)
     .first();
   if (!parent) return c.json({ error: 'parent comment not found' }, 404);
+  // End-notes are terminal — react with your own end-note, never a reply.
+  if (parent.is_endnote) return c.json({ error: 'end-notes can\'t be replied to' }, 409);
 
   // Mutual follow between replier and the parent's author (A→B and B→A).
   const mutual = await c.env.DB
@@ -465,15 +783,28 @@ app.post('/transcribe/reply', async (c) => {
     .first();
   if (!mutual) return c.json({ error: 'not permitted to reply' }, 403);
 
+  // One reply per comment, first-come-locked. The UNIQUE(reply_to) index is the
+  // race-safe guard (caught below); this pre-check gives a clean answer first.
+  const answered = await c.env.DB
+    .prepare('SELECT 1 FROM watch_comment WHERE reply_to = ?')
+    .bind(parent.id)
+    .first();
+  if (answered) return c.json({ error: 'already answered', code: 'reply_locked' }, 409);
+
   const id = crypto.randomUUID();
   const now = Date.now();
-  await c.env.DB
-    .prepare(
-      `INSERT INTO watch_comment (id, user_email, episode_id, show_id, timestamp_ms, transcription, audio_r2_key, reply_to, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)`
-    )
-    .bind(id, email, parent.episode_id, parent.show_id || null, parent.timestamp_ms, text, replyTo, now)
-    .run();
+  try {
+    await c.env.DB
+      .prepare(
+        `INSERT INTO watch_comment (id, user_email, episode_id, show_id, timestamp_ms, transcription, audio_r2_key, reply_to, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)`
+      )
+      .bind(id, email, parent.episode_id, parent.show_id || null, parent.timestamp_ms, text, replyTo, now)
+      .run();
+  } catch (err) {
+    if (/UNIQUE/i.test(String(err))) return c.json({ error: 'already answered', code: 'reply_locked' }, 409);
+    throw err;
+  }
 
   return c.json({ id, replyTo, timestampMs: parent.timestamp_ms, createdAt: now });
 });
@@ -482,9 +813,9 @@ app.post('/transcribe/reply', async (c) => {
 // Read a cinema ticket image with Claude vision: date, showtime, theater name.
 // Reuses the same Anthropic key as Pierre. Best-effort — any failure returns all
 // nulls so the ticket still saves. Haiku is plenty for this little OCR job.
-type TicketInfo = { date: string | null; time: string | null; theater: string | null };
+type TicketInfo = { title: string | null; date: string | null; time: string | null; theater: string | null };
 async function readTicket(env: Env, buffer: ArrayBuffer, mediaType: string): Promise<TicketInfo> {
-  const empty: TicketInfo = { date: null, time: null, theater: null };
+  const empty: TicketInfo = { title: null, date: null, time: null, theater: null };
   if (!env.ANTHROPIC_API_KEY) return empty;
   // Anthropic vision accepts jpeg/png/gif/webp; fall back to jpeg for anything else.
   const mt = /^image\/(jpeg|png|gif|webp)$/.test(mediaType) ? mediaType : 'image/jpeg';
@@ -512,12 +843,16 @@ async function readTicket(env: Env, buffer: ArrayBuffer, mediaType: string): Pro
             { type: 'image', source: { type: 'base64', media_type: mt, data: b64 } },
             { type: 'text', text:
               'This is a photo or screenshot of a movie theater ticket or screening confirmation. ' +
-              'Transcribe three fields EXACTLY as printed, reading carefully — do not infer or normalize: ' +
-              '"date" = the date as shown, verbatim, including the weekday if present (e.g. "Wed, Jun 24" or ' +
-              '"Saturday, June 20"); never add or guess a year that is not printed on the image. ' +
+              'Transcribe four fields EXACTLY as printed, reading carefully — do not infer or normalize: ' +
+              '"title" = the movie title (e.g. "Spider-Man: Brand New Day" or "The Odyssey"); drop any ' +
+              'trailing "(2026)" year in parentheses. ' +
+              '"date" = the screening date as shown, verbatim, including the weekday if present (e.g. ' +
+              '"Wed, Jun 24", "Saturday, June 20", or "Aug 6"). It may sit after a label like "STARTS" or ' +
+              'inside a highlighted circle/badge — read the actual month + day there. ONLY return null if the ' +
+              'sole date is a purely relative phrase ("Next Thursday", "Tomorrow"). Never add or guess a year. ' +
               '"time" = the showtime as printed (e.g. "5:30 PM"). ' +
               '"theater" = the cinema/theater name (e.g. "AMC Burbank 16"). ' +
-              'Return ONLY minified JSON with exactly these keys: date, time, theater. ' +
+              'Return ONLY minified JSON with exactly these keys: title, date, time, theater. ' +
               'Use null for any field not present. No prose, no code fence.' },
           ],
         }],
@@ -530,7 +865,7 @@ async function readTicket(env: Env, buffer: ArrayBuffer, mediaType: string): Pro
     if (!m) return empty;
     const parsed = JSON.parse(m[0]) as Partial<TicketInfo>;
     const clean = (v: unknown) => (typeof v === 'string' && v.trim() && v.trim().toLowerCase() !== 'null' ? v.trim() : null);
-    return { date: clean(parsed.date), time: clean(parsed.time), theater: clean(parsed.theater) };
+    return { title: clean(parsed.title), date: clean(parsed.date), time: clean(parsed.time), theater: clean(parsed.theater) };
   } catch {
     return empty;
   }
@@ -577,12 +912,33 @@ app.post('/ticket', async (c) => {
 
     return c.json({
       id, episodeId, ticketUrl: `${new URL(c.req.url).origin}/ticket/${id}/image`,
-      date: info.date, time: info.time, theater: info.theater, createdAt: now,
+      title: info.title, date: info.date, time: info.time, theater: info.theater, createdAt: now,
     });
   } catch (error) {
     console.error('Ticket upload error:', error);
     return c.json({ error: 'upload failed', details: String(error).substring(0, 200) }, 500);
   }
+});
+
+// PATCH /ticket/:id/attach — bind a Pierre-uploaded ticket (show_id was null at read
+// time) to the film the client resolved from the OCR'd title. Idempotent.
+app.patch('/ticket/:id/attach', async (c) => {
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const id = c.req.param('id');
+  const showId = ((body.showId as string) || '').trim();
+  const showName = ((body.showName as string) || '').trim() || null;
+  const episodeId = ((body.episodeId as string) || '').trim() || null;
+  // Optional full ISO date (YYYY-MM-DD) — the year-confirmed date for an old ticket, so it
+  // sorts and reads correctly instead of the year-less OCR string. Ignored if malformed.
+  const rawDate = ((body.ticketDate as string) || '').trim();
+  const ticketDate = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : null;
+  if (!showId) return c.json({ error: 'showId required' }, 400);
+  const res = await c.env.DB
+    .prepare('UPDATE watch_ticket SET show_id = ?, show_name = COALESCE(?, show_name), episode_id = COALESCE(?, episode_id), ticket_date = COALESCE(?, ticket_date) WHERE id = ?')
+    .bind(showId, showName, episodeId, ticketDate, id).run();
+  if (!res.meta.changes) return c.json({ error: 'not found' }, 404);
+  return c.json({ ok: true, id, showId });
 });
 
 // Stream a stored ticket image back from R2 (R2 has no signed-URL method).
@@ -648,6 +1004,19 @@ app.post('/reflection', async (c) => {
   return c.json({ id, showId, ticketId, text, createdAt: now });
 });
 
+// Delete one of the caller's own reflections (share-a-thought). Scoped to the email in
+// the body so a member can only remove their own. 404 if nothing matched.
+app.delete('/reflection/:id', async (c) => {
+  const id = c.req.param('id');
+  let body: any = {};
+  try { body = await c.req.json(); } catch { /* email may also come as a query */ }
+  const email = ((body.email as string) || c.req.query('email') || '').trim();
+  if (!email) return c.json({ error: 'email required' }, 400);
+  const res = await c.env.DB.prepare('DELETE FROM reflection WHERE id = ? AND user_email = ?').bind(id, email).run();
+  if (!res.meta.changes) return c.json({ error: 'not found' }, 404);
+  return c.json({ id, deleted: true });
+});
+
 // List a member's reflections for one show, newest first.
 app.get('/reflections', async (c) => {
   const showId = c.req.query('showId') ?? '';
@@ -682,7 +1051,7 @@ type BugRow = {
 };
 async function notifyBugEmail(env: Env, r: BugRow): Promise<void> {
   if (!env.BUG_EMAIL) return;
-  const to = (env.BUG_NOTIFY_TO || 'edward.m.willett@gmail.com').trim();
+  const to = (env.BUG_NOTIFY_TO || 'ted@pangolinrc.com').trim();
   const from = (env.BUG_FROM || 'bugs@pangolinrc.com').trim();
   // Headers must be ASCII — strip non-ASCII (emoji/em-dash) from the subject only.
   const subject = `Bug report: ${r.view || 'unknown'} (${r.user_email || 'anon'})`
@@ -719,8 +1088,8 @@ async function notifyBugEmail(env: Env, r: BugRow): Promise<void> {
 // ─── Bug reports ────────────────────────────────────────────────────────────
 // A persistent 🐞 in the shell captures a screenshot + a note from any view and
 // files it here. Anyone may report (no sign-in required); the screenshot is
-// optional and best-effort. D1 is the source of truth; the row mirrors to the
-// Airtable `bug_report` grid for hand triage. The author fields these manually.
+// optional and best-effort. D1 is the source of truth; triage the rows in the
+// admin portal (admin.pangolinrc.com).
 app.options('/bug-reports', (c) => c.json({ ok: true }));
 
 // Admin-only bug review surface (powers the 🐞 badge + list on the profile face).
@@ -728,7 +1097,7 @@ app.options('/bug-reports', (c) => c.json({ ok: true }));
 // author's address is also accepted as a hardcoded fallback so the surface keeps
 // working even if the row is reset — "bulletproof" per the brief. Returns the open
 // (not fixed/wontfix) reports plus an open count for the badge.
-const HARDCODED_ADMINS = new Set(['edward.m.willett@gmail.com']);
+const HARDCODED_ADMINS = new Set(['ted@pangolinrc.com']);
 async function isAdmin(env: Env, email: string): Promise<boolean> {
   if (!email) return false;
   if (HARDCODED_ADMINS.has(email)) return true;
@@ -863,12 +1232,10 @@ app.post('/bug-reports', async (c) => {
             row.viewport, row.screenshot_url, row.status, row.send_to_claude, row.claude_status, row.created_at)
       .run();
 
-    // Mirror to the Airtable triage grid and email a notification — both
-    // best-effort and independent, so neither one blocks or fails the report.
-    c.executionCtx.waitUntil(Promise.allSettled([
-      pushRow(c.env, 'bug_report', row).catch((e) => console.warn('bug airtable mirror failed:', String(e).substring(0, 200))),
+    // Email a notification — best-effort, never blocks or fails the report.
+    c.executionCtx.waitUntil(
       notifyBugEmail(c.env, row).catch((e) => console.warn('bug email failed:', String(e).substring(0, 200))),
-    ]));
+    );
 
     return c.json({ id, ok: true });
   } catch (error) {
@@ -900,11 +1267,13 @@ app.route('/remote',      remoteRoutes);
 app.route('/captions',    captionRoutes);
 app.route('/pierre',      pierreRoutes);
 app.route('/profile',     profileRoutes);
+app.route('/waitlist',     waitlistRoutes);
+app.route('/admin',        adminRoutes);
 app.route('/streamer',    streamerRoutes);
 app.route('/tmdb',        tmdbRoutes);
 app.route('/catalog',     catalogRoutes);
+app.route('/shadow',      shadowRoutes);
 app.route('/scheduler',   schedulerRoutes);
-app.route('/sync',        syncRoutes);
 
 app.notFound((c) => c.json({ error: 'Not found' }, 404));
 app.onError((err, c) => {
@@ -915,13 +1284,4 @@ app.onError((err, c) => {
 export default {
   fetch: app.fetch.bind(app),
   queue: processQueue,
-  // Inbound Airtable → D1 sync: pull human edits back on a cron. No-op until the
-  // Airtable secrets are set, so the trigger is harmless to register beforehand.
-  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext) {
-    if (!airtableEnabled(env)) return;
-    ctx.waitUntil(pullChanges(env).then(
-      (r) => console.log('airtable pull', JSON.stringify(r)),
-      (e) => console.error('airtable pull failed', e),
-    ));
-  },
 };

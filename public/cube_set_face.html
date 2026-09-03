@@ -1,0 +1,2134 @@
+<!--
+  Cube Face: LOG  (v4)
+  v4 changes:
+   - Orphan fix: titles with "Show: Subtitle" break at the colon, never leave
+     a one-word last line. text-wrap:pretty handles the rest.
+   - Comfort is now a different object: a paired row. Poster tile on the left,
+     the rewatch PLAN on the right (label + a barcode bar + episode count).
+     The barcode shows which episodes the plan includes, in a new palette
+     colour (--plan). Clicking adopts the plan onto the Episodes face (stubbed
+     as a flash here; the small Pierre to reset/edit/re-cut lives on Episodes).
+   - Pierre always offers a Top 10 / Top 5. SVU carries a Pierre-generated
+     "Top 10" to show the auto-offer next to the human-curated plans.
+   - Plan kinds: all (complete), seasons (first N), seasonsScatter (e.g. Logan
+     episodes), top (Pierre's top-N). Demo subsets, labelled as such.
+
+  Data: TVMaze live. Plans, watched counts, prices, return dates = seeds.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Log</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --base:#181210; --base-2:#211915; --line:#352a23;
+    --amber:#E9A23C; --watched:#1c5a37; --avail:#46c46f; --unrel:#463d36;
+    --countdown:#caa15e; --ash:#6b5d52; --plan:#bb8ae6; --text:#f5efe9; --muted:#b3a193;
+    --hot:#ff5a3c; --fresh:#46c46f; --casual:#c9a15e;   /* theater ticket freshness */
+    --mine:#FFFFFF; --friend:#F0C070; --reply:#A8E0A0;   /* comment tiers: me / friend / reply */
+    --display:"Space Grotesk",sans-serif; --body:"Inter",sans-serif; --mono:"JetBrains Mono",monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:#0c0907;color:var(--text);font-family:var(--body);min-height:100%;
+    display:flex;align-items:center;justify-content:center;padding:16px}
+
+  .face{width:min(92vw,460px);aspect-ratio:1/1;background:var(--base);border:1px solid var(--line);
+    border-radius:18px;overflow:hidden;display:flex;flex-direction:column;position:relative}
+
+  .head{display:flex;align-items:flex-start;justify-content:space-between;padding:13px 15px 8px;flex-shrink:0}
+  .label{font-family:var(--mono);font-size:12px;letter-spacing:.18em;color:var(--muted)}
+  .savings{text-align:right;line-height:1;cursor:pointer;user-select:none}
+  .savings .amt{font-family:var(--display);font-weight:700;font-size:17px;color:var(--amber)}
+  .savings .cap{font-family:var(--mono);font-size:8.5px;letter-spacing:.08em;color:var(--muted);margin-top:2px}
+  .savings:hover .amt{filter:drop-shadow(0 0 6px rgba(233,162,60,.55))}
+  .headright{display:flex;align-items:center;gap:11px}
+  .addbtn{flex-shrink:0;padding:6px 11px;border:1px solid var(--line);border-radius:999px;
+    background:var(--base-2);color:var(--amber);font-family:var(--mono);font-weight:500;font-size:11px;letter-spacing:.04em;line-height:1;
+    white-space:nowrap;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:border-color .15s ease,box-shadow .15s ease,transform .1s ease}
+  .addbtn:hover{border-color:var(--amber);box-shadow:0 0 6px rgba(233,162,60,.35)}
+  .addbtn:active{transform:scale(.92)}
+
+  .pierre{flex-shrink:0;padding:6px 15px 9px;display:flex;flex-direction:column;gap:6px;border-bottom:1px solid var(--line)}
+  .pierre .read{display:flex;align-items:center;gap:8px;min-height:16px}
+  .pierre .dot{width:7px;height:7px;border-radius:50%;background:var(--amber);flex-shrink:0;box-shadow:0 0 6px rgba(233,162,60,.7)}
+  .pierre .line{font-size:11.5px;color:var(--text);line-height:1.25}
+  .pierre .line b{font-weight:600} .pierre .line .q{color:var(--muted)}
+  .pierre .chips{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
+  .pierre .chip{background:transparent;border:1px solid var(--line);color:var(--muted);font-family:var(--mono);
+    font-size:9px;letter-spacing:.02em;padding:4px 8px;border-radius:999px;cursor:pointer;transition:all .15s ease}
+  .pierre .chip.on{color:var(--amber);border-color:var(--amber)}
+  .pierre .chip.demo{border-style:dashed} .pierre .spacer{flex:1}
+  /* CURRENT-tab action buttons: grey until a show is selected, then orange */
+  .pierre .chip.act{color:var(--muted);border-color:var(--line)}
+  .pierre .chip.act.lit{color:var(--amber);border-color:var(--amber);box-shadow:0 0 6px rgba(233,162,60,.35)}
+
+  .scroll{flex:1;overflow-y:auto;overflow-x:hidden;padding:12px 15px;scrollbar-width:thin;scrollbar-color:var(--line) transparent;
+    overscroll-behavior:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y}
+  .scroll::-webkit-scrollbar{width:5px} .scroll::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .grid.list{grid-template-columns:1fr;gap:12px}
+  .grid.shadow{display:block}   /* Shadow is a single-column list; intro rides the top and scrolls away */
+
+  /* Poster tiles (current / returning / completed) */
+  .tile{aspect-ratio:1/1;border-radius:12px;overflow:hidden;position:relative;background:var(--base-2);cursor:pointer;border:1px solid var(--line)}
+  .tile.selected{border-color:var(--amber);box-shadow:0 0 0 2px var(--amber),0 0 16px rgba(233,162,60,.5)}
+  /* CURRENT-tab tap: the tapped tile stays put; a panel (buttons + synopsis)
+     opens in the OTHER column of its row. The synopsis grows the row and pushes
+     the tiles below it down. Tile keeps its side: left tile → panel right, and
+     right tile → panel left (panel rendered first in source for that case). */
+  .exp-row{grid-column:1/-1;display:flex;gap:10px;align-items:flex-start}
+  .exp-row > .tile{flex:0 0 calc(50% - 5px);aspect-ratio:1/1;
+    border-color:var(--amber);box-shadow:0 0 0 2px var(--amber),0 0 16px rgba(233,162,60,.5)}
+  .exp-row > .ex-panel{flex:1;min-width:0;display:flex;flex-direction:column;gap:9px;padding:2px 2px 4px}
+  .exp-row .ex-title{font-family:var(--display);font-weight:700;font-size:16px;line-height:1.1;color:var(--text)}
+  .exp-row .ex-watch{align-self:flex-start;display:inline-flex;align-items:center;gap:8px;
+    font-family:var(--display);font-weight:700;font-size:15px;color:#1a130b;
+    background:linear-gradient(135deg,#f2b457,#e89f3d);border:none;border-radius:10px;padding:10px 22px;
+    cursor:pointer;box-shadow:0 8px 20px -10px rgba(232,159,61,.85)}
+  .exp-row .ex-watch:active{transform:scale(.96)}
+  .exp-row .ex-syn{font-size:11.5px;line-height:1.45;color:var(--muted)}
+  .exp-row .ex-stop{align-self:flex-start;margin-top:2px;font-family:var(--mono);font-size:11px;
+    letter-spacing:.04em;color:var(--muted);background:transparent;border:1px solid var(--line);
+    border-radius:8px;padding:6px 12px;cursor:pointer}
+  .exp-row .ex-stop:active{color:#ff8a8a;border-color:#ff8a8a}
+  /* Selected-show expanded card: snaps to the top, poster left, two-line buttons. */
+  .exp-card{grid-column:1/-1;background:var(--base-2);border:1px solid var(--amber);border-radius:14px;
+    box-shadow:0 0 0 1px var(--amber),0 10px 26px -14px rgba(233,162,60,.7);padding:12px;
+    display:flex;flex-direction:column;gap:11px;cursor:pointer}
+  .exc-top{display:flex;gap:12px;align-items:flex-start}
+  .exc-poster{flex:0 0 84px;width:84px;height:84px;border-radius:10px;background-size:cover;
+    background-position:center top;background-color:#16100c}
+  .exc-info{min-width:0;flex:1;display:flex;flex-direction:column;gap:5px}
+  /* SEASONS picker: number chips to the right of the poster/title. The season you
+     are in gets the amber marker; every chip taps through to that season on the LOG face. */
+  .exc-seas-col{flex:0 0 auto;display:flex;flex-direction:column;align-items:flex-end;gap:9px;max-width:122px}
+  .exc-seasons{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+  .exc-seas-label{font-family:var(--mono);font-size:9px;letter-spacing:.18em;color:var(--muted)}
+  .exc-seas-grid{display:flex;flex-wrap:wrap;gap:5px;justify-content:flex-end}
+  .exc-seas-chip{min-width:27px;height:27px;padding:0 6px;border-radius:8px;border:1px solid var(--line);
+    background:rgba(255,255,255,.025);color:var(--text);font-family:var(--mono);font-weight:700;font-size:12px;
+    display:flex;align-items:center;justify-content:center;cursor:pointer}
+  .exc-seas-chip:active{transform:scale(.93)}
+  .exc-seas-chip.cur{border-color:var(--amber);background:rgba(233,162,60,.16)}
+  .exc-title{font-family:var(--display);font-weight:700;font-size:17px;line-height:1.1;color:var(--text)}
+  .exc-meta{font-family:var(--mono);font-size:10px;letter-spacing:.05em;color:var(--muted)}
+  /* "Watching with" (co-viewing) row on the expanded card */
+  .coview{margin:10px 2px 0;font-family:var(--mono);font-size:11px;letter-spacing:.03em;color:var(--muted);display:flex;flex-wrap:wrap;align-items:center;gap:7px}
+  .coview:empty{display:none}
+  .coview .cv-lbl{color:var(--ash)}
+  .coview .cv-val{color:var(--text)}
+  .coview .cv-edit{background:none;border:0;color:var(--amber);font-family:var(--mono);font-size:11px;cursor:pointer;padding:0;text-decoration:underline}
+  .coview .cv-chip{background:none;border:1px solid var(--line);border-radius:999px;color:var(--muted);font-family:var(--mono);font-size:11px;padding:4px 10px;cursor:pointer}
+  .coview .cv-chip.on{border-color:var(--amber);color:var(--amber);background:rgba(233,162,60,.12)}
+  .coview .cv-save{background:var(--amber);color:#1a130b;border:0;border-radius:999px;font-family:var(--mono);font-size:11px;font-weight:700;padding:4px 12px;cursor:pointer}
+  .coview .cv-cancel{background:none;border:0;color:var(--muted);font-family:var(--mono);font-size:11px;cursor:pointer;text-decoration:underline}
+  .exc-syn{font-size:11.5px;line-height:1.45;color:var(--muted);max-height:4.4em;overflow:hidden}
+  .exc-btns{display:flex;gap:10px}
+  .exc-btn{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;border:none;border-radius:11px;
+    padding:11px 8px;cursor:pointer;font-family:var(--display);font-weight:700;font-size:12.5px;line-height:1.05}
+  .exc-btn .ic{font-size:15px;line-height:1}
+  .exc-btn .lbl{text-align:left}
+  .exc-btn.watch{color:#1a130b;background:linear-gradient(135deg,#f2b457,#e89f3d);box-shadow:0 8px 20px -10px rgba(232,159,61,.85)}
+  .exc-btn.watch:active{transform:scale(.97)}
+  .exc-btn.stop{color:#e9b9b9;background:transparent;border:1px solid var(--line)}
+  .exc-btn.stop:active{color:#ff8a8a;border-color:#ff8a8a;transform:scale(.97)}
+  .exc-btn.share{color:var(--amber);background:transparent;border:1px solid var(--amber)}
+  .exc-btn.share:active{background:rgba(233,162,60,.16);transform:scale(.97)}
+
+  /* Share dialog: a modal over the whole face. Friend list (all checked by
+     default) + invite-by-text + send. */
+  .sh-ov{position:fixed;inset:0;z-index:60;display:flex;align-items:flex-end;justify-content:center;
+    background:rgba(8,6,4,.72);backdrop-filter:blur(2px)}
+  .sh-card{width:100%;max-width:440px;max-height:86%;display:flex;flex-direction:column;
+    background:var(--panel,#211a13);border:1px solid var(--amber);border-radius:16px 16px 0 0;
+    box-shadow:0 -10px 40px -16px rgba(0,0,0,.9);padding:16px 16px 20px}
+  .sh-head{display:flex;align-items:flex-start;gap:10px;margin-bottom:12px}
+  .sh-head .t{flex:1;min-width:0;font-family:var(--display);font-weight:700;font-size:16px;line-height:1.15;color:var(--text)}
+  .sh-x{flex:0 0 auto;background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1;padding:2px 4px}
+  .sh-all{display:flex;align-items:center;gap:9px;padding:9px 4px;cursor:pointer;
+    font-family:var(--mono);font-size:11px;letter-spacing:.12em;color:var(--amber);border-bottom:1px solid var(--line)}
+  .sh-list{overflow-y:auto;-webkit-overflow-scrolling:touch;margin:2px 0 4px;flex:1;min-height:40px}
+  .sh-row{display:flex;align-items:center;gap:10px;padding:10px 4px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,.05)}
+  .sh-row .nm{flex:1;min-width:0;font-size:14px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sh-ck{flex:0 0 auto;width:20px;height:20px;border-radius:6px;border:1.5px solid var(--line);
+    display:flex;align-items:center;justify-content:center;font-size:13px;color:#1a130b}
+  .sh-row.on .sh-ck{background:var(--amber);border-color:var(--amber)}
+  .sh-empty{padding:14px 4px;color:var(--muted);font-size:12.5px;line-height:1.5}
+  .sh-note{width:100%;box-sizing:border-box;margin-top:6px;background:rgba(255,255,255,.04);
+    border:1px solid var(--line);border-radius:10px;color:var(--text);font-family:inherit;font-size:13px;padding:10px}
+  .sh-actions{display:flex;gap:10px;margin-top:12px}
+  .sh-btn{flex:1;border:none;border-radius:11px;padding:13px 8px;cursor:pointer;
+    font-family:var(--display);font-weight:700;font-size:13px}
+  .sh-send{color:#1a130b;background:linear-gradient(135deg,#f2b457,#e89f3d)}
+  .sh-send:disabled{opacity:.45}
+  .sh-text{color:var(--amber);background:transparent;border:1px solid var(--amber)}
+  .sh-toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:70;
+    background:rgba(20,15,10,.96);border:1px solid var(--amber);color:var(--text);
+    padding:11px 18px;border-radius:12px;font-size:13px;box-shadow:0 10px 30px -12px rgba(0,0,0,.8)}
+  /* completed card: green treatment + single WATCH AGAIN pill in the corner */
+  .exp-card.completed{position:relative;border-color:#3f7a44;
+    box-shadow:0 0 0 1px #3f7a44,0 10px 26px -14px rgba(108,192,112,.55)}
+  .exp-card.completed .exc-title,.exp-card.completed .exc-meta{padding-right:128px}
+  .exc-meta.done{color:#6cc070}
+  .exc-again{position:absolute;top:11px;right:11px;display:flex;align-items:center;gap:6px;z-index:2;
+    border:1px solid #6cc070;background:rgba(108,192,112,.14);color:#6cc070;cursor:pointer;
+    font-family:var(--mono);font-weight:700;font-size:11px;letter-spacing:.05em;border-radius:999px;padding:7px 13px}
+  .exc-again .ic{font-size:13px;line-height:1}
+  .exc-again:active{transform:scale(.96)}
+  /* completed/stopped card → permanently remove the title from the log */
+  .exc-remove{display:inline-flex;align-items:center;gap:6px;margin:10px 0 2px;cursor:pointer;
+    border:1px solid rgba(224,80,72,.5);background:rgba(224,80,72,.1);color:#e5726a;
+    font-family:var(--mono);font-weight:700;font-size:10.5px;letter-spacing:.05em;border-radius:999px;padding:6px 12px}
+  .exc-remove:active{transform:scale(.96)}
+  /* per-viewing list (one ticket = one viewing); newest open, older collapsed */
+  .viewings{margin-top:11px;display:flex;flex-direction:column;gap:7px}
+  .vw{border:1px solid var(--line);border-radius:11px;background:rgba(255,255,255,.02);overflow:hidden}
+  .vw-head{display:flex;align-items:center;gap:8px;padding:9px 11px;cursor:pointer;
+    font-family:var(--mono);font-size:11px;color:var(--text);letter-spacing:.04em}
+  .vw-caret{color:var(--muted);font-size:12px;transition:transform .15s;flex:none}
+  .vw.open .vw-caret{transform:rotate(90deg)}
+  .vw-when .th{color:#6cc070}
+  .vw-body{display:none;flex-direction:column;gap:9px;padding:0 11px 11px}
+  .vw.open .vw-body{display:flex}
+  .vw-actions{display:flex;gap:8px;flex-wrap:wrap}
+  .vw-stub,.vw-share{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:6px 12px;cursor:pointer;
+    font-family:var(--mono);font-weight:700;font-size:10.5px;letter-spacing:.05em}
+  .vw-stub{color:#f3d9a0;background:rgba(58,13,18,.5);border:1px solid rgba(243,217,160,.45)}
+  .vw-share{color:var(--amber);background:transparent;border:1px solid var(--amber)}
+  .vw-stub:active,.vw-share:active{transform:scale(.96)}
+  .vw-refs{display:flex;flex-direction:column;gap:6px}
+  .vw-ref{font-size:11.5px;line-height:1.4;color:var(--text)}
+  .vw-ref .rq{color:var(--muted);font-family:var(--mono);font-size:9px;letter-spacing:.04em}
+  .vw-empty{font-family:var(--mono);font-size:10px;color:var(--muted);padding:2px 0}
+  /* Per-episode archive (WATCH): one collapsible block per episode, folding session
+     timestamps + tickets + comments + replies + reflections together. */
+  .ep-arch{margin-top:11px;display:flex;flex-direction:column;gap:7px}
+  /* Master collapse for the whole viewing log: starts closed, pops down on tap. */
+  .arch-toggle{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;
+    font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.12em;color:var(--muted);
+    text-transform:uppercase;padding:2px 0}
+  .arch-caret{font-size:12px;transition:transform .15s;flex:none}
+  .ep-arch.open .arch-caret{transform:rotate(90deg)}
+  .arch-toggle .arch-n{color:var(--ash);font-weight:400}
+  .arch-list{display:none;flex-direction:column;gap:7px}
+  .ep-arch.open .arch-list{display:flex}
+  .ep-sessions{display:flex;flex-direction:column;gap:2px;margin-bottom:2px}
+  .ep-sess{font-family:var(--mono);font-size:10px;color:var(--muted);line-height:1.45}
+  .ep-sess .ts{color:var(--ash)}
+  .ep-sess.bp{color:var(--ash);opacity:.8}
+  .ep-line{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .ep-cap{font-family:var(--mono);font-size:9.5px;color:var(--muted)}
+  .ep-tix{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:5px 11px;cursor:pointer;
+    font-family:var(--mono);font-weight:700;font-size:10px;letter-spacing:.05em;
+    color:#f3d9a0;background:rgba(58,13,18,.5);border:1px solid rgba(243,217,160,.45)}
+  .ep-tix:active{transform:scale(.96)}
+  .ep-cmt{display:flex;align-items:flex-start;gap:7px;font-size:11.5px;line-height:1.4;padding:1px 0}
+  .ep-cmt .ep-mark{font-family:var(--mono);font-size:9px;color:var(--muted);flex:none;margin-top:1px}
+  .ep-cmt .ep-who{font-family:var(--mono);font-size:9px;flex:none;margin-top:1px;opacity:.9}
+  .ep-cmt .ep-txt{flex:1;min-width:0}
+  .ep-cmt.mine .ep-txt{color:var(--mine)}
+  .ep-cmt.friend .ep-txt,.ep-cmt.friend .ep-who{color:var(--friend)}
+  .ep-cmt.reply{padding-left:16px}
+  .ep-cmt.reply .ep-txt,.ep-cmt.reply .ep-who{color:var(--reply)}
+  .ep-play{flex:none;width:22px;height:22px;border-radius:50%;cursor:pointer;font-size:11px;line-height:1;
+    display:flex;align-items:center;justify-content:center;color:var(--amber);
+    background:rgba(233,162,60,.16);border:1px solid var(--amber)}
+  .ep-play:active{transform:scale(.9)}
+  .ep-refl{font-size:11.5px;line-height:1.4;color:var(--text);font-style:italic}
+  .ep-refl .rq{color:var(--muted);font-family:var(--mono);font-size:9px;letter-spacing:.04em;font-style:normal}
+  /* Stage 3: share a past reflection from the logs. */
+  .rf-share{flex:none;margin-left:6px;background:transparent;border:1px solid var(--amber,#f0a93b);
+    color:var(--amber,#f0a93b);border-radius:12px;padding:2px 9px;font-family:var(--mono);font-size:9px;
+    letter-spacing:.06em;cursor:pointer;font-style:normal;vertical-align:1px}
+  .ep-cmt .rf-share{align-self:center}
+  /* Delete your own comment / thought from the viewing log. */
+  .rf-del{flex:none;margin-left:5px;width:22px;height:22px;border-radius:50%;background:transparent;
+    border:1px solid rgba(157,74,63,.6);color:#c99;font-size:11px;line-height:1;cursor:pointer;
+    display:inline-flex;align-items:center;justify-content:center;font-style:normal;vertical-align:1px}
+  .rf-del:hover{background:rgba(157,74,63,.28);color:#fff;border-color:var(--red,#9d4a3f)}
+  .ep-cmt .rf-del{align-self:center}
+  .ep-actions{margin-top:3px}
+  .ep-share{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:6px 12px;cursor:pointer;
+    font-family:var(--mono);font-weight:700;font-size:10.5px;letter-spacing:.05em;
+    color:var(--amber);background:transparent;border:1px solid var(--amber)}
+  .ep-share:active{transform:scale(.96)}
+  /* CURRENT card action bar scrolls normally with the card (no sticky pinning — it
+     janked the scroll on reverse). */
+  /* tap the ticket-stub button → full ticket image */
+  .imglb{position:fixed;inset:0;z-index:50;display:none;align-items:center;justify-content:center;
+    background:rgba(4,3,2,.93);padding:24px;cursor:zoom-out}
+  .imglb.show{display:flex}
+  .imglb img{max-width:100%;max-height:100%;border-radius:10px;border:1px solid var(--line)}
+  .tile .poster,.pcell .poster{position:absolute;inset:0;background-size:cover;background-position:center top}
+  .tile .scrim,.pcell .scrim{position:absolute;inset:0;background:linear-gradient(to top,rgba(10,7,5,.94) 0%,rgba(10,7,5,.55) 40%,rgba(10,7,5,.04) 72%)}
+  .tile .body{position:absolute;left:0;right:0;bottom:0;padding:10px;display:flex;flex-direction:column;gap:7px}
+  .tile .title,.pcell .ctitle{font-family:var(--display);font-weight:700;line-height:1.08;text-shadow:0 1px 4px rgba(0,0,0,.6);
+    text-wrap:pretty;display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden}
+  .tile .title{font-size:13.5px;-webkit-line-clamp:2}
+  .tile .meta,.tile .ret{font-family:var(--mono);font-size:9px;letter-spacing:.02em;color:var(--muted);display:flex;justify-content:space-between;align-items:center;gap:4px}
+  .tile .meta .done{color:var(--amber);display:flex;align-items:center;gap:3px}
+  .tile .ret .soon{color:var(--amber)}
+  .tile .newflag{position:absolute;top:8px;left:8px;z-index:2;background:var(--amber);color:#1a1206;
+    font-family:var(--mono);font-size:8.5px;font-weight:700;letter-spacing:.12em;padding:3px 7px;border-radius:5px;
+    box-shadow:0 1px 4px rgba(0,0,0,.5)}
+  /* WoW TAG: next-episode relative airdate, top-right, at-a-glance on the small tile */
+  .tile .wowtag{position:absolute;top:8px;right:8px;z-index:2;background:rgba(26,18,6,.82);color:var(--amber);
+    border:1px solid rgba(240,168,40,.55);font-family:var(--mono);font-size:8.5px;font-weight:700;letter-spacing:.06em;
+    padding:3px 7px;border-radius:5px;box-shadow:0 1px 4px rgba(0,0,0,.5);white-space:nowrap}
+  /* Marathon corner tag + name sub-line: the purple plan accent marks a curated-queue tile. */
+  .tile .wowtag.martag{color:var(--plan);border-color:rgba(187,138,230,.6);background:rgba(26,18,6,.88)}
+  .tile.marathon{outline:1px solid rgba(187,138,230,.28);outline-offset:-1px}
+  .tile .body .marsub{font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.05em;color:var(--plan);
+    text-transform:uppercase;margin:1px 0 3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .exc-tag{display:inline-block;font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.06em;color:var(--amber);
+    border:1px solid rgba(240,168,40,.55);background:rgba(26,18,6,.5);padding:2px 8px;border-radius:999px;margin-left:8px}
+  /* Theater ticket stub: torn-left / notched-right badge, weekday + freshness class. */
+  .tile .tikbadge{position:absolute;top:8px;right:8px;z-index:2;width:54px;height:34px;color:var(--casual)}
+  .tile .tikbadge.hot{color:var(--hot)} .tile .tikbadge.fresh{color:var(--fresh)} .tile .tikbadge.casual{color:var(--casual)}
+  .tile .tikbadge svg{position:absolute;inset:0;width:100%;height:100%;filter:drop-shadow(0 1px 4px rgba(0,0,0,.55))}
+  .tile .tikbadge .tb-txt{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1;padding-left:3px}
+  .tile .tikbadge .tb-day{font-family:var(--mono);font-weight:700;font-size:12px;letter-spacing:.02em}
+  .tile .tikbadge .tb-cls{font-family:var(--mono);font-weight:700;font-size:6.5px;letter-spacing:.12em;margin-top:2px;opacity:.95}
+  /* Watch-pattern rubber stamp: the user's watchMode, ink-stamped on the card. */
+  .tile .wowstamp{position:absolute;top:40px;right:8px;z-index:3;transform:rotate(-11deg);
+    font-family:var(--mono);font-weight:700;font-size:10px;letter-spacing:.14em;color:var(--amber);
+    border:2px solid var(--amber);border-radius:6px;padding:2px 7px;opacity:.8;background:rgba(26,18,6,.25);
+    text-shadow:0 1px 2px rgba(0,0,0,.6);box-shadow:inset 0 0 0 1px rgba(240,168,40,.22);pointer-events:none}
+  .tile .wowstamp.set{color:var(--green);border-color:var(--green);box-shadow:inset 0 0 0 1px rgba(95,174,110,.22)}
+  .wowstamp.big{display:inline-block;transform:rotate(-6deg);margin:2px 0 0;font-family:var(--mono);font-weight:700;
+    font-size:14px;letter-spacing:.14em;color:var(--amber);border:2px solid var(--amber);border-radius:7px;padding:3px 11px;
+    opacity:.95;background:rgba(26,18,6,.3);cursor:pointer}
+  .wowstamp.big.set{color:var(--green);border-color:var(--green)}
+  /* Declined for this show: greyed, struck through, still tappable to switch back on. */
+  .tile .wowstamp.off,.wowstamp.big.off{color:var(--muted);border-color:rgba(162,150,132,.45);
+    text-decoration:line-through;opacity:.6;box-shadow:none}
+  .wowstamp.big.off{cursor:pointer}
+
+  .bars{display:flex;flex-direction:column;gap:3px}
+  .bar{position:relative;height:5px;border-radius:3px;display:flex;background:var(--unrel)}
+  .bar .seg{height:100%}
+  .bar .seg.w{background:var(--watched)} .bar .seg.a{background:var(--avail)} .bar .seg.u{background:var(--unrel)}
+  .bar .seg:first-child{border-radius:3px 0 0 3px} .bar .seg:last-child{border-radius:0 3px 3px 0}
+  .bar.cd .fill{height:100%;background:var(--countdown);border-radius:3px}
+  .bar.cd .fill.soon{background:var(--amber);box-shadow:0 0 5px rgba(233,162,60,.7)}
+  .pop{position:absolute;top:50%;width:11px;height:11px;transform:translate(-50%,-50%);font-size:11px;line-height:11px;filter:drop-shadow(0 0 3px rgba(233,162,60,.8));pointer-events:none}
+  /* mode markers on the playhead: flame = BINGE, leaf = FRESH (SVG, own glow) */
+  .pop.mk{filter:none;width:auto;height:auto}
+  .pop.mk svg{display:block;width:14px;height:14px}
+  .pop.flame svg{filter:drop-shadow(0 0 4px rgba(255,90,20,.8))}
+  .pop.leaf svg{filter:drop-shadow(0 0 4px rgba(70,196,111,.8))}
+
+  .tile.completed .poster{filter:saturate(.6) brightness(.74)}
+  .tile.stopped{opacity:.62} .tile.stopped .poster{filter:grayscale(.85) brightness(.6)}
+  /* Rewatch passes: archived watch-throughs (a per-season view), each stamped with its
+     locked pattern (complete) or the highlighter marker (a partial, restarted pass). */
+  .passhead{grid-column:1/-1;font-family:var(--mono);font-size:9px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--muted);margin:10px 2px 0;display:flex;align-items:center;gap:7px}
+  .passhead::after{content:"";flex:1;height:1px;background:var(--line)}
+  .passtile .poster{filter:saturate(.55) brightness(.7)}
+  .passbadge{position:absolute;top:8px;right:8px;z-index:3;display:inline-flex;align-items:center;gap:3px;
+    font-family:var(--mono);font-weight:700;font-size:8px;letter-spacing:.08em;padding:3px 6px;border-radius:6px;
+    background:rgba(26,18,6,.86);color:var(--amber);border:1px solid rgba(233,162,60,.4)}
+  .passbadge.highlights{color:#ffd24a;border-color:rgba(255,210,74,.5)}
+  .passbadge svg{width:12px;height:12px}
+  .passtile .ord{color:var(--amber)}
+  .tryagain{align-self:flex-start;background:transparent;border:none;color:var(--muted);font-family:var(--mono);font-size:8.5px;letter-spacing:.04em;cursor:pointer;padding:0;opacity:.85}
+  .tryagain:hover{color:var(--amber)}
+  .divider{grid-column:1/-1;font-family:var(--mono);font-size:9px;letter-spacing:.14em;color:var(--muted);margin:6px 0 2px;display:flex;align-items:center;gap:8px}
+  .divider::after{content:"";flex:1;height:1px;background:var(--line)}
+  .state{grid-column:1/-1;text-align:center;color:var(--muted);font-family:var(--mono);font-size:11px;padding:34px 10px}
+
+  /* Comfort paired rows */
+  .crow{display:flex;gap:12px;cursor:pointer}
+  .crow .pcell{position:relative;flex:0 0 138px;width:138px;aspect-ratio:1;border-radius:12px;overflow:hidden;background:var(--base-2);border:1px solid var(--line)}
+  .crow .ctitle{position:absolute;left:0;right:0;bottom:0;padding:9px;font-size:12.5px;-webkit-line-clamp:3}
+  .crow .pinfo{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:9px}
+  .crow .planlabel{font-family:var(--display);font-weight:700;font-size:14px;line-height:1.14;color:var(--text);text-wrap:pretty}
+  .crow .barcode{display:flex;gap:1px;height:24px;align-items:stretch;width:100%}
+  .crow .barcode .tk{flex:1 1 0;min-width:0;background:rgba(255,255,255,.09);border-radius:1px}
+  .crow .barcode .tk.on{background:var(--plan);box-shadow:0 0 4px rgba(187,138,230,.45)}
+  .crow .pmeta{display:flex;justify-content:space-between;font-family:var(--mono);font-size:9px;color:var(--muted)}
+  .crow .pmeta .edit{color:var(--amber)}
+  .crow:hover .planlabel{color:var(--plan)}
+
+  /* COMFORT tab: curated-marathon list (pre-beta). Data-driven rows; a second
+     marathon is another entry in MARATHONS, not a new layout. */
+  .mband{grid-column:1/-1;display:flex;align-items:center;gap:8px;margin:0 0 11px;
+    font-family:var(--mono);font-size:9px;letter-spacing:.14em;color:var(--amber);text-transform:uppercase}
+  .mband .dotm{width:6px;height:6px;border-radius:50%;background:var(--amber);box-shadow:0 0 6px rgba(233,162,60,.7)}
+  .mlist{grid-column:1/-1;display:flex;flex-direction:column;gap:10px}
+  .mrow{display:flex;align-items:center;gap:12px;padding:12px;cursor:pointer;background:var(--base-2);
+    border:1px solid var(--line);border-radius:14px;transition:border-color .15s ease,box-shadow .15s ease,transform .1s ease}
+  .mrow:hover{border-color:var(--amber);box-shadow:0 0 8px rgba(233,162,60,.3)}
+  .mrow:active{transform:scale(.99)}
+  .mrow .micon{flex:0 0 auto;width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;
+    font-size:22px;background:linear-gradient(150deg,#2a201a,#16100c);border:1px solid var(--line)}
+  .mrow .minfo{flex:1;min-width:0}
+  .mrow .mtitle{font-family:var(--display);font-weight:700;font-size:15px;line-height:1.1;color:var(--text);text-wrap:pretty}
+  .mrow .msub{font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:4px}
+  .mrow .mgo{flex:0 0 auto;color:var(--amber);font-family:var(--mono);font-size:16px}
+
+  /* A curated marathon opens full-face inside WATCH (in-face overlay). Its own
+     slim bar carries the back that returns to the list. */
+  .marov{position:absolute;inset:0;z-index:70;background:var(--base);display:none;flex-direction:column}
+  .marov.show{display:flex}
+  .marbar{flex:0 0 auto;display:flex;align-items:center;padding:8px 10px;border-bottom:1px solid var(--line);background:var(--base-2)}
+  .marback{display:inline-flex;align-items:center;gap:6px;background:transparent;border:1px solid var(--line);
+    border-radius:999px;padding:6px 12px;color:var(--amber);font-family:var(--mono);font-size:11px;
+    letter-spacing:.04em;cursor:pointer;-webkit-tap-highlight-color:transparent}
+  .marback:active{transform:scale(.96)}
+  .marov iframe{flex:1 1 auto;width:100%;min-height:0;border:0;background:var(--base)}
+
+  /* Tab bar: pill buttons matching the Browse (IRL) face, at the TOP of the grid. */
+  .tabbar{flex-shrink:0;display:flex;gap:6px;padding:9px 15px 8px}
+  .tab{flex:1;font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;font-weight:700;
+    color:var(--muted);background:var(--base-2);border:1px solid var(--line);border-radius:9px;padding:8px 4px;cursor:pointer;
+    transition:color .15s ease,border-color .15s ease,background .15s ease;white-space:nowrap;
+    display:flex;align-items:center;justify-content:center;gap:5px}
+  .tab:hover{color:var(--text)}
+  .tab .ct{font-weight:700;opacity:.55;font-size:8.5px}
+  .tab.on{color:#1a130b;background:var(--amber);border-color:var(--amber)} .tab.on .ct{opacity:.75}
+  .tab.pulse{animation:tabpulse .7s ease}
+  @keyframes tabpulse{0%,100%{background:var(--amber)}45%{background:#f6cd82}}
+
+  .fx{position:absolute;inset:0;pointer-events:none;z-index:40;overflow:hidden}
+  .particle{position:absolute;transform:translate(-50%,-50%);animation:fly var(--dur) ease-out forwards;will-change:transform,opacity}
+  .particle.dot{width:6px;height:6px;border-radius:50%;background:var(--amber);box-shadow:0 0 6px rgba(233,162,60,.8)}
+  @keyframes fly{0%{transform:translate(-50%,-50%) translate(0,0) rotate(0);opacity:1}
+    100%{transform:translate(-50%,-50%) translate(var(--dx),calc(var(--dy) + 240px)) rotate(var(--rot));opacity:0}}
+  .ash{position:absolute;width:5px;height:5px;background:var(--ash);border-radius:1px;transform:translate(-50%,-50%);animation:ashfall var(--dur) ease-in forwards}
+  @keyframes ashfall{0%{opacity:.85}100%{transform:translate(-50%,-50%) translate(var(--dx),var(--dy));opacity:0}}
+  .tile.dusting{filter:grayscale(1) blur(2px);opacity:0;transform:scale(.96);transition:all .6s ease}
+
+  .flash{position:absolute;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+    background:rgba(12,9,7,.6);opacity:0;pointer-events:none;transition:opacity .2s ease;padding:24px;text-align:center}
+  .flash.show{opacity:1}
+  .flash .flabel{font-family:var(--mono);font-size:14px;letter-spacing:.14em;color:var(--amber)}
+  .flash .fsub{font-family:var(--display);font-weight:700;font-size:18px;line-height:1.1;text-wrap:pretty}
+  .flash .fnote{font-family:var(--mono);font-size:9px;letter-spacing:.06em;color:var(--muted);margin-top:2px}
+
+  .savpop{position:absolute;inset:0;z-index:60;display:none;align-items:center;justify-content:center;background:rgba(8,6,4,.8);padding:22px}
+  .savpop.show{display:flex}
+  .sav-card{width:100%;max-width:344px;background:var(--base-2);border:1px solid var(--line);border-radius:14px;padding:16px}
+  .sav-card h4{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;color:var(--muted);margin-bottom:11px;font-weight:500}
+  .sav-row{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:baseline;padding:5px 0;font-family:var(--mono);font-size:12px}
+  .sav-row .svc{color:var(--text)} .sav-row .full{color:var(--muted);text-decoration:line-through;font-size:11px} .sav-row .paid b{color:var(--amber);font-weight:500}
+  .sav-total{display:flex;justify-content:space-between;align-items:baseline;border-top:1px solid var(--line);margin-top:9px;padding-top:11px}
+  .sav-total .t{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.06em}
+  .sav-total .v{font-family:var(--display);font-weight:700;font-size:18px;color:var(--amber)}
+  .sav-foot{font-family:var(--body);font-size:10px;color:var(--muted);margin-top:10px;line-height:1.35}
+  /* Floating cube — back to cube navigation (shared across trunk sides) */
+  /* 125% block-text bump — running prose scaled ~1.25x (labels/mono chrome unchanged). */
+  .exc-syn{font-size:14px}
+  .sh-note{font-size:16px}
+  /* ── SHADOW page (SET tab): the fused taste profile. Namespaced shd- to avoid the share
+       dialog's sh- classes. ── */
+  .shd-load{padding:22px 4px;color:var(--muted);font-family:var(--mono);font-size:12px}
+  .shd-intro{padding:6px 2px 2px}
+  .shd-intro h2{font-family:var(--display);font-size:23px;font-weight:800;margin:0 0 6px}
+  .shd-intro p{font-size:12.5px;line-height:1.5;color:var(--muted);margin:0}
+  .shd-tools{display:flex;gap:8px;align-items:center;margin:14px 0 8px}
+  .shd-tools input{flex:1;min-width:0;background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius:10px;
+    padding:9px 12px;color:var(--text);font-size:13px;-webkit-appearance:none}
+  .shd-tools input:focus{outline:none;border-color:rgba(240,169,59,.5)}
+  .shd-btn{flex:0 0 auto;background:var(--amber);color:#1a130b;border:0;border-radius:10px;padding:9px 12px;
+    font-family:var(--mono);font-weight:700;font-size:11px;letter-spacing:.04em;cursor:pointer;white-space:nowrap}
+  .shd-btn.ghost{background:transparent;color:var(--amber);border:1px solid var(--line)}
+  .shd-btn:active{transform:translateY(1px)}
+  .shd-btn:disabled{opacity:.5}
+  .shd-count{font-family:var(--mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:2px 0 2px}
+  .shd-group{display:flex;align-items:center;gap:9px;margin:16px 0 6px}
+  .shd-group span{font-family:var(--mono);font-size:9.5px;letter-spacing:.18em;color:var(--amber)}
+  .shd-group em{font-family:var(--mono);font-style:normal;font-size:9px;color:var(--muted)}
+  .shd-group::after{content:"";flex:1;height:1px;background:rgba(255,255,255,.09)}
+  .shd-row{display:flex;align-items:flex-start;gap:10px;padding:11px 2px;border-bottom:1px solid rgba(255,255,255,.06)}
+  .shd-row.cut{opacity:.4}
+  .shd-dot{flex:0 0 auto;width:9px;height:9px;border-radius:50%;margin-top:6px;background:#3a3a40}
+  .shd-dot.love{background:#ef5a6f}.shd-dot.like{background:#5fbf6a}.shd-dot.meh{background:#c9a24a}
+  .shd-dot.nope{background:#6b6b72}.shd-dot.unset{background:#3a3a40}
+  .shd-body{flex:1 1 auto;min-width:0}
+  .shd-name{font-family:var(--display);font-weight:700;font-size:15px;line-height:1.2;color:var(--text)}
+  .shd-kind{font-family:var(--mono);font-size:8px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-left:7px;vertical-align:1px}
+  .shd-feel{font-size:12px;line-height:1.45;color:var(--muted);margin-top:3px}
+  .shd-note{width:100%;margin-top:6px;background:transparent;border:0;border-bottom:1px dashed rgba(255,255,255,.14);
+    color:var(--text);font-family:inherit;font-size:12.5px;resize:none;padding:2px 0;line-height:1.4}
+  .shd-note:focus{outline:none;border-bottom-color:var(--amber)}
+  .shd-sent{flex:0 0 auto;align-self:center;background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius:8px;
+    color:var(--text);font-family:var(--mono);font-size:11px;padding:5px 6px;-webkit-appearance:none}
+  .shd-cut{flex:0 0 auto;align-self:center;width:26px;height:26px;border-radius:50%;border:1px solid var(--line);
+    background:transparent;color:var(--muted);font-size:14px;line-height:1;cursor:pointer}
+  .shd-cut:active{color:var(--amber);border-color:var(--amber)}
+  .shd-empty{padding:20px 6px;color:var(--muted);font-size:13px;line-height:1.5;border:1px dashed var(--line);border-radius:11px;margin-top:10px}
+  .shd-empty b{color:var(--text)}
+</style>
+</head>
+<body>
+<!-- Shared playhead-marker glyphs: flame = BINGE, leaf = FRESH (referenced via <use>). -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <linearGradient id="mkFlameG" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#e11d1d"/><stop offset="52%" stop-color="#ff6a00"/><stop offset="100%" stop-color="#ffd21a"/>
+  </linearGradient>
+  <linearGradient id="mkLeafG" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0%" stop-color="#86e6a0"/><stop offset="55%" stop-color="#46c46f"/><stop offset="100%" stop-color="#2f8a4f"/>
+  </linearGradient>
+  <symbol id="mkFlame" viewBox="0 0 24 24"><path fill="url(#mkFlameG)" d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></symbol>
+  <symbol id="mkLeaf" viewBox="0 0 24 24"><path fill="url(#mkLeafG)" d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path fill="none" stroke="#e7fbee" stroke-width="1.6" stroke-linecap="round" d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></symbol>
+</defs></svg>
+<div class="face" id="face">
+  <div class="head">
+    <div class="label">SET</div>
+    <div class="headright">
+      <div class="savings" id="savingsBtn"><div class="amt" id="savings">$0</div><div class="cap">SAVED IN PROGRAM</div></div>
+      <button class="addbtn" id="addBtn" aria-label="Add a show or movie">+ Show/Movie</button>
+    </div>
+  </div>
+
+  <div class="pierre">
+    <div class="read"><span class="dot"></span><span class="line" id="pierreLine"><span class="q">asking Pierre...</span></span></div>
+    <div class="chips">
+      <span class="spacer"></span>
+      <button class="chip demo" id="finishBtn">&#8629; finished</button>
+    </div>
+  </div>
+
+  <!-- SET is the resolve tab: Completed today; the Shadow (fused profile) is the reserved second
+       section to come. Kept as a sub-tab bar (not a flat list) so Shadow slots in beside COMPLETED
+       without another restructure. -->
+  <div class="tabbar">
+    <button class="tab on" data-tab="shadow">SHADOW<span class="ct" id="n-shadow"></span></button>
+    <button class="tab" data-tab="completed">COMPLETED<span class="ct" id="n-completed"></span></button>
+  </div>
+
+  <div class="scroll"><div class="grid" id="grid"><div class="state">loading your log...</div></div></div>
+
+  <div class="fx" id="fx"></div>
+  <div class="flash" id="flash"><div class="flabel">&#8594; EPISODES</div><div class="fsub"></div><div class="fnote"></div></div>
+  <div class="savpop" id="savpop"><div class="sav-card" id="savCard"></div></div>
+
+  <!-- COMFORT: a curated marathon opens full-face inside WATCH (an in-face overlay
+       — faces never call each other). Its own back returns to the marathon list. -->
+  <div class="marov" id="marov">
+    <div class="marbar"><button class="marback" id="marBack">&#8249; marathons</button></div>
+    <iframe id="marFrame" title="Marathon" allow="microphone; web-share"></iframe>
+  </div>
+</div>
+
+<script src="/wow-scheduler.js"></script>
+<script>
+const SEED=[
+  {id:"severance", q:"Severance",      watched:14,      lastDate:"2026-06-12"},
+  {id:"slowhorses",q:"Slow Horses",    watched:12,      lastDate:"2026-06-08"},
+  {id:"silo",      q:"Silo",           watchedAll:true, lastDate:"2026-05-30", returnDate:"2026-06-19"},
+  {id:"thebear",   q:"The Bear",       watchedAll:true, lastDate:"2026-06-02", returnDate:"2026-07-15"},
+  {id:"tlou",      q:"The Last of Us", watchedAll:true, lastDate:"2026-05-20", returnDate:"2026-09-01"},
+  {id:"yellowjackets", q:"Yellowjackets", watchedAll:true, lastDate:"2026-07-20", returnDate:"2026-10-15"},
+  {id:"mrrobot",   q:"Mr. Robot",      watchedAll:true, lastDate:"2026-04-30"},
+  {id:"andor",     q:"Andor",          watchedAll:true, lastDate:"2026-04-14"},
+  {id:"goodplace", q:"The Good Place", watchedAll:true, lastDate:"2026-02-02"},
+  {id:"westwing",  q:"The West Wing",  watchedAll:true, comfort:true, lastDate:"2026-06-11", plan:{label:"Complete Series Rewatch", kind:"all"}},
+  {id:"psych",     q:"Psych",          watchedAll:true, comfort:true, lastDate:"2026-06-01", plan:{label:"Top 10 Episodes", kind:"top", n:10}},
+  {id:"gilmore",   q:"Gilmore Girls",  watchedAll:true, comfort:true, lastDate:"2026-05-25", plan:{label:"Logan Huntzberger Episodes", kind:"seasonsScatter", seasons:[5,6,7]}},
+  {id:"homicide",  q:"Homicide Life on the Street",       watchedAll:true, comfort:true, lastDate:"2026-05-18", plan:{label:"Only the First 4 Seasons", kind:"seasons", max:4}},
+  {id:"svu",       q:"Law and Order Special Victims Unit", watchedAll:true, comfort:true, lastDate:"2026-05-10", plan:{label:"Pierre's Top 10", kind:"top", n:10}}
+];
+
+const SUBS=[
+  {name:"Disney+",     full:18.99, paid:9.49,  months:4},
+  {name:"Netflix",     full:26.99, paid:13.49, months:4},
+  {name:"Peacock",     full:16.99, paid:8.49,  months:3},
+  {name:"Prime Video", full:13.98, paid:6.98,  months:2},
+  {name:"Paramount+",  full:13.99, paid:6.99,  months:1}
+];
+const TOTAL_SAVED=SUBS.reduce((a,s)=>a+(s.full-s.paid)*s.months,0);
+
+const NOW=new Date();
+let LOG=[], activeTab="shadow", addSeq=0, selectedId=null;   // SET opens on SHADOW (the fused taste profile)
+// Archived rewatch passes (GET /profile/:email/passes) — null until first loaded.
+let PASSES=null;
+// Highlighter marker: stamps a partial-then-restarted ("highlights") pass in the Completed tab.
+const HILITE_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l3-1L17.5 8.5a2.1 2.1 0 0 0-3-3L4 16z"/><path d="M13.5 6.5l4 4"/><path d="M3 21h6"/></svg>';
+// VIEWING LOG open-state, persisted across re-renders so a refresh/rotate-in can't wipe
+// it (that was the "closes randomly"). Keyed by show: opening a different show resets to
+// all-closed. `open` = the master toggle; `eps` = the episode keys whose block is open.
+let archState = { showId:null, open:false, eps:new Set() };
+const face=document.getElementById("face");
+
+// DEMO = showcase build (dummy savings + "finished" chip); MVP = clean product.
+const DEMO = location.hostname.split('.').includes('demo') || new URLSearchParams(location.search).has('demo');
+if(!DEMO){
+  const fb=document.getElementById("finishBtn"); if(fb) fb.style.display="none";   // MVP finishes via the Episode finale tap
+  const sb=document.getElementById("savingsBtn"); if(sb) sb.style.display="none";  // MVP drops the savings object
+}
+// Member persistence: the Log is the single writer to the account. Signed-in
+// members load their tracked shows on open and we POST each show on change.
+const API = (location.protocol === 'http:' && location.hostname==='localhost') ? 'http://localhost:8787' : 'https://pangolin-rc.edward-m-willett.workers.dev';
+const acct = () => { try{ return localStorage.getItem('pg_user')||''; }catch(_){ return ''; } };
+const fmtDate=(iso)=>new Date(iso).toLocaleDateString("en-US",{month:"short",day:"numeric"});
+const daysTo=(iso)=>Math.round((new Date(iso)-NOW)/86400000);
+const money=(n)=>"$"+n.toFixed(2);
+const esc=(t)=>(t||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+
+/* Orphan fix: break "Show: Subtitle" at the colon. */
+function titleHTML(name){
+  const i=name.indexOf(": ");
+  if(i>0) return esc(name.slice(0,i+1))+"<br>"+esc(name.slice(i+2));
+  return esc(name);
+}
+
+function relDate(iso){const d=Math.round((NOW-new Date(iso))/86400000);
+  if(d<=0)return"today"; if(d===1)return"yesterday"; if(d<7)return d+" days ago";
+  if(d<14)return"last week"; if(d<60)return Math.round(d/7)+" weeks ago"; return Math.round(d/30)+" months ago";}
+
+async function hydrate(seed){
+  const base={...seed,name:seed.q,poster:null,status:"Unknown",failed:false,episodes:[],
+    total:0,released:0,watched:0,lastWatched:null,forceCompleted:false,stopped:false};
+  try{
+    const url="https://api.tvmaze.com/singlesearch/shows?q="+encodeURIComponent(seed.q)+"&embed=episodes";
+    const res=await fetch(url); if(!res.ok)throw new Error(res.status);
+    const show=await res.json();
+    const eps=(show._embedded?.episodes||[]).filter(e=>e.season>=1).sort((a,b)=>a.season-b.season||a.number-b.number);
+    const released=eps.filter(e=>e.airdate&&new Date(e.airdate)<=NOW);
+    const total=eps.length;
+    let watched=seed.watchedAll?released.length:Math.min(seed.watched||0,released.length);
+    const lw=watched>0?released[watched-1]:null;
+    return {...base,name:show.name||seed.q,tvmazeId:show.id,poster:show.image?.original||show.image?.medium||null,
+      platform:show.webChannel?.name||show.network?.name||"",
+      summary:(show.summary||"").replace(/<[^>]*>/g,"").trim(),
+      status:show.status||"Unknown",episodes:eps,total,released:released.length,watched,
+      lastWatched:lw?{season:lw.season,number:lw.number,title:lw.name,at:seed.lastDate}:null};
+  }catch(e){return {...base,failed:true};}
+}
+
+// Scheduler episode list for a show: the account /titles row carries none (episodes:[]),
+// so read from the scheduler's prefetched TVMaze cache (airstamps). [] until wowPrefetch fills it.
+function wowShowId(s){ return s && (s.titleId||s.tvmazeId||s.id); }
+function wowEps(s){ return (window.WoW && s) ? WoW.epsCached(wowShowId(s)) : []; }
+// Watch-aware next-drop helpers: pass the show's last watched episode so a caught-up
+// show references its NEXT unwatched episode (not one that aired today) for both the
+// day-badge TAG and the timely sort.
+function wowNext(s){ return (window.WoW && s) ? WoW.nextUp(wowEps(s), Date.now(), s.lastWatched) : null; }
+function wowSortKey(s){ return (window.WoW && s) ? WoW.sortKey(wowEps(s), Date.now(), s.lastWatched) : Infinity; }
+// Account shows carry no episode list. Fetch airstamps for the tvmaze series once per
+// account load, then re-render so TAGs, in-season bucketing, and timely sort light up.
+let _wowPrefetched=false;
+function wowPrefetch(){
+  if(_wowPrefetched || !window.WoW || typeof LOG==='undefined' || !LOG || !LOG.length) return;
+  _wowPrefetched=true;
+  const ids=LOG.filter(s=>s && /^tvmaze:\d+$/.test(String(wowShowId(s)||''))).map(wowShowId);
+  if(ids.length) WoW.prefetch(ids).then(()=>{ try{ render(); }catch(_){} });
+}
+
+// Watch-pattern STAMP (WoW watchMode). Derived by classifying this show's cross-season
+// watches (finishTs vs airstamp, matched by season+number) from the title detail;
+// a manual choice always wins and freezes it. Hidden while UNSAMPLED / DECLINED / killed.
+const _wowModes={};   // showId -> {mode, src}
+async function wowClassifyShow(s){
+  const showId=wowShowId(s);
+  if(!window.WoW || !/^tvmaze:\d+$/.test(String(showId||''))) return;
+  const eps=await WoW.episodes(showId); if(!eps.length) return;
+  const email=acct(); if(!email) return;
+  let detail=null; try{ const r=await fetch(API+"/profile/"+encodeURIComponent(email)+"/titles/"+encodeURIComponent(showId)); if(r.ok) detail=await r.json(); }catch(_){}
+  const dEps=(detail&&detail.episodes)||[];
+  const byKey={}; eps.forEach(e=>{ byKey[e.season+'-'+e.number]=e; });
+  const deltas=[], tss=[];
+  dEps.forEach(e=>{ if(!e.done) return; const air=byKey[e.season+'-'+e.number]; if(!air||!air.airstamp) return;
+    const fin=(Array.isArray(e.sessions)?e.sessions:[]).filter(x=>x&&x.finishTs).pop(); const ts=fin?fin.finishTs:null; if(!ts) return;
+    deltas.push((ts-new Date(air.airstamp).getTime())/3600000); tss.push(ts); });
+  const st=WoW.store.stateNow()||{}; const killed=st.user&&st.user.globalKill; const manual=st.modes&&st.modes[showId];
+  const now=Date.now(), WEEK=7*86400000;
+  const lastWatch = tss.length ? Math.max.apply(null, tss) : 0;
+  // Recency gate: nothing watched in the last week → DORMANT (no badge).
+  if(!lastWatch || (now-lastWatch) > WEEK){ _wowModes[showId]={mode:'DORMANT', src:'derived'}; return; }
+  // BINGE: 3+ episodes finished within a 3-day window in the last week.
+  const recent = tss.filter(t=>now-t<=WEEK).sort((a,b)=>a-b);
+  let binge=false;
+  for(let i=0;i<recent.length && !binge;i++){ let c=1;
+    for(let j=i+1;j<recent.length;j++){ if(recent[j]-recent[i]<=3*86400000) c++; }
+    if(c>=3) binge=true; }
+  if(binge){ _wowModes[showId]={mode:'MORE!', src:'derived'}; return; }
+  // Else: FRESH if you're keeping up with a weekly (watched close to air), else CASUAL.
+  const cls=WoW.classifyDeltas(deltas, tss, {manual, killed});
+  let mode = (cls.mode==='LIVE'||cls.mode==='FRESH') ? 'FRESH' : 'CASUAL';   // vocab: Fresh/Binge/Casual
+  _wowModes[showId]={mode, src:'derived'};
+}
+// Public-facing label: MORE! reads as BINGE everywhere the member sees it.
+function wowLabel(mode){ return mode==='MORE!' ? 'BINGE' : mode; }
+// The effective ON pattern for a show, ignoring any decline: a manually stored mode,
+// else the derived classification, else the member's profile default (their general
+// aspiration). Specific types are never picked per show here -- that is the Profile
+// default's job; the show face only accepts (on) or declines (off) this pattern.
+// "Fresh right now" = caught up on every aired episode AND the show is actively in-season.
+// In-season means the phase engine sees the show still airing: either it just dropped
+// (LIVE/FRESH air-window) OR the next episode is coming within the in-season window
+// (PRE-SHOW/RAMP/SETTLED). This is deliberately broader than the old <=48h post-air gate:
+// a weekly you're caught up on stays FRESH BETWEEN drops (you're keeping up), instead of
+// decaying to CASUAL 48h after each episode and only flickering FRESH for two days a week.
+// Only DORMANT / SEASON WRAP (no upcoming drop in-season) fall through to the derived mode.
+const WOW_INSEASON_PHASES = ['LIVE', 'FRESH', 'PRE-SHOW', 'RAMP', 'SETTLED'];
+function wowFreshNow(s){
+  if(!window.WoW || !s) return false;
+  if((s.watched||0) < (s.released||0)) return false;   // still behind on aired episodes → not fresh, CASUAL
+  const ph=WoW.phase(wowEps(s));
+  return !!ph && WOW_INSEASON_PHASES.indexOf(ph.name) >= 0;
+}
+function wowEffMode(showId, s){
+  const st=WoW.store.stateNow()||{};
+  const manual=st.modes&&st.modes[showId];
+  if(manual && manual!=='DECLINED') return {mode:manual, src:'set'};
+  const d=_wowModes[showId];
+  const derived=(d && d.mode!=='UNSAMPLED' && d.mode!=='DECLINED' && d.mode!=='DORMANT') ? d.mode : null;
+  // Binge wins (matches the fire playhead marker).
+  if(derived==='MORE!') return {mode:'MORE!', src:'derived'};
+  // Fresh override: catching the newest episode inside its fresh window reads as FRESH
+  // now, even if the long-run median (diluted by old binges) classified this CASUAL.
+  // Keeps the text badge in step with the leaf.
+  if(wowFreshNow(s)) return {mode:'FRESH', src:'derived'};
+  if(derived) return {mode:derived, src:'derived'};
+  // No profile-default fallback: a show only earns a badge from its OWN recent activity
+  // (else every show got stamped with the default). Dormant (>1 week unwatched) → none.
+  return null;
+}
+function wowStampFor(s){
+  if(!window.WoW) return null;
+  // Movies have no weekly watch cadence -- the profile default shouldn't stamp them.
+  // (Repeated-viewing is its own pattern, a job for a separate scheduler.)
+  if(s && (s.kind==='movie' || /^tmdb:/.test(String(wowShowId(s))))) return null;
+  const showId=wowShowId(s), st=WoW.store.stateNow()||{};
+  if(st.user&&st.user.globalKill) return null;
+  const declined=(st.modes&&st.modes[showId])==='DECLINED';   // toggled off for this show
+  const eff=wowEffMode(showId, s);
+  if(eff) return {mode:eff.mode, src:eff.src, off:declined};
+  // Declined with no derivable/default pattern still shows a generic OFF stamp so the
+  // toggle is always recoverable (tap it to switch back on).
+  if(declined) return {mode:null, src:'declined', off:true};
+  return null;
+}
+function wowStampHTML(s, big){
+  const m=wowStampFor(s); if(!m) return '';
+  // Only the expanded-card stamp is tappable (data-stamp); the tile stamp is display
+  // only. Off = the pattern is declined for this show, shown greyed + struck.
+  const cls='wowstamp'+(m.src==='set'?' set':'')+(m.off?' off':'')+(big?' big':'');
+  const attr=big ? (' data-stamp="'+wowShowId(s)+'"') : '';
+  return '<div class="'+cls+'"'+attr+'>'+(m.mode?wowLabel(m.mode):'OFF')+'</div>';
+}
+let _wowModesPrefetched=false;
+function wowModePrefetch(){
+  if(_wowModesPrefetched || !window.WoW || typeof LOG==='undefined' || !LOG || !LOG.length) return;
+  _wowModesPrefetched=true;
+  const shows=LOG.filter(s=>s && /^tvmaze:\d+$/.test(String(wowShowId(s)||'')) && (s.watched||0)>=2);
+  if(shows.length) Promise.all(shows.map(wowClassifyShow)).then(()=>{ try{ render(); }catch(_){} });
+}
+// A film watched in a theater (a ticket is on file). These belong to the IRL/tickets
+// space, not the WATCH show list -- hidden from the grid + tab counts. Streamed and
+// physical-media movies have no ticketAt and stay.
+function isTheaterMovie(s){ return !!(s && s.kind==='movie' && s.ticketAt); }
+function bucketOf(s){
+  if(ticketWatched(s)) return "completed";   // theater ticket: auto-flips to watched once the film has started
+  if(s.stopped) return "completed";
+  if(s.forceCompleted) return "completed";
+  if(s.failed) return "current";
+  if(s.comfort) return "comfort";
+  const ended=s.status==="Ended"||s.status==="Canceled";
+  if(ended && s.watched>=s.total && s.total>0) return "completed";
+  if(s.watched < s.released) return "current";
+  // Caught up but a new episode drops soon (in-season, e.g. a weekly mid-season show
+  // waiting on next week's drop) → still CURRENT. Uses the scheduler's live airstamps.
+  if(window.WoW && WoW.inSeason(wowEps(s), Date.now(), s.lastWatched)) return "current";
+  // The RETURNING tab was retired -- a followed show on hiatus (caught up, next season
+  // still out) stays in CURRENT with its return-countdown tile, rather than vanishing.
+  if(s.returnDate) return "current";
+  return ended ? "completed" : "current";
+}
+
+/* Which episodes a rewatch plan includes. Demo subsets. */
+function planSet(s){
+  const set=new Set(), eps=s.episodes, p=s.plan||{kind:"all"};
+  const key=(e)=>e.season+"-"+e.number;
+  if(p.kind==="all"){eps.forEach(e=>set.add(key(e)));}
+  else if(p.kind==="seasons"){eps.filter(e=>e.season<=p.max).forEach(e=>set.add(key(e)));}
+  else if(p.kind==="seasonsScatter"){const inS=eps.filter(e=>p.seasons.includes(e.season));inS.forEach((e,i)=>{if(i%2===0)set.add(key(e));});}
+  else if(p.kind==="top"){const n=p.n||10,step=Math.max(1,Math.floor(eps.length/n));for(let i=0;i<eps.length&&set.size<n;i+=step)set.add(key(eps[i]));}
+  return set;
+}
+
+const Pierre={
+  lastEpisodeWatched(){const w=LOG.filter(s=>s.lastWatched&&!s.failed&&!s.forceCompleted&&!s.stopped);
+    if(!w.length)return null; w.sort((a,b)=>new Date(b.lastWatched.at)-new Date(a.lastWatched.at)); return w[0];},
+  currentlyWatching(){return LOG.filter(s=>bucketOf(s)==="current"&&!s.failed&&s.watched<s.released)
+    .sort((a,b)=>new Date(b.lastDate)-new Date(a.lastDate));}
+};
+
+// The show to resume on a cold open: prefer one with a real resume pointer (a
+// finished episode → server last_season); otherwise the most-recently-touched
+// active show so a partial-only or pointerless show still loads. Drives BOTH the
+// WATCH-side pre-selection and the LOG-side resume payload.
+function resumeShow(){
+  return Pierre.lastEpisodeWatched()
+    || LOG.filter(s=>!s.failed&&!s.forceCompleted&&!s.stopped)
+          .sort((a,b)=>new Date(b.lastDate)-new Date(a.lastDate))[0]
+    || null;
+}
+
+// Pierre always reads the last thing viewed — whether you stopped mid-episode or
+// finished it. No mode toggle; a paused mark shows when you're mid-episode.
+function renderPierre(){
+  const el=document.getElementById("pierreLine");
+  const s=Pierre.lastEpisodeWatched(); if(!s){el.innerHTML='<span class="q">nothing logged yet</span>';return;}
+  const e=s.lastWatched;
+  const where = s.kind==='movie' ? ' <span class="q">&middot; film</span>' : (" S"+e.season+" E"+e.number);
+  const mid = (s.lastMinute>0) ? ' <span class="q">&middot; paused at '+s.lastMinute+'m</span>' : '';
+  el.innerHTML='<span class="q">Last:</span> <b>'+esc(s.name)+"</b>"+where+mid+' <span class="q">&middot; '+relDate(e.at)+"</span>";
+}
+
+// Playhead marker: popcorn by default; flame when bingeing (3rd episode of a burst), leaf
+// when the show is FRESH for THIS viewer. The leaf now reads the SAME effective mode as the
+// text badge (wowStampFor → wowEffMode, which applies the caught-up + in-season wowFreshNow
+// override), so glyph and badge never disagree: a show you're behind on shows CASUAL text and
+// NO leaf, even while it's airing fresh. (The old raw-phase clause lit the leaf off the show's
+// air-window regardless of your progress — the "CASUAL but a leaf" mismatch.) The override
+// needs no classifier samples, so a first caught-up fresh watch still lights the leaf at once.
+// Movies always get popcorn.
+function playheadMarkerHTML(s, leftPct){
+  const popcorn='<div class="pop" style="left:'+leftPct+'%">&#127871;</div>';
+  if(s.kind==='movie') return popcorn;   // movies have no weekly cadence
+  const m=(typeof wowStampFor==='function')?wowStampFor(s):null;
+  const mode=(m && !m.off)?m.mode:null;
+  if(mode==='MORE!'||mode==='BINGE') return '<div class="pop mk flame" style="left:'+leftPct+'%"><svg viewBox="0 0 24 24"><use href="#mkFlame"/></svg></div>';
+  if(mode==='FRESH') return '<div class="pop mk leaf" style="left:'+leftPct+'%"><svg viewBox="0 0 24 24"><use href="#mkLeaf"/></svg></div>';
+  return popcorn;
+}
+function episodeBar(s){
+  if(s.failed)return '<div class="bar"></div>';
+  // A movie is one runtime, not a pile of episodes: fill by minutes watched / runtime.
+  if(s.kind==='movie'){
+    const rt=s.runtime||0, mins=Math.max(0,s.lastMinute||0), done=bucketOf(s)==="completed";
+    const w=done?100:(rt>0?Math.max(0,Math.min(100,mins/rt*100)):0);
+    let h='<div class="bar">';
+    if(w>0)h+='<div class="seg w" style="width:'+w+'%"></div>';
+    if(w<100)h+='<div class="seg u" style="width:'+(100-w)+'%"></div>';
+    if(!done&&mins>0)h+=playheadMarkerHTML(s,w);
+    return h+"</div>";
+  }
+  if(s.total===0)return '<div class="bar"></div>';
+  const w=(s.watched/s.total)*100,a=((s.released-s.watched)/s.total)*100,u=((s.total-s.released)/s.total)*100;
+  let h='<div class="bar">';
+  if(w>0)h+='<div class="seg w" style="width:'+w+'%"></div>';
+  if(a>0)h+='<div class="seg a" style="width:'+a+'%"></div>';
+  if(u>0)h+='<div class="seg u" style="width:'+u+'%"></div>';
+  if(bucketOf(s)!=="completed"&&s.watched>0&&s.watched<s.total&&!s.returnDate)h+=playheadMarkerHTML(s,w);
+  return h+"</div>";
+}
+function countdownBar(s){
+  const span=(new Date(s.returnDate)-new Date(s.lastDate))/86400000,elapsed=(NOW-new Date(s.lastDate))/86400000;
+  const pct=Math.max(0,Math.min(100,(elapsed/span)*100)),soon=daysTo(s.returnDate)<=7;
+  return '<div class="bar cd"><div class="fill'+(soon?' soon':'')+'" style="width:'+pct+'%"></div></div>';
+}
+function returnLine(s){const d=daysTo(s.returnDate);
+  if(d<=7) return '<div class="ret"><span class="soon">&#128276; new season</span><span class="soon">in '+d+'d</span></div>';
+  return '<div class="ret"><span>returns '+fmtDate(s.returnDate)+'</span><span>'+d+'d</span></div>';}
+function metaFor(s){
+  if(s.failed)return '<span>data unavailable</span>';
+  if(s.kind==='movie'){
+    if(bucketOf(s)==="completed")return '<span class="done">&#10003; watched</span><span>film</span>';
+    const rt=s.runtime||0, mins=Math.max(0,s.lastMinute||0), left=Math.max(0,rt-mins);
+    const state=(mins>0&&rt>0)?(left+' min left'):(rt>0?(rt+' min'):(mins>0?'in progress':'not started'));
+    return "<span>&#127909; film</span><span>"+state+"</span>";
+  }
+  if(bucketOf(s)==="completed")return '<span class="done">&#10003; done</span><span>'+s.total+'ep</span>';
+  const left=s.released-s.watched,pos=s.lastWatched?"S"+s.lastWatched.season+" E"+s.lastWatched.number:"";
+  return "<span>"+pos+"</span><span>"+(left>0?left+" left":"caught up")+"</span>";
+}
+function posterDiv(s){return s.poster?'<div class="poster" style="background-image:url('+s.poster+')"></div>'
+  :'<div class="poster" style="background:linear-gradient(150deg,#2a201a,#16100c)"></div>';}
+
+// WoW TAG: the next episode's airdate relative to today ("Sunday", "Next Week"...).
+// Derived client-side from the episode airstamps already loaded per show. Series only.
+function wowTag(s){
+  if(!window.WoW || !s || s.kind==='movie') return '';
+  const n = wowNext(s);
+  return n ? WoW.tag(n.airstamp) : '';
+}
+// Between-seasons badge: a caught-up show returning far out (>30 days) shows the return
+// MONTH rather than a weekday/date. Same year → "OCTOBER"; a later year → "MARCH 2027".
+// Near returns (<=30 days) fall through to the weekly TAG / countdown line.
+function returnTag(s){
+  if(!s || !s.returnDate) return '';
+  if(daysTo(s.returnDate) <= 30) return '';
+  const rd=new Date(s.returnDate+'T12:00'); if(isNaN(rd)) return '';
+  const mon=rd.toLocaleDateString('en-US',{month:'long'}).toUpperCase();
+  return rd.getFullYear() > NOW.getFullYear() ? (mon+' '+rd.getFullYear()) : mon;
+}
+// Films have no weekly cadence, but they still get a day badge: the weekday the film
+// entered the system — its screening/watch anchor (started_at, e.g. a Tuesday ticket),
+// or failing that the day the row was logged. Mirrors the series weekly-release TAG.
+// A film's day badge is ONLY the theater-ticket day (screening weekday); a movie with
+// no ticket gets no day badge (its freshness lives on the ticket, not a generic tag).
+function filmDayTag(s){
+  if(!s || s.kind!=='movie' || !s.ticketAt) return '';
+  const scr = parseTicketDate(s.ticketDate, s.ticketAt);
+  if(!scr) return '';
+  return new Date(scr).toLocaleDateString('en-US',{weekday:'long'}).toUpperCase();
+}
+
+// ── Theater ticket stub badge ────────────────────────────────────────────────
+// A film watched at a theater (a ticket is on file) gets a torn-ticket badge: the
+// weekday you went + a freshness class from how long after theatrical release you
+// caught it — HOT ≤7 days, FRESH 7–14, CASUAL after. Only films with BOTH a ticket
+// and a real release date qualify (others keep the plain filmDayTag).
+const TB_DOW=['SUN','MON','TUE','WED','THU','FRI','SAT'];
+const TB_MON={jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+const TB_DOWI={sun:0,mon:1,tue:2,wed:3,thu:4,fri:5,sat:6};
+// Turn a ticket's printed date ("TUE, AUG 04", "Aug 6 2026") into a real screening
+// timestamp. Tickets rarely print a year, so infer it: an explicit 4-digit year wins;
+// else if the weekday is printed (AMC does), pick the year near the upload where that
+// month/day actually falls on that weekday (deterministic); else the nearest year.
+function parseTicketDate(dateStr, fallbackMs){
+  if(!dateStr) return fallbackMs?Number(fallbackMs):null;
+  const s=String(dateStr).toLowerCase();
+  const mo=s.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/);
+  const dy=s.match(/\b(\d{1,2})\b/);
+  if(!mo||!dy) return fallbackMs?Number(fallbackMs):null;
+  const month=TB_MON[mo[1]], day=parseInt(dy[1],10);
+  const yr4=s.match(/\b(20\d{2})\b/), dow=s.match(/\b(sun|mon|tue|wed|thu|fri|sat)/);
+  const anchor=fallbackMs?new Date(Number(fallbackMs)):new Date(), base=anchor.getFullYear();
+  const nearest=()=>{ let b=base,g=Infinity; for(let y=base-2;y<=base+1;y++){ const c=new Date(y,month,day,12).getTime(), gg=Math.abs(c-anchor.getTime()); if(gg<g){g=gg;b=y;} } return b; };
+  let year;
+  if(yr4) year=parseInt(yr4[1],10);
+  else if(dow){
+    const want=TB_DOWI[dow[1]]; let b=null,g=Infinity;
+    for(let y=base-3;y<=base+1;y++){ const c=new Date(y,month,day,12); if(c.getDay()===want){ const gg=Math.abs(c-anchor); if(gg<g){g=gg;b=y;} } }
+    year = b!=null ? b : nearest();
+  } else year=nearest();
+  const ts=new Date(year,month,day,12).getTime();
+  return isNaN(ts) ? (fallbackMs?Number(fallbackMs):null) : ts;
+}
+function ticketClass(releaseDate, whenMs){
+  if(!releaseDate || !whenMs) return null;
+  const rel=new Date(releaseDate+'T12:00').getTime(); if(isNaN(rel)) return null;
+  const days=Math.floor((whenMs-rel)/86400000);
+  if(days < -1) return null;                       // "watched" before release → not a theater catch
+  if(days <= 7)  return {cls:'hot',    label:'HOT'};
+  if(days <= 14) return {cls:'fresh',  label:'FRESH'};
+  return           {cls:'casual', label:'CASUAL'};
+}
+// Deterministic RNG so a film's tear is stable across re-renders (no flicker).
+function tbSeed(str){ let h=2166136261>>>0; for(let i=0;i<str.length;i++){ h^=str.charCodeAt(i); h=Math.imul(h,16777619);} return h>>>0; }
+function tbRand(seed){ let x=(seed||1)>>>0; return ()=>{ x=(Math.imul(x,1664525)+1013904223)>>>0; return x/4294967296; }; }
+// Stub outline: straight top & bottom, a semicircle notch on the RIGHT, an irregular
+// RIPPED left edge (seeded jitter). Same shape approved in the localhost preview.
+function tbPath(w,h,n,rng){
+  const m=h/2, jMax=6;
+  let p='M 0 0 H '+w+' V '+(m-n)+' A '+n+' '+n+' 0 0 0 '+w+' '+(m+n)+' V '+h+' H 0 ';
+  let y=h;
+  while(y>0){ y=Math.max(0, y-(1.6+rng()*2.6)); const x=(Math.pow(rng(),0.7)*jMax); p+='L '+x.toFixed(1)+' '+y.toFixed(1)+' '; }
+  return p+'L 0 0 Z';
+}
+// The film's real start = printed showtime + 25 min of previews. Drives the auto-flip
+// from "upcoming" to watched once that moment has passed.
+function screeningStart(s){
+  if(!s || s.kind!=='movie' || !s.ticketAt) return null;
+  const dayMs=parseTicketDate(s.ticketDate, s.ticketAt); if(!dayMs) return null;   // midday of screening day
+  const d=new Date(dayMs);
+  const tm=String(s.ticketTime||'').toLowerCase().match(/(\d{1,2}):(\d{2})\s*(am|pm)?/);
+  if(tm){ let hh=+tm[1]; const mm=+tm[2], ap=tm[3];
+    if(ap==='pm'&&hh<12)hh+=12; if(ap==='am'&&hh===12)hh=0; d.setHours(hh,mm,0,0); }
+  return d.getTime() + 25*60000;
+}
+function ticketWatched(s){ const f=screeningStart(s); return f!=null && f<=Date.now(); }
+function ticketBadge(s){
+  if(!s || s.kind!=='movie' || !s.ticketAt) return '';
+  // Real screening date from the ticket (weekday-confirmed year); fall back to upload time.
+  const when=parseTicketDate(s.ticketDate, s.ticketAt) || Number(s.ticketAt);
+  const info=ticketClass(s.releaseDate, when); if(!info) return '';
+  const day=TB_DOW[new Date(when).getDay()];
+  const W=54,H=34, d=tbPath(W,H,3.4, tbRand(tbSeed(s.titleId||s.name||'x')));
+  return '<div class="tikbadge '+info.cls+'">'
+    + '<svg viewBox="0 0 '+W+' '+H+'"><path d="'+d+'" fill="rgba(26,18,6,.92)" stroke="currentColor" stroke-width="1.5"/></svg>'
+    + '<span class="tb-txt"><span class="tb-day">'+day+'</span><span class="tb-cls">'+info.label+'</span></span></div>';
+}
+function tileFor(s,asStopped){
+  const b=bucketOf(s);
+  const cls="tile"+(b==="completed"?" completed":"")+(s.failed?" failed":"")+(asStopped?" stopped":"");
+  let bars='<div class="bars">'+episodeBar(s);
+  if(s.returnDate&&b!=="completed")bars+=countdownBar(s);
+  bars+="</div>";
+  let footer;
+  if(asStopped) footer='<button class="tryagain" data-act="resume" data-id="'+s.id+'">&#8635; try again</button>';
+  else if(s.returnDate&&b!=="completed") footer=returnLine(s);
+  else footer='<div class="meta">'+metaFor(s)+"</div>";
+  const tb = ticketBadge(s);                         // theater films: torn-ticket stub
+  // A curated marathon owns the corner: "🍿 MARATHON" wins over the weekly/return tag,
+  // and its name rides under the show title so the tile reads as the queue, not the series.
+  const isMar = !!s.mapName && b!=="completed";
+  const tg = (tb||isMar) ? '' : (returnTag(s) || wowTag(s) || filmDayTag(s)); // return-month / day / airdate tag
+  const corner = tb || (isMar?'<div class="wowtag martag">&#127871; MARATHON</div>'
+                            : (tg?'<div class="wowtag">'+tg+'</div>':''));
+  const marsub = isMar ? '<div class="marsub">'+esc(s.mapName)+'</div>' : '';
+  return '<div class="'+cls+(isMar?' marathon':'')+'" data-id="'+s.id+'">'+posterDiv(s)+'<div class="scrim"></div>'+
+    (s.isNew?'<div class="newflag">NEW</div>':'')+
+    corner+
+    wowStampHTML(s)+
+    '<div class="body"><div class="title">'+titleHTML(s.name)+"</div>"+marsub+bars+footer+"</div></div>";
+}
+
+// Selected-show expanded card (CURRENT + COMPLETED). Snaps to the top of the grid
+// and expands in place — poster left, info right, two two-line action buttons.
+function expandedCard(s, mode){
+  const syn = s.summary ? esc(s.summary) : 'No synopsis yet.';
+  const isMovie = s.kind==='movie';
+  const pos = isMovie ? 'Film' : (s.lastWatched ? ('S'+s.lastWatched.season+' E'+s.lastWatched.number) : '');
+  let metaTxt;
+  const dayTg = isMovie ? filmDayTag(s) : '';
+  const dayPill = dayTg ? '<span class="exc-tag">'+dayTg+'</span>' : '';
+  if(mode==='completed'){ metaTxt = isMovie ? ('&#10003; watched &middot; film'+dayPill) : ('&#10003; done &middot; '+(s.total||0)+' episodes'); }
+  else if(isMovie){ const rt=s.runtime||0, mins=Math.max(0,s.lastMinute||0), left=Math.max(0,rt-mins);
+    metaTxt = '&#127909; film &middot; '+((mins>0&&rt>0)?(left+' min left'):(rt>0?(rt+' min'):(mins>0?'in progress':'not started')))+dayPill; }
+  else { const left=s.released-s.watched; metaTxt=(pos?pos+' &middot; ':'')+(left>0?left+' left':'caught up');
+    const tg=wowTag(s); if(tg) metaTxt+='<span class="exc-tag">'+tg+'</span>'; }
+  const poster = s.poster ? 'style="background-image:url('+s.poster+')"'
+                          : 'style="background:linear-gradient(150deg,#2a201a,#16100c)"';
+  const btn=(cls,act,ic,l1,l2)=>'<button class="exc-btn '+cls+'" data-act="'+act+'" data-id="'+s.id+'">'+
+    '<span class="ic">'+ic+'</span><span class="lbl">'+l1+(l2?'<br>'+l2:'')+'</span></button>';
+  // COMPLETED: one corner pill, "WATCH AGAIN" → pops to the LOG side (the
+  // episodes face) where the streamer wheel lets you change the viewing method,
+  // e.g. theater → a streamer once it's available. No second button.
+  if(mode==='completed'){
+    return '<div class="exp-card completed" data-id="'+s.id+'">'+
+        '<button class="exc-again" data-act="watch" data-id="'+s.id+'"><span class="ic">&#127909;</span>WATCH AGAIN</button>'+
+        '<div class="exc-top"><div class="exc-poster" '+poster+'></div>'+
+          '<div class="exc-info"><div class="exc-title">'+titleHTML(s.name)+'</div>'+
+            '<div class="exc-meta done">'+metaTxt+'</div>'+
+            '<div class="exc-syn">'+syn+'</div>'+
+            '<button class="exc-remove" data-act="remove" data-id="'+s.id+'"><span class="ic">&#128465;</span>'+
+              (s.stopped?'REMOVE FROM LOG':'DELETE')+'</button></div></div>'+
+        '<div class="ep-arch" id="arch-'+s.id+'"><div class="vw-empty">loading episodes…</div></div>'+
+        '</div>';
+  }
+  const btns = btn('watch','watch','&#9654;&#65039;','WATCH','')+btn('share','share','&#127873;','SHARE','')+btn('stop','stop','&#128721;','STOP','WATCHING');
+  // Seasons column (chips filled async after render via fillSeasons; films have none).
+  // The watch-pattern stamp lives at the bottom of this column, under the season
+  // selector, as a sibling of the chips host so fillSeasons' innerHTML swap leaves it be.
+  const seasonsCol = isMovie ? '' :
+    '<div class="exc-seas-col"><div class="exc-seasons" id="seas-'+s.id+'"></div>'+wowStampHTML(s,true)+'</div>';
+  return '<div class="exp-card" data-id="'+s.id+'">'+
+      '<div class="exc-top"><div class="exc-poster" '+poster+'></div>'+
+        '<div class="exc-info"><div class="exc-title">'+titleHTML(s.name)+'</div>'+
+          '<div class="exc-meta">'+metaTxt+'</div><div class="exc-syn">'+syn+'</div></div>'+
+        seasonsCol+'</div>'+
+      '<div class="exc-btns">'+btns+'</div>'+
+      '<div class="coview" data-cov="'+s.id+'"></div>'+
+      '<div class="ep-arch" id="arch-'+s.id+'"><div class="vw-empty">loading episodes…</div></div>'+
+      '</div>';
+}
+// Grid for a selectable tab: the selected show becomes a full-width expanded card
+// at the top, the rest follow as tiles.
+function gridWithSelection(list, mode){
+  const sel = selectedId ? list.find(s=>s.id===selectedId) : null;
+  if(!sel){ if(selectedId) selectedId=null; return list.map(s=>tileFor(s,false)).join(""); }
+  let html = expandedCard(sel, mode);
+  list.forEach(s=>{ if(s.id!==sel.id) html+=tileFor(s,false); });
+  return html;
+}
+
+function barcode(s,sel){
+  if(!s.episodes.length)return '<div class="barcode"></div>';
+  const ticks=s.episodes.map(e=>'<i class="tk'+(sel.has(e.season+"-"+e.number)?" on":"")+'"></i>').join("");
+  return '<div class="barcode">'+ticks+"</div>";
+}
+function crowFor(s){
+  const sel=planSet(s),total=s.episodes.length;
+  const meta=(s.plan&&s.plan.kind==="all")?("all "+total+" episodes"):(sel.size+" of "+total+" episodes");
+  return '<div class="crow" data-id="'+s.id+'">'+
+    '<div class="pcell">'+posterDiv(s)+'<div class="scrim"></div><div class="ctitle">'+titleHTML(s.name)+'</div></div>'+
+    '<div class="pinfo"><div class="planlabel">'+esc(s.plan?s.plan.label:"Rewatch")+'</div>'+
+      barcode(s,sel)+
+      '<div class="pmeta"><span>'+meta+'</span><span class="edit">&#9998; Pierre</span></div></div></div>';
+}
+
+function counts(){
+  const c={current:0,comfort:0,completed:0};
+  LOG.forEach(s=>{ if(isTheaterMovie(s)) return; c[bucketOf(s)]++;});
+  // COMFORT lists the curated marathons, not LOG shows bucketed as "comfort" — so its tab
+  // count is the marathon count (else it reads 0 until you open the tab, looking like a bug).
+  c.comfort = MARATHONS.length;
+  // SET only renders the COMPLETED sub-tab, so current/comfort count elements aren't present.
+  for(const k in c){ const el=document.getElementById("n-"+k); if(el) el.textContent=c[k]; }
+}
+
+/* ── COMFORT tab: curated marathons ────────────────────────────────────────
+   A data-driven list. Each entry opens its own self-contained marathon face
+   inside WATCH (an in-face overlay — faces never call each other). Add a second
+   marathon by adding a row here, not a new layout. Pre-beta, hand curated. */
+const MARATHONS=[
+  { id:"moonlighting", title:"The Ultimate Moonlighting Rewatch", sub:"7 essential episodes · David & Maddie",
+    icon:"\u{1F576}", file:"cube_watch_comfort_face.html?m=moonlighting" },
+  { id:"psycho", title:"Tressany's PSYCH-O Marathon!", sub:"12 episodes · 20 years of Psych",
+    icon:"\u{1F37F}", file:"cube_watch_comfort_face.html" }
+];
+
+function renderComfort(grid){
+  grid.classList.remove("list");
+  const n=document.getElementById("n-comfort"); if(n) n.textContent=MARATHONS.length;
+  const rows=MARATHONS.map(m=>
+    '<div class="mrow" data-mid="'+m.id+'">'+
+      '<div class="micon">'+m.icon+'</div>'+
+      '<div class="minfo"><div class="mtitle">'+esc(m.title)+'</div>'+
+        '<div class="msub">'+esc(m.sub)+'</div></div>'+
+      '<div class="mgo">&#8250;</div></div>').join("");
+  grid.innerHTML=
+    '<div class="mband"><span class="dotm"></span>PRE-BETA · curated marathons</div>'+
+    '<div class="mlist">'+rows+'</div>';
+  grid.querySelectorAll(".mrow").forEach(r=>r.addEventListener("click",()=>{
+    const m=MARATHONS.find(x=>x.id===r.dataset.mid); if(m) openMarathon(m);
+  }));
+}
+
+function openMarathon(m){
+  const ov=document.getElementById("marov"); if(!ov) return;
+  const fr=document.getElementById("marFrame");
+  if(fr.getAttribute("src")!==m.file) fr.setAttribute("src",m.file);
+  ov.classList.add("show");
+}
+function closeMarathon(){
+  const ov=document.getElementById("marov"); if(!ov) return;
+  ov.classList.remove("show");
+  const fr=document.getElementById("marFrame"); if(fr) fr.removeAttribute("src");   // stop it; reopen loads fresh
+}
+// The comfort marathon (in marFrame) asks to watch a step in the REAL app: activate the
+// curated map on this member's watch of that title, then open the LOG at that episode. From
+// then on the app's Current/Next follows the marathon (the map is honored by the catalog/
+// profile episode endpoints via active_map_id).
+window.addEventListener("message",async function(e){
+  const d=e.data; if(!d || d.type!=="comfort:watch" || !d.titleId) return;
+  const email=acct();
+  if(email && d.mapId){
+    // Set the curated map on this member's watch of the show, then pull the account back
+    // so the marathon lands in the WATCH list as its QUEUE tile (map-scoped counts + name).
+    try{ await fetch(API+"/profile/"+encodeURIComponent(email)+"/titles/"+encodeURIComponent(d.titleId)+"/map",
+      {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({map_id:d.mapId})}); }catch(_){}
+    try{ LOG = await loadAccount(email); activeTab="current"; render(); renderPierre(); }catch(_){}
+  }
+  closeMarathon();
+  window.cube.rotateTo("episodes",{titleId:d.titleId, pattern:d.pattern||{kind:"beginning"}, addToLog:true});
+});
+
+// Load the member's archived rewatch passes once (sets PASSES to an array, even []).
+async function loadPasses(){
+  const email=acct(); if(!email){ PASSES=[]; return; }
+  try{ const r=await fetch(API+"/profile/"+encodeURIComponent(email)+"/passes"); PASSES=r.ok?((await r.json()).passes||[]):[]; }
+  catch(_){ PASSES=[]; }
+}
+// A pass tile: poster + "S{n} · view {ordinal}", stamped with the locked pattern
+// (complete) or the highlighter marker (a partial pass restarted from the beginning).
+function passTile(p){
+  const poster=p.poster?"background-image:url('"+esc(p.poster)+"')":"";
+  const isHi=p.pass_kind==='highlights';
+  const badge=isHi
+    ? '<span class="passbadge highlights">'+HILITE_SVG+'highlights</span>'
+    : '<span class="passbadge">'+esc(p.pattern||'✓ complete')+'</span>';
+  const where=(p.title_kind==='movie')?'film':('S'+p.season);
+  const count=isHi?(p.watched_ct+' of '+p.season_ct):(p.season_ct+' eps');
+  return '<div class="tile passtile" data-passid="'+esc(p.pass_id)+'">'+
+    '<div class="poster" style="'+poster+'"></div><div class="scrim"></div>'+badge+
+    '<div class="body"><div class="title">'+titleHTML(p.name||'Untitled')+'</div>'+
+    '<div class="meta"><span>'+esc(where)+' &middot; <span class="ord">view '+p.ordinal+'</span></span>'+
+    '<span>'+esc(count)+'</span></div></div></div>';
+}
+
+// ── SHADOW: the fused taste profile (streaming_shadow). Pierre draws it from what you watch, say
+//    you watched, and watch with; here you retune it — cut what is not you, set a read, add a
+//    title, or rebuild it from your history. Backed by /shadow (GET/POST/PUT/DELETE + /rebuild).
+const SET_SENT_OPTS=[['love','Love'],['like','Like'],['meh','Meh'],['nope','Nope'],['','—']];
+const SET_TIERS=[['Top 10','TOP 10'],['Top 25','TOP 25'],['Top 50','TOP 50'],['','THE REST']];
+let _shadowRows=[], _shadowFilter='';
+async function loadShadow(){
+  const email=acct(); if(!email){ _shadowRows=[]; return; }
+  try{ const r=await fetch(`${API}/shadow?email=`+encodeURIComponent(email)+'&all=1'); _shadowRows = r.ok ? ((await r.json()).shadow||[]) : []; }
+  catch(_){ _shadowRows=[]; }
+}
+async function renderShadow(grid){
+  const email=acct();
+  if(!email){ grid.innerHTML='<div class="state">Sign in and your shadow shows up here.</div>'; return; }
+  grid.innerHTML=
+    '<div class="shd-intro"><h2>Your Shadow</h2>'
+    +'<p>The taste profile Pierre draws from what you watch, say you watched, and watch with. Retune it: cut what is not you, set a read, add a title.</p></div>'
+    +'<div class="shd-tools">'
+      +'<input type="text" id="shdFilter" placeholder="Filter, or type a new title" autocomplete="off">'
+      +'<button type="button" id="shdAdd" class="shd-btn">+ Add</button>'
+      +'<button type="button" id="shdRebuild" class="shd-btn ghost">&#8635; Rebuild</button>'
+    +'</div>'
+    +'<div class="shd-count" id="shdCount"></div>'
+    +'<div id="shdList"><div class="shd-load">reading your shadow…</div></div>';
+  const filt=grid.querySelector('#shdFilter'); filt.value=_shadowFilter;
+  filt.addEventListener('input',()=>{ _shadowFilter=filt.value; paintShadowList(); });
+  filt.addEventListener('keydown',e=>{ if(e.key==='Enter'){ const q=filt.value.trim().toLowerCase();
+    if(q && !_shadowRows.some(r=>(r.title_name||'').toLowerCase()===q)){ e.preventDefault(); doShadowAdd(); } } });
+  grid.querySelector('#shdAdd').onclick=doShadowAdd;
+  grid.querySelector('#shdRebuild').onclick=doShadowRebuild;
+  await loadShadow();
+  paintShadowList();
+}
+function paintShadowList(){
+  const list=document.getElementById('shdList'); if(!list) return;
+  const cnt=document.getElementById('shdCount');
+  const f=_shadowFilter.trim().toLowerCase();
+  const rows=_shadowRows.filter(r=>!f || (r.title_name||'').toLowerCase().includes(f));
+  if(cnt) cnt.textContent=_shadowRows.length ? (f? rows.length+' of '+_shadowRows.length : _shadowRows.length+(_shadowRows.length===1?' title':' titles')) : '';
+  if(!_shadowRows.length){ list.innerHTML='<div class="shd-empty"><b>Nothing here yet.</b><br>Talk to Pierre about what you watch, or type a title above and tap + Add. Or Rebuild it from your history.</div>'; return; }
+  if(!rows.length){ list.innerHTML='<div class="shd-empty">No titles match. Tap + Add to add it.</div>'; return; }
+  let h='';
+  // Group by SERIES vs MOVIES (kind). Films are 'film'; everything else (series/miniseries/
+  // anthology/unknown) reads as SERIES.
+  [['series','SERIES'],['film','MOVIES']].forEach(([g,label])=>{
+    const gr=rows.filter(r=> (String(r.kind||'').toLowerCase()==='film') === (g==='film'));
+    if(!gr.length) return;
+    h+='<div class="shd-group"><span>'+label+'</span><em>'+gr.length+'</em></div>'+gr.map(shadowRowHTML).join('');
+  });
+  list.innerHTML=h;
+  wireShadowRows(list);
+}
+function shadowRowHTML(r){
+  const sent=(r.sentiment||'');
+  const feel=r.feel?'<div class="shd-feel">'+esc(r.feel)+'</div>':'';
+  return '<div class="shd-row'+(r.hidden?' cut':'')+'" data-id="'+esc(r.id)+'">'
+    +'<span class="shd-dot '+(sent||'unset')+'" title="'+(sent||'no read')+'"></span>'
+    +'<div class="shd-body"><div class="shd-name">'+esc(r.title_name)+(r.kind?'<span class="shd-kind">'+esc(r.kind)+'</span>':'')+'</div>'+feel
+      +'<textarea class="shd-note" rows="1" placeholder="Add your own note…">'+esc(r.note||'')+'</textarea></div>'
+    +'<select class="shd-sent">'+SET_SENT_OPTS.map(o=>'<option value="'+o[0]+'"'+(o[0]===sent?' selected':'')+'>'+o[1]+'</option>').join('')+'</select>'
+    +'<button class="shd-cut" type="button" title="'+(r.hidden?'Bring back':'Cut')+'">'+(r.hidden?'↺':'×')+'</button>'
+    +'</div>';
+}
+function wireShadowRows(container){
+  container.querySelectorAll('.shd-row').forEach(el=>{
+    const id=el.dataset.id, row=_shadowRows.find(r=>r.id===id); if(!row) return;
+    const note=el.querySelector('.shd-note');
+    if(note) note.addEventListener('blur',()=>{ if((note.value||'')!==(row.note||'')){ shadowSave(id,{note:note.value}); row.note=note.value; } });
+    const sent=el.querySelector('.shd-sent');
+    if(sent) sent.addEventListener('change',()=>{ shadowSave(id,{sentiment:sent.value}); row.sentiment=sent.value;
+      const d=el.querySelector('.shd-dot'); if(d) d.className='shd-dot '+(sent.value||'unset'); });
+    const cut=el.querySelector('.shd-cut');
+    if(cut) cut.onclick=async()=>{ if(row.hidden){ await shadowSave(id,{hidden:0}); row.hidden=0; } else { await shadowCut(id); row.hidden=1; } paintShadowList(); };
+  });
+}
+async function shadowSave(id,patch){ const email=acct(); if(!email) return;
+  try{ await fetch(`${API}/shadow/`+encodeURIComponent(id),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({email},patch))}); }catch(_){} }
+async function shadowCut(id){ const email=acct(); if(!email) return;
+  try{ await fetch(`${API}/shadow/`+encodeURIComponent(id)+'?email='+encodeURIComponent(email),{method:'DELETE'}); }catch(_){} }
+async function doShadowAdd(){ const filt=document.getElementById('shFilter'); const v=(filt&&filt.value||'').trim(); if(!v) return;
+  const email=acct(); if(!email) return;
+  try{ await fetch(`${API}/shadow`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,title_name:v})}); }catch(_){}
+  if(filt) filt.value=''; _shadowFilter=''; await loadShadow(); paintShadowList(); }
+async function doShadowRebuild(){ const email=acct(); if(!email) return;
+  const btn=document.getElementById('shRebuild'); if(btn){ btn.disabled=true; btn.textContent='rebuilding…'; }
+  try{ await fetch(`${API}/shadow/rebuild`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email})}); }catch(_){}
+  await loadShadow(); paintShadowList(); if(btn){ btn.disabled=false; btn.innerHTML='&#8635; Rebuild'; } }
+
+function render(){
+  counts();
+  wowPrefetch();       // one-shot per account load: pull airstamps, then re-render
+  wowModePrefetch();   // one-shot: derive the watch-pattern stamps, then re-render
+  publishLog();
+  // The "Last: …" line is noise on the COMPLETED tab, and slides away whenever a
+  // show is expanded (the open card carries its own context).
+  const pierreEl=document.querySelector('.pierre');
+  if(pierreEl) pierreEl.style.display = (activeTab==='completed' || activeTab==='shadow' || selectedId) ? 'none' : '';
+  const grid=document.getElementById("grid");
+  if(activeTab==="shadow"){ grid.classList.remove("list"); grid.classList.add("shadow"); renderShadow(grid); return; }   // the fused taste profile (single-column block)
+  grid.classList.remove("shadow");
+  if(activeTab==="comfort"){ renderComfort(grid); return; }   // curated marathons (pre-beta)
+  grid.classList.remove("list");
+  if(activeTab==="completed"){
+    const list=LOG.filter(s=>bucketOf(s)==="completed"&&!isTheaterMovie(s));
+    let html = list.length ? gridWithSelection(list,"completed") : '';
+    if(PASSES===null) loadPasses().then(()=>{ if(activeTab==='completed') render(); });   // one-shot
+    else if(PASSES.length) html += '<div class="passhead">Rewatch passes</div>' + PASSES.map(passTile).join('');
+    grid.innerHTML = html || '<div class="state">Watch something or chat with Pierre to see it here.</div>';
+  }else{
+    const list=LOG.filter(s=>bucketOf(s)===activeTab&&!isTheaterMovie(s));
+    list.sort((a,b)=>{
+      const an=a.isNew?0:1, bn=b.isNew?0:1;
+      if(an!==bn) return an-bn;                                 // NEW shows first
+      if(an===0) return (a.addedSeq||0)-(b.addedSeq||0);        // NEW: order requested
+      // Timely: in-season shows sort by soonest upcoming drop; those with nothing
+      // upcoming (sortKey Infinity) fall through to recently-active order.
+      const ak=wowSortKey(a), bk=wowSortKey(b);
+      if(ak!==bk) return ak-bk;
+      return new Date(b.lastDate)-new Date(a.lastDate);         // rest: recently active
+    });
+    grid.innerHTML=list.length?gridWithSelection(list,"current"):'<div class="state">nothing here yet</div>';
+  }
+  // Tiles: CURRENT + COMPLETED tap to expand in place (other tabs handled above).
+  grid.querySelectorAll(".tile").forEach(t=>t.addEventListener("click",()=>{
+    const s=LOG.find(x=>x.id===t.dataset.id); if(!s||s.failed)return;
+    selectCurrent(s.id);
+  }));
+  // Tap the expanded card (outside its buttons / archive) to collapse it. The
+  // per-episode archive handles its own taps (expand blocks, play, tickets, share).
+  grid.querySelectorAll(".exp-card").forEach(c=>c.addEventListener("click",ev=>{
+    if(ev.target.closest("[data-act]")||ev.target.closest(".ep-arch"))return;
+    selectCurrent(c.dataset.id);
+  }));
+  // Expanded-card actions: Watch next / Stop watching (CURRENT) · Try again / Remove (COMPLETED).
+  grid.querySelectorAll(".exp-card [data-act]").forEach(el=>el.addEventListener("click",ev=>{
+    ev.stopPropagation();
+    const act=el.dataset.act, id=el.dataset.id, s=LOG.find(x=>x.id===id); if(!s)return;
+    if(act==="watch"){ if(s.isNew){s.isNew=false;s.lastDate=new Date().toISOString().slice(0,10);} cube.rotateTo("episodes",episodesPayload(s)); render(); renderPierre(); }
+    else if(act==="share"){ openShareDialog(s); }
+    else if(act==="stop"){ selectedId=null; setTimeout(()=>stopShow(id),60); }
+    else if(act==="tryagain"){ tryAgain(id); }
+    else if(act==="remove"){ removePermanently(id); }
+  }));
+  // Tap the watch-pattern stamp on the expanded card to toggle it ON or OFF for this
+  // show only -- never to cycle through the types (the type comes from the classifier
+  // or the Profile default). OFF stores DECLINED (Pierre goes silent for the show);
+  // ON clears it back to the derived/default pattern.
+  grid.querySelectorAll(".wowstamp[data-stamp]").forEach(el=>el.addEventListener("click",ev=>{
+    ev.stopPropagation();
+    const showId=el.dataset.stamp, email=acct(); if(!email||!window.WoW) return;
+    const st=WoW.store.stateNow()||{}; const off=(st.modes&&st.modes[showId])==='DECLINED';
+    WoW.store.setMode(email, showId, off ? null : 'DECLINED').then(()=>render());
+  }));
+  // Completed card expanded → per-episode archive INCLUDING force-advanced (BP) eps.
+  if(activeTab==="completed" && selectedId){ const s=LOG.find(x=>x.id===selectedId); if(s){ loadEpisodeArchive(s,true); ensureSyn(s); loadCoview(s); } }
+  // Current card expanded → SEASONS chips + per-episode archive EXCLUDING BP eps,
+  // and the action buttons shrink-stick to the top as the archive scrolls.
+  else if(selectedId){ const s=LOG.find(x=>x.id===selectedId); if(s){ fillSeasons(s); loadEpisodeArchive(s,false); ensureSyn(s); loadCoview(s); } }
+}
+
+// "Watching with" (co-viewing) on the expanded card: show who this title is watched
+// with, editable inline against the roster. Hidden entirely if no roster is set up.
+async function loadCoview(s){
+  const host=document.querySelector('.coview[data-cov="'+s.id+'"]'); if(!host) return;
+  const email=acct(); if(!email || !s.titleId){ host.innerHTML=''; return; }
+  const em=encodeURIComponent(email), sid=encodeURIComponent(s.titleId);
+  let roster=[], current=[];
+  try{ const r=await fetch(API+'/profile/'+em+'/coviewers'); if(r.ok) roster=(await r.json()).coviewers||[]; }catch(_){}
+  if(!roster.length){ host.innerHTML=''; return; }   // no room set up → nothing to show
+  try{ const r=await fetch(API+'/profile/'+em+'/titles/'+sid+'/coviewers'); if(r.ok) current=(await r.json()).coviewers||[]; }catch(_){}
+  if(selectedId!==s.id) return;                       // card collapsed/changed mid-fetch
+  coviewDisplay(host, s, roster, current);
+}
+function coviewDisplay(host, s, roster, current){
+  const names=current.map(c=>c.display_name);
+  const val=names.length ? ('with '+names.join(' & ')) : 'just you';
+  host.innerHTML='<span class="cv-lbl">Watching</span> <span class="cv-val">'+esc(val)+'</span> <button class="cv-edit">edit</button>';
+  host.querySelector('.cv-edit').onclick=e=>{ e.stopPropagation(); coviewEditor(host, s, roster, current); };
+}
+function coviewEditor(host, s, roster, current){
+  const sel=new Set(current.map(c=>c.id));
+  host.innerHTML='<span class="cv-lbl">Watching with</span>'+
+    roster.map(c=>'<button class="cv-chip'+(sel.has(c.id)?' on':'')+'" data-cid="'+c.id+'">'+esc(c.display_name)+'</button>').join('')+
+    '<button class="cv-save">Save</button><button class="cv-cancel">Cancel</button>';
+  host.querySelectorAll('.cv-chip').forEach(b=>b.onclick=e=>{ e.stopPropagation();
+    const id=b.dataset.cid; if(sel.has(id)){sel.delete(id);b.classList.remove('on');}else{sel.add(id);b.classList.add('on');} });
+  host.querySelector('.cv-save').onclick=async e=>{ e.stopPropagation();
+    const email=acct();
+    try{ await fetch(API+'/profile/'+encodeURIComponent(email)+'/titles/'+encodeURIComponent(s.titleId)+'/coviewers',
+      {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({coviewer_ids:[...sel]})}); }catch(_){}
+    coviewDisplay(host, s, roster, roster.filter(c=>sel.has(c.id)));
+  };
+  host.querySelector('.cv-cancel').onclick=e=>{ e.stopPropagation(); coviewDisplay(host, s, roster, current); };
+}
+
+// Backfill a missing synopsis on the expanded card. /titles only carries summary
+// once the column is populated; titles tracked before it existed fill lazily on the
+// detail read, so we fetch detail here and drop the text into the open card.
+async function ensureSyn(s){
+  if(!s || s.summary || !s.titleId) return;
+  const email=acct(); if(!email) return;
+  try{
+    const r=await fetch(API+"/profile/"+encodeURIComponent(email)+"/titles/"+encodeURIComponent(s.titleId));
+    if(!r.ok) return;
+    const d=await r.json();
+    const syn=d && d.title && d.title.summary;
+    if(!syn) return;
+    s.summary=syn;
+    if(selectedId!==s.id) return;   // card collapsed/changed mid-fetch
+    document.querySelectorAll('.exp-card[data-id="'+s.id+'"] .exc-syn').forEach(el=>{ el.textContent=syn; });
+  }catch(_){}
+}
+
+/* ─── Share: push a title to chosen friends; it lands on their BROWSE rail ─── */
+// sms:/mailto: from inside a cube face must drive the top window (the embedded
+// face's own location swallows the scheme). navigator.share is preferred.
+function openExternal(url){ try{ (window.top||window).location.href=url; }catch(_){ window.location.href=url; } }
+function shToast(msg){
+  document.querySelectorAll('.sh-toast').forEach(t=>t.remove());
+  const t=document.createElement('div'); t.className='sh-toast'; t.textContent=msg;
+  document.body.appendChild(t); setTimeout(()=>t.remove(),2600);
+}
+function closeShareDialog(){ const o=document.getElementById('shOv'); if(o) o.remove(); }
+
+async function openShareDialog(s){
+  closeShareDialog();
+  const email=acct();
+  const ov=document.createElement('div'); ov.className='sh-ov'; ov.id='shOv';
+  ov.innerHTML=
+    '<div class="sh-card">'+
+      '<div class="sh-head"><div class="t">Share “'+esc(s.name||'this')+'”</div>'+
+        '<button class="sh-x" id="shX">✕</button></div>'+
+      '<div class="sh-all" id="shAll"><span class="sh-ck">✓</span><span>ALL FRIENDS</span></div>'+
+      '<div class="sh-list" id="shList"><div class="sh-empty">Loading friends…</div></div>'+
+      '<input class="sh-note" id="shNote" type="text" maxlength="280" placeholder="add a note (optional)">'+
+      '<div class="sh-actions">'+
+        '<button class="sh-btn sh-text" id="shText">✉️ Invite by text</button>'+
+        '<button class="sh-btn sh-send" id="shSend" disabled>Share</button>'+
+      '</div>'+
+    '</div>';
+  document.body.appendChild(ov);
+  ov.addEventListener('click',e=>{ if(e.target===ov) closeShareDialog(); });
+  document.getElementById('shX').onclick=closeShareDialog;
+
+  // Invite by text shares the title outward to a non-member (or any contact).
+  const inviteMsg=()=>{ const me=(localStorage.getItem('pg_username')||'').trim();
+    return (me?me+' is watching “':'Watch “')+(s.name||'this show')+'” on pangolinRC: '+location.origin+'/'; };
+  document.getElementById('shText').onclick=()=>{
+    const msg=inviteMsg();
+    if(navigator.share){ navigator.share({text:msg}).catch(()=>{}); return; }
+    openExternal('sms:?&body='+encodeURIComponent(msg));
+  };
+
+  const sendBtn=document.getElementById('shSend'), listEl=document.getElementById('shList'),
+        allEl=document.getElementById('shAll');
+  if(!email){ listEl.innerHTML='<div class="sh-empty">Sign in to share with friends. You can still invite by text above.</div>';
+    allEl.style.display='none'; return; }
+
+  let friends=[];
+  try{
+    const r=await fetch(API+'/profile/'+encodeURIComponent(email)+'/follows');
+    if(r.ok){ friends=((await r.json()).friends)||[]; }
+  }catch(_){}
+  if(!friends.length){
+    listEl.innerHTML='<div class="sh-empty">No friends yet — add friends on your Profile, then share with them. For now, invite by text above.</div>';
+    allEl.style.display='none'; return;
+  }
+  const sel=new Set(friends.map(f=>f.email));   // all selected by default
+  const sync=()=>{
+    sendBtn.disabled=!sel.size;
+    sendBtn.textContent=sel.size?('Share with '+sel.size):'Share';
+    allEl.querySelector('.sh-ck').textContent=(sel.size===friends.length)?'✓':'';
+  };
+  listEl.innerHTML=friends.map(f=>{
+    const nm=esc(f.username||f.email);
+    return '<div class="sh-row on" data-em="'+esc(f.email)+'"><span class="nm">'+nm+'</span>'+
+           '<span class="sh-ck">✓</span></div>';
+  }).join('');
+  listEl.querySelectorAll('.sh-row').forEach(row=>{
+    row.onclick=()=>{ const em=row.dataset.em;
+      if(sel.has(em)){ sel.delete(em); row.classList.remove('on'); row.querySelector('.sh-ck').textContent=''; }
+      else { sel.add(em); row.classList.add('on'); row.querySelector('.sh-ck').textContent='✓'; }
+      sync(); };
+  });
+  allEl.onclick=()=>{
+    const all=sel.size===friends.length;
+    sel.clear(); if(!all) friends.forEach(f=>sel.add(f.email));
+    listEl.querySelectorAll('.sh-row').forEach(row=>{
+      const on=sel.has(row.dataset.em); row.classList.toggle('on',on); row.querySelector('.sh-ck').textContent=on?'✓':''; });
+    sync();
+  };
+  sync();
+
+  sendBtn.onclick=async()=>{
+    if(!sel.size) return;
+    sendBtn.disabled=true; sendBtn.textContent='Sharing…';
+    const note=(document.getElementById('shNote').value||'').trim();
+    try{
+      const r=await fetch(API+'/profile/'+encodeURIComponent(email)+'/share',{method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ title_id:s.titleId, to:[...sel], note, show_name:s.name, poster:s.poster })});
+      const d=await r.json().catch(()=>({}));
+      closeShareDialog();
+      const n=d.shared||0;
+      shToast(n? ('Shared with '+n+' friend'+(n>1?'s':'')) : 'Already shared with them');
+    }catch(_){ sendBtn.disabled=false; sync(); shToast('Could not share — try again'); }
+  };
+}
+
+/* CURRENT-tab selection: tap a show to open its action panel in place, tap its
+   poster (or the show again) to collapse. Re-render swaps tile ⇄ expanded card. */
+function selectCurrent(id){
+  selectedId = (selectedId===id) ? null : id;
+  render();
+  if(selectedId){ const sc=document.querySelector(".scroll"); if(sc) sc.scrollTop=0; }   // snap the expanded card to the top
+}
+
+/* Cross-face contract. In production the cube shell provides window.cube and
+   window.viewingLog. Standalone (no shell) we shim them so this face still runs:
+   rotateTo falls back to the on-screen flash, on/emit are a tiny local bus, and
+   viewingLog reads and writes the in-file LOG array (the one store). */
+const _bus={};
+if(!window.cube){
+  window.cube={
+    rotateTo(face,payload){
+      // Embedded: call the shell directly so the tap's activation carries through
+      // (lets Pierre raise the keyboard). Standalone: the on-screen flash.
+      if(window.parent!==window){
+        if(typeof window.parent.cubeRotateTo==="function") window.parent.cubeRotateTo(face, payload||{});
+        else window.parent.postMessage({type:"cube:rotateTo",face,payload:payload||{}},"*");
+      } else { flashFallback(face,payload||{}); }
+    },
+    on(evt,handler){ (_bus[evt]=_bus[evt]||[]).push(handler); },
+    emit(evt,payload){ (_bus[evt]||[]).forEach(h=>h(payload)); }
+  };
+}
+if(!window.viewingLog){
+  window.viewingLog={
+    all(){ return LOG; },
+    get(showId){ return LOG.find(s=>s.id===showId)||null; },
+    upsert(record){ const i=LOG.findIndex(s=>s.id===record.id);
+      if(i>=0)LOG[i]={...LOG[i],...record}; else LOG.push(record); },
+    recordWatch(showId,{season,number,at}){ const s=LOG.find(x=>x.id===showId); if(!s)return;
+      const idx=s.episodes.findIndex(e=>e.season===season&&e.number===number);
+      if(idx>=0)s.watched=Math.max(s.watched,idx+1);
+      s.lastWatched={season,number,title:(s.episodes[idx]&&s.episodes[idx].title)||"",at:at||new Date().toISOString()}; },
+    setStopped(showId,bool){ const s=LOG.find(x=>x.id===showId); if(s)s.stopped=!!bool; },
+    setPlan(showId,plan){ const s=LOG.find(x=>x.id===showId); if(s)s.plan=plan; }
+  };
+}
+
+/* Episodes-to-Log lifecycle events (episode:logged, show:finished, show:stopped,
+   show:resumed) are intentionally not subscribed yet. The finish and stop
+   animations stay driven by the demo chips for now. Wire cube.on to these once
+   the Episodes face emits them. */
+
+/* Standalone fallback for cube.rotateTo: the existing on-screen flash. */
+function flashFallback(face,payload){
+  const o=document.getElementById("flash"),lbl=o.querySelector(".flabel");
+  if(face==="pierre"){
+    lbl.innerHTML="&#8594; PIERRE";
+    o.querySelector(".fsub").textContent="Add a show";
+    o.querySelector(".fnote").textContent="Pierre checks your history first";
+    o.classList.add("show"); setTimeout(()=>o.classList.remove("show"),900);
+    return;
+  }
+  const s=payload.showId?LOG.find(x=>x.id===payload.showId):null;
+  const name=(payload.show&&payload.show.name)||(s?s.name:(payload.name||""));
+  const planLabel=payload.plan?payload.plan.label:null;
+  lbl.innerHTML="&#8594; "+(face||"episodes").toUpperCase();
+  o.querySelector(".fsub").innerHTML=planLabel?esc(planLabel):esc(name);
+  o.querySelector(".fnote").textContent=planLabel?("plan adopted \u00b7 "+name):"";
+  o.classList.add("show"); setTimeout(()=>o.classList.remove("show"),planLabel?1050:850);
+}
+
+/* Add a show: route to Pierre with an add intent. Never creates a record. */
+function addShow(){ cube.rotateTo("pierre",{intent:"add"}); }
+
+/* Publish a snapshot of the store to the cube shell so Pierre and Episodes can
+   read the user's real history (status branch, resume position). Name + TVMaze
+   id let other faces match a typed show against what is already tracked. */
+function publishLog(){
+  // SET is NOT the canonical log:data source — the WATCH face is. If SET broadcast too, the
+  // shell would get duplicate log:data and churn lastResume / feed refreshes. SET reads the same
+  // account only to render its own COMPLETED list, so publishing is a no-op here.
+}
+
+/* ---- Account persistence (signed-in members) ----------------------------- */
+// Title-level state lives server-side now (watch_title); episode progress flows
+// through POST /episodes. PATCH a title's bucket or run a bulk op (finish/reset).
+function patchTitle(s, body){
+  const email=acct(); if(!email || !s || !s.titleId) return Promise.resolve();
+  return fetch(API+"/profile/"+encodeURIComponent(email)+"/titles/"+encodeURIComponent(s.titleId),
+    {method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body||{})}).catch(()=>{});
+}
+
+// Build a LOG record from a /titles row. The catalog already carries name, poster,
+// counts and bucket — no TVmaze fetch needed. The full title_id ('tvmaze:81110' /
+// 'tmdb:123') is the key everywhere (carried in tvmazeId for message compatibility).
+function recordFromTitle(t){
+  const today=new Date(t.updated_at||Date.now()).toISOString().slice(0,10);
+  const isMovie=t.kind==='movie';
+  return { id:"acct-"+t.title_id, titleId:t.title_id, tvmazeId:t.title_id, kind:t.kind,
+    q:t.name, name:t.name, poster:t.poster||null, platform:t.platform||"",
+    summary:t.summary||"",
+    status:t.title_status||(isMovie?"Film":"Unknown"), failed:false,
+    episodes:[], total:t.total||0, released:t.released||0, watched:t.watched||0,
+    lastWatched: t.last_season ? {season:t.last_season,number:t.last_number,title:"",at:today} : null,
+    lastDate:today, returnDate:null,
+    comfort:t.status==="comfort", forceCompleted:t.status==="completed", stopped:t.status==="stopped",
+    plan:null, isNew:false, addedSeq:0,
+    mapName:t.map_name||null,   // curated-marathon name → the tile brands as the marathon queue, not the whole series
+    activeMapId:t.active_map_id||null,
+    runtime: t.runtime||null,   // movie length (episodes.runtime of the single unit), for "min left"
+    // Seed a movie's paused position from its summed minutes so the tile bar/meta show
+    // progress on cold load (episode shows fill from watched counts instead).
+    lastMinute: isMovie ? (t.minutes||0) : 0, startedAt:t.started_at||null, epDetail:{}, currentEpisodeId:t.current_episode_id||null,
+    releaseDate: t.premiered||null,          // film's theatrical release (drives the ticket freshness class)
+    ticketAt: t.ticket_at||null,             // when a theater ticket was logged (epoch ms) → shows the stub badge
+    ticketDate: t.ticket_date||null,         // the ticket's printed date ("TUE, AUG 04") → real screening day
+    ticketTime: t.ticket_time||null };       // the ticket's showtime ("6:30 PM") → auto-flip point (+25 min previews)
+}
+
+// Load the signed-in member's tracked titles from the catalog-backed endpoint.
+async function loadAccount(email){
+  _wowPrefetched=false; _wowModesPrefetched=false;   // fresh account load → re-derive scheduler
+  if(window.WoW){ try{ await WoW.store.load(email); }catch(_){} }
+  try{
+    const r=await fetch(API+"/profile/"+encodeURIComponent(email)+"/titles"); if(!r.ok) return [];
+    const data=await r.json();
+    return (data.titles||[]).map(recordFromTitle);
+  }catch(e){ return []; }
+}
+
+// Episode face reported progress within an episode (minutes / done / BP). Writes
+// the single watch_episode row; the server recomputes the bucket + resume pointer,
+// then we refresh the title's counts from the authoritative list.
+function applyProgress(pr){
+  const email=acct(); if(!email) return;
+  // pr.tvmazeId IS the title_id ('tvmaze:…' / 'tmdb:…'). Derive the episode key from
+  // it directly so the write ALWAYS lands server-side — even if the Log face hasn't
+  // loaded this show into memory yet (watching before the Log opened used to silently
+  // drop the write, which lost the resume pointer and left the next open at S1E1).
+  const titleId = pr.tvmazeId; if(!titleId) return;
+  const episodeId = titleId+":s"+(pr.season||1)+"e"+(pr.number||1);
+  const s=LOG.find(x=>x.titleId===titleId || x.tvmazeId===titleId);
+  if(s){   // keep the in-memory snapshot in step for a snappy Log render
+    s.lastWatched={season:pr.season||1,number:pr.number||1,title:"",at:new Date().toISOString().slice(0,10)};
+    s.lastMinute = pr.done ? 0 : (pr.minute||0);
+    if(pr.started_at!=null) s.startedAt=pr.started_at;
+    s.lastDate=new Date().toISOString().slice(0,10); s.isNew=false;
+    render(); renderPierre();
+  }
+  fetch(API+"/profile/"+encodeURIComponent(email)+"/episodes/"+encodeURIComponent(episodeId),
+    {method:"POST", headers:{"Content-Type":"application/json"},
+     body:JSON.stringify({done:!!pr.done, minute:pr.minute||0, bp:!!pr.bp, sessions:pr.sessions||[]})})
+    .then(async ()=>{ if(s){ refreshTitle(titleId); }
+      else { LOG = await loadAccount(email); render(); renderPierre(); } })   // pull in the show we just persisted
+    .catch(()=>{});
+}
+
+// Pull one title's authoritative counts/bucket back into its LOG record.
+async function refreshTitle(titleId){
+  const email=acct(); if(!email) return;
+  try{
+    const r=await fetch(API+"/profile/"+encodeURIComponent(email)+"/titles"); if(!r.ok) return;
+    const t=((await r.json()).titles||[]).find(x=>x.title_id===titleId);
+    const s=LOG.find(x=>x.titleId===titleId); if(!t || !s) return;
+    s.watched=t.watched||0; s.total=t.total||0; s.released=t.released||0;
+    s.mapName=t.map_name||null; s.activeMapId=t.active_map_id||null;
+    s.forceCompleted=t.status==="completed"; s.stopped=t.status==="stopped"; s.comfort=t.status==="comfort";
+    s.lastWatched = t.last_season ? {season:t.last_season,number:t.last_number,title:"",at:s.lastDate} : s.lastWatched;
+    s.currentEpisodeId = t.current_episode_id || s.currentEpisodeId;
+    render(); renderPierre();
+  }catch(_){}
+}
+
+/* Selecting a show on Log loads it on Episodes at the user's position (resume to
+   last watched if there is one, otherwise from the beginning). The Watch face now
+   loads episodes from the catalog by title_id. */
+function episodesPayload(s, fromStart){
+  // Resume LANDS ON the server's current episode (first not-done). BP-backfill keeps
+  // that pointer honest even when earlier episodes were never logged, so it's the
+  // partially-watched episode, or the next one if the current is finished.
+  let pat = {kind:"beginning"};
+  if(!fromStart && !s.comfort && s.currentEpisodeId){
+    const m = /:s(\d+)e(\d+)$/i.exec(s.currentEpisodeId);
+    if(m) pat = {kind:"resume", season:+m[1], number:+m[2], on:true};
+  }
+  return { titleId:s.titleId, kind:s.kind, name:s.name, pattern:pat };
+}
+
+// Distinct real seasons (drops specials/season 0) in ascending order.
+function seasonsOf(eps){
+  return [...new Set((eps||[]).map(e=>e.season).filter(n=>n>=1))].sort((a,b)=>a-b);
+}
+// Where to land when a season chip is tapped. Default is the season's first episode,
+// but if the member has watched into that season we resume at the next episode to
+// watch (the LOG face restores the saved minute marker on that episode). We pass the
+// last finished episode number as the resume point; the LOG face focuses the next one.
+function seasonResumeNumber(s, season){
+  const eps=s._eps;   // account detail: per-episode done flags
+  if(eps && eps.length){
+    const done=eps.filter(e=>e.season===season && e.done).map(e=>e.number);
+    return done.length ? Math.max(...done) : 0;   // 0 → start of season
+  }
+  // Seed/DEMO records carry no per-episode progress; fall back to the single pointer.
+  if(s.lastWatched && s.lastWatched.season===season) return s.lastWatched.number||0;
+  return 0;
+}
+function seasonJump(s, season){
+  const number=seasonResumeNumber(s, season);
+  cube.rotateTo("episodes", Object.assign(episodesPayload(s), {pattern:{kind:"resume", season:season, number:number}}));
+}
+// Fill the expanded card's SEASONS chips. Seed records carry s.episodes; account
+// records don't, so we lazily fetch the title's episodes once and cache the seasons.
+async function fillSeasons(s){
+  if(!s || s.kind==="movie") return;
+  const host=document.getElementById("seas-"+s.id); if(!host) return;
+  let seasons=s._seasons;
+  if(!seasons){
+    const email=acct();
+    if(email && s.titleId){
+      // Account record: pull the full episode list (carries per-episode done/minute),
+      // cache it for the resume-aware jump, and derive the season list from it.
+      try{ const r=await fetch(API+"/profile/"+encodeURIComponent(email)+"/titles/"+encodeURIComponent(s.titleId));
+        if(r.ok){ const d=await r.json(); s._eps=d.episodes||[]; seasons=seasonsOf(s._eps); } }catch(e){}
+    }
+    if(!seasons && s.episodes && s.episodes.length){ seasons=seasonsOf(s.episodes); }  // seed/DEMO fallback
+    s._seasons = seasons = seasons || [];
+  }
+  if(document.getElementById("seas-"+s.id)!==host) return;   // card collapsed/changed mid-fetch
+  if(seasons.length<2){ host.innerHTML=""; return; }          // 0/1 season: nothing to pick
+  const cur=(s.lastWatched && s.lastWatched.season) || seasons[0];
+  const chips=seasons.map(n=>{
+    const isCur=n===cur;
+    return '<button class="exc-seas-chip'+(isCur?" cur":"")+'" data-season="'+n+'">'+n+'</button>';
+  }).join("");
+  host.innerHTML='<div class="exc-seas-label">SEASONS</div><div class="exc-seas-grid">'+chips+'</div>';
+  host.querySelectorAll(".exc-seas-chip").forEach(b=>b.addEventListener("click",ev=>{
+    ev.stopPropagation(); seasonJump(s, +b.dataset.season);
+  }));
+}
+
+// Map whatever Pierre/Join hands us (bare tvmaze id, bare tmdb id, or a prefixed
+// id) onto a canonical title_id.
+function toTitleId(show){
+  const id=String(show.id||"");
+  if(id.startsWith('tvmaze:')||id.startsWith('tmdb:')) return id;
+  return (show.kind==='movie') ? ('tmdb:'+id) : ('tvmaze:'+id);
+}
+
+/* Pierre's add flow asks the shell to add the picked title here too. The server
+   materializes the catalog + per-user episode rows (/catalog/initiate); we then
+   reload the list. Idempotent: an already-tracked title is not duplicated. */
+async function addToLog(show, pattern){
+  const titleId=toTitleId(show);
+  const norm=(show.name||"").toLowerCase();
+  const existing=LOG.find(s=>s.titleId===titleId || (s.name&&s.name.toLowerCase()===norm));
+  if(existing){
+    if(existing.stopped){ existing.stopped=false; patchTitle(existing,{status:'current'}); }
+    existing.lastDate=new Date().toISOString().slice(0,10); consumeWatchOpen(); render(); renderPierre(); return;
+  }
+  const email=acct(); if(!email) return;   // signed-out: nothing to materialize against
+  try{
+    const r=await fetch(API+"/catalog/initiate",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({email, title_id:titleId, pattern:pattern||{kind:"beginning"}})});
+    if(!r.ok) return;
+    LOG = await loadAccount(email);                       // bring in the new title with real counts
+    const s=LOG.find(x=>x.titleId===titleId); if(s){ s.isNew=true; s.addedSeq=++addSeq; }
+    consumeWatchOpen();
+    render(); renderPierre();
+  }catch(e){ /* Pierre validated the title; ignore transient failures */ }
+}
+
+// Re-pull the account whenever WATCH rotates into view, so a show added from BROWSE or
+// Pierre (or any face) while we weren't focused appears without a full page reload — the
+// catalog/initiate already persisted it, this just resyncs the list. Belt-and-suspenders
+// to the addShow message, which can race the iframe's own cold-load. NEW badges already
+// in memory are preserved across the resync.
+// A title chosen on another face (BROWSE/Pierre stamps pg_watch_open) opens here:
+// select its card and switch to its bucket so WATCH lands "already open" on it. Cleared
+// once consumed, so a later manual pick on WATCH isn't overridden.
+function consumeWatchOpen(){
+  let want=''; try{ want=localStorage.getItem('pg_watch_open')||''; }catch(_){}
+  if(!want) return;
+  const s=LOG.find(x=>x.titleId===want);
+  if(!s) return;                       // not in the list yet → try again on the next sync
+  selectedId=s.id; activeTab=bucketOf(s);
+  try{ localStorage.removeItem('pg_watch_open'); }catch(_){}
+}
+
+let _refreshing=false;
+async function refreshLog(){
+  if(DEMO || _refreshing) return;
+  const email=acct(); if(!email) return;
+  _refreshing=true;
+  try{
+    const prevNew=new Map(LOG.filter(s=>s.isNew).map(s=>[s.titleId, s.addedSeq]));
+    const fresh=await loadAccount(email);
+    fresh.forEach(s=>{ if(prevNew.has(s.titleId)){ s.isNew=true; s.addedSeq=prevNew.get(s.titleId); } });
+    fresh.sort((a,b)=>new Date(b.lastDate)-new Date(a.lastDate));
+    LOG=fresh; consumeWatchOpen(); render(); renderPierre();
+  }catch(_){ /* transient; keep the current list */ }
+  _refreshing=false;
+}
+
+window.addEventListener("message",(e)=>{
+  if(e.data && e.data.type==="cube:focus"){ refreshLog(); return; }   // resync on rotate-in
+  if(e.data && e.data.type==="cube:payload" && e.data.face==="log"){
+    const p=e.data.payload||{};
+    // Front-door deep-link: land on the COMFORT tab and open the named marathon
+    // (so the marathon's own back button returns cleanly to this tab).
+    if(p.openMarathon){
+      if(activeTab!=="comfort") switchTab("comfort");
+      const m=MARATHONS.find(x=>x.id===p.openMarathon);
+      if(m) openMarathon(m);
+    }
+    // A ticket just logged in Pierre → land on its tab (CURRENT = upcoming, COMPLETED =
+    // already screened) and select the tile once the log reloads.
+    if(p.focusTicket && p.focusTicket.titleId){
+      const tab=p.focusTicket.tab||'current', tid=p.focusTicket.titleId;
+      Promise.resolve(refreshLog()).then(()=>{
+        if(activeTab!==tab) switchTab(tab);
+        const s=LOG.find(x=>x.titleId===tid); if(s){ selectedId=s.id; }
+        render(); renderPierre();
+      });
+    }
+    if(p.addShow && p.addShow.id) addToLog(p.addShow, p.pattern);
+    if(p.progress && p.progress.tvmazeId) applyProgress(p.progress);   // Episode minute log
+    // Episode finale tap (MVP): finish the matching show and land back on CURRENT.
+    if(p.finishShow && p.finishShow.tvmazeId){
+      const s=LOG.find(x=>x.tvmazeId===p.finishShow.tvmazeId);
+      if(s && bucketOf(s)!=="completed"){
+        if(activeTab!=="current") switchTab("current");
+        setTimeout(()=>finishShow(s.id,"current"),80);
+      }
+    }
+  }
+});
+
+function burst(cx,cy){const fx=document.getElementById("fx");
+  for(let i=0;i<40;i++){const p=document.createElement("div");p.className="particle";
+    const ang=Math.random()*Math.PI*2,vel=50+Math.random()*170;
+    p.style.left=cx+"px";p.style.top=cy+"px";
+    p.style.setProperty("--dx",Math.cos(ang)*vel+"px");p.style.setProperty("--dy",(Math.sin(ang)*vel-(70+Math.random()*90))+"px");
+    p.style.setProperty("--rot",(Math.random()*720-360)+"deg");p.style.setProperty("--dur",(0.9+Math.random()*0.7)+"s");
+    if(Math.random()<0.62){p.textContent="\u{1F37F}";p.style.fontSize=(11+Math.random()*11)+"px";}else p.classList.add("dot");
+    fx.appendChild(p);setTimeout(()=>p.remove(),1800);}}
+function dustParticles(rect,fr){const fx=document.getElementById("fx");
+  for(let i=0;i<60;i++){const p=document.createElement("div");p.className="ash";
+    p.style.left=(rect.left-fr.left+Math.random()*rect.width)+"px";p.style.top=(rect.top-fr.top+Math.random()*rect.height)+"px";
+    p.style.setProperty("--dx",(Math.random()*30-15)+"px");p.style.setProperty("--dy",(50+Math.random()*120)+"px");p.style.setProperty("--dur",(0.7+Math.random()*0.6)+"s");
+    fx.appendChild(p);setTimeout(()=>p.remove(),1500);}}
+
+function finishShow(id, land){
+  const tileEl=document.querySelector('.tile[data-id="'+id+'"]'),s=LOG.find(x=>x.id===id); if(!s)return;
+  const fr=face.getBoundingClientRect();
+  if(tileEl){const tr=tileEl.getBoundingClientRect();
+    burst(tr.left-fr.left+tr.width/2,tr.top-fr.top+tr.height/2);
+    const tab=document.querySelector('.tab[data-tab="completed"]').getBoundingClientRect();
+    tileEl.style.transition="transform .75s cubic-bezier(.5,0,.2,1),opacity .75s ease";
+    tileEl.style.transform="translate("+((tab.left+tab.width/2)-(tr.left+tr.width/2))+"px,"+((tab.top+tab.height/2)-(tr.top+tr.height/2))+"px) scale(.1)";
+    tileEl.style.opacity="0";}else burst(fr.width/2,fr.height/2);
+  s.forceCompleted=true;s.watched=s.total; patchTitle(s,{op:'finish'});
+  const tabEl=document.querySelector('.tab[data-tab="completed"]');tabEl.classList.add("pulse");setTimeout(()=>tabEl.classList.remove("pulse"),700);
+  setTimeout(()=>{render();renderPierre();},780); setTimeout(()=>switchTab(land||"completed"),1300);
+  // After the popcorn: Pierre catches the reaction. He hosts the thought and
+  // the share offer on his own face — no in-face comment box.
+  setTimeout(()=>routeFinishedToPierre(s),900);
+}
+
+// Every finished watch (film or series finale) routes to Pierre for the thought.
+function routeFinishedToPierre(s){
+  if(window.parent===window) return;
+  const payload={ intent:'note', finished:true, kind:s.kind||'show', show:s.name, titleId:s.titleId||null };
+  window.parent.postMessage({type:'cube:rotateTo', face:'pierre', payload}, '*');
+}
+
+// ─── Per-episode archive: every completed episode's full record in one place ──
+// Folds session timestamps, tickets, audio comments, friends' co-view comments +
+// replies, and reflections into ONE collapsible block per episode (no more "viewing
+// info separate from comment data"). CURRENT cards pass includeBp=false (real
+// watches only); COMPLETED passes true (the full record, BP episodes included).
+function epCodeOf(season, number){ return 'S'+String(season||1).padStart(2,'0')+'E'+String(number||0).padStart(2,'0'); }
+function hmClock(ms){ try{ return new Date(ms).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}); }catch(_){ return ''; } }
+function markAt(ms){ const m=Math.round((ms||0)/60000); return Math.floor(m/60)+':'+String(m%60).padStart(2,'0'); }
+// One shared, in-DOM <audio> element keeps playback INSIDE the face — a fresh
+// `new Audio()` inside the cube iframe can hand the clip to an external player.
+let _archAudio=null;
+function playAudio(url){
+  if(!url) return;
+  if(!_archAudio){ _archAudio=document.createElement('audio'); _archAudio.setAttribute('playsinline',''); _archAudio.preload='none'; document.body.appendChild(_archAudio); }
+  try{ _archAudio.pause(); }catch(_){}
+  _archAudio.src=url; _archAudio.currentTime=0;
+  _archAudio.play().catch(()=>{});
+}
+
+async function loadEpisodeArchive(s, includeBp){
+  const host=document.getElementById('arch-'+s.id); if(!host) return;
+  const email=acct(); if(!email || !s.titleId){ host.innerHTML='<div class="vw-empty">sign in to see episodes</div>'; return; }
+  const sid=encodeURIComponent(s.titleId), em=encodeURIComponent(email);
+  let detail={episodes:[]}, comments=[], tickets=[], refs=[], coview=[];
+  try{
+    // Co-view needs the mutual-follow set first; the rest fan out in parallel.
+    let friends=[];
+    try{ const fr=await fetch(API+'/profile/'+em+'/follows'); if(fr.ok) friends=((await fr.json()).friends||[]).map(f=>f.email); }catch(_){}
+    const reqs=[
+      fetch(API+'/profile/'+em+'/titles/'+sid),
+      fetch(API+'/transcribe/comments?showId='+sid+'&email='+em),
+      fetch(API+'/tickets?showId='+sid+'&email='+em),
+      fetch(API+'/reflections?showId='+sid+'&email='+em),
+      // seenMs=MAX → a completed episode reveals all of its co-view comments.
+      friends.length ? fetch(API+'/transcribe/coview?showId='+sid+'&email='+em+'&with='+encodeURIComponent(friends.join(','))+'&seenMs='+Number.MAX_SAFE_INTEGER) : null
+    ];
+    const [dr,cr,tr,rr,vr]=await Promise.all(reqs.map(r=>r||Promise.resolve(null)));
+    if(dr&&dr.ok) detail=await dr.json();
+    if(cr&&cr.ok) comments=(await cr.json()).comments||[];
+    if(tr&&tr.ok) tickets=(await tr.json()).tickets||[];
+    if(rr&&rr.ok) refs=(await rr.json()).reflections||[];
+    if(vr&&vr.ok) coview=(await vr.json()).comments||[];
+  }catch(_){}
+  renderEpisodeArchive(host, s, {episodes:detail.episodes||[], comments, tickets, refs, coview}, includeBp);
+}
+
+function renderEpisodeArchive(host, s, data, includeBp){
+  const isMovie = s.kind==='movie';
+  // Completed episodes only; drop force-advanced (BP) unless this is COMPLETED.
+  // An episode with a real (non-BP) finished session is a genuine watch and always
+  // shows on CURRENT — even if its episode-level `bp` flag was clobbered by a repeat
+  // finish (see finishEpisode's idempotency guard). This recovers such rows without
+  // a data migration.
+  const hasRealWatch=e=>Array.isArray(e.sessions)&&e.sessions.some(x=>x&&x.finished&&!x.bp);
+  let eps=(data.episodes||[]).filter(e=>e.done && (includeBp || !e.bp || hasRealWatch(e)));
+  // A film has no real episode rows — fold its whole record into one block.
+  if(isMovie || !eps.length){
+    if(isMovie || data.tickets.length || data.comments.length || data.refs.length || data.coview.length)
+      eps=[{ key:isMovie?'🎬':'', name:isMovie?'Film':'', sessions:[], bp:false, _all:true }];   // '🎬' = stored data key, never rendered
+  }
+  if(!eps.length){ host.innerHTML='<div class="vw-empty">nothing logged yet</div>'; return; }
+
+  const key=e=>e.key!==undefined?e.key:epCodeOf(e.season,e.number);
+  const ticketsByEp={}, commentsByEp={}, coviewByEp={};
+  data.tickets.forEach(t=>{ (ticketsByEp[t.episodeId||'']||=[]).push(t); });
+  data.comments.forEach(c=>{ (commentsByEp[c.episodeId||'']||=[]).push(c); });
+  data.coview.forEach(c=>{ (coviewByEp[c.episodeId||'']||=[]).push(c); });
+  // Reflections tie to a ticket → its episode; orphan (null-ticket) ones ride newest.
+  const ticketEp={}; data.tickets.forEach(t=>{ ticketEp[t.id]=t.episodeId||''; });
+  const reflByEp={}, orphanRefs=[];
+  data.refs.forEach(r=>{ const k=(r.ticketId && ticketEp[r.ticketId]!==undefined)?ticketEp[r.ticketId]:null;
+    if(k!==null) (reflByEp[k]||=[]).push(r); else orphanRefs.push(r); });
+
+  // Newest-finished first (latest session finishTs, else latest ticket).
+  const sortTs=e=>{ let m=0; (e.sessions||[]).forEach(x=>{ const t=Math.max(x.finishTs||0,x.startTs||0); if(t>m) m=t; });
+    (ticketsByEp[key(e)]||[]).forEach(t=>{ if((t.createdAt||0)>m) m=t.createdAt; }); return m; };
+  eps.sort((a,b)=>sortTs(b)-sortTs(a));
+
+  // A different show than the state remembers → start it all-closed.
+  if(archState.showId !== s.id) archState = { showId:s.id, open:false, eps:new Set() };
+
+  const rowsHTML = eps.map((e,i)=>{
+    const k = e._all ? (Object.keys(ticketsByEp)[0] ?? Object.keys(commentsByEp)[0] ?? Object.keys(coviewByEp)[0] ?? '') : key(e);
+    const sessions=e.sessions||[];
+    const fin=sessions.filter(x=>x.finished).pop();
+    // Ticketed film → the viewing header shows the real screening date, not the upload day.
+    const tScreen = (isMovie && s.ticketAt) ? parseTicketDate(s.ticketDate, s.ticketAt) : null;
+    const when = e._all
+      ? (tScreen ? new Date(tScreen).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})
+                 : (s.lastDate?relDate(s.lastDate):''))
+      : (fin?fin.date:'');
+    const head = e._all ? (isMovie?'Film':'Viewing') : ('<b>'+key(e)+'</b>'+(e.name?' '+esc(e.name):''));
+    const refl = (reflByEp[k]||[]).concat(i===0?orphanRefs:[]);
+    const body = archiveBody(s, k, sessions, ticketsByEp[k]||[], commentsByEp[k]||[], coviewByEp[k]||[], refl, includeBp);
+    const openCls = archState.eps.has(k) ? ' open' : '';   // restore this episode's state
+    return '<div class="vw'+openCls+'" data-k="'+esc(String(k))+'">'+
+      '<div class="vw-head"><span class="vw-caret">&#8250;</span><span class="vw-when">'+head+
+        (when?' <span class="th">&middot; '+when+'</span>':'')+'</span></div>'+
+      '<div class="vw-body">'+body+'</div></div>';
+  }).join('');
+
+  // Whole log starts collapsed behind one header; the chevron > turns to v on tap.
+  const label = isMovie ? 'VIEWING' : 'VIEWING LOG';
+  host.innerHTML = '<div class="arch-toggle"><span class="arch-caret">&#8250;</span>'+label+
+    ' <span class="arch-n">'+eps.length+'</span></div><div class="arch-list">'+rowsHTML+'</div>';
+  host.classList.toggle('open', !!archState.open);   // restore the master toggle
+  host.querySelector('.arch-toggle').addEventListener('click',()=>{
+    archState.open = !archState.open; host.classList.toggle('open', archState.open);
+  });
+
+  // Each episode toggles independently; its open/closed persists in archState.eps so the
+  // next render (refresh/rotate-in) restores exactly what the member left open.
+  host.querySelectorAll('.vw-head').forEach(h=>h.addEventListener('click',()=>{
+    const vw=h.parentElement, k=vw.dataset.k||'';
+    if(vw.classList.toggle('open')) archState.eps.add(k); else archState.eps.delete(k);
+  }));
+  host.querySelectorAll('.ep-tix').forEach(b=>b.addEventListener('click',()=>showImg(b.dataset.img)));
+  host.querySelectorAll('.ep-play').forEach(b=>b.addEventListener('click',()=>playAudio(b.dataset.audio)));
+  host.querySelectorAll('.ep-share').forEach(b=>b.addEventListener('click',()=>viewingShare(s, b.dataset.tid||null, includeBp)));
+  host.querySelectorAll('.rf-share').forEach(b=>b.addEventListener('click',()=>reshareFromLog(s, b.dataset)));
+  host.querySelectorAll('.rf-del').forEach(b=>b.addEventListener('click',()=>deleteLogEntry(b)));
+}
+// Stage 3 — share a past reflection from the logs. Hands the existing text (+ audio URL /
+// comment id for a recorded one) to Pierre, who rebuilds the card and offers the share.
+function reshareFromLog(s, d){
+  if(window.parent===window) return;
+  const payload={ intent:'reshare', show:s.name, titleId:s.titleId||null, kind:s.kind||'show',
+    ep:d.key||'', text:d.txt||'', audioUrl:d.audio||'', commentId:d.id||'' };
+  window.parent.postMessage({type:'cube:rotateTo', face:'pierre', payload}, '*');
+}
+
+// One episode block's inner body: sessions, tickets, my comments, friends' comments
+// + replies, reflections — everything for that episode, together.
+function archiveBody(s, k, sessions, tickets, comments, coview, refl, includeBp){
+  let h='';
+  // 1) session timestamps (date · finished/paused · Nm · in→out); BP dimmed.
+  if(sessions.length){
+    h+='<div class="ep-sessions">'+sessions.slice().reverse().map(x=>{
+      if(x.bp) return '<div class="ep-sess bp">BP &middot; force-advanced</div>';
+      const span=x.startTs?(' <span class="ts">&middot; '+hmClock(x.startTs)+'&rarr;'+(x.finishTs?hmClock(x.finishTs):'…')+'</span>'):'';
+      return '<div class="ep-sess">'+esc(x.date||'')+' &middot; '+(x.finished?'finished':'paused')+' &middot; '+(x.minutes||0)+'m'+span+'</div>';
+    }).join('')+'</div>';
+  }
+  // 2) tickets
+  tickets.forEach(t=>{ const cap=[t.date,t.time,t.theater].filter(Boolean).join(' · ');
+    h+='<div class="ep-line"><button class="ep-tix" data-img="'+esc(t.ticketUrl)+'"><span>&#127903;</span> ticket</button>'+
+       (cap?'<span class="ep-cap">'+esc(cap)+'</span>':'')+'</div>'; });
+  // 3+4) comments + replies. Replies (co-view) thread under their parent, which may
+  // be one of MY comments or a friend's comment. /transcribe/comments returns my
+  // OWN replies too, but co-view already threads those — dedupe so they show once.
+  const repliesByParent={}; coview.forEach(c=>{ if(c.replyTo) (repliesByParent[c.replyTo]||=[]).push(c); });
+  const cvIds=new Set(coview.map(c=>c.id));
+  comments.filter(c=>!cvIds.has(c.id)).forEach(c=>{ h+=myCommentLine(c); (repliesByParent[c.id]||[]).forEach(r=>h+=coviewLine(r,true)); });
+  coview.filter(c=>!c.replyTo).forEach(c=>{ h+=coviewLine(c,false); (repliesByParent[c.id]||[]).forEach(r=>h+=coviewLine(r,true)); });
+  // 5) reflections
+  refl.forEach(r=>{ h+='<div class="ep-refl">&ldquo;'+esc(r.text)+'&rdquo; <span class="rq">'+relDate(new Date(r.createdAt).toISOString())+'</span>'+
+    '<button class="rf-share" data-txt="'+esc(r.text)+'" data-key="'+esc(k||'')+'">Share</button>'+
+    '<button class="rf-del" data-rid="'+esc(r.id||'')+'" title="Delete">&#10005;</button></div>'; });
+  // 6) share a thought (lands as a reflection on this episode's first ticket, if any)
+  h+='<div class="ep-actions"><button class="ep-share" data-tid="'+((tickets[0]&&tickets[0].id)||'')+'">&#8599; share a thought</button></div>';
+  return h;
+}
+function myCommentLine(c){
+  const play=c.audioUrl?'<button class="ep-play" data-audio="'+esc(c.audioUrl)+'">&#9654;</button>':'';
+  const share='<button class="rf-share" data-txt="'+esc(c.transcription||'')+'" data-audio="'+esc(c.audioUrl||'')+'" data-id="'+esc(c.id||'')+'" data-key="'+esc(c.episodeId||'')+'">Share</button>';
+  const del='<button class="rf-del" data-cid="'+esc(c.id||'')+'" title="Delete">&#10005;</button>';
+  return '<div class="ep-cmt mine">'+play+'<span class="ep-mark">'+markAt(c.timestampMs)+'</span>'+
+    '<span class="ep-txt">'+esc(c.transcription||'Audio')+'</span>'+share+del+'</div>';
+}
+function coviewLine(c, nested){
+  const play=c.audioUrl?'<button class="ep-play" data-audio="'+esc(c.audioUrl)+'">&#9654;</button>':'';
+  return '<div class="ep-cmt '+(nested?'reply':'friend')+'">'+play+
+    '<span class="ep-who">'+esc(c.author||'friend')+(nested?' &#8617;':'')+'</span>'+
+    '<span class="ep-mark">'+markAt(c.timestampMs)+'</span>'+
+    '<span class="ep-txt">'+esc(c.transcription||'Audio')+'</span></div>';
+}
+
+// Delete one of my own viewing-log entries — a reflection (data-rid) or an audio comment
+// (data-cid) — via the scoped DELETE endpoints, then drop the row from view.
+async function deleteLogEntry(btn){
+  const email=acct(); if(!email) return;
+  const rid=btn.dataset.rid, cid=btn.dataset.cid;
+  if(!rid && !cid) return;
+  if(!confirm('Delete this? This can’t be undone.')) return;
+  const url = rid ? (API+'/reflection/'+encodeURIComponent(rid)) : (API+'/transcribe/'+encodeURIComponent(cid));
+  btn.disabled=true;
+  try{
+    const r = await fetch(url, { method:'DELETE', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email }) });
+    if(r.ok || r.status===404){ const row=btn.closest('.ep-refl, .ep-cmt'); if(row) row.remove(); }
+    else { btn.disabled=false; alert('Could not delete that.'); }
+  }catch(_){ btn.disabled=false; alert('Could not delete that.'); }
+}
+
+// Share a thought → Pierre hosts the entry (and the share offer) on his face;
+// the thought persists as a reflection on this viewing's ticket.
+function viewingShare(s, ticketId, includeBp){
+  if(window.parent===window) return;
+  const payload={ intent:'note', offerShare:true, show:s.name, titleId:s.titleId||null, ticketId:ticketId||null };
+  window.parent.postMessage({type:'cube:rotateTo', face:'pierre', payload}, '*');
+}
+async function saveReflection(showId, ticketId, text){
+  const email=acct(); if(!email || !text) return;
+  try{ await fetch(API+'/reflection',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({userEmail:email, showId, ticketId:ticketId||null, text})}); }catch(_){}
+}
+function showImg(url){ const lb=document.getElementById('imgLb'); if(!lb||!url)return;
+  lb.querySelector('img').src=url; lb.onclick=()=>lb.classList.remove('show'); lb.classList.add('show'); }
+
+function stopShow(id){
+  const tileEl=document.querySelector('.tile[data-id="'+id+'"]'),s=LOG.find(x=>x.id===id); if(!s)return;
+  const fr=face.getBoundingClientRect();
+  if(tileEl){dustParticles(tileEl.getBoundingClientRect(),fr);tileEl.classList.add("dusting");}
+  s.stopped=true; patchTitle(s,{status:'stopped'}); setTimeout(()=>{render();renderPierre();},640);
+}
+
+const OWNER_EMAIL='ted@pangolinrc.com';
+// COMPLETED → "try again": reset progress and send the show back to CURRENT.
+function tryAgain(id){
+  const s=LOG.find(x=>x.id===id); if(!s)return;
+  s.forceCompleted=false; s.stopped=false; s.watched=0; s.lastWatched=null;
+  s.lastMinute=0; s.startedAt=null; s.epDetail={}; s.isNew=false;
+  s.lastDate=new Date().toISOString().slice(0,10);
+  selectedId=null; patchTitle(s,{op:'reset'}); switchTab("current"); renderPierre();
+}
+// COMPLETED/STOPPED → "remove from log": a real, permanent delete of THIS member's
+// title + all its progress (the shared catalog row stays). The DELETE endpoint is
+// scoped to the caller's own email, so any signed-in member may delete their own —
+// not just the owner. Irreversible, so confirm first.
+function removePermanently(id){
+  const s=LOG.find(x=>x.id===id); if(!s)return;
+  if(!confirm('Delete “'+(s.name||'this title')+'” from your log? This removes it and all its viewing history for good.')) return;
+  const i=LOG.indexOf(s); if(i>=0) LOG.splice(i,1);
+  selectedId=null;
+  const email=acct();
+  if(email && s.titleId)
+    fetch(API+"/profile/"+encodeURIComponent(email)+"/titles/"+encodeURIComponent(s.titleId),{method:"DELETE"}).catch(()=>{});
+  render(); renderPierre();
+}
+
+function switchTab(name){activeTab=name; selectedId=null;
+  document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("on",x.dataset.tab===name));render();}
+document.querySelectorAll(".tab").forEach(t=>t.addEventListener("click",()=>switchTab(t.dataset.tab)));
+document.getElementById("marBack").addEventListener("click",closeMarathon);
+function firstCurrent(){return LOG.filter(s=>bucketOf(s)==="current"&&!s.failed&&!s.forceCompleted&&!s.stopped&&s.watched<s.released)[0]
+  || LOG.filter(s=>bucketOf(s)==="current"&&!s.failed&&!s.forceCompleted&&!s.stopped)[0];}
+document.getElementById("finishBtn").addEventListener("click",()=>{const t=firstCurrent();if(t){if(activeTab!=="current")switchTab("current");setTimeout(()=>finishShow(t.id),60);}});
+// Watch + stop watching now live inline on each CURRENT show's expanded card.
+
+function buildSavings(){
+  document.getElementById("savings").textContent=money(TOTAL_SAVED);
+  const rows=SUBS.map(s=>'<div class="sav-row"><span class="svc">'+esc(s.name)+'</span><span class="full">'+money(s.full)+
+    '</span><span class="paid">'+money(s.paid)+' <b>&times;'+s.months+'</b></span></div>').join("");
+  document.getElementById("savCard").innerHTML='<h4>WHAT THE PROGRAM COVERS</h4>'+rows+
+    '<div class="sav-total"><span class="t">SAVED SO FAR</span><span class="v">'+money(TOTAL_SAVED)+'</span></div>'+
+    '<div class="sav-foot">Half of each bill, covered in exchange for your viewing data. That data is the product.</div>';
+}
+document.getElementById("addBtn").addEventListener("click",e=>{e.stopPropagation();addShow();});
+document.getElementById("savingsBtn").addEventListener("click",e=>{e.stopPropagation();document.getElementById("savpop").classList.add("show");});
+document.getElementById("savpop").addEventListener("click",()=>document.getElementById("savpop").classList.remove("show"));
+
+(async function(){buildSavings();
+  // DEMO is always the showcase seed. Otherwise a signed-in member loads their
+  // saved shows from the account; a signed-out MVP visitor starts empty.
+  const email=acct();
+  if(DEMO)        LOG = await Promise.all(SEED.map(hydrate));
+  else if(email)  LOG = await loadAccount(email);
+  else            LOG = [];
+  LOG.sort((a,b)=>new Date(b.lastDate)-new Date(a.lastDate));
+  // Cold open lands with the last-watched show already selected (expanded card),
+  // so WATCH shows the last series and its action buttons without a tap. Only when
+  // it sits in the default CURRENT tab — don't yank the user off another bucket.
+  const _resume=resumeShow();
+  if(_resume && activeTab==="current" && bucketOf(_resume)==="current") selectedId=_resume.id;
+  consumeWatchOpen();   // a title chosen right before a reload still opens here
+  render();renderPierre();})();
+
+// Re-hydrate when the session changes (login/logout in another face).
+window.addEventListener("storage", async (e)=>{
+  if(e.key!=="pg_user" && e.key!=="pg_refresh") return;
+  const email=acct();
+  if(DEMO) return;
+  LOG = email ? await loadAccount(email) : [];
+  LOG.sort((a,b)=>new Date(b.lastDate)-new Date(a.lastDate)); render(); renderPierre();
+});
+
+/* Pinch to contract back to the cube. The face overlay captures touches when
+   active, so it needs its own way out, like the other faces. */
+if(window.parent!==window){
+  // Fill the cube face edge to edge: no card, no rounded corners, no black margin.
+  // With the face at full height its flex layout pins the head/tabbar and only
+  // the shows pane (.scroll) scrolls.
+  const _de=document.documentElement, _b=document.body;
+  _de.style.height="100%"; _de.style.padding="0"; _de.style.display="block"; _de.style.overflow="hidden";
+  _b.style.height="100%"; _b.style.minHeight="100%"; _b.style.padding="0"; _b.style.margin="0";
+  _b.style.display="block"; _b.style.overflow="hidden";
+  face.style.width="100%"; face.style.height="100%"; face.style.maxWidth="none";
+  face.style.aspectRatio="unset"; face.style.borderRadius="0"; face.style.border="0";
+  // Back navigation is the floating cube button only (double-tap / pinch removed).
+  // Keep native momentum scrolling responsive: nudge .scroll a hair off its top/
+  // bottom edge as each drag begins so the first up-swipe isn't eaten by overscroll
+  // chaining ("had to scroll down a little first").
+  const _sc=document.querySelector(".scroll");
+  if(_sc) document.addEventListener("touchstart",()=>{
+    const max=_sc.scrollHeight-_sc.clientHeight; if(!(max>0)) return;   // !(max>0) also bails on NaN
+    if(_sc.scrollTop<=0) _sc.scrollTop=1; else if(_sc.scrollTop>=max) _sc.scrollTop=max-1;
+  },{passive:true});
+}
+</script>
+
+  <!-- full ticket image, opened from a viewing's ticket-stub button -->
+  <div class="imglb" id="imgLb"><img alt="ticket"></div>
+</body>
+</html>

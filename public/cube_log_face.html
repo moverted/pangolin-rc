@@ -92,6 +92,19 @@
   .name.offsvc{ color:#857c72; opacity:.78; text-shadow:0 2px 16px rgba(0,0,0,.7); }
   .ymeta{ font-family:var(--mono); font-size:11px; color:var(--dim);
     letter-spacing:.05em; margin-bottom:12px; text-shadow:0 1px 10px rgba(0,0,0,.7); }
+  /* "Watching with" (co-viewing) row */
+  .covwith{ font-family:var(--mono); font-size:11px; color:var(--faint); letter-spacing:.04em;
+    margin:-4px 0 12px; display:flex; flex-wrap:wrap; align-items:center; gap:7px; }
+  .covwith:empty{ display:none; }
+  .covwith .cw-val{ color:var(--text); }
+  .covwith .cw-edit,.covwith .cw-cancel{ background:none; border:0; color:var(--amber); font-family:var(--mono);
+    font-size:11px; cursor:pointer; padding:0; text-decoration:underline; }
+  .covwith .cw-cancel{ color:var(--faint); }
+  .covwith .cw-chip{ background:none; border:1px solid rgba(240,169,59,.32); border-radius:999px; color:var(--dim);
+    font-family:var(--mono); font-size:11px; padding:4px 10px; cursor:pointer; }
+  .covwith .cw-chip.on{ border-color:var(--amber); color:var(--amber); background:rgba(240,169,59,.14); }
+  .covwith .cw-save{ background:var(--amber); color:var(--amber-deep); border:0; border-radius:999px;
+    font-family:var(--mono); font-weight:700; font-size:11px; padding:4px 12px; cursor:pointer; }
   /* Big TAG: prominent "next drop" badge on the Episodes face. */
   .wowtag-big{ display:inline-flex; align-items:baseline; gap:8px; margin:0 0 14px;
     font-family:var(--mono); font-weight:700; letter-spacing:.06em; color:var(--amber);
@@ -108,6 +121,18 @@
   /* when the streamer can be launched, it becomes a tappable pill button */
   .ymeta .svc-lit.live{ cursor:pointer; padding:2px 9px; border:1px solid var(--amber); border-radius:999px; text-shadow:none; }
   .ymeta .svc-lit.live:active{ background:rgba(240,169,59,.18); }
+  /* Back-to-list escape hatch (flat app): a pill in the top-right corner of the top bar. */
+  .queue-back{ display:inline-flex; align-items:center; gap:5px;
+    font-family:var(--mono); font-size:10px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--dim); background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.14);
+    border-radius:999px; padding:5px 12px; cursor:pointer; -webkit-appearance:none; }
+  .queue-back:active{ background:rgba(240,169,59,.14); color:var(--amber); border-color:rgba(240,169,59,.4); }
+  .queue-back[hidden]{ display:none; }
+  /* year | picker row under the title. */
+  .metarow{ display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
+  .metasep{ font-family:var(--mono); font-size:11px; color:rgba(255,255,255,.35); }
+  /* Picker signals it can launch the streamer (deep-linkable) with an amber ring. */
+  .svccorner.live{ border-radius:999px; box-shadow:0 0 0 1px rgba(240,169,59,.55); }
   /* Movie credits, immediately below the synopsis: compact key/value rows. */
   .credits{ font-family:var(--body); font-size:11px; color:var(--dim); line-height:1.5;
     max-width:340px; margin:-8px 0 16px; }
@@ -190,8 +215,22 @@
   .minhandle{ position:absolute; top:50%; left:0; transform:translate(-50%,-50%);
     width:17px; height:17px; border-radius:50%; background:var(--amber);
     border:2px solid #2a1c08; box-shadow:0 2px 6px rgba(0,0,0,.6), 0 0 10px rgba(240,169,59,.45);
-    cursor:grab; }
+    cursor:grab; touch-action:none; }
   .minhandle:active{ cursor:grabbing; }
+  /* Icon-mode handle: drop the puck chrome, show the glyph (flame=BINGE, leaf=FRESH). */
+  .minhandle.mk{ background:none; border:none; box-shadow:none; width:auto; height:auto; }
+  .minhandle.mk svg{ display:block; width:22px; height:22px; }
+  .minhandle.flame svg{ filter:drop-shadow(0 0 5px rgba(255,90,20,.85)); }
+  .minhandle.leaf svg{ filter:drop-shadow(0 0 5px rgba(70,196,111,.85)); }
+  /* Paused / scrubbing: the ▶-◀ badge — the timer is stopped, awaiting a LOG. */
+  .minhandle.paused{ background:none; border:none; box-shadow:none; width:auto; height:auto; }
+  .minhandle .pauseglyph{ display:flex; gap:1px; align-items:center; justify-content:center;
+    width:22px; height:18px; background:var(--amber); border:2px solid #2a1c08; border-radius:6px;
+    box-shadow:0 2px 6px rgba(0,0,0,.6), 0 0 10px rgba(240,169,59,.45); }
+  .minhandle .pauseglyph i{ width:0; height:0; border-top:4px solid transparent; border-bottom:4px solid transparent; }
+  .minhandle .pauseglyph .l{ border-left:5px solid #2a1c08; }    /* ▶ */
+  .minhandle .pauseglyph .r{ border-right:5px solid #2a1c08; }   /* ◀ */
+  .minhandle .pauseglyph .d{ width:3px; height:2px; background:#2a1c08; }
   /* relative so the total can be pinned dead-center, immune to the left readout
      widening when the >> running-timer animation appends frames */
   .minfoot{ position:relative; display:flex; align-items:center; justify-content:space-between; margin-top:11px;
@@ -213,6 +252,10 @@
      (a tap swings to Pierre to offer a notification). */
   .sfbtn.start.greyed{ --accent:var(--faint); color:var(--faint); border-color:rgba(162,150,132,.4);
     background:rgba(0,0,0,.28); font-size:9.5px; }
+  /* Drops today: out now and loggable. Amber + a soft glow-pulse (matches the "soon"
+     badge) so it reads as fresh-and-tappable, not the greyed not-out-yet state. */
+  .sfbtn.start.dropstoday{ --accent:#ffcf7a; color:#ffcf7a; border-color:rgba(240,169,59,.85);
+    background:rgba(52,32,8,.5); animation:wowSoonGlow 2.4s ease-in-out infinite; }
   .sfbtn.logpart{ --accent:var(--text);  --flipfg:#1a1206;         border-color:var(--accent); color:var(--accent); }
   .sfbtn.continue{ --accent:var(--text); --flipfg:#1a1206;         border-color:var(--accent); color:var(--accent); }
   .sfbtn.finish{ --accent:var(--green); --flipfg:#06140b;          border-color:var(--accent); color:var(--accent); }
@@ -220,6 +263,10 @@
      the finish is waiting for your confirming tap. A green glow-pulse pulls the eye
      without changing the button's action. */
   .sfbtn.finish.callout{ animation:finishCallout 1.4s ease-in-out infinite; }
+  /* Timer ran out while you were away → the finish is staged: invert the button (filled
+     green, dark text) and ask "FINISHED?" so one deliberate tap commits it. */
+  .sfbtn.finish.finished{ background:var(--green); color:#06140b; border-color:var(--green);
+    box-shadow:0 0 16px rgba(91,191,123,.5); }
   @keyframes finishCallout{ 0%,100%{ box-shadow:0 0 0 rgba(91,191,123,0);  transform:none; }
                             50%   { box-shadow:0 0 16px rgba(91,191,123,.75); transform:translateY(-1px); } }
   /* Mic button: larger, round, standalone focal point */
@@ -315,11 +362,14 @@
   .catalog button:active{ transform:translateY(1px); }
 
   .epline{ font-family:var(--mono); font-size:11px; letter-spacing:.06em; color:var(--amber);
-    text-transform:uppercase; margin-bottom:9px; display:flex; gap:9px; align-items:baseline; }
-  .epline .sep{ color:rgba(255,255,255,.3); }
-  .epline .ttl{ color:var(--text); text-transform:none; font-family:var(--display);
-    font-weight:600; font-size:15px; letter-spacing:0;
-    min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    text-transform:uppercase; margin-bottom:9px; display:flex; flex-wrap:wrap;
+    column-gap:9px; row-gap:5px; align-items:baseline; }
+  /* Episode title drops to its own full-width line below the S/EP · date meta,
+     so it never truncates. The old inline "|" separator is redundant now. */
+  .epline .sep{ display:none; }
+  .epline .ttl{ order:3; flex:1 0 100%; color:var(--text); text-transform:none;
+    font-family:var(--display); font-weight:600; font-size:16px; letter-spacing:0;
+    white-space:normal; line-height:1.25; }
   .epline .aired{ color:var(--faint); font-family:var(--mono); font-size:10px;
     letter-spacing:.04em; white-space:nowrap; flex:0 0 auto; }
   .epline .aired:empty{ display:none; }
@@ -443,9 +493,24 @@
   .wtix{ display:inline-block; width:30px; height:30px; border-radius:6px; object-fit:cover;
     border:1px solid rgba(243,217,160,.5); margin-left:8px; vertical-align:middle; cursor:pointer; }
 
+  /* 125% block-text bump — running prose scaled ~1.25x (labels/mono chrome unchanged). */
+  .syn{ font-size:17px; }
+  .credits{ font-size:14px; }
+  .note{ font-size:14px; }
 </style>
 </head>
 <body>
+<!-- Shared playhead-marker glyphs: flame = BINGE, leaf = FRESH (referenced via <use>). -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <linearGradient id="mkFlameG" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#e11d1d"/><stop offset="52%" stop-color="#ff6a00"/><stop offset="100%" stop-color="#ffd21a"/>
+  </linearGradient>
+  <linearGradient id="mkLeafG" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0%" stop-color="#86e6a0"/><stop offset="55%" stop-color="#46c46f"/><stop offset="100%" stop-color="#2f8a4f"/>
+  </linearGradient>
+  <symbol id="mkFlame" viewBox="0 0 24 24"><path fill="url(#mkFlameG)" d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></symbol>
+  <symbol id="mkLeaf" viewBox="0 0 24 24"><path fill="url(#mkLeafG)" d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path fill="none" stroke="#e7fbee" stroke-width="1.6" stroke-linecap="round" d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></symbol>
+</defs></svg>
 <div class="face" id="face">
   <div class="bg bg-fallback" id="bg"></div>
   <div class="scrim"></div>
@@ -469,8 +534,8 @@
         <span id="seasonInd"></span>
         <button class="epreadout" id="epReadout" type="button"><span id="epReadoutTxt">EP — / —</span><span class="car">▸</span></button>
       </div>
-      <!-- best-guess streamer; hold it to roll the picker wheel -->
-      <div class="fb-right"><div class="svccorner" id="svcCorner" style="display:none"></div></div>
+      <!-- Escape hatch to the show list (flat app): QUEUE sits in the top-right corner. -->
+      <div class="fb-right"><button class="queue-back" id="queueBack" type="button" hidden>&#8249; QUEUE</button></div>
     </div>
   </div>
 
@@ -494,7 +559,15 @@
     <div class="hero">
       <div class="herofoot">
         <h1 class="name" id="name">Loading…</h1>
-        <div class="ymeta" id="ymeta"></div>
+        <!-- year | streaming-service picker. The picker (svcCorner) moved here from the top bar; tap
+             it to launch the streamer when it can be deep-linked, hold (or tap otherwise) to change it. -->
+        <div class="metarow">
+          <div class="ymeta" id="ymeta"></div>
+          <span class="metasep" id="metaSep" style="display:none">|</span>
+          <div class="svccorner" id="svcCorner" style="display:none"></div>
+        </div>
+        <!-- "Watching with" (co-viewing): who this title is watched with, editable. -->
+        <div class="covwith" id="covwith"></div>
         <!-- Big TAG: when the next episode drops (WoW scheduler). Hidden when nothing's upcoming. -->
         <div class="wowtag-big" id="wowTagBig" style="display:none;"></div>
 
@@ -596,6 +669,8 @@
 <script>
 const NOW=new Date(); const DAY=864e5;
 let allEps=[], eps=[], watched=0, watchTs=[], watchDate={}, binged={}, notes={}, focus=0, cooled=false;
+let mapMode=false;   // this title is in a curated marathon (server returned a `map`): the episode
+                     // list is the map's flat order, and next/advance follows it, not air order.
 let _lastPaintFocus=-1;   // last episode the Comments panel was scoped to (re-sync on focus change)
 let titleSummary='';   // show-level synopsis, used when an episode has none of its own
 let seasonStatus='', curShowId=null, curShowName='', curService='', svcLaunchable=false;
@@ -606,9 +681,31 @@ let isMovie=false;
 // Per-episode minute progress. epMin[i]=logged minutes, epDone[i]=watched,
 // epBp[i]=force-advanced (end stamp "BP"), startedAt[i]=on-device start ts.
 let epMin={}, epDone={}, epBp={}, startedAt={}, avgRuntime=45, minPreview=null, awaitingLog=false, pendingRestore=null;
+// wowForced[i]=true → a member with early access long-pressed the greyed START to force
+// an unaired episode through; from then on it behaves like a normal (aired) episode.
+let wowForced={};
 // watchingLive[i]=true → episode i is in the animated "watching" state, entered ONLY
 // by the START/CONTINUE button. A plain log action drops it to static "waiting".
 let watchingLive={};
+// Tell the shell whether ANY episode's live timer is running, so its "go dark but stay open"
+// mode can keep the screen awake + dim after idle. Change-detected off watchingLive so we don't
+// have to instrument every start/stop site; cheap 500ms poll (this face's timer runs even when
+// the shell has blurred it).
+let _wasWatching=false;
+function _liveNow(){ for(const k in watchingLive){ if(watchingLive[k]) return true; } return false; }
+function _emitWatchState(){
+  const live=_liveNow();
+  if(live!==_wasWatching){ _wasWatching=live;
+    try{ (window.parent||window).postMessage({type:'pg:watch', active:live}, '*'); }catch(_){}
+  }
+}
+// Report the current live state UNCONDITIONALLY (answers the shell's watch:probe). Also syncs
+// _wasWatching so the edge tracker stays consistent.
+function _reportWatchState(){
+  const live=_liveNow(); _wasWatching=live;
+  try{ (window.parent||window).postMessage({type:'pg:watch', active:live}, '*'); }catch(_){}
+}
+setInterval(_emitWatchState, 500);
 // Per-episode viewing-session log entries: [{date,minutes,finished,bp,startTs,lastTs,finishTs}].
 // sessionBase[i] = the scrubber position when the current START session began.
 let epSessions={}, sessionBase={};
@@ -628,6 +725,19 @@ const DEMO = location.hostname.split('.').includes('demo') || new URLSearchParam
 if(!DEMO){ const d=document.getElementById('epDots'); if(d) d.style.display='none'; }
 
 const $=id=>document.getElementById(id);
+// Flat app (?app=1): Watch and Log are one tab, so the Log detail shows a "back to QUEUE" hatch.
+// The frozen cube keeps LOG as its own face, so the hatch stays hidden there.
+const IS_FLAT_APP = new URLSearchParams(location.search).has('app');
+(function wireQueueBack(){
+  const qb=$('queueBack'); if(!qb || !IS_FLAT_APP) return;
+  qb.hidden=false;
+  qb.addEventListener('click', ()=>{
+    if(window.parent===window) return;
+    const payload={ showQueue:true };
+    if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('log', payload);
+    else window.parent.postMessage({ type:'cube:rotateTo', face:'log', payload }, '*');
+  });
+})();
 const strip=s=>{const d=document.createElement('div');d.innerHTML=s||'';return (d.textContent||'').trim();};
 const fmt=d=>d?new Date(typeof d==='string'?d+'T12:00:00':d).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'';
 const released=e=>e.airdate && new Date(e.airdate+'T23:59:59')<=NOW;
@@ -635,6 +745,18 @@ const released=e=>e.airdate && new Date(e.airdate+'T23:59:59')<=NOW;
 // avoid a tz day-slip), the next not-yet-aired episode, and the "swing to Pierre" when a
 // member taps START on an episode that has not dropped yet (offer a notify instead).
 function wowTagFor(e){ return (window.WoW && e && e.airdate) ? WoW.tag(e.airdate+'T12:00:00') : ''; }
+// The show's effective watch-mode for the playhead glyph (flame = BINGE, leaf = FRESH).
+// Uses ONLY this show's own manual pick — never the account default, so a global default
+// (e.g. FRESH) doesn't paint the same glyph on every show. No per-show pick → puck.
+function wowShowModeLog(){
+  try{
+    if(isMovie) return null;   // BINGE/FRESH are series-only — a movie has no watch cadence
+    const st = window.WoW && WoW.store && WoW.store.stateNow();
+    if(!st) return null;
+    const m = st.modes && curShowId && st.modes[curShowId];
+    return (m && m!=='DECLINED') ? m : null;
+  }catch(_){ return null; }
+}
 // The next drop across the whole show (air order), not just the loaded season -- a
 // premiere of a not-yet-started season lives outside `eps`. allEps is season/number
 // ordered, so the first unaired episode is the true next drop.
@@ -648,6 +770,19 @@ function swingToNotify(){
   }
 }
 const sNum=e=>e.season||1;
+// Deep-link (from the FEED "WATCH WITH COMMENTS" chip): land on a specific episode
+// code (e.g. "S05E09") — switch to its season, focus it, repaint, and pull its
+// co-view comments so they're in view. No-op if the code doesn't parse or match.
+function focusEpisode(code){
+  const m=/S(\d+)E(\d+)/i.exec(code||''); if(!m) return;
+  const season=+m[1], number=+m[2];
+  const seasonEps=allEps.filter(e=>sNum(e)===season);
+  if(seasonEps.length) eps=seasonEps;
+  const idx=eps.findIndex(e=>((e.number|0)===number));
+  if(idx>=0) focus=idx;
+  try{ paint(); }catch(_){}
+  try{ if(typeof loadCoview==='function') loadCoview(); }catch(_){}
+}
 
 // In-season drop label (WoW scheduler): from two weeks out the big badge names when
 // the next episode drops and tightens as it nears --
@@ -671,20 +806,34 @@ function wowDropLabel(nx){
   if(!nx) return null;
   const d=wowDaysUntil(nx.airdate); if(d==null || d<0 || d>14) return null;   // outside the 2-week window
   const S='S'+(nx.season||1);
-  if(d===0) return { txt:S+' STARTS TODAY', soon:true };
-  if(d===1) return { txt:S+' STARTS TOMORROW', soon:true };
+  // "STARTS" only fits a true season premiere (episode 1). Mid-season the season already
+  // began, so name the episode instead -- "S4 EP2 TODAY", not the wrong "S4 STARTS TODAY".
+  const lead = (nx.number===1) ? (S+' STARTS') : (S+' EP'+(nx.number||'?'));
+  if(d===0) return { txt:lead+' TODAY', soon:true };
+  if(d===1) return { txt:lead+' TOMORROW', soon:true };
   const dow=wowWeekday(nx.airdate).toUpperCase();
-  if(d<=6) return { txt:S+' STARTS '+dow, soon:false };   // this week
-  return { txt:S+' NEXT '+dow, soon:false };               // 7-14 days out
+  if(d<=6) return { txt:lead+' '+dow, soon:false };       // this week
+  // 7-14 days out: premiere keeps the tight "S4 NEXT WED"; mid-season carries its EP tag.
+  return { txt:(nx.number===1 ? (S+' NEXT '+dow) : (lead+' NEXT '+dow)), soon:false };
 }
 
 function boot(show,list,isDefault){
   hideEmpty();                       // a show is loading — clear the empty state
   allEps=list;
   curShowId=show.id||null; curShowName=show.name||'';
-  const aired=[...new Set(allEps.filter(released).map(sNum))];
-  const cur=aired.length?Math.max(...aired):(allEps.length?Math.max(...allEps.map(sNum)):1);
-  eps=allEps.filter(e=>sNum(e)===cur); if(!eps.length) eps=allEps;
+  loadCovwith();
+  // Pull the shared watch-mode store so the playhead glyph knows BINGE/FRESH; repaint
+  // the handle once it lands (async; the store is localStorage-backed and cached).
+  if(!DEMO && window.WoW && WoW.store && WoW.store.load){
+    try{ WoW.store.load(typeof acctEmail==='function'?acctEmail():'').then(()=>{ try{ paintMinute(); }catch(_){}}).catch(()=>{}); }catch(_){}
+  }
+  if(mapMode){
+    eps=allEps;   // curated marathon: the flat map order IS the sequence, no season slice
+  } else {
+    const aired=[...new Set(allEps.filter(released).map(sNum))];
+    const cur=aired.length?Math.max(...aired):(allEps.length?Math.max(...allEps.map(sNum)):1);
+    eps=allEps.filter(e=>sNum(e)===cur); if(!eps.length) eps=allEps;
+  }
 
   const img=show.image&&(show.image.original||show.image.medium);
   if(img){ $('bg').style.backgroundImage=`url("${img}")`; $('bg').classList.remove('bg-fallback'); }
@@ -698,8 +847,11 @@ function boot(show,list,isDefault){
   const g=(show.genres&&show.genres[0])||'';
   // The streamer lights up so the platform is always clear (especially when the
   // play button can't deep-link it and is greyed out).
-  $('ymeta').innerHTML=[yr, svc?'<span class="svc-lit">'+svc+'</span>':'', g].filter(Boolean).join('<span class="sep">|</span>');
-  applySvcState();   // re-apply the launch-button state to the new streamer span
+  // Under the title reads "year | streaming picker": the year here, the service now shown by the
+  // svcCorner picker moved onto this row (genre dropped). The separator hides when either is absent.
+  $('ymeta').textContent = yr || '';
+  $('metaSep').style.display = (yr && svc) ? '' : 'none';
+  applySvcState();   // re-apply the launch-ready state to the picker
   renderCredits();   // films only: fill the credits block from TMDB (async, no-op for shows)
 
   avgRuntime = show.averageRuntime || show.runtime || 45;
@@ -787,6 +939,14 @@ const bingeLive=()=>isBinge() && !cooled;
 
 function runtimeOf(i){ return (eps[i]&&eps[i].runtime) || avgRuntime || 45; }
 
+// Minute readout: "45 min" under an hour; "1 h 17 m" at/over 60 to keep it compact.
+function fmtMin(n){
+  n=Math.max(0,Math.round(n));
+  if(n<60) return n+' min';
+  const h=Math.floor(n/60), m=n%60;
+  return m ? (h+' h '+m+' m') : (h+' h');
+}
+
 // Digest for a finished scope, for the season/series share card. seasonNum!=null → that
 // season; null → the whole series. Finish timestamps come from the live session log
 // (current season) overlaid on the persisted savedDetail (all seasons), so the just-
@@ -818,6 +978,7 @@ function reflectionDigest(seasonNum){
 // Does the show have a season after the one currently loaded? If so, finishing
 // this season wraps onward rather than ending the show.
 function hasLaterSeason(){
+  if(mapMode) return false;   // a marathon's last step is the end; no season wrap
   if(!eps.length) return false;
   const cur=sNum(eps[0]);
   return allEps.some(e=>sNum(e)>cur);
@@ -872,6 +1033,7 @@ function advanceFocus(){
 }
 // Load the next season of the show into the face, carrying its saved history.
 function loadNextSeason(){
+  if(mapMode) return false;   // no season wrap inside a curated marathon
   if(!eps.length) return false;
   const cur=sNum(eps[0]);
   const later=[...new Set(allEps.map(sNum))].filter(s=>s>cur).sort((a,b)=>a-b);
@@ -919,6 +1081,9 @@ function emitProgress(i, done, bp, minute){
 const escHtml=(s)=>(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 // NOTE: the movie key '🎬' is a stored data key (comments/tickets are saved under it) — never rendered.
 function epCode(e){ return isMovie ? '🎬' : ('S'+String(e.season||1).padStart(2,'0')+'E'+String(e.number||0).padStart(2,'0')); }
+// Compact code for marathon steps: unpadded season, padded episode (S1E01, S2E02, S4E13) —
+// map steps cross seasons so the real code, not a positional "E3", is what identifies them.
+function stepCode(e){ return 'S'+(e&&e.season||1)+'E'+String(e&&e.number||0).padStart(2,'0'); }
 const mdFmt=(ts)=>{ const d=new Date(ts); return (d.getMonth()+1)+'/'+d.getDate(); };
 const dayKey=(ts)=>{ const d=new Date(ts); return d.getFullYear()+'-'+d.getMonth()+'-'+d.getDate(); };
 const hmFmt=(ts)=> ts ? new Date(ts).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}) : '—';
@@ -946,6 +1111,15 @@ function logSession(i, opts){
   const validated = opts.validated!==false, finished=!!opts.finished;
   const state = finished ? 'done' : 'paused';
   const last=arr[arr.length-1];
+  // 0) A theater ticket carries its own real in/out timestamps (showtime-anchored) and
+  //    must always land as its own viewing — never roll up into a live/partial session.
+  if(opts.forceAppend){
+    const at = opts.atTs || now;
+    arr.push({dk:dayKey(at), date:mdFmt(at), minutes:opts.minutes, finished, bp:!!opts.bp,
+              state, validated, startTs: opts.startTs!=null?opts.startTs:(startedAt[i]||null),
+              finishTs: opts.finishTs!=null?opts.finishTs:now});
+    return;
+  }
   // 1) Close the open live (watching) viewing in place.
   if(last && last.state==='watching'){
     last.minutes=opts.minutes; last.finishTs=now;
@@ -973,6 +1147,7 @@ function logMinute(){
   const rt=runtimeOf(focus);
   const val=Math.round(Math.min(rt, minPreview!=null?minPreview:(epMin[focus]||0)));
   epMin[focus]=val; minPreview=null; awaitingLog=false; cooled=false; epPreApp[focus]=false;
+  clearPendingFin(focus);   // logging a position resolves any staged FINISHED?
   try{ localStorage.removeItem('pg_launch'); }catch(_){}
   const done=val>=rt-1;
   // Logging stops the live timer for good: clear the start stamp (and re-base the
@@ -1111,6 +1286,13 @@ function notifyCommentCap(){
   _capNoticeTimer=setTimeout(()=>{ cap.style.opacity=''; cap.style.color=''; paintTranscripts(); }, 2600);
 }
 
+// The stamp after the episode code. End-notes carry no timecode — they reveal on
+// finish — so they show their spoiler tag (SPLR/NOSP); everything else shows its mark.
+function commentStamp(o){ return o && o.endNote ? (o.spoiler ? 'SPLR' : 'NOSP') : (o ? o.time : ''); }
+// A co-view original is "answered" once ANY reply threads under it (server enforces
+// one reply per comment; this mirrors the lock in the UI). End-notes are never repliable.
+function coviewIsAnswered(id){ return !!id && coviewComments.some(c=>c.replyTo===id); }
+
 function paintTranscripts(){
   const label=$('transcriptLabel');
   const container=$('transcripts');
@@ -1192,7 +1374,7 @@ function paintTranscripts(){
     textDiv.style.minWidth = '0';
     textDiv.style.fontSize = '1.4em';
     textDiv.style.color = 'var(--mine)';   // your own comments render white
-    textDiv.innerHTML = `<strong>${t.epCode} ${t.time}</strong> — <span class="tx">${escHtml(t.text)}</span>`;
+    textDiv.innerHTML = `<strong>${t.epCode} ${commentStamp(t)}</strong> — <span class="tx">${escHtml(t.text)}</span>`;
     if(t.id) textDiv.appendChild(txControls(t));
 
     line.appendChild(speakerBtn);
@@ -1253,14 +1435,17 @@ function coviewRow(c, nested, replied){
   const txt=document.createElement('div');
   txt.style.flex='1'; txt.style.minWidth='0'; txt.style.color=tier;   // friend=orange, reply=green
   const who=`<span style="color:${tier};font-weight:600;">${escHtml(c.author)}</span>`;
-  const when=`<strong>${escHtml(c.epCode)} ${c.time}</strong>`;
+  const when=`<strong>${escHtml(c.epCode)} ${commentStamp(c)}</strong>`;
   if(!c.revealed){
-    txt.innerHTML=`${when} · ${who} — <em style="opacity:.6;">reveals at ${c.time}</em>`;
+    // An end-note has no minute — it unlocks when you finish the episode, not at a mark.
+    const revealAt = c.endNote ? 'reveals when you finish' : `reveals at ${c.time}`;
+    txt.innerHTML=`${when} · ${who} — <em style="opacity:.6;">${revealAt}</em>`;
   } else if(nested){
     txt.innerHTML=`${who} — ${escHtml(c.text)}`;
   } else {
     // Audio is the default; the words sit behind a tap (audio default + per-comment text).
-    const repliedTag = replied.has(c.id) ? ` <span style="color:${tier};opacity:.8;">· ✓ replied</span>` : '';
+    // "answered" reflects the one-reply lock — any reply (yours or another friend's).
+    const repliedTag = (coviewIsAnswered(c.id) || replied.has(c.id)) ? ` <span style="color:${tier};opacity:.8;">· ✓ answered</span>` : '';
     txt.innerHTML=`${when} · ${who}${repliedTag} — <a href="#" style="color:var(--amber);text-decoration:none;">show text ▾</a><span style="display:none;">${escHtml(c.text)}</span>`;
     const a=txt.querySelector('a'), span=txt.querySelector('span:last-child');
     a.onclick=(e)=>{ e.preventDefault(); const open=span.style.display!=='none';
@@ -1300,6 +1485,8 @@ async function loadComments(){
         id: c.id,
         edited: !!c.edited,
         replyTo: c.replyTo || null,   // reply → excluded from the per-episode comment cap
+        endNote: !!c.endNote,         // end-of-episode note → SPLR/NOSP label, not a timecode
+        spoiler: !!c.spoiler,         // the SPLR/NOSP choice (only meaningful when endNote)
         hasText: !!(c.transcription && c.transcription.trim()),
         epCode: c.episodeId || '',
         time: `${Math.floor(m/60)}:${String(m%60).padStart(2,'0')}`,
@@ -1471,8 +1658,11 @@ async function loadCoview(){
   if(!curShowId || !email || !e || !set.length){ paintTranscripts(); return; }
   try{
     const u = new URL(`${API_BASE}/transcribe/coview`);
+    // finishedEps: the focused episode, only once you've marked it done — end-notes
+    // (reveal_on='finish') unlock on that, never on a minute.
+    const finishedEps = epDone[focus] ? epCode(e) : '';
     u.search = new URLSearchParams({ showId:curShowId, episodeId:epCode(e), email,
-      with:set.join(','), seenMs:String(coviewSeenMs()) }).toString();
+      with:set.join(','), seenMs:String(coviewSeenMs()), finishedEps }).toString();
     const r = await fetch(u); if(!r.ok){ paintTranscripts(); return; }
     const d = await r.json();
     coviewComments = (d.comments||[]).map(c=>{
@@ -1480,9 +1670,12 @@ async function loadCoview(){
       // "reveals at" clock all run off revealMs, not the raw timestamp.
       const reveal = (c.revealMs!=null) ? c.revealMs : ((c.timestampMs||0)+30000);
       const rm = Math.round(reveal/60000);
-      if(!c.revealed) coviewNextLock = Math.min(coviewNextLock, reveal);
+      // End-notes unlock on finish, not at a mark, so they never set the minute
+      // watermark that drives live re-fetch (that's coviewCheckReveal's minute path).
+      if(!c.revealed && !c.endNote) coviewNextLock = Math.min(coviewNextLock, reveal);
       return { id:c.id, author:c.author||'friend', authorEmail:c.authorEmail||'',
         epCode:c.episodeId||epCode(e),
+        endNote:!!c.endNote, spoiler:!!c.spoiler,
         time:`${Math.floor(rm/60)}:${String(rm%60).padStart(2,'0')}`,
         ms:c.timestampMs||0, revealMs:reveal, replyTo:c.replyTo||null, phone:c.phone||null,
         revealed:!!c.revealed, audioUrl:c.audioUrl||null,
@@ -1497,10 +1690,14 @@ async function loadCoview(){
     const firstForEp = (_announcedKey !== epKey);
     _announcedKey = epKey;
     const heard = coviewHeardSet();
-    const fresh = coviewComments.filter(c=>!c.replyTo && c.revealed && c.audioUrl && !heard.has(c.id));
+    // End-notes aren't live-crossing reply targets (they unlock on finish and can't be
+    // replied to), so they never arm the reply window or pop the surface banner.
+    const fresh = coviewComments.filter(c=>!c.replyTo && !c.endNote && c.revealed && c.audioUrl && !heard.has(c.id));
     if(fresh.length){
       surfaceCoview(fresh[fresh.length-1], !firstForEp);   // latest unheard; autoplay only on a live crossing
       fresh.forEach(c=> coviewMarkHeard(c.id));
+      // A friend's comment landed → wake the shell's "go dark" screen so it's seen.
+      try{ (window.parent||window).postMessage({type:'pg:wake'}, '*'); }catch(_){}
     }
     updateMicMode();
   }catch(_){ /* leave whatever we have */ }
@@ -1520,6 +1717,44 @@ function coviewCheckReveal(){
 // unanswered comment. Tapping records the reply in-app and opens a native SMS
 // draft to the friend (no text server: it's an sms: deep link). Replied ids are
 // remembered locally so the mic reverts and the row shows "✓ replied".
+// "Watching with" (co-viewing) row: who this title is watched with, editable inline
+// against the roster. curShowId is the title_id. Hidden if no roster is set up.
+const cwEsc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+async function loadCovwith(){
+  const host=document.getElementById('covwith'); if(!host) return;
+  host.innerHTML='';
+  const email=(typeof acctEmail==='function'?acctEmail():''); const tid=curShowId;
+  if(!email || !tid) return;
+  const em=encodeURIComponent(email), sid=encodeURIComponent(tid);
+  let roster=[], current=[];
+  try{ const r=await fetch(`${API_BASE}/profile/${em}/coviewers`); if(r.ok) roster=(await r.json()).coviewers||[]; }catch(_){}
+  if(!roster.length) return;                 // no room set up → nothing to show
+  try{ const r=await fetch(`${API_BASE}/profile/${em}/titles/${sid}/coviewers`); if(r.ok) current=(await r.json()).coviewers||[]; }catch(_){}
+  if(curShowId!==tid) return;                 // show changed mid-fetch
+  covwithDisplay(host, tid, roster, current);
+}
+function covwithDisplay(host, tid, roster, current){
+  const names=current.map(c=>c.display_name);
+  const val=names.length ? ('with '+names.join(' & ')) : 'just you';
+  host.innerHTML='Watching <span class="cw-val">'+cwEsc(val)+'</span> <button class="cw-edit">edit</button>';
+  host.querySelector('.cw-edit').onclick=()=>covwithEditor(host, tid, roster, current);
+}
+function covwithEditor(host, tid, roster, current){
+  const sel=new Set(current.map(c=>c.id));
+  host.innerHTML='Watching with '+
+    roster.map(c=>'<button class="cw-chip'+(sel.has(c.id)?' on':'')+'" data-cid="'+c.id+'">'+cwEsc(c.display_name)+'</button>').join('')+
+    '<button class="cw-save">Save</button><button class="cw-cancel">Cancel</button>';
+  host.querySelectorAll('.cw-chip').forEach(b=>b.onclick=()=>{ const id=b.dataset.cid;
+    if(sel.has(id)){sel.delete(id);b.classList.remove('on');}else{sel.add(id);b.classList.add('on');} });
+  host.querySelector('.cw-save').onclick=async()=>{
+    const email=(typeof acctEmail==='function'?acctEmail():'');
+    try{ await fetch(`${API_BASE}/profile/${encodeURIComponent(email)}/titles/${encodeURIComponent(tid)}/coviewers`,
+      {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({coviewer_ids:[...sel]})}); }catch(_){}
+    covwithDisplay(host, tid, roster, roster.filter(c=>sel.has(c.id)));
+  };
+  host.querySelector('.cw-cancel').onclick=()=>covwithDisplay(host, tid, roster, current);
+}
+
 function coviewRepliedKey(){ const e=(typeof acctEmail==='function'?acctEmail():''); return (curShowId && e) ? 'pg_coview_replied:'+e+':'+curShowId : null; }
 function coviewRepliedSet(){ try{ return new Set(JSON.parse(localStorage.getItem(coviewRepliedKey())||'[]')); }catch(_){ return new Set(); } }
 function coviewMarkReplied(id){ const k=coviewRepliedKey(); if(!k||!id) return;
@@ -1632,8 +1867,11 @@ function hideCoviewToast(){
 // and that you haven't already answered.
 function coviewReplyTarget(){
   if(!activeReply || replySecsLeft<=0) return null;
-  if(coviewRepliedSet().has(activeReply.c.id)) return null;
-  return activeReply.c;
+  const c = activeReply.c;
+  if(c.endNote) return null;                       // end-notes are terminal — never repliable
+  if(coviewRepliedSet().has(c.id)) return null;    // you already answered it
+  if(coviewIsAnswered(c.id)) return null;          // someone else got there first (one-reply lock)
+  return c;
 }
 
 // Reflect the reply target on the mic: green + "REPLY" when one is pending, plain
@@ -1676,9 +1914,12 @@ async function replyFlow(target){
   // SMS draft opens regardless so the reply still reaches them.
   if(email && target.id){
     try{
-      await fetch(`${API_BASE}/transcribe/reply`, { method:'POST',
+      const rr = await fetch(`${API_BASE}/transcribe/reply`, { method:'POST',
         headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ email, showId:curShowId, episodeId:target.epCode, replyTo:target.id, text }) });
+      // One-reply lock: a friend answered first. Don't send an SMS for a reply that
+      // didn't land — surface it, refresh so their reply shows, and stop here.
+      if(rr && rr.status===409){ closeReplyWindow(); loadCoview(); alert('Someone already replied to this comment — only one reply is allowed.'); return; }
     }catch(_){ /* the SMS draft below is the fallback path */ }
   }
   coviewMarkReplied(target.id);
@@ -1854,6 +2095,9 @@ function stopRecording(){
         // Cap reached (server-enforced 409 on an original comment): brief notice,
         // no error row. The mic normally blocks this, so a 409 here is a race.
         if(res.status===409 && !rTgt){ notifyCommentCap(); return; }
+        // One-reply lock (409 on a reply): a friend answered first. Drop the window
+        // and reload so their reply threads in — no error row.
+        if(res.status===409 && rTgt){ closeReplyWindow(); loadCoview(); alert('Someone already replied to this comment — only one reply is allowed.'); return; }
         transcripts.unshift({
           epCode: code,
           time: timeStr,
@@ -1919,6 +2163,7 @@ function recordAudioComment(){
 function forceAdvance(){
   const rt=runtimeOf(focus);
   epDone[focus]=true; epBp[focus]=true; epPreApp[focus]=true; epMin[focus]=rt; minPreview=null; awaitingLog=false; cooled=false;  // BP = pre-app
+  clearPendingFin(focus);
   markWatchedThrough(focus);
   logSession(focus,{minutes:rt,finished:true,bp:true});
   emitProgress(focus, true, true, 0);
@@ -1928,8 +2173,10 @@ function forceAdvance(){
 // START / CONTINUE: begin (or resume) a watch. This is the ONLY entry point that
 // puts the episode into the animated "watching" state.
 function startEpisode(){
+  clearPendingFin(focus);     // re-arming a watch supersedes any staged FINISHED?
   startedAt[focus]=Date.now(); sessionBase[focus]=epMin[focus]||0; minPreview=null; awaitingLog=false;
   watchingLive[focus]=true;   // enter the animated "watching" state
+  _lastTickTs=Date.now();     // fresh cadence baseline so the first tick isn't read as a suspend gap
   _lastLoggedMin[focus]=Math.floor(epMin[focus]||0);   // baseline so the next whole minute persists
   openWatchViewing(focus);    // persist the open watching viewing (survives reload)
   emitProgress(focus, false, false, Math.round(epMin[focus]||0));
@@ -1956,6 +2203,10 @@ function reportRuntimeMismatch(i, watchedMin, rt){
     const key = 'pg_rt_warned:'+(curShowId||'?')+':'+epCode(e);
     if(localStorage.getItem(key)) return;            // already checked this episode
     localStorage.setItem(key, '1');
+    // Fire-and-forget: the automated TMDB second opinion + admin note. The member-facing
+    // question (when TMDB can't confirm) is now asked by Pierre on his own face — the old
+    // askRealRuntime box rendered on the Log, which the finish had already rotated away
+    // from, so it was never actually seen.
     fetch(`${API_BASE}/catalog/runtime-check`, {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ email:(typeof acctEmail==='function'?acctEmail():''),
@@ -1972,13 +2223,43 @@ function reportRuntimeMismatch(i, watchedMin, rt){
 //    just finished something), there was no time for a real watch here → BP. A
 //    standalone finish with a full runtime of room stays a legitimate watch.
 // BP never counts toward a binge and renders grey with no date.
-function finishEpisode(){
+// `screening` (theater tickets only): {showtime, filmStart} in ms. When present the
+// viewing is anchored to the REAL screening — film starts 25 min after the printed
+// showtime (trailers/ads) and runs its full runtime — instead of the upload moment.
+function finishEpisode(screening){
+  // Idempotency guard: this episode already has a real (non-BP) finished session
+  // (a double-tap, the away-timer finishing while the manual FINISH confirm also
+  // fires, or an autoFinish relaunch after a live watch). A repeat FINISH must NOT
+  // re-run the back-date/BP branch below — with a real watch just logged seconds ago,
+  // latestFinishBefore() clamps startedAt to it, room computes ≈0, and the genuine
+  // watch gets demoted to BP, which then hides it from the CURRENT VIEWING LOG.
+  // Re-assert the real completion and bail.
+  if(!screening && epDone[focus] && (epSessions[focus]||[]).some(x=>x&&x.finished&&!x.bp)){
+    // Re-assert the completion but SKIP the back-date/BP branch below (it would demote
+    // the genuine watch to BP and hide it from the CURRENT VIEWING LOG). A deliberate
+    // FINISH tap must never be a silent no-op, though — still host the end-of-episode
+    // reflection in Pierre (a re-finish reads as "reflect on this again"), the same
+    // handoff a fresh finish runs. This is what fixed "FINISH did nothing" on a show
+    // whose current episode was already done (Station Eleven).
+    emitProgress(focus, true, false, Math.round(epMin[focus]||runtimeOf(focus)));
+    clearPendingFin(focus);
+    _routedToPierre=false;
+    finaleCheck();
+    if(_suppressFinishRoute){ _suppressFinishRoute=false; return; }
+    if(!_routedToPierre) pierreFinishedNote(focus);
+    return;
+  }
   const rt=runtimeOf(focus), now=Date.now();
   // Capture the real live-watched span BEFORE the backdate branch overwrites startedAt,
   // so the runtime-mismatch check below sees true elapsed (not a synthesized full runtime).
   const liveElapsed = startedAt[focus]!=null ? (now-startedAt[focus])/60000 : null;
   let bp;
-  if(startedAt[focus]!=null){
+  const scrStart = screening && screening.filmStart;
+  if(scrStart){
+    // Anchor to the ticket's showtime. A ticketed screening is a genuine sitting, never a BP.
+    startedAt[focus]=scrStart;
+    bp=false;
+  } else if(startedAt[focus]!=null){
     bp = (now - startedAt[focus]) < 60000;
   } else {
     startedAt[focus]=Math.max(now-rt*60000, latestFinishBefore(now));
@@ -1988,27 +2269,37 @@ function finishEpisode(){
     bp = (now - startedAt[focus]) < rt*60000*0.85;
   }
   epMin[focus]=rt; epDone[focus]=true; epBp[focus]=bp; epPreApp[focus]=bp; minPreview=null; awaitingLog=false; cooled=false; watchingLive[focus]=false;
+  clearPendingFin(focus);   // committed → no longer a pending finish
   try{ localStorage.removeItem('pg_launch'); }catch(_){}
   markWatchedThrough(focus);
-  logSession(focus,{minutes:rt,finished:true,bp:bp});
+  logSession(focus, scrStart
+    ? {minutes:rt, finished:true, bp:false, forceAppend:true, atTs:scrStart, startTs:scrStart, finishTs:scrStart+rt*60000}
+    : {minutes:rt, finished:true, bp:bp});
   emitProgress(focus, true, bp, rt);
-  // Completing after a genuine live watch that ran short of the stored runtime (watched
-  // ≥ half, yet ≥ 5 min still "remaining") points at a too-long catalog runtime → warn admin.
-  if(liveElapsed!=null && liveElapsed>=5 && liveElapsed>=rt*0.5 && (rt-liveElapsed)>=5){
-    reportRuntimeMismatch(focus, liveElapsed, rt);
-  }
+  // Completing well short of the stored runtime (watched ≥ half, yet ≥ 5 min still
+  // "remaining") points at a too-long catalog runtime. Two signals fire: a background
+  // TMDB cross-check (auto-corrects + files an admin note), and — the visible one —
+  // Pierre asks the member (on his face, where the finish rotates them) whether the
+  // shorter time is the real length. earlyWatched carries the real minutes to Pierre.
+  const _earlyWatched = (liveElapsed!=null && liveElapsed>=5 && liveElapsed>=rt*0.5 && (rt-liveElapsed)>=5)
+    ? Math.round(liveElapsed) : null;
+  if(_earlyWatched!=null) reportRuntimeMismatch(focus, liveElapsed, rt);
   const _noteIdx=focus;
   _routedToPierre=false;
   finaleCheck(); advanceFocus(); paint();
+  // A ticket capture logs the watch here but sends you to the IRL Tickets tab (below),
+  // not the Pierre reflection — so suppress that route for this finish.
+  if(_suppressFinishRoute){ _suppressFinishRoute=false; return; }
   // Pierre catches the reaction while the credits roll — unless the finale or
   // season-wrap handoff already rotated the cube (they run their own Pierre flows).
-  if(!_routedToPierre) pierreFinishedNote(_noteIdx);
+  if(!_routedToPierre) pierreFinishedNote(_noteIdx, _earlyWatched);
 }
+let _suppressFinishRoute=false;
 
 // Every finished watch routes to Pierre: he hosts the thought (and the share
 // offer) on his own face — no in-face entry overlay.
 let _routedToPierre=false;   // set by finaleCheck / forceSeasonNote within a finish
-function pierreFinishedNote(idx){
+function pierreFinishedNote(idx, earlyWatched){
   if(DEMO || window.parent===window) return;
   const e=eps[idx]||{};
   // Next-action for the Comment / next-action fork (COMMENT_CLIP_SHARE.md). Season/series
@@ -2028,7 +2319,8 @@ function pierreFinishedNote(idx){
   const payload={ intent:'note', finished:true, kind:isMovie?'movie':'show',
                   scope:isMovie?'movie':'episode', show:curShowName,
                   ep:isMovie?'🎬':epCode(e),   // movie key '🎬' → the card + reflection anchor on it
-                  titleId:curShowId, runtime:runtimeOf(idx), nextAction, nextEp, nextWhen };
+                  titleId:curShowId, runtime:runtimeOf(idx), earlyWatched:(earlyWatched||null),
+                  nextAction, nextEp, nextWhen };
   if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('pierre', payload);
   else window.parent.postMessage({type:'cube:rotateTo', face:'pierre', payload}, '*');
 }
@@ -2041,9 +2333,15 @@ function paint(){
   renderSeasons();
 
   // ----- big TAG: when the next episode drops (WoW scheduler) -----
+  // Only surfaces the future drop when it's the point — i.e. you're CAUGHT UP: the
+  // focused episode is finished (nothing to watch now) or you're already looking at
+  // the unaired episode itself. While you're mid-watch on a fresh, aired episode,
+  // "S21 EP3 TUESDAY" just competes with the thing you're watching → leave it empty.
   const wtb=$('wowTagBig');
   if(wtb){
-    const nx = !isMovie ? wowNextUnaired() : null;
+    const cur = eps[focus];
+    const watchingFresh = cur && released(cur) && !epDone[focus];   // aired + not finished = watching it now
+    const nx = (!isMovie && !watchingFresh) ? wowNextUnaired() : null;
     const lab = nx ? wowDropLabel(nx) : null;
     if(lab){ wtb.style.display='inline-flex'; wtb.classList.toggle('soon', !!lab.soon); wtb.textContent=lab.txt; }
     else { wtb.classList.remove('soon'); wtb.style.display='none'; }
@@ -2053,11 +2351,13 @@ function paint(){
   paintMinute();
 
   const f=eps[focus]||{};
-  $('epNo').textContent= isMovie ? 'FILM' : `S ${sNum(f)} EP ${focus+1} / ${total}`;
+  // Marathon: generic "MARATHON" label + the current step's real code, no "/N" count (the
+  // total is meaningless across a curated cross-season list).
+  $('epNo').textContent= isMovie ? 'FILM' : mapMode ? 'MARATHON' : `S ${sNum(f)} EP ${focus+1} / ${total}`;
   // top-bar episode readout (tap → picker). Hidden for films and single-episode seasons.
   const er=$('epReadout');
-  if(er){ const showEr = !isMovie && total>1; er.style.display = showEr ? 'inline-flex' : 'none';
-    if(showEr) $('epReadoutTxt').textContent = 'EP '+(focus+1)+'/'+total; }
+  if(er){ const showEr = !isMovie && (mapMode || total>1); er.style.display = showEr ? 'inline-flex' : 'none';
+    if(showEr) $('epReadoutTxt').textContent = mapMode ? stepCode(f) : ('EP '+(focus+1)+'/'+total); }
   $('epTtl').textContent=f.name||(isMovie?'Film':('Episode '+(focus+1)));
   $('epAired').textContent= isMovie ? (f.airdate?String(f.airdate).slice(0,4):'') : (f.airdate?fmt(f.airdate):'');
   $('syn').textContent=strip(f.summary)||strip(titleSummary)||'No synopsis available yet.';
@@ -2080,8 +2380,15 @@ function paint(){
   const stBtn=$('startEpBtn');
   if(stBtn){
     stBtn.disabled = false;
-    stBtn.classList.remove('logpart', 'continue', 'greyed');
-    const unaired = !isMovie && eps[focus] && eps[focus].airdate && !released(eps[focus]);
+    stBtn.classList.remove('logpart', 'continue', 'greyed', 'dropstoday');
+    // "Drops today" (airdate is the local calendar today) is out already, even though
+    // released() waits for the full air-day to end -- so it is loggable now. Only a
+    // genuinely future episode stays greyed/notify.
+    const notReleased = !isMovie && eps[focus] && eps[focus].airdate && !released(eps[focus]);
+    const dropsToday = notReleased && wowDaysUntil(eps[focus].airdate)===0;
+    // Once force-started (long-press on the greyed button for early access), it's no longer
+    // treated as unaired — the normal watch/log states take over.
+    const unaired = notReleased && !dropsToday && !wowForced[focus];
     if(unaired) {
       // Next episode has not dropped yet — greyed START. Tapping it swings to Pierre
       // to offer a notification, rather than starting an episode that does not exist yet.
@@ -2089,10 +2396,11 @@ function paint(){
       stBtn.textContent = tg ? ('DROPS '+tg.toUpperCase()) : 'NOT OUT YET';
       stBtn.classList.add('greyed');
       stBtn.dataset.action = 'notify';
-    } else if(awaitingLog) {
-      // A scrubbed preview is staged → the button itself commits it (no tap-elsewhere).
+    } else if(awaitingLog || minDragging) {
+      // Scrubbing (or a staged scrub) → the button commits that position. Held for the
+      // WHOLE gesture (grab through release) so it never flickers to CONTINUE mid-drag.
       const pv = Math.round(minPreview!=null ? minPreview : (epMin[focus]||0));
-      stBtn.textContent = `LOG ${pv} min`;
+      stBtn.textContent = 'LOG '+fmtMin(pv);
       stBtn.classList.add('logpart');
       stBtn.dataset.action = 'log';
     } else if(watching) {
@@ -2103,15 +2411,34 @@ function paint(){
       stBtn.textContent = 'CONTINUE';
       stBtn.classList.add('continue');
       stBtn.dataset.action = 'continue';
+    } else if(epDone[focus]) {
+      // Finished → offer a rewatch. Archives THIS season as a pass (server) and reloads
+      // fresh, so a new pass starts from the beginning with the playhead back on the dot.
+      stBtn.textContent = 'WATCH AGAIN';
+      stBtn.classList.add('continue');
+      stBtn.dataset.action = 'rewatch';
+    } else if((epMin[focus]||0) > 0) {
+      stBtn.textContent = 'CONTINUE';
+      stBtn.classList.add('continue');
+      stBtn.dataset.action = 'start';
+    } else if(dropsToday) {
+      // Fresh today: keep the "DROPS TODAY" cue but make it a live START (amber, not greyed).
+      stBtn.textContent = 'DROPS TODAY';
+      stBtn.classList.add('dropstoday');
+      stBtn.dataset.action = 'start';
     } else {
-      stBtn.textContent = (epMin[focus]||0) > 0 ? 'CONTINUE' : 'START';
-      if((epMin[focus]||0) > 0) stBtn.classList.add('continue');
+      stBtn.textContent = 'START';
       stBtn.dataset.action = 'start';
     }
   }
   // Update the elapsed time display with animation frames if watching
   paintMinute();
   const fnBtn=$('finishEpBtn'); if(fnBtn) fnBtn.disabled = false;
+  // FINISHED? is DERIVED from the focused episode's own pending-finish marker — never a
+  // sticky global that could leak the green button onto a freshly-loaded show/episode
+  // (the "The Neighbors showed FINISHED? at 0 min" bug). It shows only when THIS episode
+  // has a staged finish and is not already done / actively watching.
+  try{ finishPrompt = !isTheater() && hasPendingFin(focus) && !epDone[focus] && !watchingLive[focus]; }catch(_){ finishPrompt=false; }
   updateTheaterUI();   // keep the FINISH/TICKET label in sync after any repaint
 
   // Watchlist: the CURRENT episode only (the focused one). The LOG face is "right
@@ -2183,6 +2510,7 @@ function paint(){
 function renderSeasons(){
   const host=$('seasonInd'); if(!host) return;
   if(isMovie){ host.innerHTML='<span class="seasonlabel">FILM</span>'; return; }   // a film has no seasons
+  if(mapMode){ host.innerHTML='<span class="seasonlabel">MARATHON</span>'; return; }   // curated cross-season list, not one season
   const seasons=[...new Set(allEps.map(sNum))].filter(s=>s>=1).sort((a,b)=>a-b);
   if(!seasons.length){ host.innerHTML=''; return; }
   const curSeason = eps.length ? sNum(eps[0]) : seasons[0];
@@ -2195,12 +2523,14 @@ function renderSeasons(){
 function openEpSheet(){
   if(isMovie || eps.length<2) return;
   const grid=$('epSheetGrid'); grid.innerHTML='';
-  $('epSheetTitle').textContent='SEASON '+sNum(eps[0]||{});
+  // Marathon: the sheet lists the real cross-season steps, so a generic MARATHON header and
+  // full codes (S1E01, S2E02…) — a per-season "SEASON N / E3" would be wrong here.
+  $('epSheetTitle').textContent = mapMode ? 'MARATHON' : ('SEASON '+sNum(eps[0]||{}));
   eps.forEach((e,i)=>{
     const num=(e.number!=null)?e.number:(i+1);
     const b=document.createElement('button'); b.type='button';
     b.className='epchip'+(i===focus?' cur':'');
-    b.textContent='E'+num;
+    b.textContent = mapMode ? stepCode(e) : ('E'+num);
     b.addEventListener('click',()=>{ focus=i; awaitingLog=false; minPreview=null; paint(); closeEpSheet(); });
     grid.appendChild(b);
   });
@@ -2212,6 +2542,18 @@ $('epSheetX').addEventListener('click', closeEpSheet);
 $('epSheet').addEventListener('click', e=>{ if(e.target===$('epSheet')) closeEpSheet(); });
 
 // Minute bar for the focused episode (yellow track, elapsed darkens left→right).
+// A [TRT] runtime correction applied elsewhere (Pierre) for an episode of the show we're
+// showing: patch the cached episode object so runtimeOf() returns the new length, then repaint
+// so the running total / remaining update without a quit-and-reopen. No-op for other shows.
+function applyRuntimeUpdate(u){
+  if(!u || u.titleId!==curShowId) return;
+  const mins=Number(u.minutes); if(!(mins>0)) return;
+  const match=e=>e && sNum(e)===Number(u.season) && Number(e.number)===Number(u.number);
+  let hit=false;
+  (allEps||[]).forEach(e=>{ if(match(e)){ e.runtime=mins; hit=true; } });
+  (eps||[]).forEach(e=>{ if(match(e)){ e.runtime=mins; } });   // same object refs, but be explicit
+  if(hit) paint();
+}
 function paintMinute(){
   const rt=runtimeOf(focus);
   // While a live watch is armed the bar reads straight off the wall clock (liveMin),
@@ -2221,15 +2563,32 @@ function paintMinute(){
   const cur=Math.max(0,Math.min(rt, minPreview!=null?minPreview:base));
   const pct=rt>0?cur/rt*100:0;
   $('minFill').style.width=pct+'%';
-  $('minHandle').style.left=pct+'%';
+  const hnd=$('minHandle'); hnd.style.left=pct+'%';
+  // Playhead glyph: paused/scrubbing → ▶-◀; else the show's watch-mode (flame=BINGE,
+  // leaf=FRESH); else the default amber puck. Rebuild the DOM ONLY when the kind changes
+  // so a 60fps scrub just moves the handle (smooth) instead of thrashing innerHTML.
+  const paused = (typeof minDragging!=='undefined' && minDragging) || awaitingLog;
+  const mode = wowShowModeLog();
+  // flame (BINGE) and leaf (FRESH) are reserved for SERIES; a movie is always the puck.
+  const kind = paused ? 'paused'
+    : (!isMovie && (bingeLive() || mode==='MORE!' || mode==='BINGE')) ? 'flame'
+    : (!isMovie && mode==='FRESH') ? 'leaf' : 'puck';
+  if(hnd.dataset.mk !== kind){
+    hnd.dataset.mk = kind;
+    hnd.classList.remove('mk','flame','leaf','paused');
+    if(kind==='paused'){ hnd.classList.add('paused'); hnd.innerHTML='<span class="pauseglyph"><i class="l"></i><span class="d"></span><i class="r"></i></span>'; }
+    else if(kind==='flame'){ hnd.classList.add('mk','flame'); hnd.innerHTML='<svg viewBox="0 0 24 24"><use href="#mkFlame"/></svg>'; }
+    else if(kind==='leaf'){ hnd.classList.add('mk','leaf'); hnd.innerHTML='<svg viewBox="0 0 24 24"><use href="#mkLeaf"/></svg>'; }
+    else { hnd.innerHTML=''; }
+  }
   // Left: elapsed time with animation frames after the number when watching
-  const elapsedText = Math.round(cur)+' min';
+  const elapsedText = fmtMin(cur);
   $('minElapsed').textContent = watchingLive[focus] ? elapsedText + ' ' + buildFrames[buildFrame % buildFrames.length] : elapsedText;
-  $('minRem').textContent=Math.max(0,Math.round(rt-cur))+' min';      // right: remaining
+  $('minRem').textContent=fmtMin(rt-cur);      // right: remaining
   coviewCheckReveal();   // unlock friends' comments as your mark passes theirs
   const mid=$('minMid');                                              // middle: total / prompt / BP
-  if(awaitingLog){ mid.textContent='press LOG to save · grab again to adjust'; mid.classList.add('phrase'); }
-  else { mid.classList.remove('phrase'); mid.textContent = epBp[focus] ? 'BP' : (Math.round(rt)+' min'); }
+  if(awaitingLog || (typeof minDragging!=='undefined' && minDragging)){ mid.textContent='press LOG to save · grab again to adjust'; mid.classList.add('phrase'); }
+  else { mid.classList.remove('phrase'); mid.textContent = epBp[focus] ? 'BP' : fmtMin(rt); }
 }
 
 // Note → Pierre: jotting a thought isn't a textarea dead-end. The button hands
@@ -2266,22 +2625,69 @@ $('startEpBtn').onclick=()=>{
   const a=btn.dataset.action;
   if(a==='notify'){ swingToNotify(); return; }   // greyed START on an unaired episode → Pierre notify
   if(a==='log') logIt();
+  else if(a==='rewatch') rewatchEpisode();
   else startEpisode();   // 'start' and 'continue' both (re-)arm the live timer
 };
+// Long-press the greyed START to FORCE an unaired episode through — for a member who already
+// has early access to a drop that "isn't out yet" here. Hold ~0.6s and it starts the watch
+// anyway; a short tap still swings to Pierre's notify offer (which tells them about this).
+(function wireForceStart(){
+  const btn=$('startEpBtn'); if(!btn) return;
+  let lpTimer=0, lpConsumed=false;
+  const arm=()=>{
+    if(btn.dataset.action!=='notify') return;   // only the greyed/unaired state force-starts
+    clearTimeout(lpTimer);
+    lpTimer=setTimeout(()=>{
+      lpConsumed=true;
+      try{ if(navigator.vibrate) navigator.vibrate(15); }catch(_){}
+      wowForced[focus]=true;
+      flashBtn(btn); primeAudio();
+      startEpisode();          // startEpisode paints; the button is no longer greyed (wowForced)
+    }, 600);
+  };
+  const cancel=()=>{ clearTimeout(lpTimer); };
+  btn.addEventListener('pointerdown', arm);
+  ['pointerup','pointerleave','pointercancel'].forEach(ev=>btn.addEventListener(ev, cancel));
+  // Swallow the click that follows a consumed long-press so it doesn't ALSO swing to Pierre.
+  btn.addEventListener('click', (e)=>{ if(lpConsumed){ lpConsumed=false; e.stopImmediatePropagation(); e.preventDefault(); } }, true);
+})();
+// WATCH AGAIN → archive THIS season as a pass on the server, then reload the title fresh:
+// the season's progress + pattern are reset, so we return at episode 1, minute 0, with the
+// playhead on the default circle. Standalone (no account) does the reset locally.
+async function rewatchEpisode(){
+  const email = acctEmail();
+  const season = isMovie ? 1 : (eps[focus] ? sNum(eps[focus]) : 1);
+  const btn=$('startEpBtn');
+  if(email && curShowId && window.parent!==window){
+    if(btn){ btn.disabled=true; btn.textContent='STARTING OVER…'; }
+    try{ await fetch(`${API_BASE}/profile/${encodeURIComponent(email)}/titles/${encodeURIComponent(curShowId)}/seasons/${season}/rewatch`, {method:'POST'}); }catch(_){}
+    try{ await loadTitle(curShowId, {kind:'resume', season, number:1, on:true}); }catch(_){}
+    if(btn) btn.disabled=false;
+  } else {
+    eps.forEach((e,i)=>{ if(sNum(e)===season){ epMin[i]=0; epDone[i]=false; epBp[i]=false; epSessions[i]=[]; sessionBase[i]=0; watchingLive[i]=false; startedAt[i]=null; } });
+    watched=0; focus=eps.findIndex(e=>sNum(e)===season); if(focus<0) focus=0;
+    minPreview=null; awaitingLog=false; paint();
+  }
+}
 $('finishEpBtn').onclick=()=>{ clearFinishCallout(); flashBtn($('finishEpBtn')); if(isTheater()) openTicket(); else finishEpisode(); };
 
 // Call the FINISH button out (green glow-pulse) when the member returns from a watch
 // whose episode-end timer already ran out: the finish is staged and just needs their
 // confirming tap. Scroll it into view; lift the pulse after a while so it doesn't
 // throb forever if they wander off.
-let _finishCalloutT=null;
+let _finishCalloutT=null, finishPrompt=false;
 function calloutFinish(){
   const fn=$('finishEpBtn'); if(!fn) return;
+  finishPrompt=true;                 // invert the button + relabel it "FINISHED?"
   fn.classList.add('callout');
+  updateTheaterUI();
   try{ fn.scrollIntoView({block:'center', behavior:'smooth'}); }catch(_){}
-  clearTimeout(_finishCalloutT); _finishCalloutT=setTimeout(clearFinishCallout, 30000);
+  // After a while stop the throb, but KEEP the green "FINISHED?" state — the finish is
+  // still staged and waiting for the tap. (Previously this cleared the whole prompt on a
+  // timer, so a phone asleep > 30s came back with no finish to confirm.)
+  clearTimeout(_finishCalloutT); _finishCalloutT=setTimeout(()=>{ const el=$('finishEpBtn'); if(el) el.classList.remove('callout'); }, 30000);
 }
-function clearFinishCallout(){ const fn=$('finishEpBtn'); if(fn) fn.classList.remove('callout'); clearTimeout(_finishCalloutT); }
+function clearFinishCallout(){ finishPrompt=false; const fn=$('finishEpBtn'); if(fn) fn.classList.remove('callout'); updateTheaterUI(); clearTimeout(_finishCalloutT); }
 $('micBtn').onclick=()=>{
   // In REPLY mode the mic answers the pending friend comment instead of recording.
   if(!isRecording){
@@ -2307,20 +2713,22 @@ $('micBtn').onclick=()=>{
 // you on S(N+1)E1 (or partway in) — not stalling at the season finale.
 function placeAwayTime(awayMin){
   if(!(awayMin>0) || !eps.length) return;
-  // Away-time fills only the CURRENT episode. Wall-clock time elapsed since a
-  // launch/start is NOT evidence the member kept watching later episodes — letting
-  // it cascade across episode boundaries is what auto-completed whole seasons when
-  // the app was reopened hours later. Complete the launched episode if enough time
-  // passed (an unvalidated "offer"), else stage it as a partial; land focus on the
-  // next episode but never mark that one watched.
+  // Away-time fills only the CURRENT episode and never advances past it. Wall-clock time
+  // since a launch/start is NOT evidence the member kept watching later episodes — letting
+  // it cascade across episode boundaries is what auto-completed whole seasons when the app
+  // was reopened hours later. If the runtime elapsed, stage FINISHED? on this episode (see
+  // below); otherwise stage it as a partial. Either way focus stays put.
   let i=focus, pos=(epMin[i]||0);
   const rt=runtimeOf(i), needed=Math.max(0, rt-pos);
   if(awayMin>=needed){
-    epMin[i]=rt; epDone[i]=true; epBp[i]=false; epPreApp[i]=false;
-    markWatchedThrough(i);
-    logSession(i, {minutes:Math.round(rt), finished:true, validated:false});  // offered completion
-    emitProgress(i, true, false, Math.round(rt));
-    if(i < eps.length-1) i++;                            // land on the next episode, not-started
+    // The episode's runtime elapsed while you were away (asleep / in the streamer) → it
+    // (probably) finished. Do NOT auto-complete and jump to the next episode — that was
+    // the "app reopened on the next episode, not running" bug. Instead freeze THIS
+    // episode at full and stage a deliberate FINISHED? tap (the same one-tap commit the
+    // live-watch return uses). Nothing is written to the account until you confirm, and
+    // focus stays on the episode you just watched.
+    stageReturnFinish(i);
+    return;
   } else {
     pos=Math.min(rt, pos+awayMin); epMin[i]=pos; epPreApp[i]=false;
     logSession(i, {minutes:Math.round(pos), finished:false, validated:false});  // offered partial
@@ -2331,31 +2739,80 @@ function placeAwayTime(awayMin){
   emitProgress(focus, !!epDone[focus], false, Math.round(epMin[focus]||0));               // persist the stop (started_at cleared)
   paint();
 }
+// Ask the shell to rotate the cube to THIS (LOG) face. Used on return from
+// background while a watch is live — a running timer should always surface the Log.
+function returnToLogFace(){
+  try{
+    if(window.parent===window) return;
+    if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('episodes',{});
+    else window.parent.postMessage({type:'cube:rotateTo',face:'episodes',payload:{}},'*');
+  }catch(_){}
+}
+// The episode-end timer ran out while the phone was asleep. Freeze the watch at full
+// and stage the finish for a DELIBERATE tap (FINISHED?) instead of silently
+// auto-completing — the same one-tap commit the streamer-return path uses. Freezing
+// synchronously here also neutralises the queued 5s tickWatch so it can't complete
+// underneath the prompt.
+function stageReturnFinish(i){
+  const rt=runtimeOf(i);
+  epMin[i]=rt; watchingLive[i]=false; startedAt[i]=null; sessionBase[i]=rt;
+  minPreview=null; awaitingLog=false; cooled=false;
+  // Make the staged finish DURABLE: a marker in localStorage + persisting the episode at
+  // full runtime (not done) so it survives sleep AND a reload/re-fetch. Without this the
+  // FINISHED? prompt was purely in-memory and vanished when the phone slept (the "did not
+  // stay FINISHED" bug).
+  setPendingFin(i);
+  emitProgress(i, false, false, rt);
+  paint();
+  calloutFinish();   // FINISHED? + green pulse
+}
+// A staged-but-uncommitted finish, keyed per show+episode so it survives reloads. Cleared
+// by any action that resolves the episode (FINISH, LOG, re-START, scrub, skip).
+function pendingFinKey(i){ const e=eps[i]; if(!curShowId||!e) return null; return 'pg_pendingfin:'+curShowId+':'+epCode(e); }
+function setPendingFin(i){ try{ const k=pendingFinKey(i); if(k) localStorage.setItem(k,'1'); }catch(_){} }
+function clearPendingFin(i){ try{ const k=pendingFinKey(i); if(k) localStorage.removeItem(k); }catch(_){} }
+function hasPendingFin(i){ try{ const k=pendingFinKey(i); return !!(k && localStorage.getItem(k)); }catch(_){ return false; } }
+// Re-surface a durable staged finish (after sleep or a reload): freeze the episode at full
+// and call FINISHED? out again. Only when it is genuinely still pending (not since done).
+function restorePendingFinish(i){
+  if(!hasPendingFin(i) || epDone[i] || watchingLive[i]) return false;
+  epMin[i]=runtimeOf(i); startedAt[i]=null; sessionBase[i]=epMin[i];
+  paint(); calloutFinish(); return true;
+}
+// Shared return-from-background handler for a live watch: bring the Log forward, then
+// either stage FINISHED? (timer expired while away) or catch the bar up (still mid-episode).
+function handleWatchReturn(){
+  if(startedAt[focus]==null || !watchingLive[focus]) return false;
+  returnToLogFace();
+  const rt=runtimeOf(focus), live=liveMin(focus);
+  if(live>=rt-1e-6) stageReturnFinish(focus);   // ended while away → prompt, don't auto-complete
+  else tickWatch();                              // still watching → snap the bar to the wall clock
+  return true;
+}
 let hiddenAt=null;
 document.addEventListener('visibilitychange', ()=>{
   if(document.hidden){ hiddenAt=Date.now(); return; }
   const wasHidden=hiddenAt; hiddenAt=null;
+  if(restorePendingFinish(focus)) return;   // a FINISHED? staged before sleep → re-surface it (the pulse may have faded)
   if(!startedAt[focus] || !wasHidden) return;
-  // While actively WATCHING the live timer owns the clock: time away IS watch time
-  // (the bar is recomputed from startedAt), so we stay in WATCHING and just catch
-  // the bar up — never flip to WAITING. The tick completes this one episode if its
-  // full runtime elapsed while we were gone (one episode only, no season cascade).
-  if(watchingLive[focus]){ tickWatch(); return; }
+  // A live watch owns the clock: time away IS watch time. On return, surface the Log
+  // and either stage FINISHED? (runtime elapsed while gone) or catch the bar up.
+  if(watchingLive[focus]){ handleWatchReturn(); return; }
   // Not actively watching in-app (e.g. a streamer launch left a start ts): keep the
   // existing "offer a placement for the time away" behaviour.
   placeAwayTime((Date.now()-wasHidden)/60000);
 });
 // bfcache restore (iOS Safari / Chrome back-forward) can resume the page without a
 // visibilitychange — the same path the shell guards at index.html. If a live watch is
-// armed, snap the bar to the wall clock at once instead of waiting for the next tick.
-window.addEventListener('pageshow', ()=>{ if(startedAt[focus]!=null && watchingLive[focus]) tickWatch(); });
+// armed, run the same return handler (surface the Log; FINISHED? if it ran out).
+window.addEventListener('pageshow', ()=>{ if(startedAt[focus]!=null && watchingLive[focus]) handleWatchReturn(); else restorePendingFinish(focus); });
 
 // Keep native momentum scrolling responsive: nudge .scroll a hair off its top/bottom
 // edge as each drag begins so the first up-swipe isn't eaten by iOS overscroll chaining
 // ("had to scroll down a little first"). Same pattern as the Log face.
 const _scrollEl=document.querySelector('.scroll');
 if(_scrollEl) document.addEventListener('touchstart',()=>{
-  const max=_scrollEl.scrollHeight-_scrollEl.clientHeight; if(max<=0) return;
+  const max=_scrollEl.scrollHeight-_scrollEl.clientHeight; if(!(max>0)) return;   // !(max>0) also bails on NaN
   if(_scrollEl.scrollTop<=0) _scrollEl.scrollTop=1; else if(_scrollEl.scrollTop>=max) _scrollEl.scrollTop=max-1;
 },{passive:true});
 
@@ -2381,14 +2838,31 @@ function completeWatch(i){
   if(i===focus){ finaleCheck(); advanceFocus(); }
   paint();
 }
+// A tick more than this far from the previous one means the app was suspended /
+// backgrounded (JS timers frozen) rather than actively ticking every 5s. If a watch
+// reaches its runtime across such a gap, the episode ended WHILE YOU WERE AWAY — so we
+// must stage a deliberate FINISHED? tap, not silently auto-complete + advance.
+const TICK_GAP_MAX = 20000;   // 4 missed 5s ticks
+let _lastTickTs = Date.now();
 function tickWatch(){
   const i=focus;
+  const now=Date.now(), gap=now-_lastTickTs; _lastTickTs=now;
   if(!watchingLive[i] || startedAt[i]==null) return;
   const rt=runtimeOf(i), live=Math.min(rt, liveMin(i));
   epMin[i]=live;
   const arr=epSessions[i]||[], last=arr[arr.length-1];
   if(last && last.state==='watching'){ last.minutes=Math.round(live); last.lastTs=Date.now(); }
-  if(live>=rt-1e-6){ completeWatch(i); return; }
+  if(live>=rt-1e-6){
+    // Reached the end → ALWAYS stage a deliberate FINISHED? tap; never silently
+    // auto-complete and jump to the next episode. The old auto-advance surprised members
+    // whose show was paused on the TV (the app's wall-clock timer keeps running and can't
+    // see an external pause), completing an episode they had not actually finished. Staging
+    // keeps focus on the episode, and the FINISHED? tap does the commit + advance.
+    // (gap/_lastTickTs kept for cadence bookkeeping; both in-app and post-suspend ends now
+    // converge here, which also closes the old resume race.)
+    void gap;
+    returnToLogFace(); stageReturnFinish(i); return;
+  }
   // Write each whole-minute advance to the log/server so progress is durable (and a
   // reload resumes from the real position, not where START was pressed). ~1 write/min.
   const m=Math.floor(live);
@@ -2418,13 +2892,79 @@ minBar.addEventListener('pointerdown',ev=>{ ev.preventDefault(); minBar.setPoint
   // after a scrub let the visibility handler log time-away as a watch. The live
   // anchor belongs solely to START / CONTINUE (startEpisode).
   minDragging=true;
+  clearPendingFin(focus);   // adjusting the position supersedes any staged FINISHED?
+  // Grabbing the bar pauses a live watch: freeze the wall-clock timer at the current
+  // elapsed minute so scrubbing adjusts a stopped position (the || marker + "LOG n min"
+  // then ask you to commit it). The live anchor is cleared so a background/return walk
+  // can't resume ticking underneath the paused preview.
+  if(watchingLive[focus]){ epMin[focus]=liveMin(focus); sessionBase[focus]=epMin[focus]; watchingLive[focus]=false; startedAt[focus]=null; }
   minPreview=minFromX(ev.clientX); awaitingLog=false; paint(); });
-minBar.addEventListener('pointermove',ev=>{ if(!minDragging)return; minPreview=minFromX(ev.clientX); paintMinute(); });
+minBar.addEventListener('pointermove',ev=>{ if(!minDragging)return; minPreview=minFromX(ev.clientX); paintMinute();
+  // Live-update the LOG label as you drag (pointermove skips the full paint for speed).
+  const b=$('startEpBtn'); if(b && b.dataset.action==='log') b.textContent='LOG '+fmtMin(minPreview); });
 // On release the staged position becomes commit-ready: the left button flips to
 // "LOG <n> min" (see paint's state machine), so we repaint the whole face — no
 // more "tap anywhere" to commit. Grabbing the bar again re-stages a new position.
 minBar.addEventListener('pointerup',ev=>{ if(!minDragging)return; minDragging=false; awaitingLog=true; paint(); });
 minBar.addEventListener('pointercancel',()=>{ minDragging=false; });
+
+// Arm the scrubber: freeze any live watch at the current elapsed minute (a stopped
+// position the console ring then adjusts) and stage that minute as the preview. Shared
+// by the handle tap/drag below; mirrors the freeze the bar's pointerdown does inline.
+function armScrub(){
+  clearPendingFin(focus);   // grabbing the scrubber means they're adjusting, not confirming the staged end
+  if(watchingLive[focus]){ epMin[focus]=liveMin(focus); sessionBase[focus]=epMin[focus]; watchingLive[focus]=false; startedAt[focus]=null; }
+  if(minPreview==null) minPreview=(epMin[focus]||0);
+}
+// Tapping the playhead TOGGLES scrub-arm: dot ⇄ ▶-◀. In the dot state the console ring
+// scrolls the page; armed (▶-◀) the ring scrubs the minute mark and the left button reads
+// "LOG <n> min". Dragging the handle scrubs directly, like the bar. stopPropagation keeps
+// the bar's own drag-arm from double-firing beneath the handle.
+const minHandle=$('minHandle');
+let hDown=false, hGrabX=0, hMoved=false;
+minHandle.addEventListener('pointerdown',ev=>{
+  ev.preventDefault(); ev.stopPropagation();
+  try{ minHandle.setPointerCapture(ev.pointerId); }catch(_){}
+  hDown=true; hGrabX=ev.clientX; hMoved=false;
+});
+minHandle.addEventListener('pointermove',ev=>{
+  if(!hDown) return;
+  if(!hMoved && Math.abs(ev.clientX-hGrabX)<4) return;          // ignore tap jitter
+  if(!hMoved){ hMoved=true; armScrub(); minDragging=true; }     // first real move → begin scrubbing
+  minPreview=minFromX(ev.clientX); awaitingLog=false; paintMinute();
+  const b=$('startEpBtn'); if(b && b.dataset.action==='log') b.textContent='LOG '+fmtMin(minPreview);
+});
+minHandle.addEventListener('pointerup',ev=>{
+  if(!hDown) return; hDown=false;
+  try{ minHandle.releasePointerCapture(ev.pointerId); }catch(_){}
+  if(hMoved){ minDragging=false; awaitingLog=true; paint(); return; }   // a drag → stage like the bar
+  if(awaitingLog || minDragging){ minDragging=false; awaitingLog=false; minPreview=null; paint(); }  // ▶-◀ → dot (ring scrolls)
+  else { armScrub(); awaitingLog=true; paint(); }                       // dot → ▶-◀ (ring scrubs)
+});
+minHandle.addEventListener('pointercancel',()=>{ hDown=false; minDragging=false; });
+
+// Console-ring fine-tune. While the playhead is paused (▶-◀ showing / awaiting a LOG),
+// the click wheel calls this to nudge the mark minute-by-minute, so you can dial it in
+// with the wheel after grabbing the bar, then LOG. active() gates it to the ▶-◀ state.
+window.__logTune = {
+  // Wheel connects ONLY while the playhead is armed (▶-◀ showing): mid-drag, staged for a
+  // LOG, or toggled on by tapping the handle. In the resting dot state active() is false,
+  // so the ring scrolls the page instead — tap the playhead to flip into scrub mode.
+  active(){ return awaitingLog || minDragging; },
+  step(dir){
+    const rt=runtimeOf(focus);
+    const base = (minPreview!=null ? minPreview : (epMin[focus]||0));
+    minPreview = Math.max(0, Math.min(rt, Math.round(base) + (dir>0?1:-1)));
+    awaitingLog = true;   // keep it staged for LOG
+    if(watchingLive[focus]){ watchingLive[focus]=false; startedAt[focus]=null; }  // wheel-scrub also freezes a live watch
+    // Light repaint: move the handle + relabel the LOG button ONLY (no full paint → no jank),
+    // matching the drag path so a fast wheel spin stays smooth instead of thrashing the DOM.
+    paintMinute();
+    const b=$('startEpBtn');
+    if(b){ if(b.dataset.action!=='log'){ paint(); }             // first step from a non-log state → sync button state once
+           else b.textContent='LOG '+fmtMin(minPreview); }
+  }
+};
 
 // Episode selection moved to the top-bar EP readout + picker sheet (openEpSheet).
 // The old green preview-slider bar was removed to stop it reading as a season slider.
@@ -2442,7 +2982,7 @@ async function loadTitle(titleId, pattern, opts){
   const fetchDetail = async () => {
     try{
       if(email){ const r=await fetch(`${API_BASE}/profile/${encodeURIComponent(email)}/titles/${encodeURIComponent(titleId)}`); if(r.ok){ const d=await r.json(); if(d && d.title) return d; } }
-      const r=await fetch(`${API_BASE}/catalog/titles/${encodeURIComponent(titleId)}/episodes`); if(r.ok){ const d=await r.json(); if(d && d.title) return {title:d.title, episodes:d.episodes}; }
+      const r=await fetch(`${API_BASE}/catalog/titles/${encodeURIComponent(titleId)}/episodes`+(email?('?email='+encodeURIComponent(email)):'')); if(r.ok){ const d=await r.json(); if(d && d.title) return {title:d.title, episodes:d.episodes, map:d.map||null}; }
     }catch(_){}
     return null;
   };
@@ -2462,6 +3002,7 @@ async function loadTitle(titleId, pattern, opts){
     premiered:t.premiered||'', webChannel:{name:t.platform||''}, network:null,
     averageRuntime:(eps0[0]&&eps0[0].runtime)||45, genres: isMovie?['Film']:[], status:t.status||'' };
   const list = eps0.map(e=>({season:e.season,number:e.number,name:e.name,runtime:e.runtime,airdate:e.airdate,summary:e.summary||''}));
+  mapMode = !!(detail && detail.map);   // curated-marathon order → the LOG follows the map
   titleSummary = t.summary || '';   // show-level fallback for the episode-face synopsis
   // The member's per-episode progress, keyed "season-number", so applyPattern's
   // applySavedDetail restores done/minute/bp/sessions exactly.
@@ -2476,7 +3017,7 @@ async function loadTitle(titleId, pattern, opts){
 
 // Pierre hands off a picked show + watch pattern. Load it and set the position.
 async function loadShowWithPattern(id,pattern){
-  isMovie=false;
+  isMovie=false; mapMode=false;   // TVmaze direct load is never a curated marathon
   try{ const r=await fetch(`https://api.tvmaze.com/shows/${id}?embed=episodes`); if(!r.ok) throw 0;
     const s=await r.json(); titleSummary=s.summary||''; boot(s,(s._embedded&&s._embedded.episodes)||[],false); applyPattern(pattern||{kind:'beginning'});
   }catch(e){ $('name').textContent='Show not found'; }
@@ -2493,7 +3034,7 @@ async function loadMovie(m,pattern){
     try{ const r=await fetch(`${API_BASE}/tmdb/movie/${encodeURIComponent(rawId)}`);
       if(r.ok){ const d=await r.json(); if(d.movie) movie={...movie, ...d.movie}; } }catch(_){}
   }
-  isMovie=true;
+  isMovie=true; mapMode=false;
   const rt=movie.runtime||120;
   const day=(movie.year?String(movie.year):'2000')+'-01-01';
   const show={ id:'tmdb:'+rawId, name:movie.title||movie.name||'',
@@ -2504,6 +3045,31 @@ async function loadMovie(m,pattern){
   titleSummary = movie.overview || '';
   boot(show,[ep],false);
   applyPattern(pattern||{kind:'beginning'});
+}
+// A ticket logged from Pierre (OCR'd title → resolved film). Add the film to the log
+// and attach the ticket, but do NOT mark it watched unless the screening already
+// happened — a future ticket leaves the film "upcoming", just carrying the badge.
+async function logTicketedFilm(movie, ticket){
+  const titleId='tmdb:'+String(movie.id).replace(/^tmdb:/,'');
+  await loadTitle(titleId, {kind:'beginning'});      // materialize + add to the member's log
+  // bind the (show_id-null) Pierre ticket to this film
+  try{ await fetch(API_BASE+'/ticket/'+encodeURIComponent(ticket.id)+'/attach',{method:'PATCH',
+    headers:{'Content-Type':'application/json'}, body:JSON.stringify({showId:titleId, showName:movie.title})}); }catch(_){}
+  // theater becomes the "where"
+  if(ticket.theater){ chosenSvc=svcByLabel(ticket.theater); userPinned=true;
+    const k=svcKey(); if(k){ try{ localStorage.setItem(k, ticket.theater); }catch(_){} } renderSvcCorner(); }
+  const scr=parseScreening(ticket.date, ticket.time);
+  const past = !!(scr && scr.filmStart <= Date.now());   // filmStart = showtime + 25 min of previews
+  if(!past && scr){                                      // upcoming → nudge a reflection at let-out
+    const rt=runtimeOf(focus)||0, end=scr.filmStart + rt*60000;
+    (window.parent||window).postMessage({ type:'pg:scheduleReflection', at:end, titleId, showName:movie.title,
+      title:'How was '+movie.title+'?', body:'Tap to share a reflection while it is fresh.' }, '*');
+  }
+  // Both land on the WATCH grid; the tab follows the ticket (past → COMPLETED via the
+  // ticketWatched auto-flip, future → CURRENT). No finishEpisode here — that would rotate
+  // to Pierre for a reflection; the bucket is derived from the screening time instead.
+  (window.parent||window).postMessage({ type:'cube:rotateTo', face:'log',
+    payload:{ focusTicket:{ titleId, tab: past?'completed':'current' } } }, '*');
 }
 // Re-arm a live watch that was interrupted by a reload. The minute bar is recomputed
 // from wall-clock (liveMin), but its anchor (startedAt) lives only in memory — so a reload
@@ -2539,7 +3105,16 @@ function rearmOpenWatch(){
 function applyPattern(p){
   const seasons=[...new Set(allEps.map(sNum))]; if(!seasons.length) return;
   let bpFill=false;   // 'at' records the earlier episodes as BP (Before Pierre), not Pierre watches
-  if(p.kind==='live'){
+  if(mapMode){
+    // Curated marathon: eps is the flat map order. Land on the picked step (match season+number,
+    // since numbers repeat across seasons here); earlier steps are BP. Resume/at both land ON it.
+    eps=allEps;
+    let idx = (p && (p.kind==='at'||p.kind==='resume') && p.season!=null)
+      ? allEps.findIndex(e=>sNum(e)===p.season && (e.number||0)===p.number) : -1;
+    if(idx<0) idx=0;
+    watched = (p && p.kind==='at') ? idx : idx;   // land on the pick; earlier steps pre-watched
+    bpFill = !!(p && p.kind==='at');
+  } else if(p.kind==='live'){
     const aired=[...new Set(allEps.filter(released).map(sNum))];
     const cur=aired.length?Math.max(...aired):Math.max(...seasons);
     eps=allEps.filter(e=>sNum(e)===cur); if(!eps.length) eps=allEps;
@@ -2588,15 +3163,20 @@ function applyPattern(p){
   }
   pendingRestore=null;
   paint();
+  restorePendingFinish(focus);   // a finish staged before a reload → re-surface FINISHED?
 }
 window.addEventListener('message',(e)=>{
   if(e.data && e.data.type==='cube:payload' && e.data.face==='episodes'){
     const p=e.data.payload||{};
     // The Log hands off a title_id; the Watch face loads episodes + the member's
     // progress from the catalog. (Legacy movie/show payloads still resolve.)
-    if(p.titleId){ loadTitle(p.titleId, p.pattern); }
+    if(p.movie && p.movie.id!=null && p.ticket){ logTicketedFilm(p.movie, p.ticket); }
+    else if(p.titleId){ loadTitle(p.titleId, p.pattern).then(()=>{ if(p.episode) focusEpisode(p.episode); }); }
     else if(p.movie && p.movie.id!=null){ loadTitle('tmdb:'+String(p.movie.id).replace(/^tmdb:/,''), p.pattern); }
     else if(p.show && p.show.id){ loadTitle(String(p.show.id).startsWith('tvmaze:')?p.show.id:'tvmaze:'+p.show.id, p.pattern); }
+    // Pierre applied a [TRT] runtime correction → patch the cached episode + repaint so a
+    // running watch's total/remaining update live (the "had to quit and reopen" bug).
+    else if(p.runtimeApplied){ applyRuntimeUpdate(p.runtimeApplied); }
   }
   // Deep-link return: load the launched title at S1E1 with the minute guess.
   if(e.data && e.data.type==='cube:launch' && e.data.launch) launchShow(e.data.launch);
@@ -2610,19 +3190,19 @@ window.addEventListener('message',(e)=>{
   // another face. On focus also nudge the scroll off its top edge so the first
   // up-swipe isn't eaten by iOS overscroll.
   if(e.data && e.data.type==='cube:blur'){ faceActive=false; }
+  // Probe from the shell (the Watch list wants to know if a timer is live, for its ‹ CURRENT
+  // button): report the CURRENT state unconditionally, bypassing _emitWatchState's edge gate.
+  if(e.data && e.data.type==='watch:probe'){ _reportWatchState(); }
   if(e.data && e.data.type==='cube:focus'){
     faceActive=true;
-    if(startedAt[focus]!=null && watchingLive[focus]) tickWatch(); else paintMinute();
+    if(startedAt[focus]!=null && watchingLive[focus]) tickWatch(); else if(!restorePendingFinish(focus)) paintMinute();
     const sc=document.querySelector('.scroll'); if(sc && sc.scrollTop<=0 && sc.scrollHeight>sc.clientHeight) sc.scrollTop=1;
   }
 });
 
-// The lit streamer name acts as a launch button when it's deep-linkable.
-function applySvcState(){ const b=document.querySelector('#ymeta .svc-lit'); if(b) b.classList.toggle('live', svcLaunchable); }
-$('ymeta').addEventListener('click',(ev)=>{
-  if(svcLaunchable && ev.target.closest('.svc-lit') && window.parent!==window)
-    window.parent.postMessage({type:'episode:launch'}, '*');   // open the app + start the episode timer
-});
+// The service picker under the title doubles as the launch button: an amber ring means the
+// streamer can be deep-linked, and a plain tap opens it (see the svcCorner pointerup handler).
+function applySvcState(){ const c=$('svcCorner'); if(c) c.classList.toggle('live', svcLaunchable); }
 
 // Deep-link launch: load the launched title at the episode that was playing so
 // the minute bar can guess your position from elapsed time. Cleared once you log.
@@ -2650,8 +3230,7 @@ async function launchShow(L){
     // FINISH button called out. The tap runs finishEpisode() → logs the completion to
     // the account BEFORE Pierre catches the reaction/share, so a crash there can't lose
     // the finish (the failure mode on Hacks S2E7).
-    epMin[focus]=runtimeOf(focus); minPreview=null; awaitingLog=false; paint();
-    calloutFinish();
+    stageReturnFinish(focus);   // durable staged FINISHED? (persists across sleep/reload)
     return;
   }
   if(L.partial){
@@ -2724,14 +3303,22 @@ const SERVICES = [
   {label:'FOX',         bg:'#16162a', fg:'#ffffff', wght:800, ls:'.04em',  aka:['fox'], logo:''},
   {label:'BBC',         bg:'#000000', fg:'#ffffff', wght:800, ls:'.06em',  aka:['bbc'], logo:'/jfXLhMzHHmBYrtE9ZaW7as2RA98.jpg'},
   {label:'PBS',         bg:'#2638C4', fg:'#ffffff', wght:800, ls:'.04em',  aka:['pbs'], logo:'/iLjStQKQwzyxXJb3jyNpvDmW9mx.jpg'},
-  // Not a streamer: "watched it at a real cinema". aka is a token that won't
-  // match any show's network, so it's only ever a manual pick, and selecting it
-  // turns the FINISH button into a ticket upload (see isTheater / openTicket).
-  {label:'IRL Theater', bg:'#3a0d12', fg:'#f3d9a0', wght:700, ls:'-.01em', aka:['irl theater'], name:'In-person theater', logo:''},
+  // Non-streamers ("where", not who). aka tokens never match a show's network, so
+  // these are manual-only picks; `_local` keeps them out of the crowd streamer guess
+  // (a cinema / your shelf is personal, not a recommendation for everyone).
+  //   Theaters → turns the FINISH button into a ticket upload (isTheater / openTicket).
+  //   Not Set  → clears the pin back to "no service" (see setFromWheel `_clear`).
+  {label:'Theaters',       bg:'#3a0d12', fg:'#f3d9a0', wght:700, ls:'.02em', aka:['theaters'],       name:'In a theater',                logo:'', mono:'THTR', _local:true},
+  // TODO(collector): a barcode reader could scan a disc's UPC to auto-log it — needs a
+  // camera-scan plugin + a UPC→title lookup (TMDB has no barcode index; e.g. UPCitemdb
+  // → match into TMDB). Feature-sized, deferred; Physical Media stays a manual pick for now.
+  {label:'Physical Media', bg:'#1b1b24', fg:'#cfd6e6', wght:700, ls:'.02em', aka:['physical media'], name:'Physical media (DVD / Blu-ray)', logo:'', mono:'DISC', _local:true},
+  {label:'Not Set',        bg:'#181410', fg:'#9d8c79', wght:700, ls:'.06em', aka:[],                 name:'No service set',              logo:'', mono:'N/S',  _local:true, _clear:true},
 ];
 const PROV_IMG = 'https://image.tmdb.org/t/p/w92';   // TMDB watch-provider logo base
-const THEATER_LABEL='IRL Theater';
-function isTheater(){ return !!(chosenSvc && chosenSvc.label===THEATER_LABEL); }
+const THEATER_LABEL='Theaters';
+// Accept the legacy 'IRL Theater' label so pins saved before the rename still count.
+function isTheater(){ return !!(chosenSvc && (chosenSvc.label===THEATER_LABEL || chosenSvc.label==='IRL Theater')); }
 function svcMatch(name){
   const n=(name||'').toLowerCase().trim(); if(!n) return null;
   for(const s of SERVICES){ for(const a of s.aka){ if(n.includes(a)) return s; } }
@@ -2753,6 +3340,7 @@ function svcLogoHTML(s){
 // else a neutral chip so any label still renders and is pickable.
 function svcByLabel(label){
   if(!label) return null;
+  if(label==='IRL Theater') label='Theaters';   // legacy pin → renamed entry
   const m=SERVICES.find(s=>s.label===label); if(m) return m;
   return {label, bg:'#26201a', fg:'#F0A93B', wght:700, ls:'.02em', aka:[label.toLowerCase()], _raw:true};
 }
@@ -2810,11 +3398,36 @@ function renderSvcCorner(){
 // ticket-upload prompt. Driven by chosenSvc, so it follows every pick/guess.
 function updateTheaterUI(){
   const fn=$('finishEpBtn'); if(!fn) return;
+  fn.classList.toggle('finished', !!finishPrompt && !isTheater());
   if(isTheater()){ fn.textContent='TICKET'; fn.classList.add('theater'); }
-  else { fn.textContent='FINISH'; fn.classList.remove('theater'); }
+  else { fn.textContent = finishPrompt ? 'FINISHED?' : 'FINISH'; fn.classList.remove('theater'); }
 }
 
 // ----- ticket upload (camera or screengrab) -----
+// Turn a ticket's read-off date ("TUE, AUG 04") + time ("6:30 PM") into a real local
+// timestamp. Tickets never print a year, so infer the nearest plausible one; device-
+// local, since the phone is at the theater. Returns {showtime, filmStart} (filmStart =
+// showtime + 25 min of trailers/ads) or null when either field is unreadable.
+const TK_MONTHS={jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+function parseScreening(dateStr, timeStr){
+  if(!dateStr || !timeStr) return null;
+  const mo=String(dateStr).toLowerCase().match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/);
+  const dy=String(dateStr).match(/\b(\d{1,2})\b/);
+  const tm=String(timeStr).toLowerCase().match(/(\d{1,2}):(\d{2})\s*(am|pm)?/);
+  if(!mo || !dy || !tm) return null;
+  const month=TK_MONTHS[mo[1]], day=parseInt(dy[1],10);
+  let hh=parseInt(tm[1],10); const mm=parseInt(tm[2],10), ap=tm[3];
+  if(ap==='pm' && hh<12) hh+=12;
+  if(ap==='am' && hh===12) hh=0;
+  const now=Date.now(); let best=null, bestGap=Infinity;
+  for(let dyr=-1; dyr<=1; dyr++){
+    const cand=new Date(new Date().getFullYear()+dyr, month, day, hh, mm, 0, 0).getTime();
+    const gap=Math.abs(cand-now);
+    if(gap<bestGap){ bestGap=gap; best=cand; }
+  }
+  if(best==null) return null;
+  return { showtime:best, filmStart:best + 25*60000 };
+}
 function openTicket(){ if(!curShowId) return; $('ticketSheet').classList.add('show'); }
 function closeTicket(){ $('ticketSheet').classList.remove('show'); }
 async function uploadTicket(file){
@@ -2834,7 +3447,19 @@ async function uploadTicket(file){
     const r=await fetch(API_BASE+'/ticket', { method:'POST', body:fd, mode:'cors' });
     if(!r.ok){ const t=await r.text(); alert('Ticket upload failed: '+t.substring(0,80)); return; }
     const d=await r.json();
-    finishEpisode();       // submitting the ticket marks the film watched
+    // Anchor to the ticket's real showtime (film starts 25 min after, past the trailers).
+    const scr=parseScreening(d.date, d.time);
+    const scrEnd = scr ? scr.filmStart + (runtimeOf(focus)||0)*60000 : 0;
+    const scrName = curShowName || 'that film';
+    // Only mark watched once the film has actually started (showtime + 25 min of previews).
+    // A future ticket just logs — the film stays "upcoming" until then.
+    if(!scr || scr.filmStart <= Date.now()){ _suppressFinishRoute=true; finishEpisode(scr || undefined); }
+    // Theater = no live logging (you're in the dark). Fire a reflection nudge at let-out.
+    if(scr && scrEnd > Date.now()){
+      (window.parent||window).postMessage({ type:'pg:scheduleReflection', at:scrEnd,
+        titleId:curShowId||'', showName:curShowName||'', ticketId:d.id||'',
+        title:'How was '+scrName+'?', body:'Tap to share a reflection while it is fresh.' }, '*');
+    }
     // The ticket told us the real theater → make that the "where", replacing the
     // generic IRL Theater label. Pinned for this viewer only (never posted as the
     // crowd guess — a specific cinema is personal, not a streamer for everyone).
@@ -2844,6 +3469,10 @@ async function uploadTicket(file){
       renderSvcCorner();
     }
     loadTickets();         // pull it back so it shows on the watched row
+    // Swing to the IRL Tickets tab — the captured stub lands on the shelf there.
+    // Pass the new ticket id so Tickets can self-heal it in (poster/date can lag the
+    // write on the immediate read) instead of needing a manual out-and-back.
+    if(window.parent!==window) window.parent.postMessage({type:'cube:rotateTo', face:'join', payload:{tab:'tickets', addedTicketId:d.id}}, '*');
   }catch(err){ alert('Ticket upload error: '+err.message); }
 }
 $('tkCam').onclick=()=>$('tkCamInput').click();
@@ -2884,7 +3513,7 @@ function svcInitials(label){ const t=(label||'').replace(/[^A-Za-z0-9]/g,''); re
 function svcTileHTML(s,i){
   const inner = s.logo
     ? '<img src="'+PROV_IMG+s.logo+'" alt="" loading="lazy" onerror="svcTileFallback(this)">'
-    : '<span class="fallback">'+escHtml(svcInitials(s.label))+'</span>';
+    : '<span class="fallback">'+escHtml(s.mono || svcInitials(s.label))+'</span>';
   return '<button type="button" class="svctile'+(i===gridSel?' sel':'')+'" role="option"'+
     ' aria-selected="'+(i===gridSel?'true':'false')+'" aria-label="'+escHtml(svcName(s))+'" data-i="'+i+'">'+inner+'</button>';
 }
@@ -2919,10 +3548,18 @@ function closeWheel(){ $('svcWheel').classList.remove('show'); }
 // Commit the highlighted tile. Stores exactly what the reel did: chosenSvc.label
 // into the per-viewer pin and the crowd-guess POST — value + keys unchanged.
 function setFromWheel(){
-  chosenSvc=gridList[gridSel]; if(!chosenSvc){ closeWheel(); return; }
-  userPinned=true;
-  const k=svcKey(); if(k){ try{ localStorage.setItem(k, chosenSvc.label); }catch(_){} }   // stays for this viewer
-  if(curShowId){ try{ fetch(API_BASE+'/streamer/'+encodeURIComponent(curShowId),     // becomes the next viewer's guess
+  const pick=gridList[gridSel]; if(!pick){ closeWheel(); return; }
+  const k=svcKey();
+  if(pick._clear){                          // "Not Set" → unpin, back to no service set
+    chosenSvc=null; userPinned=false;
+    if(k){ try{ localStorage.removeItem(k); }catch(_){} }
+    renderSvcCorner(); reportCurrent(); closeWheel(); return;
+  }
+  chosenSvc=pick; userPinned=true;
+  if(k){ try{ localStorage.setItem(k, chosenSvc.label); }catch(_){} }   // stays for this viewer
+  // Real streamers become the next viewer's crowd guess; personal picks (theater,
+  // physical media) stay off the crowd signal.
+  if(curShowId && !chosenSvc._local){ try{ fetch(API_BASE+'/streamer/'+encodeURIComponent(curShowId),
     {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({service:chosenSvc.label})}); }catch(_){} }
   renderSvcCorner(); reportCurrent(); closeWheel();
 }
@@ -2950,7 +3587,9 @@ svcCorner.addEventListener('pointerdown',e=>{ if(!chosenSvc && !isMovie) return;
   _holdFired=false; svcCorner.classList.add('holding');
   _holdT=setTimeout(()=>{ _holdFired=true; holdCancel(); openWheel(); }, 420); });
 svcCorner.addEventListener('pointerup',e=>{ e.stopPropagation(); const fired=_holdFired; holdCancel();
-  if(!fired && (chosenSvc || isMovie)) openWheel(); });           // a plain tap opens it too
+  if(fired) return;                                               // a hold already opened the wheel
+  if(svcLaunchable && window.parent!==window){ window.parent.postMessage({type:'episode:launch'}, '*'); return; }  // tap = launch when deep-linkable
+  if(chosenSvc || isMovie) openWheel(); });                       // else a plain tap opens the picker
 svcCorner.addEventListener('pointerleave',holdCancel);
 svcCorner.addEventListener('pointercancel',holdCancel);
 svcCorner.addEventListener('click',e=>e.stopPropagation());   // never trip the log-it tap handler

@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PangolinRC — Waitlist Admin</title>
+<meta name="robots" content="noindex, nofollow">
+<style>
+  :root {
+    --teal: #0d5c5c;
+    --teal-dark: #093f3f;
+    --mustard: #c8962c;
+    --cream: #faf6ec;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    min-height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--cream);
+    background: radial-gradient(circle at 50% 0%, var(--teal) 0%, var(--teal-dark) 100%);
+  }
+  body { min-height: 100vh; padding: 32px 20px 64px; }
+  h1 { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; margin-bottom: 4px; text-align: center; }
+  .sub { text-align: center; color: var(--mustard); font-size: 0.9rem; margin-bottom: 28px; }
+
+  /* Password gate */
+  .gate {
+    max-width: 360px;
+    margin: 8vh auto 0;
+    background: rgba(0,0,0,0.18);
+    border-radius: 16px;
+    padding: 28px 24px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+    text-align: center;
+  }
+  .gate label { display: block; font-size: 0.82rem; font-weight: 600; margin-bottom: 8px; text-align: left; }
+  input[type="password"] {
+    width: 100%; padding: 12px 14px; border-radius: 9px;
+    border: 1px solid rgba(250,246,236,0.18); background: rgba(250,246,236,0.06);
+    color: var(--cream); font-size: 1rem; outline: none;
+  }
+  input[type="password"]:focus { border-color: var(--mustard); }
+  button {
+    background: var(--mustard); color: var(--teal-dark); font-weight: 700; font-size: 0.95rem;
+    padding: 12px 22px; border: 0; border-radius: 999px; cursor: pointer; margin-top: 16px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.2);
+  }
+  button:disabled { opacity: 0.55; cursor: default; }
+  .msg { margin-top: 14px; font-size: 0.85rem; min-height: 1.1em; }
+  .msg.err { color: #ffcf8f; }
+
+  /* Table */
+  .wrap { max-width: 1100px; margin: 0 auto; }
+  .bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; gap: 12px; flex-wrap: wrap; }
+  .count { font-size: 0.9rem; color: rgba(250,246,236,0.8); }
+  .bar button { margin-top: 0; padding: 8px 16px; font-size: 0.85rem; }
+  .tablecard { background: rgba(0,0,0,0.18); border-radius: 14px; padding: 6px; overflow-x: auto; box-shadow: 0 8px 24px rgba(0,0,0,0.25); }
+  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  th, td { text-align: left; padding: 11px 12px; white-space: nowrap; }
+  th { color: rgba(250,246,236,0.6); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid rgba(250,246,236,0.12); }
+  tbody tr { border-bottom: 1px solid rgba(250,246,236,0.07); }
+  tbody tr:last-child { border-bottom: 0; }
+  td.wrapcell { white-space: normal; max-width: 220px; }
+  .muted { color: rgba(250,246,236,0.4); }
+  select {
+    background: rgba(250,246,236,0.08); color: var(--cream); border: 1px solid rgba(250,246,236,0.2);
+    border-radius: 8px; padding: 6px 8px; font-size: 0.85rem; cursor: pointer;
+  }
+  select:focus { outline: none; border-color: var(--mustard); }
+  .saved { margin-left: 8px; font-size: 0.78rem; color: #9fe0b0; opacity: 0; transition: opacity 0.2s; }
+  .saved.show { opacity: 1; }
+  .saved.err { color: #ffcf8f; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+  <h1>Waitlist Admin</h1>
+  <div class="sub">PangolinRC · users.pangolinrc.com</div>
+
+  <!-- Password gate -->
+  <div class="gate" id="gate">
+    <label for="pw">Password</label>
+    <input type="password" id="pw" autocomplete="current-password" autofocus>
+    <div><button id="unlock">Unlock</button></div>
+    <div class="msg" id="gatemsg"></div>
+  </div>
+
+  <!-- Table -->
+  <div class="wrap" id="panel" hidden>
+    <div class="bar">
+      <div class="count" id="count"></div>
+      <button id="refresh">Refresh</button>
+    </div>
+    <div class="tablecard">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th><th>Email</th><th>Show</th><th>Buddy</th><th>Source</th><th>Joined</th><th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </div>
+
+<script>
+  const API_BASE = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+    ? 'http://localhost:8788' : 'https://pangolin-rc.edward-m-willett.workers.dev';
+
+  let PW = sessionStorage.getItem('wl_pw') || '';
+  let STATUSES = ['new', 'invited', 'active', 'declined'];
+
+  const gate = document.getElementById('gate');
+  const panel = document.getElementById('panel');
+  const gatemsg = document.getElementById('gatemsg');
+  const pwInput = document.getElementById('pw');
+
+  const esc = (s) => (s == null ? '' : String(s)).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  const fmtDate = (ms) => { try { return new Date(ms).toISOString().slice(0,16).replace('T',' '); } catch { return ''; } };
+
+  async function api(path, opts = {}) {
+    const res = await fetch(API_BASE + path, {
+      ...opts,
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + PW, ...(opts.headers || {}) },
+    });
+    return res;
+  }
+
+  async function loadList() {
+    const res = await api('/waitlist/admin/list');
+    if (res.status === 401) { throw { code: 401 }; }
+    if (res.status === 503) { throw { code: 503 }; }
+    if (!res.ok) throw { code: res.status };
+    return res.json();
+  }
+
+  function render(data) {
+    STATUSES = data.statuses || STATUSES;
+    const rows = document.getElementById('rows');
+    document.getElementById('count').textContent = `${data.entries.length} ${data.entries.length === 1 ? 'entry' : 'entries'}`;
+    rows.innerHTML = data.entries.map(e => {
+      const name = `${e.first_name || ''} ${e.last_name || ''}`.trim() || '<span class="muted">—</span>';
+      const opts = STATUSES.map(s => `<option value="${esc(s)}"${s === e.status ? ' selected' : ''}>${esc(s)}</option>`).join('');
+      return `<tr data-email="${esc(e.email)}">
+        <td>${name}</td>
+        <td>${esc(e.email)}</td>
+        <td class="wrapcell">${e.fav_show ? esc(e.fav_show) : '<span class="muted">—</span>'}</td>
+        <td>${e.buddy_email ? esc(e.buddy_email) : '<span class="muted">—</span>'}</td>
+        <td>${esc(e.source || '')}</td>
+        <td>${fmtDate(e.created_at)}</td>
+        <td><select class="status">${opts}</select><span class="saved">saved</span></td>
+      </tr>`;
+    }).join('');
+    rows.querySelectorAll('select.status').forEach(sel => sel.addEventListener('change', onStatusChange));
+  }
+
+  async function onStatusChange(ev) {
+    const sel = ev.target;
+    const tr = sel.closest('tr');
+    const email = tr.getAttribute('data-email');
+    const status = sel.value;
+    const saved = tr.querySelector('.saved');
+    sel.disabled = true;
+    try {
+      const res = await api('/waitlist/admin/status', { method: 'POST', body: JSON.stringify({ email, status }) });
+      if (!res.ok) throw new Error('status ' + res.status);
+      saved.textContent = 'saved'; saved.className = 'saved show';
+    } catch (err) {
+      saved.textContent = 'failed'; saved.className = 'saved show err';
+    } finally {
+      sel.disabled = false;
+      setTimeout(() => saved.classList.remove('show'), 1500);
+    }
+  }
+
+  async function unlock() {
+    const btn = document.getElementById('unlock');
+    PW = pwInput.value;
+    if (!PW) { gatemsg.className = 'msg err'; gatemsg.textContent = 'Enter the password.'; return; }
+    btn.disabled = true; gatemsg.className = 'msg'; gatemsg.textContent = 'Checking…';
+    try {
+      const data = await loadList();
+      sessionStorage.setItem('wl_pw', PW);
+      gate.hidden = true; panel.hidden = false;
+      render(data);
+    } catch (err) {
+      sessionStorage.removeItem('wl_pw');
+      gatemsg.className = 'msg err';
+      gatemsg.textContent = err.code === 401 ? 'Wrong password.'
+        : err.code === 503 ? 'Admin isn’t configured yet (USERS_ADMIN_PASSWORD not set).'
+        : 'Could not load (' + (err.code || 'network') + ').';
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  document.getElementById('unlock').addEventListener('click', unlock);
+  pwInput.addEventListener('keydown', e => { if (e.key === 'Enter') unlock(); });
+  document.getElementById('refresh').addEventListener('click', async () => {
+    try { render(await loadList()); } catch (err) {
+      if (err.code === 401 || err.code === 503) { panel.hidden = true; gate.hidden = false; }
+    }
+  });
+
+  // Auto-unlock if a password is already in this session.
+  if (PW) unlock();
+</script>
+</body>
+</html>

@@ -90,5 +90,18 @@
       "Bash(jobs)",
       "Bash(echo \"---exit:$?---\")"
     ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.command // \"\"' | grep -q xcodeproj && printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":\"REMINDER: an Xcode project was just opened for a TestFlight build. Now write a copy-pastable bulleted TESTER MESSAGE for App Store Connect What to Test: (1) what changed in this build, (2) what to try/test. MUST be plain ASCII only - no emoji, no em-dashes, no smart quotes or special characters (the field rejects them).\"}}' || true"
+          }
+        ]
+      }
+    ]
   }
 }

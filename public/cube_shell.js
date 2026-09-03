@@ -7,6 +7,17 @@
 // See the cube map in CLAUDE.md.
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js';
 
+// One-time login migration: the founder app account was renamed
+// edward.m.willett@gmail.com -> ted@pangolinrc.com. A device still holding the old address
+// in local storage would be a ghost account (that user no longer exists), so rewrite it
+// before anything reads pg_user. Runs before the face iframes are created. Harmless for all.
+try {
+  if (localStorage.getItem('pg_user') === 'edward.m.willett@gmail.com') {
+    localStorage.setItem('pg_user', 'ted@pangolinrc.com');
+    localStorage.setItem('pg_refresh', String(Date.now()));
+  }
+} catch (_) {}
+
 // UAT convenience: on a branch PREVIEW host only (a *.pangolin-rc.pages.dev SUBDOMAIN,
 // e.g. wow-scheduler.pangolin-rc.pages.dev), auto-sign-in the owner so preview builds
 // come up logged in. Never fires on the bare prod canonical (pangolin-rc.pages.dev) or
@@ -14,7 +25,7 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.m
 try {
   const h = location.hostname;
   if (h !== 'pangolin-rc.pages.dev' && /\.pangolin-rc\.pages\.dev$/.test(h) && !localStorage.getItem('pg_user')) {
-    localStorage.setItem('pg_user', 'edward.m.willett@gmail.com');
+    localStorage.setItem('pg_user', 'ted@pangolinrc.com');
     localStorage.setItem('pg_refresh', String(Date.now()));
   }
 } catch (_) {}
@@ -139,12 +150,15 @@ camera.position.set(0, 0, 13);
 const geo  = new THREE.BoxGeometry(1.8, 1.8, 1.8);
 const mats = FACES.map((f, i) => new THREE.MeshBasicMaterial({ map: makeTex(f, i) }));
 const cube = new THREE.Mesh(geo, mats);
-cube.quaternion.setFromEuler(SNAP_EULER[5]); // open showing the JOIN face
+// Cold open presents WATCH (material index 1); the gentle idle drift (-Y, in animate)
+// then rolls it slowly WATCH → LOG → FEED → BROWSE. A live-watch resume (resumeLaunch)
+// overrides this and lands on the LOG face instead.
+cube.quaternion.setFromEuler(SNAP_EULER[1]); // open showing the WATCH face
 scene.add(cube);
 
 // ─── interaction state ────────────────────────────────────────────────────
 let locked     = false;
-let activeFace = 5; // JOIN starts
+let activeFace = 1; // WATCH starts (rolls onward via the idle drift)
 
 // Single-pointer drag
 let dragging   = false;
@@ -159,6 +173,13 @@ let pinchTriggered = false; // prevent re-trigger until fingers lift
 // Snap animation
 let snapping  = false;
 let snapQ     = new THREE.Quaternion();
+
+// Overlay-projection throttle. The mid-spin composite of several live iframes is the
+// GPU-heavy step (and the documented crash risk), so during the slow idle drift we
+// re-project the faces every Nth frame instead of every frame — a gentle ambient roll
+// doesn't need a fresh transform 60×/s. Full rate during drag/snap and while locked.
+let _ovFrame = 0;
+const OV_THROTTLE = 2;
 
 // Camera target z
 let camTargetZ = 8.5;
@@ -216,11 +237,16 @@ function snapToFace(fi) {
 // The Pierre mic + context picker are two of the four items in the console-chrome
 // band (Device · Mic · Chat-picker · Cube); they show whenever the Pierre face is
 // open. Re-checked on every keyboard show/hide and face snap.
+// The Pierre face suppresses the mic (and hides the chat-picker) at each end-note
+// decision point via pg:micSuppress, so pierreMicSync can't re-reveal it mid-flow.
+let pierreMicSuppressed = false;
 function pierreMicSync() {
-  const on = locked && activeFace === PIERRE_FACE;
-  if (window._setPierreMic)
-    window._setPierreMic(on || !!(window._pierreMicBusy && window._pierreMicBusy()));   // a live capture holds its ground
+  const on = locked && activeFace === PIERRE_FACE && !pierreMicSuppressed;
+  // Band mic retired — the mic now lives in the Pierre composer (voice-first). Keep it
+  // hidden; only the context picker still syncs to Pierre focus.
+  if (window._setPierreMic) window._setPierreMic(false);
   if (window._setPierreCtx) window._setPierreCtx(on);
+  if (window._setFeedbackBand) window._setFeedbackBand(on);   // thumbs + Get Ted: Pierre face only
 }
 
 function lock() {
@@ -251,6 +277,7 @@ function unlock() {
   if (window._kbHide) window._kbHide();   // leaving a face closes the console keyboard
   if (window._setPierreMic) window._setPierreMic(false);
   if (window._setPierreCtx) window._setPierreCtx(false);
+  if (window._setFeedbackBand) window._setFeedbackBand(false);
   canvas.style.opacity = '1';   // cube returns as the free-nav object
   hideFaceInfo();
   snapping = false; // release to free rotation
@@ -265,8 +292,12 @@ function focusPierre() {
   const cfg = FACE_OVERLAYS[PIERRE_FACE];
   if (!cfg || !cfg.frame) return;
   try {
-    const inp = cfg.frame.contentWindow.document.getElementById('input');
-    if (inp) inp.focus();
+    const w = cfg.frame.contentWindow;
+    // Voice-first: only raise the keyboard for a text flow (email/password). General
+    // chat rests on the mic instead of pre-focusing the input (which showed the arrow).
+    const wantKb = w.__pierreWantsKeyboard ? w.__pierreWantsKeyboard() : false;
+    if (wantKb) { const inp = w.document.getElementById('input'); if (inp) inp.focus(); }
+    else if (w.__pierreVoiceRest) w.__pierreVoiceRest();
   } catch (_) { /* iframe not ready yet */ }
 }
 
@@ -338,6 +369,27 @@ function rotateToFace(fi) {
   }
   if (fi === PIERRE_FACE) focusPierre(); else focusPierreBlur();
   bounceFromEmptyWatch(fi);
+}
+
+// The click-wheel's core-face ring (nav mode only): a ring notch rolls the cube
+// through WATCH → LOG → FEED → BROWSE by their material indices, WITHOUT opening any
+// (locked stays false). Order matches the idle drift's -Y direction, so a wheel nudge
+// reads as a hand on the same slow carousel. Base off the face currently facing the
+// camera (nearestFace) so it steps from what you actually see, not a stale snap.
+const CORE_RING = [1, 4, 2, 0, 5, 3];   // WATCH → LOG → PIERRE → FEED → BROWSE → PROFILE (snaps through the poles too)
+// SELECT from cube-nav → punch into the face most exposed (lock/enter it). No-op if
+// already locked. lock() itself snaps to nearestFace().
+export function lockFace() { if (!locked) lock(); }
+
+export function cubeNavStep(dir) {
+  if (locked) return;
+  const cur = nearestFace();
+  let i = CORE_RING.indexOf(cur);
+  if (i < 0) i = 0;                                   // on PIERRE/PROFILE (off-ring) → start at WATCH
+  const n = CORE_RING.length;
+  const next = CORE_RING[(i + (dir > 0 ? 1 : n - 1)) % n];
+  snapToFace(next);
+  showFaceInfo(next);
 }
 
 // Faces call this DIRECTLY (same-origin) rather than postMessage so the tap's
@@ -480,7 +532,15 @@ function faceCssMatrix3d(pts) {
   const src = _basis([0,0],[W,0],[W,H],[0,H]);
   const dst = _basis([pts[0].x,pts[0].y],[pts[1].x,pts[1].y],[pts[2].x,pts[2].y],[pts[3].x,pts[3].y]);
   const h = _mul3(dst, _adj3(src)); const s = h[8];
-  return `matrix3d(${h[0]/s},${h[3]/s},0,${h[6]/s},${h[1]/s},${h[4]/s},0,${h[7]/s},0,0,1,0,${h[2]/s},${h[5]/s},0,1)`;
+  // A degenerate projection — a face grazing edge-on (zero screen area) or an off-screen
+  // corner that projected to NaN — drives s toward 0, so every h[i]/s becomes Infinity or
+  // NaN. Writing THAT into an iframe's CSS transform corrupts its layer bounds and aborts
+  // on the next scroll/pan (UIScrollView.setContentOffset → CALayer.setBounds → SIGABRT).
+  // Return null instead so the caller simply keeps the last good transform for this frame.
+  if (!Number.isFinite(s) || Math.abs(s) < 1e-9) return null;
+  const m = [h[0]/s, h[3]/s, h[6]/s, h[1]/s, h[4]/s, h[7]/s, h[2]/s, h[5]/s];
+  for (let i = 0; i < m.length; i++) if (!Number.isFinite(m[i])) return null;
+  return `matrix3d(${m[0]},${m[1]},0,${m[2]},${m[3]},${m[4]},0,${m[5]},0,0,1,0,${m[6]},${m[7]},0,1)`;
 }
 
 // Keyed by BoxGeometry material index; corners in TL→TR→BR→BL order (local cube space)
@@ -716,6 +776,9 @@ let t = 0;
   // the cube face as it spins (looks identical in nav), but it is INERT there:
   // pointer-events stay off until the face is the locked/active one, so touches in
   // navigation mode drive the cube (drag / double-tap), never the side's content.
+  const ambient = !locked && !dragging && !snapping;
+  _ovFrame = (_ovFrame + 1) % OV_THROTTLE;
+  if (!ambient || _ovFrame === 0)
   for (const [fi, cfg] of Object.entries(FACE_OVERLAYS)) {
     _fN.copy(cfg.normal).applyQuaternion(cube.quaternion);
     const dot = _fN.z;
@@ -737,7 +800,7 @@ let t = 0;
           return { x: (_fP.x + 1) / 2 * VW, y: (1 - _fP.y) / 2 * VH };
         });
         const tx = faceCssMatrix3d(pts);
-        if (cfg._tx !== tx) { cfg.frame.style.transform = tx; cfg._tx = tx; }
+        if (tx && cfg._tx !== tx) { cfg.frame.style.transform = tx; cfg._tx = tx; }
       }
       const opacity = active ? 1 : dot;
       if (Math.abs(cfg._op - opacity) > 0.004) {
@@ -790,10 +853,16 @@ let t = 0;
       // momentum scroll alive — and renders the face sharp instead of a
       // 480px layout stretched to fit. The projection path restores the
       // natural IFRAME_SZ box when the face rides the cube again.
-      const px = Math.round(size) + 'px';
+      // Defend the pin against a transient bad viewport (a keyboard show/hide can report
+      // vv.height 0, making availH negative → size NaN/negative): a NaN width or transform
+      // here corrupts the frame's layer bounds and crashes on the next pan. Only write
+      // finite, positive values; otherwise skip this frame and keep the last good box.
       const f = cfg.frame;
-      if (f.style.width !== px) { f.style.width = px; f.style.height = px; }
-      f.style.transform = `translate(${x}px, ${y}px)`;
+      if (Number.isFinite(size) && size > 0) {
+        const px = Math.round(size) + 'px';
+        if (f.style.width !== px) { f.style.width = px; f.style.height = px; }
+      }
+      if (Number.isFinite(x) && Number.isFinite(y)) f.style.transform = `translate(${x}px, ${y}px)`;
       cfg._tx = '';                               // force projection to re-apply when unlocked
     }
   }
@@ -1282,7 +1351,7 @@ document.getElementById('device-chip').addEventListener('click', () => cubeRotat
   const pop   = document.getElementById('pierre-ctx-pop');
   const label = document.getElementById('pierre-ctx-label');
   if (!wrap || !pill || !pop) return;
-  const LABELS = { chat: 'Chat', add: 'Add a show', account: 'Account', device: 'Device', note: 'Note' };
+  const LABELS = { chat: 'Chat', add: 'Add', series: 'Series', movie: 'Movie', ticket: 'Ticket', account: 'Account', device: 'Device', note: 'Note' };
   function pierreWin(){ try { return FACE_OVERLAYS[PIERRE_FACE].frame.contentWindow; } catch (_) { return null; } }
   function setLabel(id){ if (label) label.textContent = LABELS[id] || 'Chat'; }
   // Share the current chat: pull the plain transcript out of the Pierre face and
@@ -1328,11 +1397,31 @@ document.getElementById('device-chip').addEventListener('click', () => cubeRotat
 // Console floating cube → back to cube nav. Shown only while a face is open.
 (function initWheelCube(){
   const wc = document.getElementById('wheel-cube');
+  const fb = document.getElementById('feedback-band');
   if(!wc) return;
   wc.addEventListener('click', () => { if(locked) unlock(); });
-  // Track lock state each frame is overkill; piggyback on the existing lock/unlock
-  // by observing `locked` on a light interval is unnecessary — toggle from lock/unlock.
+  // Cube shows on ANY open face. The feedback band shows only on the Pierre face (driven by
+  // pierreMicSync, same as the chat picker), never on the other faces.
   window._setWheelCube = (on) => wc.classList.toggle('show', !!on);
+  window._setFeedbackBand = (on) => { if(fb) fb.classList.toggle('show', !!on); };
+
+  if(fb){
+    const up = document.getElementById('fbUp'), down = document.getElementById('fbDown'), gt = document.getElementById('fbGetTed');
+    const btns = [up,down,gt].filter(Boolean);
+    // Inactive until Pierre has actually replied in this session (the face signals ready).
+    let _ready = false;
+    const applyReady = () => btns.forEach(b => { b.disabled = !_ready; });
+    window._setFeedbackReady = (ready) => { _ready = !!ready; applyReady(); };
+    applyReady();
+    // The Pierre face owns the current conversation and chat state, so the actions run
+    // there: a thumb records the vote and ends the chat; Get Ted escalates THIS session and
+    // closes it. The shell just relays the tap.
+    const toPierre = (msg) => { try { const cfg=FACE_OVERLAYS[PIERRE_FACE]; if(cfg&&cfg.frame&&cfg.frame.contentWindow) cfg.frame.contentWindow.postMessage(msg,'*'); } catch(_){} };
+    const flash = (btn) => { btn.classList.add('on'); setTimeout(() => btn.classList.remove('on'), 1000); };
+    if(up)   up.addEventListener('click',   () => { if(!_ready) return; flash(up);   toPierre({type:'fb:vote', kind:'up'}); });
+    if(down) down.addEventListener('click', () => { if(!_ready) return; flash(down); toPierre({type:'fb:vote', kind:'down'}); });
+    if(gt)   gt.addEventListener('click',   () => { if(!_ready) return; flash(gt);   toPierre({type:'fb:getted'}); });
+  }
 })();
 // The Profile face writes pg_device in its own iframe; the top window hears it as
 // a storage event. Re-read so the chip reflects a device change immediately.
@@ -1352,6 +1441,29 @@ window.addEventListener('storage', (e) => { if (e.key === 'pg_device') updateDev
   const enter = () => cubeRotateTo('log', { openMarathon: 'psycho' });
   // Rotate ~1s after the reveal — but never before the WATCH frame's own message
   // listener is live, or the open-marathon intent would post into the void.
+  setTimeout(() => {
+    if (!cfg || !cfg.frame) { enter(); return; }
+    let doc; try { doc = cfg.frame.contentWindow && cfg.frame.contentWindow.document; } catch (_) {}
+    if (doc && doc.readyState === 'complete') enter();
+    else cfg.frame.addEventListener('load', enter, { once: true });
+  }, 1000);
+})();
+
+// ── Logged-out first launch → straight to Pierre's login question ──────────────
+// The floating cube is a member's home. A visitor with no login on this device should
+// see one clear ask, not a cube to wander. So on boot with no pg_user, rotate to the
+// Pierre face and hand it the same intent the JOIN button does (intent:'join'), which
+// opens his "new here or returning, drop your email" flow. Members, an explicit ?open
+// deep-link, and demo/waitlist browsers all keep the cube.
+(function loggedOutToPierre(){
+  let member = false; try { member = !!localStorage.getItem('pg_user'); } catch (_) {}
+  if (member) return;
+  if (DEMO) return;                                             // demo browsers wander the cube
+  try { if (localStorage.getItem('pg_demo') === '1') return; } catch (_) {}   // waitlisted visitor
+  if (new URLSearchParams(location.search).get('open')) return; // an explicit deep-link wins
+  const cfg = FACE_OVERLAYS[FACE_INDEX.pierre];
+  const enter = () => cubeRotateTo('pierre', { intent: 'join' });
+  // Wait for the Pierre frame so the intent lands (same guard the front-door route uses).
   setTimeout(() => {
     if (!cfg || !cfg.frame) { enter(); return; }
     let doc; try { doc = cfg.frame.contentWindow && cfg.frame.contentWindow.document; } catch (_) {}
@@ -1652,6 +1764,8 @@ window.addEventListener('message', (e) => {
   if (e.data?.type === 'pangolin-back') unlock();
   // Pierre chat reports input focus so we can pin it above the keyboard.
   if (e.data?.type === 'pierre-chat-focus') chatFocused = !!e.data.focused;
+  // Pierre chat says whether the feedback band should be active (a reply has happened).
+  if (e.data?.type === 'pierre:fb-ready' && window._setFeedbackReady) window._setFeedbackReady(!!e.data.ready);
   // The Log face published its current records; keep a snapshot for the others,
   // plus a ready-to-load payload for the most-recently-watched show.
   if (e.data?.type === 'log:data') {
@@ -1866,43 +1980,110 @@ export function getActiveDoc() {
 // runs it — same principle as "Share this chat". Accepts a Blob (written to CACHE) or a
 // pre-written file URI (e.g. the CardVideo mp4).
 (function initShareBridge() {
-  function blobToB64(blob) {
-    return new Promise((res, rej) => {
-      const fr = new FileReader();
-      fr.onload = () => res(String(fr.result).split(',')[1] || '');
-      fr.onerror = rej;
-      fr.readAsDataURL(blob);
-    });
-  }
-  async function shareFile(blob, name, caption, fileUri, source) {
+  async function shareFile(dataB64, name, caption, fileUri, source) {
     const Cap = window.Capacitor;
     try {
       if (Cap && Cap.isNativePlatform && Cap.isNativePlatform() && Cap.Plugins && Cap.Plugins.Share) {
         let uri = fileUri || null;
-        if (!uri && blob && Cap.Plugins.Filesystem) {
-          await Cap.Plugins.Filesystem.writeFile({ path: name, data: await blobToB64(blob), directory: 'CACHE' });
+        if (!uri && dataB64 && Cap.Plugins.Filesystem) {
+          await Cap.Plugins.Filesystem.writeFile({ path: name, data: dataB64, directory: 'CACHE' });
           uri = (await Cap.Plugins.Filesystem.getUri({ path: name, directory: 'CACHE' })).uri;
         }
         if (uri) {
           // files ONLY (no text) → Instagram/Stories gets the media, never treats it as a link
           // ("Can't send link"). The result tells the face what the sheet did (e.g. Save to Photos).
           const res = await Cap.Plugins.Share.share({ files: [uri] });
-          try { if (source) source.postMessage({ type: 'pg:shareDone', activityType: (res && res.activityType) || '' }, '*'); } catch (_) {}
-          return;
+          const activityType = (res && res.activityType) || '';
+          try { if (source) source.postMessage({ type: 'pg:shareDone', activityType }, '*'); } catch (_) {}
+          // Best-effort moderation trail: log that THIS comment clip left the app, where
+          // (from the iOS activityType) and how (from the file kind). Only comment/reflection
+          // clips carry __pgReflectCommentId; other shares (tickets, chat) are skipped.
+          try { logCommentShare(name, activityType); } catch (_) {}
         }
       }
-      // Non-native safety net (web normally keeps its share in the face, in-gesture).
-      if (blob && navigator.canShare) {
-        const file = new File([blob], name, { type: blob.type || 'application/octet-stream' });
-        if (navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], text: caption }); return; }
-      }
+      // No web navigator.share() fallback on purpose: in WKWebView it shares the file as a
+      // blob: URL (Instagram → "Can't send link"). On native we share via the Share plugin only.
     } catch (e) { /* cancelled or unsupported */ }
+  }
+  // Map the iOS UIActivity type (the target the user actually picked in the share
+  // sheet) to a coarse platform, and the file name to a clip method. Both best-effort:
+  // an empty activityType (rare on completion) falls back to 'unknown'.
+  function logCommentShare(name, activityType) {
+    const commentId = window.__pgReflectCommentId;
+    if (!commentId) return;   // only comment/reflection clips are tracked
+    const at = String(activityType || '').toLowerCase();
+    const platform =
+        at.includes('instagram')                   ? 'instagram'
+      : (at.includes('cameraroll') || at.includes('saveto')) ? 'photos'
+      : (at.includes('message') || at.includes('imessage'))  ? 'messages'
+      : at.includes('whatsapp')                    ? 'whatsapp'
+      : at                                         ? 'other'
+      :                                              'unknown';
+    const n = String(name || '').toLowerCase();
+    const method = /\.(mp4|mov|webm|m4v)$/.test(n) ? 'reel'
+                 : /\.(png|jpe?g|gif)$/.test(n)    ? 'story'
+                 :                                   'file';
+    try {
+      fetch(`${API}/transcribe/share`, {
+        method: 'POST', mode: 'cors', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ commentId, platform, method, activityType: activityType || '' }),
+      }).catch(() => {});
+    } catch (_) {}
+    // One logged share per reflect-id, so a later unrelated share can't be misattributed.
+    try { window.__pgReflectCommentId = null; } catch (_) {}
   }
   window.addEventListener('message', (e) => {
     if (e.data && e.data.type === 'pg:shareFile') {
-      shareFile(e.data.blob, e.data.name, e.data.caption, e.data.fileUri, e.source);
+      shareFile(e.data.dataB64, e.data.name, e.data.caption, e.data.fileUri, e.source);
     }
   });
+})();
+
+// ── Post-movie reflection notification ──────────────────────────────────────
+// A theater viewing does NO live logging (you're in the dark). Instead the Log face
+// asks the SHELL — the top frame, where Capacitor's bridge lives — to schedule a
+// local notification for when the film lets out, nudging a reflection while it's
+// fresh. Native only: web/PWA can't fire a notification once the tab is gone, so it
+// no-ops there. Same delegation principle as the share bridge above.
+(function initReflectionNotify() {
+  async function schedule(o) {
+    const Cap = window.Capacitor;
+    if (!(Cap && Cap.isNativePlatform && Cap.isNativePlatform() && Cap.Plugins && Cap.Plugins.LocalNotifications)) return;
+    const LN = Cap.Plugins.LocalNotifications;
+    try {
+      const at = new Date(Number(o.at));
+      if (!(at.getTime() > Date.now())) return;   // only a future let-out is worth scheduling
+      let perm = await LN.checkPermissions();
+      if (perm.display !== 'granted') { perm = await LN.requestPermissions(); if (perm.display !== 'granted') return; }
+      await LN.schedule({ notifications: [{
+        id: Number(o.notifId) || (Math.floor(Date.now() / 1000) % 2000000000),
+        title: o.title || 'How was it?',
+        body:  o.body  || 'Share a thought while it is fresh.',
+        schedule: { at },
+        extra: { kind: 'reflection', titleId: o.titleId || '', showName: o.showName || '', ticketId: o.ticketId || '' },
+      }] });
+    } catch (_) { /* permission denied / unsupported → silently skip */ }
+  }
+  window.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'pg:scheduleReflection') schedule(e.data);
+  });
+  // Tapping the notification brings the app up → open the exact ticket it references
+  // (Tickets tab, that stub's detail with the reflection composer). A reflection nudge
+  // without a ticket (a streamed-movie note) falls back to the film's LOG reflection.
+  try {
+    const Cap = window.Capacitor;
+    if (Cap && Cap.Plugins && Cap.Plugins.LocalNotifications) {
+      Cap.Plugins.LocalNotifications.addListener('localNotificationActionPerformed', (ev) => {
+        const x = ev && ev.notification && ev.notification.extra;
+        if (x && x.kind === 'reflection') {
+          try {
+            if (x.ticketId) cubeRotateTo('join', { tab: 'tickets', openTicketId: x.ticketId });
+            else cubeRotateTo('log', { intent: 'reflect', titleId: x.titleId || '' });
+          } catch (_) {}
+        }
+      });
+    }
+  } catch (_) {}
 })();
 
 // ── Mic blink cue ───────────────────────────────────────────────────────────
@@ -1922,4 +2103,70 @@ window.addEventListener('message', (e) => {
       } catch (_) {}
     }
   }
+  // Pierre suppresses the mic + chat-picker while an end-note decision point shows only
+  // its chips; on:false restores them (re-synced against focus/lock).
+  if (e.data && e.data.type === 'pg:micSuppress') {
+    pierreMicSuppressed = !!e.data.on;
+    pierreMicSync();
+  }
 });
+
+// ── Admin app-icon badge ─────────────────────────────────────────────────────
+// For an admin account, mirror the admin panel's waitlist "new" count onto the iOS
+// app-icon badge (and expose it to faces via window.__pgAdmin). Native-only and
+// best-effort: no-ops on web, and any failure is swallowed so it never disturbs the app.
+(function initAdminBadge() {
+  async function appAuthToken() {
+    try {
+      const C = window.Capacitor; if (!C) return '';
+      const p = C.registerPlugin ? C.registerPlugin('AppAuth') : (C.Plugins && C.Plugins.AppAuth);
+      if (!p || !p.token) return '';
+      const r = await p.token(); return (r && r.value) || '';
+    } catch (_) { return ''; }
+  }
+  async function setAppIconBadge(n) {
+    try {
+      const C = window.Capacitor;
+      if (!C || !C.isNativePlatform || !C.isNativePlatform()) return;
+      const p = C.registerPlugin ? C.registerPlugin('AppBadge') : (C.Plugins && C.Plugins.AppBadge);
+      if (p && p.set) await p.set({ count: n | 0 });
+    } catch (_) {}
+  }
+  async function refresh() {
+    try {
+      let email = ''; try { email = (localStorage.getItem('pg_user') || '').trim(); } catch (_) {}
+      if (!email) { setAppIconBadge(0); return; }
+      const appToken = await appAuthToken();
+      if (!appToken) return;   // web / no native secret → leave the badge alone
+      const r = await fetch(`${API}/admin/app-status`, {
+        method: 'POST', mode: 'cors', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, appToken }),
+      });
+      if (!r.ok) return;
+      const d = await r.json();
+      window.__pgAdmin = { isAdmin: !!d.isAdmin, waitlistNew: d.waitlistNew || 0, getTedOpen: d.getTedOpen || 0 };
+      // Badge = waitlist new-signups + chats waiting on Ted.
+      setAppIconBadge(d.isAdmin ? ((d.waitlistNew || 0) + (d.getTedOpen || 0)) : 0);
+    } catch (_) {}
+  }
+  refresh();
+  // Re-pull when the app returns to the foreground so the badge stays current.
+  try { document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); }); } catch (_) {}
+})();
+
+// ── Native app-token bridge for face iframes ─────────────────────────────────
+// Face pages (e.g. Pierre) run in sub-frames whose injected Capacitor is only a
+// partial bridge: it reports isNativePlatform() but has NO registerPlugin and
+// never exposes custom plugins on .Plugins, so those frames can't reach the
+// native AppAuth plugin themselves. The FULL bridge lives here in the top frame,
+// so we expose a getter the faces call via window.top.pgAppNativeToken().
+window.pgAppNativeToken = async function () {
+  try {
+    const C = window.Capacitor;
+    if (!C || !C.isNativePlatform || !C.isNativePlatform()) return '';
+    const p = C.registerPlugin ? C.registerPlugin('AppAuth') : (C.Plugins && C.Plugins.AppAuth);
+    if (!p || !p.token) return '';
+    const r = await p.token();
+    return (r && r.value) || '';
+  } catch (_) { return ''; }
+};

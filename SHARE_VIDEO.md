@@ -76,6 +76,15 @@ best-effort fallback for web only; iOS relies on Path A.
       fixups (API signatures, threading, deprecations). The web fallback means the app
       never breaks if the plugin fails to build/register.
 
+## Fix (2026-08-25) — IG Story "plays super fast"
+- Symptom: the composed mp4 played full-length in the app, but posted to an Instagram Story
+  it flashed by in a fraction of a second.
+- Cause: `writeStillVideo` wrote only TWO frames (t=0 and t=duration). AVPlayer honors sample
+  timestamps (looks right in-app), but IG's Story importer assumes a normal frame rate — 2
+  frames → played at ~30fps → super fast.
+- Fix: write a real 30fps CFR still — `duration×30` identical frames — so IG plays it at the
+  right speed for the full audio length. Native plugin only; needs a new iOS build.
+
 ## Notes for the build-7 compile
 - Audio format: iOS WKWebView MediaRecorder records `audio/mp4` (AAC), which AVFoundation
   reads (ext `m4a`). Non-iOS (webm/opus) never hits the native path.

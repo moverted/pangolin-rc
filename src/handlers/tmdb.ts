@@ -33,6 +33,7 @@ const card = (m: any) => ({
   id: m.id,
   title: m.title || m.name || '',
   year: year(m.release_date),
+  release_date: typeof m.release_date === 'string' && m.release_date ? m.release_date : null, // full YYYY-MM-DD
   poster: m.poster_path ? IMG + m.poster_path : null,
   overview: typeof m.overview === 'string' ? m.overview : '',
   runtime: typeof m.runtime === 'number' ? m.runtime : null, // only present on /movie/:id
@@ -73,24 +74,296 @@ const detailCard = (m: any) => {
   };
 };
 
-// GET /tmdb/search?q=...  → { results: [movie card] }
+// Run one TMDB movie search and shape the results. Returns [] on any upstream miss
+// so the caller can decide whether to try a corrected query.
+async function searchMovies(env: Env, query: string): Promise<any[]> {
+  let res: Response;
+  try {
+    res = await tmdbFetch(env, '/search/movie', { query, include_adult: 'false' });
+  } catch {
+    return [];
+  }
+  if (!res.ok) return [];
+  const data = (await res.json()) as { results?: any[] };
+  return (data.results || [])
+    .filter((m) => m && m.id && (m.title || m.name))
+    .slice(0, 12)
+    .map(card);
+}
+
+// TMDB's search is punctuation-sensitive: "WALL·E" is found by "WALL.E" but NOT by
+// "WALL-E" / "WALL E" (the hyphen/space tokenise into junk like "Dawn Wall"). So for a
+// query carrying punctuation, also try dot / collapsed / spaced forms. No punctuation →
+// no variants (normal queries stay a single call).
+function punctVariants(q: string): string[] {
+  if (!/[^A-Za-z0-9\s]/.test(q)) return [];
+  const out = new Set<string>([
+    q.replace(/[^A-Za-z0-9\s]+/g, '.'),      // WALL-E → WALL.E  (TMDB's happy path)
+    q.replace(/[^A-Za-z0-9]+/g, ''),         // WALL-E → WALLE
+    q.replace(/[^A-Za-z0-9]+/g, ' ').trim(), // WALL-E → WALL E
+  ]);
+  out.delete(q);
+  return [...out].filter(Boolean);
+}
+
+// searchMovies for the query PLUS its punctuation variants, merged & de-duped, so a
+// title like "WALL·E" surfaces even when the user typed "WALL-E".
+export async function searchAll(env: Env, q: string): Promise<any[]> {
+  const out = await searchMovies(env, q);
+  const seen = new Set(out.map((m) => m.id));
+  for (const v of punctVariants(q)) {
+    for (const m of await searchMovies(env, v)) if (!seen.has(m.id)) { seen.add(m.id); out.push(m); }
+  }
+  return out;
+}
+
+// ── Fuzzy matching (no LLM) ──────────────────────────────────────────────────
+// TMDB's keyword index has no spell/semantic tolerance, so the raw top hit can be
+// zero, or a literal-but-wrong title (e.g. "The Odessey" → a Zombies live album).
+// These let us judge "is the top hit actually what they asked for" and, when not,
+// rank TMDB's LIVE catalogue against the full query — which rescues brand-new
+// franchise films the LLM can't recall ("Brave New Day" → "Brand New Day").
+const nrm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+const toks = (s: string) => nrm(s).split(' ').filter(Boolean);
+
+// Levenshtein edit distance (small strings; iterative two-row DP).
+function lev(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  let prev: number[] = Array.from({ length: b.length + 1 }, (_, i) => i);
+  let curr: number[] = new Array(b.length + 1).fill(0);
+  for (let i = 1; i <= a.length; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min((curr[j - 1] ?? 0) + 1, (prev[j] ?? 0) + 1, (prev[j - 1] ?? 0) + cost);
+    }
+    [prev, curr] = [curr, prev];
+  }
+  return prev[b.length] ?? 0;
+}
+
+// Blend of token F1 (precision + recall of shared words) and whole-string edit
+// similarity. 0..1; higher = closer to what the user typed. F1 (not just recall) so a
+// padded title ("Pixar Remix: WALL·E in 16-Bit") can't beat the concise exact one
+// ("WALL·E") just by containing every word the user typed.
+function simScore(q: string, title: string): number {
+  const a = nrm(q), b = nrm(title);
+  if (!a || !b) return 0;
+  const qset = new Set(toks(q)), tset = new Set(toks(title));
+  let inter = 0;
+  for (const t of qset) if (tset.has(t)) inter++;
+  const recall = qset.size ? inter / qset.size : 0;      // query words found in the title
+  const precision = tset.size ? inter / tset.size : 0;   // title words that are query words
+  const f1 = (recall + precision) ? (2 * recall * precision) / (recall + precision) : 0;
+  const editSim = 1 - lev(a, b) / Math.max(a.length, b.length);
+  return 0.6 * f1 + 0.4 * editSim;
+}
+
+// A confident hit = most query words present AND the title isn't padded with a pile
+// of unrelated words (which is how "The Odessey" wrongly matches the Zombies album).
+function confident(q: string, title: string): boolean {
+  const qt = toks(q), tt = new Set(toks(title));
+  if (!qt.length) return false;
+  let hit = 0;
+  for (const t of qt) if (tt.has(t)) hit++;
+  return hit / qt.length >= 0.8 && tt.size <= qt.length + 3;
+}
+
+// Broaden a missed query by dropping trailing words to pull the franchise/anchor
+// (e.g. "Spider-Man Brave New Day" → "Spider-Man"), accumulating real TMDB rows to
+// fuzzy-rank against the full query. No LLM. Seeded with the raw results.
+async function broadenSearch(env: Env, q: string, seed: any[]): Promise<any[]> {
+  const pool = [...seed];
+  const seen = new Set(pool.map((m) => m.id));
+  // Split on whitespace only — keep punctuation inside a word so "wall-e" stays intact
+  // for searchAll's dot-variant (dropping to nrm tokens would lose it).
+  const words = q.trim().split(/\s+/);
+  const subs = new Set<string>();
+  // Drop trailing words → the franchise anchor ("Spider-Man Brave New Day" → "Spider-Man").
+  for (let cut = words.length - 1; cut >= 1; cut--) subs.add(words.slice(0, cut).join(' '));
+  // Drop leading words → strip a descriptor prefix ("pixar wall-e" → "wall-e").
+  for (let start = 1; start < words.length; start++) subs.add(words.slice(start).join(' '));
+  // Search every sub-query (both directions get a fair shot — no early cap that lets a
+  // broad term like "pixar" starve the one that isolates the title). Bounded by word count.
+  let n = 0;
+  for (const sub of subs) {
+    if (n++ >= 10) break;
+    if (sub.replace(/[^A-Za-z0-9]/g, '').length < 2) continue;
+    for (const m of await searchAll(env, sub)) if (!seen.has(m.id)) { seen.add(m.id); pool.push(m); }
+  }
+  return pool;
+}
+
+// The LLM logic gate: for a pure misspelling that returns nothing AND can't be
+// rescued from the catalogue ("Gladeator" → "Gladiator"), ask Haiku for the single
+// most likely canonical title and let the caller re-run the search. Best-effort —
+// any failure returns null so search degrades to plain TMDB. Same key as the ticket
+// OCR / Pierre (SEAM:processing).
+// Token-burn guard: cap LLM corrections per client to LLM_GATE_MAX in a rolling
+// hourly window so a bored user can't spray obscure gibberish and rack up Haiku
+// calls. Keyed by client IP in ACCESS_KV. Fail-open (KV hiccup → allow) — the gate
+// is a courtesy, not a security boundary; TMDB itself is still the hard path.
+const LLM_GATE_MAX = 5;
+async function gateAllows(env: Env, ip: string): Promise<boolean> {
+  if (!ip) return true;
+  const key = `llmgate:${ip}:${Math.floor(Date.now() / 3_600_000)}`; // per-hour bucket
+  try {
+    const n = parseInt((await env.ACCESS_KV.get(key)) || '0', 10);
+    if (n >= LLM_GATE_MAX) return false;
+    await env.ACCESS_KV.put(key, String(n + 1), { expirationTtl: 3600 });
+    return true;
+  } catch {
+    return true;
+  }
+}
+
+// Ask Haiku what mainstream film the user most likely meant. Handles both a pure
+// miss (topTitle empty → "Gladeator" → "Gladiator") and the trap where TMDB's only
+// hit is an obscure real title that isn't what they meant ("The Odessey" → the
+// only hit is a 1968 Zombies album, but they meant "The Odyssey"). Returns null if
+// it can't improve on what we have (reply "NONE"), so we don't invent corrections.
+async function llmSuggestTitle(env: Env, query: string, topTitle: string): Promise<string | null> {
+  if (!env.ANTHROPIC_API_KEY) return null;
+  const content = topTitle
+    ? `A user searched a movie database for "${query}". The only close match was "${topTitle}", ` +
+      `which may be an obscure title that is NOT what they meant. What well-known movie did they ` +
+      `most likely actually want? Reply with ONLY that movie's title — no quotes, year, or ` +
+      `explanation. If "${topTitle}" is almost certainly what they wanted, reply exactly: NONE`
+    : `A user searched a movie database for "${query}" and got no results — likely a misspelling ` +
+      `or a slightly mis-remembered title. Reply with ONLY the single most likely real movie ` +
+      `title they meant — no quotes, year, or explanation. If you truly cannot guess, reply exactly: NONE`;
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 60,
+        messages: [{ role: 'user', content }],
+      }),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { content?: Array<{ type: string; text?: string }> };
+    const text = (data.content || []).filter((b) => b.type === 'text').map((b) => b.text || '').join('').trim();
+    const title = text.replace(/^["'\s]+|["'\s]+$/g, '').slice(0, 200);
+    if (!title || nrm(title) === 'none') return null;
+    return title;
+  } catch {
+    return null;
+  }
+}
+
+// Merge candidate lists, corrected/alternative first, de-duped by TMDB id.
+function mergeById(primary: any[], secondary: any[]): any[] {
+  const out = [...primary];
+  const seen = new Set(out.map((m) => m.id));
+  for (const m of secondary) if (!seen.has(m.id)) { seen.add(m.id); out.push(m); }
+  return out;
+}
+
+// GET /tmdb/search?q=...  → { results: [movie card], corrected?, uncertain? }
+// `corrected` = the canonical title we rescued to; `uncertain` = the raw hit was weak,
+// so the client should NOT auto-pick a lone result — show the lineup and let the user
+// choose (this is what stops an obscure album loading itself before they can react).
 tmdbRoutes.get('/search', async (c) => {
   if (!c.env.TMDB_API_KEY) return c.json({ error: 'movies not configured', results: [] }, 503);
   const q = clean(c.req.query('q'));
   if (!q) return c.json({ results: [] });
-  let res: Response;
-  try {
-    res = await tmdbFetch(c.env, '/search/movie', { query: q, include_adult: 'false' });
-  } catch {
-    return c.json({ error: 'upstream unreachable', results: [] }, 502);
+
+  const raw = await searchAll(c.env, q);
+  // A confident top hit is the common case — return immediately, no rescue cost.
+  if (raw.length && confident(q, raw[0].title)) return c.json({ results: raw });
+
+  // Stage 1 (no LLM): rescue from TMDB's LIVE catalogue. Broaden to the anchor and
+  // fuzzy-rank real candidates against the full query. Fixes new franchise films the
+  // LLM can't recall ("Spider-Man Brave New Day" → "Spider-Man: Brand New Day").
+  const pool = await broadenSearch(c.env, q, raw);
+  if (pool.length) {
+    const ranked = pool.map((m) => ({ m, s: simScore(q, m.title) })).sort((a, b) => b.s - a.s);
+    const best = ranked[0];
+    const rawTop = raw[0] ? nrm(raw[0].title) : '';
+    // Only claim a correction when we genuinely improved on the raw top hit.
+    if (best && best.s >= 0.6 && nrm(best.m.title) !== rawTop) {
+      return c.json({ results: ranked.slice(0, 12).map((r) => r.m), corrected: best.m.title });
+    }
   }
-  if (!res.ok) return c.json({ error: 'upstream error', results: [] }, 502);
-  const data = (await res.json()) as { results?: any[] };
-  const results = (data.results || [])
-    .filter((m) => m && m.id && (m.title || m.name))
-    .slice(0, 12)
-    .map(card);
-  return c.json({ results });
+
+  // Stage 2 (LLM, rate-limited): either a pure typo ("Gladeator" → "Gladiator"), or the
+  // only hit is an obscure real title that isn't what they meant ("The Odessey" → a 1968
+  // album, but they meant "The Odyssey"). Ask what they most likely meant; when it lands,
+  // put BOTH the suggestion and the raw hit in the lineup so the user picks.
+  const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || '';
+  if (await gateAllows(c.env, ip)) {
+    const top = raw[0]?.title || '';
+    const suggest = await llmSuggestTitle(c.env, q, top);
+    if (suggest && nrm(suggest) !== nrm(q) && nrm(suggest) !== nrm(top)) {
+      const alt = await searchAll(c.env, suggest);   // variants too: "WALL-E" suggestion → finds WALL·E
+      if (alt.length > 0) {
+        const merged = mergeById(alt, raw).slice(0, 12);
+        // If we also kept an obscure raw hit alongside the suggestion, it's a genuine
+        // choice → uncertain, so the client shows both instead of auto-picking.
+        return c.json({ results: merged, corrected: suggest, uncertain: merged.length > 1 });
+      }
+    }
+  }
+  // Nothing better. If the lone raw hit is a weak match, flag it so the client makes the
+  // user tap rather than silently committing it.
+  return c.json({ results: raw, uncertain: raw.length > 0 && !confident(q, raw[0].title) });
+});
+
+// ── Physical-media resolve (IRL shelf) ───────────────────────────────────────
+// GET /tmdb/resolve?upc=<code> → { upc, title, fmt, poster }. UPC → product title
+// (UPCitemdb, server-side so no client CORS proxy), cleaned of edition/format noise, then
+// a matching TMDB movie for a real poster (guarded so a TV box set can't grab a wrong
+// film). Falls back to the UPC's own product image. Fails soft to {title:null}.
+function discFormat(s: string): string {
+  s = (s || '').toLowerCase();
+  if (/\b4k\b|uhd|ultra\s*hd/.test(s)) return '4K UHD';
+  if (/blu-?\s*ray/.test(s)) return 'BLU-RAY';
+  if (/\bdvd\b/.test(s)) return 'DVD';
+  if (/\bvhs\b/.test(s)) return 'VHS';
+  if (/\bvinyl\b|\blp\b/.test(s)) return 'VINYL';
+  return 'DISC';
+}
+function cleanDiscTitle(raw: string): string {
+  let t = (raw || '').replace(/\[[^\]]*\]|\([^)]*\)/g, ' ');
+  t = t.replace(/\b(4k|uhd|ultra hd|blu-?ray|dvd|vhs|digital|combo pack|combo|steelbook|widescreen|full ?screen|collector'?s|anniversary|unrated|director'?s cut|extended cut|extended|remastered|special edition|the complete series|complete series|complete season|the complete|two-disc|\d+-disc|multi-format|region \d+|import|edition)\b/gi, ' ');
+  t = t.replace(/\s{2,}/g, ' ').replace(/\s*[-–—:]\s*$/, '').trim();
+  return t || (raw || '').trim();
+}
+function normDiscTitle(s: string): string { return (s || '').toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, ' ').trim(); }
+function discTitlesMatch(a: string, b: string): boolean {
+  const x = normDiscTitle(a), y = normDiscTitle(b); if (!x || !y) return false;
+  if (x === y) return true;
+  const short = x.length <= y.length ? x : y, long = x.length <= y.length ? y : x;
+  return short.length >= 4 && long.startsWith(short);
+}
+tmdbRoutes.get('/resolve', async (c) => {
+  const upc = (c.req.query('upc') || '').trim();
+  if (!/^\d{6,14}$/.test(upc)) return c.json({ error: 'bad upc' }, 400);
+  let rawTitle = '', upcImage = '';
+  try {
+    const r = await fetch('https://api.upcitemdb.com/prod/trial/lookup?upc=' + encodeURIComponent(upc), { headers: { Accept: 'application/json' } });
+    if (r.ok) { const d: any = await r.json(); const it = (d.items || [])[0]; if (it) { rawTitle = it.title || ''; upcImage = (it.images || [])[0] || ''; } }
+  } catch { /* fail soft */ }
+  if (!rawTitle) return c.json({ upc, title: null });
+  const fmt = discFormat(rawTitle);
+  const core = cleanDiscTitle(rawTitle);
+  let title = core || rawTitle, poster = upcImage;
+  if (c.env.TMDB_API_KEY) {
+    try {
+      const results = await searchAll(c.env, core);
+      const m = results[0];
+      if (m && discTitlesMatch(core, m.title)) { title = m.title; if (m.poster) poster = m.poster; }
+    } catch { /* keep the UPC product data */ }
+  }
+  return c.json({ upc, title, fmt, poster: poster || null });
 });
 
 // Server-side movie detail (card with runtime), for the catalog materializer. Returns
@@ -164,10 +437,23 @@ export async function fetchTmdbTvRuntime(
 }
 
 // GET /tmdb/movie/:id  → { movie: detail card (runtime + cast/crew/production) }
+//
+// Edge-cached. A movie's poster/cast/runtime is effectively immutable, and this is
+// the endpoint every FEED movie-ticket poster falls back to — so without a cache the
+// same theater ticket costs a fresh client→worker→TMDB round-trip on every feed open.
+// We serve repeats from the Cloudflare edge cache (24h): first hit warms it, the rest
+// are edge-local. Keyed by the bare numeric id so it's shared across users/origins.
+const MOVIE_TTL = 86400; // 24h — TMDB movie detail barely changes
 tmdbRoutes.get('/movie/:id', async (c) => {
   if (!c.env.TMDB_API_KEY) return c.json({ error: 'movies not configured' }, 503);
   const id = clean(c.req.param('id'));
   if (!/^\d+$/.test(id)) return c.json({ error: 'numeric id required' }, 400);
+
+  const cache = caches.default;
+  const cacheKey = new Request(new URL(`/tmdb/movie/${id}`, c.req.url).toString());
+  const cached = await cache.match(cacheKey);
+  if (cached) return new Response(cached.body, cached); // fresh copy so CORS can re-apply
+
   let res: Response;
   try {
     res = await tmdbFetch(c.env, `/movie/${id}`, { append_to_response: 'credits' });
@@ -177,5 +463,8 @@ tmdbRoutes.get('/movie/:id', async (c) => {
   if (res.status === 404) return c.json({ error: 'not found' }, 404);
   if (!res.ok) return c.json({ error: 'upstream error' }, 502);
   const movie = detailCard(await res.json());
-  return c.json({ movie });
+  const out = c.json({ movie });
+  out.headers.set('Cache-Control', `public, max-age=${MOVIE_TTL}`);
+  c.executionCtx.waitUntil(cache.put(cacheKey, out.clone())); // store the good result
+  return out;
 });

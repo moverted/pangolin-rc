@@ -3,7 +3,7 @@
 // cube directly: it reads focus + reaches the open face's document through the
 // CubeShell interface it imports below, then drives that face's own content
 // (scroll + the SELECT highlight/dialog). See the cube map in CLAUDE.md.
-import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey } from './cube_shell.js';
+import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey, cubeNavStep, lockFace } from './cube_shell.js';
 
 // ─── iPod-style click wheel: the ring scrolls the open face; the four card actions
 // (WATCH top / SHARE left / STOP right / SELECT center) drive the open show by
@@ -64,6 +64,15 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey } from './c
     const doc = activeDoc(); if(!doc) return;
     const sc = scrollContainer(doc);
     if(sc) sc.scrollTop += dy;
+  }
+  // While the LOG-face playhead is paused (▶-◀ showing), the ring FINE-TUNES the mark a
+  // minute per notch instead of scrolling the page. __logTune is exposed by the LOG face;
+  // its presence + active() gate this so it only kicks in there, only while paused.
+  function logTuneActive(){
+    try{ const w = activeDoc() && activeDoc().defaultView; return !!(w && w.__logTune && w.__logTune.active()); }catch(_){ return false; }
+  }
+  function logTuneStep(dir){
+    try{ const w = activeDoc() && activeDoc().defaultView; if(w && w.__logTune) w.__logTune.step(dir); }catch(_){}
   }
   // ── SELECT highlight cursor: a glowing outline that steps DOWN the open face's
   //    selectable buttons (one per SELECT tap, wraps at the bottom). Long-press
@@ -150,6 +159,14 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey } from './c
   // highlight between items instead of scrolling; SELECT confirms (activates) the
   // highlighted item and exits; a long-press cancels out of the mode.
   let selectMode = false;
+  // Reflect select-mode into the discoverability hint that sits between the wheel and
+  // the cube ("Hold SELECT to disengage"). Routed through here from every place that
+  // flips selectMode so the affordance appears with the highlight and clears with it.
+  function setSelectMode(on){
+    selectMode = on;
+    const hint = document.getElementById('select-hint');
+    if(hint) hint.classList.toggle('show', on);
+  }
   // Where the first SELECT click lands per face: WATCH on ▶ WATCH (back→seasons,
   // forward→the rest), LOG on START/CONTINUE. Others start at the first item.
   function faceStartIndex(doc, els){
@@ -164,7 +181,7 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey } from './c
   function enterSelect(){
     const doc = activeDoc(); if(!doc) return;
     const els = faceSelectables(doc); if(!els.length) return;
-    selectMode = true;
+    setSelectMode(true);
     placeHL(doc, els[faceStartIndex(doc, els)]); tick(10);   // always begin at the face's start control
   }
   function moveSelect(dir){
@@ -177,7 +194,7 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey } from './c
   function exitSelect(activate){
     const doc = activeDoc();
     if(activate && doc){ const box = doc._wheelHL; if(box && box._el){ box._el.click(); tick(18); } }
-    selectMode = false;
+    setSelectMode(false);
     hideHL(doc);
   }
 
@@ -196,6 +213,19 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey } from './c
       return { type:'reel',
                confirm(){ try { doc.defaultView.__reelSet(); } catch(_){} },
                cancel(){ const c = doc.querySelector('#svcCancel'); if(c) c.click(); } };
+    // Pierre's add-flow poster picker: the ring highlights each candidate (the wheel-hl
+    // steps chip→chip, starting on the top pick marked .cur), SELECT picks the highlighted
+    // one, and the last chip ("↻ type another") is itself an item — highlight + SELECT it,
+    // or long-press to cancel, and the keyboard comes back. See presentPicker (pierre face).
+    const pk = doc.querySelector('.chips.pk-active');
+    if(pk)
+      return { type:'list',
+               items(){ return Array.prototype.slice.call(pk.querySelectorAll('button'))
+                          .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0 && !el.disabled); },
+               confirm(){ const b = doc._wheelHL;
+                          const el = (b && b._el) || pk.querySelector('button.cur') || pk.querySelector('button:not([disabled])');
+                          if(el) el.click(); },
+               cancel(){ const btns = pk.querySelectorAll('button'); const esc = btns[btns.length - 1]; if(esc) esc.click(); } };
     return null;
   }
   function dialogStep(doc, dlg, dir){
@@ -258,7 +288,7 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey } from './c
   }
   let _recTotal = 0;
   window.__setComfortMic = function(on){
-    if(on){ centerMic(); selectMode = false; }    // reflection uses ring=scroll + centre=mic
+    if(on){ centerMic(); setSelectMode(false); }    // reflection uses ring=scroll + centre=mic
     else { _recTotal = 0; centerLabel(); hideHL(activeDoc()); }
   };
   window.__comfortMicCount = function(n){
@@ -284,7 +314,7 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey } from './c
 
   ring.addEventListener('pointerdown', e=>{
     primeAudio();                                        // unlock iOS audio inside the gesture
-    if(!getFocus().locked) selectMode = false;           // never carry select-mode across faces
+    if(!getFocus().locked) setSelectMode(false);         // never carry select-mode across faces
     const r = ring.getBoundingClientRect();
     cx = r.left + r.width/2; cy = r.top + r.height/2;
     lastAng = ang(e.clientX, e.clientY); moved = 0; stepAccum = 0; sx = e.clientX; sy = e.clientY;
@@ -306,10 +336,21 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey } from './c
       stepAccum += d;   // cube view + a real TV → ring is its D-pad (⊘ mutes it; CW = down/right)
       while(stepAccum >=  STEP_NOTCH){ remoteKey(axisMode === 'h' ? 'right' : 'down'); tick(8); stepAccum -= STEP_NOTCH; }
       while(stepAccum <= -STEP_NOTCH){ remoteKey(axisMode === 'h' ? 'left'  : 'up');   tick(8); stepAccum += STEP_NOTCH; }
+    } else if(logTuneActive()){                           // LOG playhead armed (▶-◀) → ring tunes the mark.
+      // Checked BEFORE selectMode AND cube-nav: an armed playhead owns the ring whether or not
+      // the face is locked and even if a stale SELECT-highlight is still up — if you armed the
+      // scrubber, you want the ring to move the minute, not step a highlight or roll the cube.
+      stepAccum += d;
+      while(stepAccum >=  STEP_NOTCH){ logTuneStep(+1); tick(6); stepAccum -= STEP_NOTCH; }   // clockwise → forward
+      while(stepAccum <= -STEP_NOTCH){ logTuneStep(-1); tick(6); stepAccum += STEP_NOTCH; }   // ccw → back
     } else if(selectMode){                               // ring drives the highlight, notch by notch
       stepAccum += d;
       while(stepAccum >=  STEP_NOTCH){ moveSelect(+1); stepAccum -= STEP_NOTCH; }   // clockwise → next/down
       while(stepAccum <= -STEP_NOTCH){ moveSelect(-1); stepAccum += STEP_NOTCH; }   // ccw → prev/up
+    } else if(!getFocus().locked){                        // cube view → ring rolls the 4 core faces
+      stepAccum += d;
+      while(stepAccum >=  STEP_NOTCH){ cubeNavStep(+1); tick(8); stepAccum -= STEP_NOTCH; }   // clockwise → WATCH→LOG→FEED→BROWSE
+      while(stepAccum <= -STEP_NOTCH){ cubeNavStep(-1); tick(8); stepAccum += STEP_NOTCH; }   // ccw → reverse
     } else {
       wheelScroll((d / (2*Math.PI)) * SCROLL_PER_REV);   // clockwise → scroll down
     }
@@ -325,7 +366,7 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey } from './c
     let holdT = 0, held = false;
     center.addEventListener('pointerdown', e=>{
       primeAudio();                                      // unlock iOS audio inside the gesture
-      if(!getFocus().locked && !remoteActive()) return;  // remote mode works even in cube nav
+      // (cube-nav with no TV is allowed now — SELECT there punches into the exposed face)
       held = false;
       holdT = setTimeout(()=>{ held = true;              // long-press = cancel dialogue / exit select / TV home
         const dlg = getFocus().locked ? activeDialog(activeDoc()) : null;
@@ -345,7 +386,8 @@ import { getFocus, getActiveDoc, FACE_INDEX, remoteActive, remoteKey } from './c
         const dlg = getFocus().locked ? activeDialog(activeDoc()) : null;
         if(dlg){ dlg.confirm(); tick(18); hideHL(activeDoc()); }
         else if(getFocus().locked){ selectMode ? exitSelect(true) : enterSelect(); }  // open face keeps its wheel
-        else if(remoteActive()){ remoteKey('select'); tick(18); }                     // cube view → TV OK
+        else if(remoteActive() && axisMode !== 'off'){ remoteKey('select'); tick(18); } // TV D-pad mode → OK
+        else { lockFace(); tick(18); }                                                // cube-spin → punch into the exposed face
       } } };
     center.addEventListener('pointerup', stop);
     center.addEventListener('pointercancel', ()=>{ if(holdT){ clearTimeout(holdT); holdT = 0; } });

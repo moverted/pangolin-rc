@@ -36,3 +36,51 @@ Parked 2026-07-25.
 - **Why parked:** new native surface area; resume after the test or on a stable base.
 
 ---
+
+## 1.0.2 — Group / co-watching ("who's in the room")
+Parked 2026-08-17. **This is the big 1.0.2 theme** — the feature that only came into
+focus once Pierre was live. Bump the version to 1.0.2 when this batch starts (a version
+change is just changelog discipline; TestFlight still runs its beta review either way,
+and full App Store review only happens at public release).
+
+- **The problem.** Watching is rarely solo. Real rooms (Ted's own): Ludwig with Anne;
+  Ted Lasso with Anne + Audrey (sometimes Bryce); Strange New Worlds with Anne + Rose;
+  the rest solo. So "What shows am I watching right now?" is a *loaded* question — the
+  honest answer depends on who else is on the couch, and the co-viewers may have no
+  usable account:
+  - **Rose** — no account, never will.
+  - **Anne, Audrey** — have accounts, but haven't been reliably added to the cohort
+    (cohort/TestFlight onboarding friction).
+  - **Bryce** — has access but has never logged in.
+- **What to design (not built yet):** a way to attach *other people in the room* to a
+  watch / episode / title — accountless "room members" (name-only, like Rose) that can
+  be promoted to a real linked account later. Pierre should be able to ask/read "who did
+  you watch this with" and factor it into answers. Think: a room roster per title/session,
+  distinct from the follow-graph.
+- **Why parked:** genuinely new surface area (data model + Pierre context + onboarding);
+  Ted wants to design it deliberately. Explore *after* the context clear.
+
+---
+
+## 1.0.2 — Comment KIND: `pierre_chat` (full thread, gradeable)
+Parked 2026-08-17. Surfaced when Ted asked Pierre "What shows am I watching right now?"
+and the resulting admin comment (CREATED 2026-08-17 16:43) was mis-labeled **KIND:
+episode**.
+
+- **The problem.** Pierre-chat turns land in the same comment stream as episode
+  reflections and read as `KIND: episode`, polluting the episode/reflection data.
+- **What to do (not built yet):**
+  - Add a distinct comment **kind = `pierre_chat`**. Comment tables:
+    `migrations/0015_watch_comment.sql` (base) + `0026_watch_comment_endnote.sql`
+    (endnote kind marker). Admin renders `kind` as a pill (`admin/index.html`,
+    `PILL_COLS`). Pierre handler is `src/handlers/pierre.ts` (route `/pierre` wired at
+    `src/index.ts:1243`) — today it *reads* `watch_comment`/reflections for context; it's
+    where chat persistence would hang.
+  - For `pierre_chat`, **store the whole back-and-forth thread** (user + Pierre turns, in
+    order) — NOT one transcription row — so Ted can **grade and trail Pierre's responses**
+    from the admin. Needs a thread/turn structure.
+  - Admin: render `pierre_chat` as a readable thread + let Ted rate each.
+- **Why parked:** needs schema + admin work; pairs naturally with the co-watching theme
+  since both change how Pierre reads room context.
+
+---

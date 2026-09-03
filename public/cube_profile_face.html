@@ -92,6 +92,11 @@
     letter-spacing:.16em;font-size:10px;color:var(--amber);white-space:nowrap;
     border:1px solid rgba(239,168,60,.45);border-radius:999px;padding:5px 11px;
   }
+  /* Admin panel entry (admins only) */
+  .admin-panel-btn{display:flex;align-items:center;gap:10px;width:100%;margin:0 0 14px;padding:12px 14px;border:1px solid rgba(200,150,44,0.45);border-radius:12px;background:rgba(200,150,44,0.12);color:var(--cream,#faf6ec);font:inherit;font-weight:700;cursor:pointer;}
+  .admin-panel-btn .apb-txt{flex:1;text-align:left;letter-spacing:.02em;}
+  .admin-panel-btn .apb-count{background:#d9534f;color:#fff;font-size:.75rem;font-weight:800;border-radius:999px;padding:1px 8px;}
+  .admin-panel-btn .apb-caret{opacity:.7;}
   /* Admin bug review surface */
   .adminbugs{margin:0 0 22px;}
   .bug-banner{
@@ -282,6 +287,20 @@
   .fl-slot.full{cursor:default;}
   .fl-slot.full .fl-name{color:var(--muted);}
 
+  /* Coviewers — reuses .following / .fl-row. Star = in the default room; link pill
+     ties a name-only coviewer to a real account. */
+  .cv-star{flex:0 0 auto;background:none;border:0;color:var(--muted-2);font-size:16px;line-height:1;cursor:pointer;padding:0 3px;}
+  .cv-star.on{color:var(--amber);}
+  .cv-link{flex:0 0 auto;background:none;border:1px solid var(--card-line);color:var(--muted-2);border-radius:999px;
+    padding:3px 9px;font-family:'JetBrains Mono',monospace;font-size:8px;font-weight:700;letter-spacing:.08em;
+    text-transform:uppercase;cursor:pointer;}
+  .cv-link:hover{border-color:var(--amber);color:var(--amber);}
+  .cv-linked{flex:0 0 auto;font-family:'JetBrains Mono',monospace;font-size:8px;font-weight:700;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--amber);border:1px solid var(--card-line);border-radius:999px;padding:2px 7px;}
+  .fl-add input.cv-rel{flex:0 0 92px;}
+  .cv-hide{display:flex;align-items:center;gap:9px;margin:10px 0 4px;cursor:pointer;color:var(--muted);font-size:12.5px;}
+  .cv-hide input{width:16px;height:16px;accent-color:var(--amber);cursor:pointer;flex:none;}
+
   .dev{border-bottom:1px solid var(--line-soft);}
   .dev:last-of-type{border-bottom:none;}
   .dev-main{width:100%;display:flex;align-items:center;gap:13px;background:none;border:none;
@@ -411,6 +430,89 @@
         <!-- content scrolls inside the square; the device picker is the focal point -->
         <div class="scroll">
           <div class="pbody">
+            <!-- App style: 3D cube vs flat swipe. Persists per device (pg_mode); the launch
+                 router in index.html honors it so a member stays where they left off across
+                 restarts. This face is an iframe in both shells, so we navigate window.top. -->
+            <style>
+              #modeToggle{display:flex;align-items:center;justify-content:space-between;gap:12px;
+                margin:2px 0 16px;padding:10px 12px;border:1px solid rgba(239,177,78,.28);
+                border-radius:12px;background:rgba(239,177,78,.05);}
+              #modeToggle .mt-label{font-family:var(--body,'Inter',sans-serif);font-size:14px;color:#e9dcc4;}
+              #modeToggle .mt-seg{display:flex;background:rgba(0,0,0,.35);border-radius:9px;padding:3px;}
+              #modeToggle .mt-opt{appearance:none;border:0;background:none;cursor:pointer;
+                font-family:var(--body,'Inter',sans-serif);font-weight:700;font-size:13px;
+                color:#8c8172;padding:6px 16px;border-radius:7px;transition:background .15s,color .15s;}
+              #modeToggle .mt-opt.on{background:#f0a93b;color:#1a1206;}
+            </style>
+            <div id="modeToggle">
+              <span class="mt-label">App style</span>
+              <div class="mt-seg" role="group" aria-label="App style">
+                <button type="button" class="mt-opt" data-mode="cube">Cube</button>
+                <button type="button" class="mt-opt" data-mode="flat">Flat</button>
+              </div>
+            </div>
+            <script>
+              (function(){
+                var KEY='pg_mode';
+                function cur(){ try{ return localStorage.getItem(KEY)==='cube'?'cube':'flat'; }catch(e){ return 'flat'; } }
+                var wrap=document.getElementById('modeToggle'); if(!wrap) return;
+                function paint(){ var m=cur(); wrap.querySelectorAll('.mt-opt').forEach(function(b){ b.classList.toggle('on', b.dataset.mode===m); }); }
+                wrap.querySelectorAll('.mt-opt').forEach(function(b){
+                  b.addEventListener('click', function(){
+                    var m=b.dataset.mode; if(m===cur()) return;
+                    try{ localStorage.setItem(KEY, m); }catch(e){}
+                    var dest = m==='flat' ? '/app.html' : '/index.html';
+                    try{ (window.top||window).location.href = dest; }catch(e){ location.href = dest; }
+                  });
+                });
+                paint();
+              })();
+            </script>
+            <!-- Screen while watching: keep the app open and just darken it after a few idle
+                 seconds (default), or let the phone sleep normally. Read live by the flat shell
+                 (pg_screen); posts to window.top so a change takes effect mid-watch, no reload. -->
+            <style>
+              #screenToggle{display:flex;align-items:center;justify-content:space-between;gap:12px;
+                margin:2px 0 16px;padding:10px 12px;border:1px solid rgba(239,177,78,.28);
+                border-radius:12px;background:rgba(239,177,78,.05);}
+              #screenToggle .mt-label{font-family:var(--body,'Inter',sans-serif);font-size:14px;color:#e9dcc4;}
+              #screenToggle .mt-seg{display:flex;background:rgba(0,0,0,.35);border-radius:9px;padding:3px;}
+              #screenToggle .mt-opt{appearance:none;border:0;background:none;cursor:pointer;
+                font-family:var(--body,'Inter',sans-serif);font-weight:700;font-size:13px;
+                color:#8c8172;padding:6px 16px;border-radius:7px;transition:background .15s,color .15s;}
+              #screenToggle .mt-opt.on{background:#f0a93b;color:#1a1206;}
+            </style>
+            <div id="screenToggle">
+              <span class="mt-label">Screen while watching</span>
+              <div class="mt-seg" role="group" aria-label="Screen while watching">
+                <button type="button" class="mt-opt" data-screen="on">Always On</button>
+                <button type="button" class="mt-opt" data-screen="sleep">Sleep</button>
+              </div>
+            </div>
+            <script>
+              (function(){
+                var KEY='pg_screen';
+                function cur(){ try{ return localStorage.getItem(KEY)==='sleep'?'sleep':'on'; }catch(e){ return 'on'; } }
+                var wrap=document.getElementById('screenToggle'); if(!wrap) return;
+                function paint(){ var m=cur(); wrap.querySelectorAll('.mt-opt').forEach(function(b){ b.classList.toggle('on', b.dataset.screen===m); }); }
+                wrap.querySelectorAll('.mt-opt').forEach(function(b){
+                  b.addEventListener('click', function(){
+                    var m=b.dataset.screen; if(m===cur()) return;
+                    try{ localStorage.setItem(KEY, m); }catch(e){}
+                    paint();
+                    try{ (window.top||window).postMessage({type:'pg:screenmode', mode:m}, '*'); }catch(e){}
+                  });
+                });
+                paint();
+              })();
+            </script>
+            <!-- Admin-only: open the full admin panel (admin.pangolinrc.com). The count
+                 pill mirrors the panel's waitlist "new" badge (also painted on the app icon). -->
+            <button class="admin-panel-btn" id="adminPanelBtn" type="button" style="display:none">
+              <span class="apb-txt">Admin Panel</span>
+              <span class="apb-count" id="adminWaitCount" style="display:none">0</span>
+              <span class="apb-caret">↗</span>
+            </button>
             <!-- Admin-only bug review. Hidden for everyone else; the banner is a live
                  open-bug count, tapping it reveals the list (note · view · shot). -->
             <div class="adminbugs" id="adminBugs" style="display:none">
@@ -423,20 +525,10 @@
               <div class="bug-list" id="bugList" style="display:none"></div>
             </div>
 
-            <div class="devices">
-              <div class="dhead">
-                <h2>Your Devices</h2>
-                <span class="dhint">tap to manage</span>
-              </div>
-              <div class="dhead-rule"></div>
-              <div id="deviceList"></div>
-              <button class="add-row" id="addDevice">
-                <span class="plus"></span>
-                <span class="label">add device</span>
-              </button>
-            </div>
+            <!-- Devices moved to the very bottom (see below) and hidden for now: the picker
+                 is half-built, and friends/coviewing need the top of the scroll. -->
 
-            <!-- Friend slots: a tier-limited quota sitting right below devices.
+            <!-- Friend slots: a tier-limited quota, now at the top of the scroll.
                  A slot = an outgoing invite/follow; mutual = friend. -->
             <div class="following">
               <div class="dhead"><h2>Friends</h2><span class="dhint" id="slotHint">— slots</span></div>
@@ -480,6 +572,37 @@
               <div class="fl-hint">Friends' comments surface when you co-view a show — turn it on per show on the episode screen.</div>
             </div>
 
+            <!-- Coviewers: who you regularly watch TV with (household / group-plan).
+                 A coviewer can be name-only (no account) and linked later. The
+                 starred ones are your default room — what Pierre assumes when you
+                 don't say who's watching. -->
+            <div class="following coviewers">
+              <div class="dhead"><h2>Coviewers</h2><span class="dhint">who's on your sofa</span></div>
+              <div class="dhead-rule"></div>
+
+              <!-- Feed privacy: keep co-viewing off the social feed. First names only
+                   ever show, and only to your connections, but this is the opt-out. -->
+              <label class="cv-hide"><input type="checkbox" id="cvHide"><span>Hide my coviewing from the feed</span></label>
+
+              <div id="coviewerList"></div>
+
+              <!-- Add a coviewer: name + optional relationship label -->
+              <div class="fl-add" id="cvAddRow">
+                <input id="cvName" type="text" inputmode="text" placeholder="name (e.g. Rose Reis)" autocomplete="off">
+                <input id="cvRel" class="cv-rel" type="text" inputmode="text" placeholder="label" autocomplete="off">
+                <button id="cvAddBtn">Add</button>
+              </div>
+              <div class="fl-msg" id="cvMsg"></div>
+
+              <!-- Inline link editor, revealed under a row by "link" -->
+              <div class="fl-add" id="cvLinkRow" style="display:none;">
+                <input id="cvLinkEmail" type="email" data-kb="email" inputmode="email" placeholder="their pangolinRC email" autocomplete="off">
+                <button id="cvLinkSave">Link</button>
+              </div>
+
+              <div class="fl-hint">Star the people in your default room — Pierre assumes them when you don't say who's watching. No account needed; link one later.</div>
+            </div>
+
             <!-- Watch patterns: the WoW in-season scheduler's profile controls — a
                  default pattern for new shows, and the re-enable switch after a kill. -->
             <div class="wowsched" id="wowSched" style="display:none;">
@@ -500,6 +623,21 @@
               <div class="stat"><div class="num" id="stShows">0</div><div class="lbl">SHOWS</div></div>
               <div class="stat"><div class="num" id="stEps">0</div><div class="lbl">EPISODES</div></div>
               <div class="stat"><div class="num" id="stThird">0</div><div class="lbl" id="stThirdLbl">MINUTES</div></div>
+            </div>
+
+            <!-- Devices: parked at the very bottom and hidden while the picker is half-built.
+                 To bring it back, drop the display:none. Ids kept so the JS still binds. -->
+            <div class="devices" style="display:none">
+              <div class="dhead">
+                <h2>Your Devices</h2>
+                <span class="dhint">tap to manage</span>
+              </div>
+              <div class="dhead-rule"></div>
+              <div id="deviceList"></div>
+              <button class="add-row" id="addDevice">
+                <span class="plus"></span>
+                <span class="label">add device</span>
+              </button>
             </div>
           </div>
         </div>
@@ -717,6 +855,7 @@
 
   async function refresh(){
     const email=session(); state.email=email;
+    if(typeof loadCoviewers==='function') loadCoviewers();
     if(DEMO){ state.devices=DEMO_DEVICES; state.selected='phone'; renderDevices(); }
     if(!email){
       $('pname').textContent='Guest'; $('phandle').textContent='not signed in';
@@ -737,6 +876,7 @@
       if(r.ok){ const d=await r.json(); if(d.user&&d.user.username) $('pname').textContent=d.user.username;
         if(!DEMO){ state.devices=d.devices||[]; state.selected=(d.user&&d.user.selected_device)||'phone'; renderDevices(); }
         if(!DEMO) syncTimezone(email, d.user&&d.user.timezone);
+        const hv=$('cvHide'); if(hv) hv.checked=!!(d.user&&(d.user.hide_coviewing===1||d.user.hide_coviewing===true));
         if(!DEMO) applyMembership(d.user, email); }
     }catch(_){}
   }
@@ -749,8 +889,31 @@
     const founding=!!(user&&(user.founding_member===1||user.founding_member===true));
     const base=TIER_LABEL[tier]||'MEMBER';
     $('member').textContent = founding ? ('FOUNDING '+base) : base;
-    if(tier==='admin'){ loadBugs(email); }
-    else { $('adminBugs').style.display='none'; }
+    if(tier==='admin'){ loadBugs(email); loadAdminPanel(email); }
+    else { $('adminBugs').style.display='none'; const b=$('adminPanelBtn'); if(b) b.style.display='none'; }
+  }
+
+  // Admin Panel entry. Opens admin.pangolinrc.com (system browser on native; there the
+  // admin enters the shared panel password). The count pill mirrors the waitlist "new"
+  // badge — fetched via the native app secret, so it fills in on device only.
+  function openAdminPanel(){ try{ window.open('https://admin.pangolinrc.com','_blank'); }catch(_){}}
+  async function appAuthToken(){
+    try{ const C=window.Capacitor; if(!C) return '';
+      const p = C.registerPlugin ? C.registerPlugin('AppAuth') : (C.Plugins && C.Plugins.AppAuth);
+      if(!p||!p.token) return ''; const r=await p.token(); return (r&&r.value)||''; }catch(_){ return ''; }
+  }
+  async function loadAdminPanel(email){
+    const btn=$('adminPanelBtn'); if(!btn) return;
+    btn.style.display='';   // admins get the entry on web + native
+    if(!btn.dataset.wired){ btn.dataset.wired='1'; btn.addEventListener('click', openAdminPanel); }
+    try{
+      const appToken=await appAuthToken(); if(!appToken) return;   // no count without the native secret
+      const r=await fetch(API+'/admin/app-status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,appToken})});
+      if(!r.ok) return; const d=await r.json();
+      const c=$('adminWaitCount');
+      if(d.isAdmin && d.waitlistNew>0){ c.textContent=String(d.waitlistNew); c.style.display=''; }
+      else { c.style.display='none'; }
+    }catch(_){}
   }
 
   // Pull the open bug reports (admin-gated server-side) and render the badge + list.
@@ -1076,6 +1239,101 @@
     const os=e.target.closest('[data-openslot]');
     if(os){ const inp=$('friendSearch'); if(inp){ inp.focus(); } }
   });
+  // ---- Coviewers (who you watch with; starred = your default room) ----
+  function cvMsg(t, err){ const m=$('cvMsg'); if(m){ m.textContent=t||''; m.classList.toggle('err', !!err); } }
+  function cvInitial(name){ return (String(name||'?').trim()[0]||'?').toUpperCase(); }
+  let cvLinkId=null;   // row awaiting an account link
+  async function loadCoviewers(){
+    const box=$('coviewerList'); if(!box) return;
+    if(!session()){ box.innerHTML=''; return; }
+    try{
+      const r=await fetch(API+'/profile/'+encodeURIComponent(session())+'/coviewers');
+      if(!r.ok) return; const d=await r.json(); renderCoviewers(d.coviewers||[]);
+    }catch(_){}
+  }
+  function renderCoviewers(list){
+    const box=$('coviewerList'); if(!box) return;
+    if(!list.length){ box.innerHTML='<div class="fl-empty">No coviewers yet — add the people you watch with below.</div>'; return; }
+    box.innerHTML=list.map(cv=>{
+      const rel=escF(cv.relationship||'');
+      const acct = cv.linked_email ? ('linked · '+escF(cv.linked_email)) : 'name-only';
+      const sub = [rel, acct].filter(Boolean).join(' · ');
+      const link = cv.linked_email
+        ? '<span class="cv-linked">linked</span>'
+        : '<button class="cv-link" data-cvlink="'+escF(cv.id)+'">link</button>';
+      return '<div class="fl-row" data-cvid="'+escF(cv.id)+'">'
+        +'<div class="fl-av">'+cvInitial(cv.display_name)+'</div>'
+        +'<div class="fl-name">'+escF(cv.display_name)+'<small>'+sub+'</small></div>'
+        +link
+        +'<button class="cv-star '+(cv.is_default?'on':'')+'" title="Default room" data-cvstar="'+escF(cv.id)+'">'+(cv.is_default?'★':'☆')+'</button>'
+        +'<button class="fl-x" data-cvx="'+escF(cv.id)+'">×</button>'
+        +'</div>';
+    }).join('');
+  }
+  async function addCoviewer(){
+    const email=session(); if(!email){ cvMsg('Sign in first', true); return; }
+    const nameEl=$('cvName'), relEl=$('cvRel');
+    const display_name=((nameEl&&nameEl.value)||'').trim();
+    if(!display_name){ cvMsg('Enter a name', true); return; }
+    const relationship=((relEl&&relEl.value)||'').trim();
+    cvMsg('');
+    try{
+      const r=await fetch(API+'/profile/'+encodeURIComponent(email)+'/coviewers',{method:'POST',
+        headers:{'Content-Type':'application/json'},body:JSON.stringify({display_name, relationship})});
+      if(r.ok){ if(nameEl)nameEl.value=''; if(relEl)relEl.value=''; showToast('Added '+display_name); loadCoviewers(); }
+      else cvMsg('Could not add', true);
+    }catch(_){ cvMsg('Could not add', true); }
+  }
+  async function patchCoviewer(id, body){
+    const email=session(); if(!email) return null;
+    try{
+      const r=await fetch(API+'/profile/'+encodeURIComponent(email)+'/coviewers/'+encodeURIComponent(id),{method:'PATCH',
+        headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      return r.ok ? (await r.json().catch(()=>null)) : null;
+    }catch(_){ return null; }
+  }
+  async function toggleDefault(id, on){ await patchCoviewer(id, {is_default:on}); loadCoviewers(); }
+  async function removeCoviewer(id){
+    const email=session(); if(!email) return;
+    try{ await fetch(API+'/profile/'+encodeURIComponent(email)+'/coviewers/'+encodeURIComponent(id),{method:'DELETE'}); }catch(_){}
+    loadCoviewers();
+  }
+  function openLink(id){
+    cvLinkId=id; const row=$('cvLinkRow'), inp=$('cvLinkEmail');
+    if(row){ row.style.display='flex'; } if(inp){ inp.value=''; inp.focus(); }
+    cvMsg('Enter their pangolinRC email to link this coviewer.');
+  }
+  async function saveLink(){
+    if(!cvLinkId) return;
+    const inp=$('cvLinkEmail'); const addr=((inp&&inp.value)||'').trim();
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(addr)){ cvMsg('Enter a valid email', true); return; }
+    const d=await patchCoviewer(cvLinkId, {linked_email:addr});
+    const linked = !!(d && d.coviewer && d.coviewer.linked_email);
+    const row=$('cvLinkRow'); if(row) row.style.display='none'; cvLinkId=null;
+    cvMsg(linked ? '' : 'That email isn’t a member yet — kept name-only. Invite them, then link.', !linked);
+    loadCoviewers();
+  }
+  (function wireCoviewers(){
+    const add=$('cvAddBtn'), name=$('cvName'), rel=$('cvRel'), list=$('coviewerList'),
+          lsave=$('cvLinkSave'), lemail=$('cvLinkEmail'), hide=$('cvHide');
+    if(hide) hide.onchange=()=>{ const email=pgSession(); if(!email) return;
+      fetch(API+'/profile/'+encodeURIComponent(email)+'/hide-coviewing',{method:'POST',
+        headers:{'Content-Type':'application/json'},body:JSON.stringify({hide:hide.checked})}).catch(()=>{});
+      showToast(hide.checked?'Coviewing hidden from feed':'Coviewing shown on feed'); };
+    if(add) add.onclick=addCoviewer;
+    [name,rel].forEach(el=>{ if(el) el.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); addCoviewer(); } }); });
+    if(lsave) lsave.onclick=saveLink;
+    if(lemail) lemail.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); saveLink(); } });
+    if(list) list.addEventListener('click', e=>{
+      const star=e.target.closest('[data-cvstar]');
+      if(star){ toggleDefault(star.getAttribute('data-cvstar'), !star.classList.contains('on')); return; }
+      const x=e.target.closest('[data-cvx]');
+      if(x){ removeCoviewer(x.getAttribute('data-cvx')); return; }
+      const lk=e.target.closest('[data-cvlink]');
+      if(lk){ openLink(lk.getAttribute('data-cvlink')); return; }
+    });
+    loadCoviewers();
+  })();
   (function wireFriends(){
     const btn=$('followBtn'), inp=$('friendSearch');
     // The Follow button follows an exact address if one's typed, else runs search.
@@ -1153,7 +1411,7 @@
       // drag begins so the first up-swipe isn't eaten by iOS overscroll chaining.
       const _sc=document.querySelector('.scroll');
       if(_sc) document.addEventListener('touchstart',()=>{
-        const max=_sc.scrollHeight-_sc.clientHeight; if(max<=0) return;
+        const max=_sc.scrollHeight-_sc.clientHeight; if(!(max>0)) return;   // !(max>0) also bails on NaN
         if(_sc.scrollTop<=0) _sc.scrollTop=1; else if(_sc.scrollTop>=max) _sc.scrollTop=max-1;
       },{passive:true});
       let _dt=0;

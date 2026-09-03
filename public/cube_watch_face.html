@@ -23,12 +23,13 @@
 <title>Log</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
   :root{
     --base:#181210; --base-2:#211915; --line:#352a23;
     --amber:#E9A23C; --watched:#1c5a37; --avail:#46c46f; --unrel:#463d36;
     --countdown:#caa15e; --ash:#6b5d52; --plan:#bb8ae6; --text:#f5efe9; --muted:#b3a193;
+    --hot:#ff5a3c; --fresh:#46c46f; --casual:#c9a15e;   /* theater ticket freshness */
     --mine:#FFFFFF; --friend:#F0C070; --reply:#A8E0A0;   /* comment tiers: me / friend / reply */
     --display:"Space Grotesk",sans-serif; --body:"Inter",sans-serif; --mono:"JetBrains Mono",monospace;
   }
@@ -40,12 +41,21 @@
     border-radius:18px;overflow:hidden;display:flex;flex-direction:column;position:relative}
 
   .head{display:flex;align-items:flex-start;justify-content:space-between;padding:13px 15px 8px;flex-shrink:0}
-  .label{font-family:var(--mono);font-size:12px;letter-spacing:.18em;color:var(--muted)}
+  /* label (left) and headright (right) balance as equal flex sides so +Show/Movie centers between them */
+  .label{font-family:var(--mono);font-size:12px;letter-spacing:.18em;color:var(--muted);flex:1 1 0}
   .savings{text-align:right;line-height:1;cursor:pointer;user-select:none}
   .savings .amt{font-family:var(--display);font-weight:700;font-size:17px;color:var(--amber)}
   .savings .cap{font-family:var(--mono);font-size:8.5px;letter-spacing:.08em;color:var(--muted);margin-top:2px}
   .savings:hover .amt{filter:drop-shadow(0 0 6px rgba(233,162,60,.55))}
-  .headright{display:flex;align-items:center;gap:11px}
+  .headright{display:flex;align-items:center;gap:11px;flex:1 1 0;justify-content:flex-end}
+  /* CURRENT: back to the running watch, top-right corner. Shown only while a timer runs. */
+  .cur-back{display:inline-flex;align-items:center;gap:5px;white-space:nowrap;
+    font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--muted);background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.14);
+    border-radius:999px;padding:5px 12px;cursor:pointer;-webkit-appearance:none}
+  .cur-back:active{background:rgba(240,169,59,.14);color:var(--amber);border-color:rgba(240,169,59,.4)}
+  .cur-back[hidden]{display:none}
+  .cb-arrows{color:var(--amber);letter-spacing:0}   /* animated arrow marquee; monospace = no width jitter */
   .addbtn{flex-shrink:0;padding:6px 11px;border:1px solid var(--line);border-radius:999px;
     background:var(--base-2);color:var(--amber);font-family:var(--mono);font-weight:500;font-size:11px;letter-spacing:.04em;line-height:1;
     white-space:nowrap;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:border-color .15s ease,box-shadow .15s ease,transform .1s ease}
@@ -115,6 +125,16 @@
   .exc-seas-chip.cur{border-color:var(--amber);background:rgba(233,162,60,.16)}
   .exc-title{font-family:var(--display);font-weight:700;font-size:17px;line-height:1.1;color:var(--text)}
   .exc-meta{font-family:var(--mono);font-size:10px;letter-spacing:.05em;color:var(--muted)}
+  /* "Watching with" (co-viewing) row on the expanded card */
+  .coview{margin:10px 2px 0;font-family:var(--mono);font-size:11px;letter-spacing:.03em;color:var(--muted);display:flex;flex-wrap:wrap;align-items:center;gap:7px}
+  .coview:empty{display:none}
+  .coview .cv-lbl{color:var(--ash)}
+  .coview .cv-val{color:var(--text)}
+  .coview .cv-edit{background:none;border:0;color:var(--amber);font-family:var(--mono);font-size:11px;cursor:pointer;padding:0;text-decoration:underline}
+  .coview .cv-chip{background:none;border:1px solid var(--line);border-radius:999px;color:var(--muted);font-family:var(--mono);font-size:11px;padding:4px 10px;cursor:pointer}
+  .coview .cv-chip.on{border-color:var(--amber);color:var(--amber);background:rgba(233,162,60,.12)}
+  .coview .cv-save{background:var(--amber);color:#1a130b;border:0;border-radius:999px;font-family:var(--mono);font-size:11px;font-weight:700;padding:4px 12px;cursor:pointer}
+  .coview .cv-cancel{background:none;border:0;color:var(--muted);font-family:var(--mono);font-size:11px;cursor:pointer;text-decoration:underline}
   .exc-syn{font-size:11.5px;line-height:1.45;color:var(--muted);max-height:4.4em;overflow:hidden}
   .exc-btns{display:flex;gap:10px}
   .exc-btn{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;border:none;border-radius:11px;
@@ -168,6 +188,11 @@
     font-family:var(--mono);font-weight:700;font-size:11px;letter-spacing:.05em;border-radius:999px;padding:7px 13px}
   .exc-again .ic{font-size:13px;line-height:1}
   .exc-again:active{transform:scale(.96)}
+  /* completed/stopped card → permanently remove the title from the log */
+  .exc-remove{display:inline-flex;align-items:center;gap:6px;margin:10px 0 2px;cursor:pointer;
+    border:1px solid rgba(224,80,72,.5);background:rgba(224,80,72,.1);color:#e5726a;
+    font-family:var(--mono);font-weight:700;font-size:10.5px;letter-spacing:.05em;border-radius:999px;padding:6px 12px}
+  .exc-remove:active{transform:scale(.96)}
   /* per-viewing list (one ticket = one viewing); newest open, older collapsed */
   .viewings{margin-top:11px;display:flex;flex-direction:column;gap:7px}
   .vw{border:1px solid var(--line);border-radius:11px;background:rgba(255,255,255,.02);overflow:hidden}
@@ -191,6 +216,15 @@
   /* Per-episode archive (WATCH): one collapsible block per episode, folding session
      timestamps + tickets + comments + replies + reflections together. */
   .ep-arch{margin-top:11px;display:flex;flex-direction:column;gap:7px}
+  /* Master collapse for the whole viewing log: starts closed, pops down on tap. */
+  .arch-toggle{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;
+    font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.12em;color:var(--muted);
+    text-transform:uppercase;padding:2px 0}
+  .arch-caret{font-size:12px;transition:transform .15s;flex:none}
+  .ep-arch.open .arch-caret{transform:rotate(90deg)}
+  .arch-toggle .arch-n{color:var(--ash);font-weight:400}
+  .arch-list{display:none;flex-direction:column;gap:7px}
+  .ep-arch.open .arch-list{display:flex}
   .ep-sessions{display:flex;flex-direction:column;gap:2px;margin-bottom:2px}
   .ep-sess{font-family:var(--mono);font-size:10px;color:var(--muted);line-height:1.45}
   .ep-sess .ts{color:var(--ash)}
@@ -220,6 +254,12 @@
     color:var(--amber,#f0a93b);border-radius:12px;padding:2px 9px;font-family:var(--mono);font-size:9px;
     letter-spacing:.06em;cursor:pointer;font-style:normal;vertical-align:1px}
   .ep-cmt .rf-share{align-self:center}
+  /* Delete your own comment / thought from the viewing log. */
+  .rf-del{flex:none;margin-left:5px;width:22px;height:22px;border-radius:50%;background:transparent;
+    border:1px solid rgba(157,74,63,.6);color:#c99;font-size:11px;line-height:1;cursor:pointer;
+    display:inline-flex;align-items:center;justify-content:center;font-style:normal;vertical-align:1px}
+  .rf-del:hover{background:rgba(157,74,63,.28);color:#fff;border-color:var(--red,#9d4a3f)}
+  .ep-cmt .rf-del{align-self:center}
   .ep-actions{margin-top:3px}
   .ep-share{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:6px 12px;cursor:pointer;
     font-family:var(--mono);font-weight:700;font-size:10.5px;letter-spacing:.05em;
@@ -248,8 +288,33 @@
   .tile .wowtag{position:absolute;top:8px;right:8px;z-index:2;background:rgba(26,18,6,.82);color:var(--amber);
     border:1px solid rgba(240,168,40,.55);font-family:var(--mono);font-size:8.5px;font-weight:700;letter-spacing:.06em;
     padding:3px 7px;border-radius:5px;box-shadow:0 1px 4px rgba(0,0,0,.5);white-space:nowrap}
+  /* Marathon corner tag + name sub-line: the purple plan accent marks a curated-queue tile. */
+  .tile .wowtag.martag{color:var(--plan);border-color:rgba(187,138,230,.6);background:rgba(26,18,6,.88)}
+  .tile.marathon{outline:1px solid rgba(187,138,230,.28);outline-offset:-1px}
+  /* Marathon progress pop-in (in the expanded card). Lavender accent = curated marathon. */
+  .mp{margin:13px 0 3px;padding:12px 13px;border:1px solid rgba(187,138,230,.34);border-radius:12px;background:rgba(187,138,230,.06)}
+  .mp-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}
+  .mp-name{font-family:var(--display);font-weight:700;font-size:14px;color:var(--text);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .mp-badge{flex:none;font-family:var(--mono);font-size:8px;letter-spacing:.14em;color:#c8a2ea;border:1px solid rgba(187,138,230,.4);border-radius:999px;padding:2px 7px}
+  .mp-bar{display:flex;gap:4px;align-items:center;margin-top:14px}
+  .mp-seg{flex:1;height:7px;border-radius:3px;background:rgba(255,255,255,.12);position:relative}
+  .mp-seg.done{background:#3f7a44}
+  .mp-seg.cur{background:#5fbf6a;box-shadow:0 0 9px rgba(95,191,106,.55)}
+  .mp-pop{position:absolute;left:50%;top:-14px;transform:translateX(-50%);font-size:15px;filter:drop-shadow(0 1px 3px rgba(0,0,0,.6));pointer-events:none}
+  .mp-meta{display:flex;align-items:baseline;gap:9px;margin-top:11px;flex-wrap:wrap}
+  .mp-count{flex:none;font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:#c8a2ea}
+  .mp-now{font-size:12.5px;color:var(--text);min-width:0}
+  .tile .body .marsub{font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.05em;color:var(--plan);
+    text-transform:uppercase;margin:1px 0 3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .exc-tag{display:inline-block;font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.06em;color:var(--amber);
     border:1px solid rgba(240,168,40,.55);background:rgba(26,18,6,.5);padding:2px 8px;border-radius:999px;margin-left:8px}
+  /* Theater ticket stub: torn-left / notched-right badge, weekday + freshness class. */
+  .tile .tikbadge{position:absolute;top:8px;right:8px;z-index:2;width:54px;height:34px;color:var(--casual)}
+  .tile .tikbadge.hot{color:var(--hot)} .tile .tikbadge.fresh{color:var(--fresh)} .tile .tikbadge.casual{color:var(--casual)}
+  .tile .tikbadge svg{position:absolute;inset:0;width:100%;height:100%;filter:drop-shadow(0 1px 4px rgba(0,0,0,.55))}
+  .tile .tikbadge .tb-txt{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1;padding-left:3px}
+  .tile .tikbadge .tb-day{font-family:var(--mono);font-weight:700;font-size:12px;letter-spacing:.02em}
+  .tile .tikbadge .tb-cls{font-family:var(--mono);font-weight:700;font-size:6.5px;letter-spacing:.12em;margin-top:2px;opacity:.95}
   /* Watch-pattern rubber stamp: the user's watchMode, ink-stamped on the card. */
   .tile .wowstamp{position:absolute;top:40px;right:8px;z-index:3;transform:rotate(-11deg);
     font-family:var(--mono);font-weight:700;font-size:10px;letter-spacing:.14em;color:var(--amber);
@@ -273,9 +338,26 @@
   .bar.cd .fill{height:100%;background:var(--countdown);border-radius:3px}
   .bar.cd .fill.soon{background:var(--amber);box-shadow:0 0 5px rgba(233,162,60,.7)}
   .pop{position:absolute;top:50%;width:11px;height:11px;transform:translate(-50%,-50%);font-size:11px;line-height:11px;filter:drop-shadow(0 0 3px rgba(233,162,60,.8));pointer-events:none}
+  /* mode markers on the playhead: flame = BINGE, leaf = FRESH (SVG, own glow) */
+  .pop.mk{filter:none;width:auto;height:auto}
+  .pop.mk svg{display:block;width:14px;height:14px}
+  .pop.flame svg{filter:drop-shadow(0 0 4px rgba(255,90,20,.8))}
+  .pop.leaf svg{filter:drop-shadow(0 0 4px rgba(70,196,111,.8))}
 
   .tile.completed .poster{filter:saturate(.6) brightness(.74)}
   .tile.stopped{opacity:.62} .tile.stopped .poster{filter:grayscale(.85) brightness(.6)}
+  /* Rewatch passes: archived watch-throughs (a per-season view), each stamped with its
+     locked pattern (complete) or the highlighter marker (a partial, restarted pass). */
+  .passhead{grid-column:1/-1;font-family:var(--mono);font-size:9px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--muted);margin:10px 2px 0;display:flex;align-items:center;gap:7px}
+  .passhead::after{content:"";flex:1;height:1px;background:var(--line)}
+  .passtile .poster{filter:saturate(.55) brightness(.7)}
+  .passbadge{position:absolute;top:8px;right:8px;z-index:3;display:inline-flex;align-items:center;gap:3px;
+    font-family:var(--mono);font-weight:700;font-size:8px;letter-spacing:.08em;padding:3px 6px;border-radius:6px;
+    background:rgba(26,18,6,.86);color:var(--amber);border:1px solid rgba(233,162,60,.4)}
+  .passbadge.highlights{color:#ffd24a;border-color:rgba(255,210,74,.5)}
+  .passbadge svg{width:12px;height:12px}
+  .passtile .ord{color:var(--amber)}
   .tryagain{align-self:flex-start;background:transparent;border:none;color:var(--muted);font-family:var(--mono);font-size:8.5px;letter-spacing:.04em;cursor:pointer;padding:0;opacity:.85}
   .tryagain:hover{color:var(--amber)}
   .divider{grid-column:1/-1;font-family:var(--mono);font-size:9px;letter-spacing:.14em;color:var(--muted);margin:6px 0 2px;display:flex;align-items:center;gap:8px}
@@ -323,14 +405,17 @@
   .marback:active{transform:scale(.96)}
   .marov iframe{flex:1 1 auto;width:100%;min-height:0;border:0;background:var(--base)}
 
-  .tabbar{flex-shrink:0;display:flex;border-top:1px solid var(--line);background:var(--base-2)}
-  .tab{flex:1;background:transparent;border:none;border-right:1px solid var(--line);color:var(--muted);font-family:var(--mono);
-    font-size:8.5px;letter-spacing:.04em;padding:9px 3px;cursor:pointer;transition:background .15s ease,color .15s ease;display:flex;align-items:center;justify-content:center;gap:4px}
-  .tab:last-child{border-right:none}
-  .tab .ct{opacity:.6;font-size:8px}
-  .tab.on{background:rgba(233,162,60,.16);color:var(--amber)} .tab.on .ct{opacity:.9}
+  /* Tab bar: pill buttons matching the Browse (IRL) face, at the TOP of the grid. */
+  .tabbar{flex-shrink:0;display:flex;gap:6px;padding:9px 15px 8px}
+  .tab{flex:1;font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;font-weight:700;
+    color:var(--muted);background:var(--base-2);border:1px solid var(--line);border-radius:9px;padding:8px 4px;cursor:pointer;
+    transition:color .15s ease,border-color .15s ease,background .15s ease;white-space:nowrap;
+    display:flex;align-items:center;justify-content:center;gap:5px}
+  .tab:hover{color:var(--text)}
+  .tab .ct{font-weight:700;opacity:.55;font-size:8.5px}
+  .tab.on{color:#1a130b;background:var(--amber);border-color:var(--amber)} .tab.on .ct{opacity:.75}
   .tab.pulse{animation:tabpulse .7s ease}
-  @keyframes tabpulse{0%,100%{background:rgba(233,162,60,.16)}45%{background:rgba(233,162,60,.42)}}
+  @keyframes tabpulse{0%,100%{background:var(--amber)}45%{background:#f6cd82}}
 
   .fx{position:absolute;inset:0;pointer-events:none;z-index:40;overflow:hidden}
   .particle{position:absolute;transform:translate(-50%,-50%);animation:fly var(--dur) ease-out forwards;will-change:transform,opacity}
@@ -359,15 +444,120 @@
   .sav-total .v{font-family:var(--display);font-weight:700;font-size:18px;color:var(--amber)}
   .sav-foot{font-family:var(--body);font-size:10px;color:var(--muted);margin-top:10px;line-height:1.35}
   /* Floating cube — back to cube navigation (shared across trunk sides) */
+  /* 125% block-text bump — running prose scaled ~1.25x (labels/mono chrome unchanged). */
+  .exc-syn{font-size:14px}
+  .sh-note{font-size:16px}
+  /* ---- STACK (ported from Browse "shelf"): scanner viewport + owned-media grid ---- */
+  .addpanel{margin-top:14px}
+  .cam{position:relative;flex:0 0 auto;border:1px solid var(--line);border-radius:12px;overflow:hidden;
+    background:#0a0806;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center}
+  .camclose{position:absolute;top:8px;right:8px;z-index:4;width:26px;height:26px;border-radius:50%;
+    border:0;background:rgba(8,6,4,.82);color:#fff;font-size:13px;line-height:1;cursor:pointer;
+    display:flex;align-items:center;justify-content:center}
+  .cam img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  .cam .placeholder{font-family:var(--mono);font-size:10.5px;color:#6d6152;text-align:center;line-height:1.6;padding:0 24px;z-index:1}
+  .cam .reticle{position:absolute;left:14%;right:14%;top:38%;bottom:38%;border:2px solid rgba(232,159,61,.85);
+    border-radius:8px;box-shadow:0 0 0 100vmax rgba(6,4,2,.32);z-index:2}
+  .cam .laser{position:absolute;left:16%;right:16%;top:50%;height:2px;background:rgba(232,159,61,.9);
+    box-shadow:0 0 8px rgba(232,159,61,.8);z-index:3;animation:stkscan 2.2s ease-in-out infinite}
+  @keyframes stkscan{0%,100%{top:40%}50%{top:60%}}
+  @media (prefers-reduced-motion:reduce){.cam .laser{animation:none}}
+  .camrow{display:flex;gap:8px;margin-top:10px}
+  .camrow button{flex:1;font-family:var(--display);font-weight:700;font-size:12.5px;letter-spacing:.03em;
+    border:0;border-radius:10px;padding:11px;cursor:pointer}
+  .camrow .scan{color:#1a130b;background:var(--amber)}
+  .camrow .manual{color:var(--text);background:var(--panel-2);border:1px solid var(--line)}
+  .camrow button:active{transform:translateY(1px)}
+  .shelfhead{display:flex;justify-content:space-between;align-items:center;margin:18px 0 8px;flex:0 0 auto}
+  .shelfhead h2{font-family:var(--display);font-size:14px;font-weight:700;margin:0}
+  .shelfright{display:flex;align-items:center;gap:10px}
+  .shelfright em{font-family:var(--mono);font-style:normal;font-size:9px;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--muted)}
+  .stk-add{width:27px;height:27px;border-radius:50%;border:0;background:var(--amber);color:#1a130b;
+    font-size:19px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;
+    box-shadow:0 6px 16px -8px rgba(232,159,61,.85)}
+  .stk-add.on{background:var(--panel-2);color:var(--amber);border:1px solid var(--line)}
+  .stk-add:active{transform:translateY(1px)}
+  .shelf{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+  .mcard{position:relative;aspect-ratio:2/3;border-radius:8px;overflow:hidden;border:1px solid var(--line);
+    background:#000 center/cover;cursor:pointer}
+  .mcard .spine{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:flex-end;
+    padding:6px;background:linear-gradient(180deg,rgba(0,0,0,0) 40%,rgba(6,4,2,.88))}
+  .mcard .mtitle{font-size:10px;font-weight:600;line-height:1.15;color:var(--text);
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .mcard .fmt{position:absolute;top:5px;left:5px;font-family:var(--mono);font-size:7.5px;letter-spacing:.08em;
+    padding:2px 5px;border-radius:5px;background:rgba(6,4,2,.78);color:var(--amber)}
+  .mcard .x{position:absolute;top:4px;right:4px;width:19px;height:19px;border:none;border-radius:50%;
+    background:rgba(8,6,4,.8);color:#fff;font-size:11px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .camstatus{font-family:var(--mono);font-size:10px;letter-spacing:.03em;color:var(--muted);
+    text-align:center;margin-top:9px;min-height:14px;line-height:1.35}
+  .camstatus.ok{color:var(--green)}
+  .camstatus.bad{color:var(--amber-soft)}
+  .stk-empty{border:1px dashed var(--line);border-radius:11px;padding:13px;color:var(--muted);
+    font-size:12.5px;line-height:1.45;grid-column:1/-1}
+  .stk-empty b{color:var(--text)}
+  /* ---- TICKETS (ported from Browse): theater stubs stacked like Wallet passes ---- */
+  .tixgrid{display:flex;flex-direction:column;gap:0;margin:16px -16px 0}
+  .tixtoday{display:flex;align-items:center;gap:9px;margin:16px 18px 6px;font-family:var(--mono);font-size:9px;
+    letter-spacing:.18em;text-transform:uppercase;color:var(--amber)}
+  .tixtoday::before,.tixtoday::after{content:"";flex:1;height:1px;background:rgba(232,159,61,.35)}
+  .tix{position:relative;cursor:pointer;transition:transform .12s;
+    -webkit-mask:radial-gradient(circle 9px at 18px 0,#0000 8.5px,#000 9px) -18px 0/36px 15px repeat-x,
+      linear-gradient(#000,#000) 0 14px/100% 100% no-repeat;
+    mask:radial-gradient(circle 9px at 18px 0,#0000 8.5px,#000 9px) -18px 0/36px 15px repeat-x,
+      linear-gradient(#000,#000) 0 14px/100% 100% no-repeat;
+    filter:drop-shadow(0 -3px 7px rgba(0,0,0,.6))}
+  .tix + .tix{margin-top:-24px}
+  .tix:active{transform:scale(.994)}
+  .tix-row{position:relative;display:flex;align-items:stretch;min-height:116px;background:#000 top/cover}
+  .tix-row::before{content:"";position:absolute;inset:0;pointer-events:none;
+    background:linear-gradient(90deg,rgba(9,6,4,.94) 0%,rgba(9,6,4,.8) 42%,rgba(9,6,4,.34) 78%,rgba(9,6,4,.12) 100%)}
+  .tix .body{position:relative;z-index:1;flex:1 1 auto;min-width:0;padding:24px 16px 18px;display:flex;
+    flex-direction:column;justify-content:flex-start;gap:6px}
+  .tix .film{font-family:var(--display);font-weight:700;font-size:26px;line-height:1.05;color:var(--text);
+    text-shadow:0 2px 10px rgba(0,0,0,.85);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .tix .where{font-family:var(--mono);font-size:9.5px;color:#e0cfb0;text-shadow:0 1px 5px rgba(0,0,0,.85);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tix-hasrefl{margin-left:8px;font-size:11px;color:var(--amber);vertical-align:2px;text-shadow:0 1px 4px rgba(0,0,0,.8)}
+  .tix-hasrefl svg{width:15px;height:15px;vertical-align:-2px;filter:drop-shadow(0 1px 3px rgba(0,0,0,.85))}
+  /* Tapping a ticket opens the enlarged real-life stub (NOT the show's log). Fixed overlay. */
+  .tixfull{position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;justify-content:space-between;
+    background:#000 top/cover;overflow:hidden;animation:tfin .26s ease both}
+  @keyframes tfin{from{opacity:0;transform:scale(1.02)}to{opacity:1;transform:none}}
+  .tixfull::before{content:"";position:absolute;inset:0;pointer-events:none;
+    background:linear-gradient(180deg,rgba(9,6,4,.22) 28%,rgba(9,6,4,.1) 44%,rgba(9,6,4,.72) 72%,rgba(9,6,4,.96) 100%)}
+  .tf-head{position:relative;z-index:2;padding:20px 16px 18px;display:flex;flex-direction:column;gap:6px;
+    background:linear-gradient(90deg,rgba(9,6,4,.94) 0%,rgba(9,6,4,.8) 42%,rgba(9,6,4,.34) 78%,rgba(9,6,4,.12) 100%)}
+  .tf-close{position:absolute;top:14px;right:14px;z-index:3;width:34px;height:34px;border-radius:50%;
+    border:none;background:rgba(8,6,4,.6);color:#fff;font-size:16px;line-height:1;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+  .tf-body{position:relative;z-index:2;padding:16px 16px 44px;display:flex;flex-direction:column;gap:11px}
+  .tf-film{font-family:var(--display);font-weight:700;font-size:26px;line-height:1.05;color:var(--text);text-shadow:0 2px 10px rgba(0,0,0,.85)}
+  .tf-meta{font-family:var(--mono);font-size:9.5px;color:#e0cfb0;text-shadow:0 1px 5px rgba(0,0,0,.85)}
 </style>
 </head>
 <body>
+<!-- Shared playhead-marker glyphs: flame = BINGE, leaf = FRESH (referenced via <use>). -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <linearGradient id="mkFlameG" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#e11d1d"/><stop offset="52%" stop-color="#ff6a00"/><stop offset="100%" stop-color="#ffd21a"/>
+  </linearGradient>
+  <linearGradient id="mkLeafG" x1="0" y1="0" x2="1" y2="1">
+    <stop offset="0%" stop-color="#86e6a0"/><stop offset="55%" stop-color="#46c46f"/><stop offset="100%" stop-color="#2f8a4f"/>
+  </linearGradient>
+  <symbol id="mkFlame" viewBox="0 0 24 24"><path fill="url(#mkFlameG)" d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></symbol>
+  <symbol id="mkLeaf" viewBox="0 0 24 24"><path fill="url(#mkLeafG)" d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path fill="none" stroke="#e7fbee" stroke-width="1.6" stroke-linecap="round" d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></symbol>
+</defs></svg>
 <div class="face" id="face">
   <div class="head">
     <div class="label">WATCH</div>
+    <button class="addbtn" id="addBtn" aria-label="Add a show or movie">+ Show/Movie</button>
     <div class="headright">
       <div class="savings" id="savingsBtn"><div class="amt" id="savings">$0</div><div class="cap">SAVED IN PROGRAM</div></div>
-      <button class="addbtn" id="addBtn" aria-label="Add a show or movie">+ Show/Movie</button>
+      <!-- Escape hatch back to the running watch (Log face), top-right corner — mirrors the Log
+           face's QUEUE button. Shown ONLY while a timer is going; otherwise QUEUE items open the
+           Log by tapping them, so this stays hidden. -->
+      <button class="cur-back" id="curBack" type="button" hidden><span class="cb-arrows" id="cbArrows">&gt;&gt;-</span>&nbsp;CURRENT</button>
     </div>
   </div>
 
@@ -379,14 +569,17 @@
     </div>
   </div>
 
-  <div class="scroll"><div class="grid" id="grid"><div class="state">loading your log...</div></div></div>
-
+  <!-- NAV RESTRUCTURE sub-tabs: QUEUE / TICKETS / STACK. QUEUE is the old CURRENT (in-progress)
+       bucket, relabeled (internal data-tab key stays 'current'). COMFORT moved to Browse/COLLECT
+       and COMPLETED moved to SET, so both leave here. TICKETS + STACK arrive from Browse (content
+       port in progress). -->
   <div class="tabbar">
-    <button class="tab on" data-tab="current">CURRENT<span class="ct" id="n-current"></span></button>
-    <button class="tab" data-tab="returning">RETURNING<span class="ct" id="n-returning"></span></button>
-    <button class="tab" data-tab="comfort">&#127871; COMFORT<span class="ct" id="n-comfort"></span></button>
-    <button class="tab" data-tab="completed">COMPLETED<span class="ct" id="n-completed"></span></button>
+    <button class="tab on" data-tab="current">QUEUE<span class="ct" id="n-current"></span></button>
+    <button class="tab" data-tab="tickets">TICKETS<span class="ct" id="n-tickets"></span></button>
+    <button class="tab" data-tab="stack">STACK<span class="ct" id="n-stack"></span></button>
   </div>
+
+  <div class="scroll"><div class="grid" id="grid"><div class="state">loading your log...</div></div></div>
 
   <div class="fx" id="fx"></div>
   <div class="flash" id="flash"><div class="flabel">&#8594; EPISODES</div><div class="fsub"></div><div class="fnote"></div></div>
@@ -401,6 +594,7 @@
 </div>
 
 <script src="/wow-scheduler.js"></script>
+<script src="/zxing.min.js"></script>   <!-- STACK barcode scanner (ported from Browse) -->
 <script>
 const SEED=[
   {id:"severance", q:"Severance",      watched:14,      lastDate:"2026-06-12"},
@@ -408,6 +602,7 @@ const SEED=[
   {id:"silo",      q:"Silo",           watchedAll:true, lastDate:"2026-05-30", returnDate:"2026-06-19"},
   {id:"thebear",   q:"The Bear",       watchedAll:true, lastDate:"2026-06-02", returnDate:"2026-07-15"},
   {id:"tlou",      q:"The Last of Us", watchedAll:true, lastDate:"2026-05-20", returnDate:"2026-09-01"},
+  {id:"yellowjackets", q:"Yellowjackets", watchedAll:true, lastDate:"2026-07-20", returnDate:"2026-10-15"},
   {id:"mrrobot",   q:"Mr. Robot",      watchedAll:true, lastDate:"2026-04-30"},
   {id:"andor",     q:"Andor",          watchedAll:true, lastDate:"2026-04-14"},
   {id:"goodplace", q:"The Good Place", watchedAll:true, lastDate:"2026-02-02"},
@@ -429,6 +624,14 @@ const TOTAL_SAVED=SUBS.reduce((a,s)=>a+(s.full-s.paid)*s.months,0);
 
 const NOW=new Date();
 let LOG=[], activeTab="current", addSeq=0, selectedId=null;
+// Archived rewatch passes (GET /profile/:email/passes) — null until first loaded.
+let PASSES=null;
+// Highlighter marker: stamps a partial-then-restarted ("highlights") pass in the Completed tab.
+const HILITE_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l3-1L17.5 8.5a2.1 2.1 0 0 0-3-3L4 16z"/><path d="M13.5 6.5l4 4"/><path d="M3 21h6"/></svg>';
+// VIEWING LOG open-state, persisted across re-renders so a refresh/rotate-in can't wipe
+// it (that was the "closes randomly"). Keyed by show: opening a different show resets to
+// all-closed. `open` = the master toggle; `eps` = the episode keys whose block is open.
+let archState = { showId:null, open:false, eps:new Set() };
 const face=document.getElementById("face");
 
 // DEMO = showcase build (dummy savings + "finished" chip); MVP = clean product.
@@ -481,6 +684,11 @@ async function hydrate(seed){
 // so read from the scheduler's prefetched TVMaze cache (airstamps). [] until wowPrefetch fills it.
 function wowShowId(s){ return s && (s.titleId||s.tvmazeId||s.id); }
 function wowEps(s){ return (window.WoW && s) ? WoW.epsCached(wowShowId(s)) : []; }
+// Watch-aware next-drop helpers: pass the show's last watched episode so a caught-up
+// show references its NEXT unwatched episode (not one that aired today) for both the
+// day-badge TAG and the timely sort.
+function wowNext(s){ return (window.WoW && s) ? WoW.nextUp(wowEps(s), Date.now(), s.lastWatched) : null; }
+function wowSortKey(s){ return (window.WoW && s) ? WoW.sortKey(wowEps(s), Date.now(), s.lastWatched) : Infinity; }
 // Account shows carry no episode list. Fetch airstamps for the tvmaze series once per
 // account load, then re-render so TAGs, in-season bucketing, and timely sort light up.
 let _wowPrefetched=false;
@@ -508,7 +716,21 @@ async function wowClassifyShow(s){
     const fin=(Array.isArray(e.sessions)?e.sessions:[]).filter(x=>x&&x.finishTs).pop(); const ts=fin?fin.finishTs:null; if(!ts) return;
     deltas.push((ts-new Date(air.airstamp).getTime())/3600000); tss.push(ts); });
   const st=WoW.store.stateNow()||{}; const killed=st.user&&st.user.globalKill; const manual=st.modes&&st.modes[showId];
-  _wowModes[showId]=WoW.classifyDeltas(deltas, tss, {manual, killed});
+  const now=Date.now(), WEEK=7*86400000;
+  const lastWatch = tss.length ? Math.max.apply(null, tss) : 0;
+  // Recency gate: nothing watched in the last week → DORMANT (no badge).
+  if(!lastWatch || (now-lastWatch) > WEEK){ _wowModes[showId]={mode:'DORMANT', src:'derived'}; return; }
+  // BINGE: 3+ episodes finished within a 3-day window in the last week.
+  const recent = tss.filter(t=>now-t<=WEEK).sort((a,b)=>a-b);
+  let binge=false;
+  for(let i=0;i<recent.length && !binge;i++){ let c=1;
+    for(let j=i+1;j<recent.length;j++){ if(recent[j]-recent[i]<=3*86400000) c++; }
+    if(c>=3) binge=true; }
+  if(binge){ _wowModes[showId]={mode:'MORE!', src:'derived'}; return; }
+  // Else: FRESH if you're keeping up with a weekly (watched close to air), else CASUAL.
+  const cls=WoW.classifyDeltas(deltas, tss, {manual, killed});
+  let mode = (cls.mode==='LIVE'||cls.mode==='FRESH') ? 'FRESH' : 'CASUAL';   // vocab: Fresh/Binge/Casual
+  _wowModes[showId]={mode, src:'derived'};
 }
 // Public-facing label: MORE! reads as BINGE everywhere the member sees it.
 function wowLabel(mode){ return mode==='MORE!' ? 'BINGE' : mode; }
@@ -516,14 +738,35 @@ function wowLabel(mode){ return mode==='MORE!' ? 'BINGE' : mode; }
 // else the derived classification, else the member's profile default (their general
 // aspiration). Specific types are never picked per show here -- that is the Profile
 // default's job; the show face only accepts (on) or declines (off) this pattern.
-function wowEffMode(showId){
+// "Fresh right now" = caught up on every aired episode AND the show is actively in-season.
+// In-season means the phase engine sees the show still airing: either it just dropped
+// (LIVE/FRESH air-window) OR the next episode is coming within the in-season window
+// (PRE-SHOW/RAMP/SETTLED). This is deliberately broader than the old <=48h post-air gate:
+// a weekly you're caught up on stays FRESH BETWEEN drops (you're keeping up), instead of
+// decaying to CASUAL 48h after each episode and only flickering FRESH for two days a week.
+// Only DORMANT / SEASON WRAP (no upcoming drop in-season) fall through to the derived mode.
+const WOW_INSEASON_PHASES = ['LIVE', 'FRESH', 'PRE-SHOW', 'RAMP', 'SETTLED'];
+function wowFreshNow(s){
+  if(!window.WoW || !s) return false;
+  if((s.watched||0) < (s.released||0)) return false;   // still behind on aired episodes → not fresh, CASUAL
+  const ph=WoW.phase(wowEps(s));
+  return !!ph && WOW_INSEASON_PHASES.indexOf(ph.name) >= 0;
+}
+function wowEffMode(showId, s){
   const st=WoW.store.stateNow()||{};
   const manual=st.modes&&st.modes[showId];
   if(manual && manual!=='DECLINED') return {mode:manual, src:'set'};
   const d=_wowModes[showId];
-  if(d && d.mode!=='UNSAMPLED' && d.mode!=='DECLINED') return {mode:d.mode, src:'derived'};
-  const def=st.user&&st.user.defaultMode;
-  if(def) return {mode:def, src:'default'};
+  const derived=(d && d.mode!=='UNSAMPLED' && d.mode!=='DECLINED' && d.mode!=='DORMANT') ? d.mode : null;
+  // Binge wins (matches the fire playhead marker).
+  if(derived==='MORE!') return {mode:'MORE!', src:'derived'};
+  // Fresh override: catching the newest episode inside its fresh window reads as FRESH
+  // now, even if the long-run median (diluted by old binges) classified this CASUAL.
+  // Keeps the text badge in step with the leaf.
+  if(wowFreshNow(s)) return {mode:'FRESH', src:'derived'};
+  if(derived) return {mode:derived, src:'derived'};
+  // No profile-default fallback: a show only earns a badge from its OWN recent activity
+  // (else every show got stamped with the default). Dormant (>1 week unwatched) → none.
   return null;
 }
 function wowStampFor(s){
@@ -534,7 +777,7 @@ function wowStampFor(s){
   const showId=wowShowId(s), st=WoW.store.stateNow()||{};
   if(st.user&&st.user.globalKill) return null;
   const declined=(st.modes&&st.modes[showId])==='DECLINED';   // toggled off for this show
-  const eff=wowEffMode(showId);
+  const eff=wowEffMode(showId, s);
   if(eff) return {mode:eff.mode, src:eff.src, off:declined};
   // Declined with no derivable/default pattern still shows a generic OFF stamp so the
   // toggle is always recoverable (tap it to switch back on).
@@ -556,7 +799,12 @@ function wowModePrefetch(){
   const shows=LOG.filter(s=>s && /^tvmaze:\d+$/.test(String(wowShowId(s)||'')) && (s.watched||0)>=2);
   if(shows.length) Promise.all(shows.map(wowClassifyShow)).then(()=>{ try{ render(); }catch(_){} });
 }
+// A film watched in a theater (a ticket is on file). These belong to the IRL/tickets
+// space, not the WATCH show list -- hidden from the grid + tab counts. Streamed and
+// physical-media movies have no ticketAt and stay.
+function isTheaterMovie(s){ return !!(s && s.kind==='movie' && s.ticketAt); }
 function bucketOf(s){
+  if(ticketWatched(s)) return "completed";   // theater ticket: auto-flips to watched once the film has started
   if(s.stopped) return "completed";
   if(s.forceCompleted) return "completed";
   if(s.failed) return "current";
@@ -565,12 +813,12 @@ function bucketOf(s){
   if(ended && s.watched>=s.total && s.total>0) return "completed";
   if(s.watched < s.released) return "current";
   // Caught up but a new episode drops soon (in-season, e.g. a weekly mid-season show
-  // waiting on next week's drop) → still CURRENT, not "returning". Without this a
-  // running show you're caught up on falls into the under-construction returning tab
-  // and vanishes from the list. Uses the scheduler's live airstamps.
-  if(window.WoW && WoW.inSeason(wowEps(s))) return "current";
-  if(s.returnDate) return daysTo(s.returnDate)<=7 ? "current" : "returning";
-  return ended ? "completed" : "returning";
+  // waiting on next week's drop) → still CURRENT. Uses the scheduler's live airstamps.
+  if(window.WoW && WoW.inSeason(wowEps(s), Date.now(), s.lastWatched)) return "current";
+  // The RETURNING tab was retired -- a followed show on hiatus (caught up, next season
+  // still out) stays in CURRENT with its return-countdown tile, rather than vanishing.
+  if(s.returnDate) return "current";
+  return ended ? "completed" : "current";
 }
 
 /* Which episodes a rewatch plan includes. Demo subsets. */
@@ -613,14 +861,42 @@ function renderPierre(){
   el.innerHTML='<span class="q">Last:</span> <b>'+esc(s.name)+"</b>"+where+mid+' <span class="q">&middot; '+relDate(e.at)+"</span>";
 }
 
+// Playhead marker: popcorn by default; flame when bingeing (3rd episode of a burst), leaf
+// when the show is FRESH for THIS viewer. The leaf now reads the SAME effective mode as the
+// text badge (wowStampFor → wowEffMode, which applies the caught-up + in-season wowFreshNow
+// override), so glyph and badge never disagree: a show you're behind on shows CASUAL text and
+// NO leaf, even while it's airing fresh. (The old raw-phase clause lit the leaf off the show's
+// air-window regardless of your progress — the "CASUAL but a leaf" mismatch.) The override
+// needs no classifier samples, so a first caught-up fresh watch still lights the leaf at once.
+// Movies always get popcorn.
+function playheadMarkerHTML(s, leftPct){
+  const popcorn='<div class="pop" style="left:'+leftPct+'%">&#127871;</div>';
+  if(s.kind==='movie') return popcorn;   // movies have no weekly cadence
+  const m=(typeof wowStampFor==='function')?wowStampFor(s):null;
+  const mode=(m && !m.off)?m.mode:null;
+  if(mode==='MORE!'||mode==='BINGE') return '<div class="pop mk flame" style="left:'+leftPct+'%"><svg viewBox="0 0 24 24"><use href="#mkFlame"/></svg></div>';
+  if(mode==='FRESH') return '<div class="pop mk leaf" style="left:'+leftPct+'%"><svg viewBox="0 0 24 24"><use href="#mkLeaf"/></svg></div>';
+  return popcorn;
+}
 function episodeBar(s){
-  if(s.failed||s.total===0)return '<div class="bar"></div>';
+  if(s.failed)return '<div class="bar"></div>';
+  // A movie is one runtime, not a pile of episodes: fill by minutes watched / runtime.
+  if(s.kind==='movie'){
+    const rt=s.runtime||0, mins=Math.max(0,s.lastMinute||0), done=bucketOf(s)==="completed";
+    const w=done?100:(rt>0?Math.max(0,Math.min(100,mins/rt*100)):0);
+    let h='<div class="bar">';
+    if(w>0)h+='<div class="seg w" style="width:'+w+'%"></div>';
+    if(w<100)h+='<div class="seg u" style="width:'+(100-w)+'%"></div>';
+    if(!done&&mins>0)h+=playheadMarkerHTML(s,w);
+    return h+"</div>";
+  }
+  if(s.total===0)return '<div class="bar"></div>';
   const w=(s.watched/s.total)*100,a=((s.released-s.watched)/s.total)*100,u=((s.total-s.released)/s.total)*100;
   let h='<div class="bar">';
   if(w>0)h+='<div class="seg w" style="width:'+w+'%"></div>';
   if(a>0)h+='<div class="seg a" style="width:'+a+'%"></div>';
   if(u>0)h+='<div class="seg u" style="width:'+u+'%"></div>';
-  if(bucketOf(s)!=="completed"&&s.watched>0&&s.watched<s.total&&!s.returnDate)h+='<div class="pop" style="left:'+w+'%">&#127871;</div>';
+  if(bucketOf(s)!=="completed"&&s.watched>0&&s.watched<s.total&&!s.returnDate)h+=playheadMarkerHTML(s,w);
   return h+"</div>";
 }
 function countdownBar(s){
@@ -635,7 +911,9 @@ function metaFor(s){
   if(s.failed)return '<span>data unavailable</span>';
   if(s.kind==='movie'){
     if(bucketOf(s)==="completed")return '<span class="done">&#10003; watched</span><span>film</span>';
-    return "<span>&#127909; film</span><span>"+(s.lastMinute>0?'in progress':'not started')+"</span>";
+    const rt=s.runtime||0, mins=Math.max(0,s.lastMinute||0), left=Math.max(0,rt-mins);
+    const state=(mins>0&&rt>0)?(left+' min left'):(rt>0?(rt+' min'):(mins>0?'in progress':'not started'));
+    return "<span>&#127909; film</span><span>"+state+"</span>";
   }
   if(bucketOf(s)==="completed")return '<span class="done">&#10003; done</span><span>'+s.total+'ep</span>';
   const left=s.released-s.watched,pos=s.lastWatched?"S"+s.lastWatched.season+" E"+s.lastWatched.number:"";
@@ -648,8 +926,106 @@ function posterDiv(s){return s.poster?'<div class="poster" style="background-ima
 // Derived client-side from the episode airstamps already loaded per show. Series only.
 function wowTag(s){
   if(!window.WoW || !s || s.kind==='movie') return '';
-  const n = WoW.nextUp(wowEps(s));
+  const n = wowNext(s);
   return n ? WoW.tag(n.airstamp) : '';
+}
+// Between-seasons badge: a caught-up show returning far out (>30 days) shows the return
+// MONTH rather than a weekday/date. Same year → "OCTOBER"; a later year → "MARCH 2027".
+// Near returns (<=30 days) fall through to the weekly TAG / countdown line.
+function returnTag(s){
+  if(!s || !s.returnDate) return '';
+  if(daysTo(s.returnDate) <= 30) return '';
+  const rd=new Date(s.returnDate+'T12:00'); if(isNaN(rd)) return '';
+  const mon=rd.toLocaleDateString('en-US',{month:'long'}).toUpperCase();
+  return rd.getFullYear() > NOW.getFullYear() ? (mon+' '+rd.getFullYear()) : mon;
+}
+// Films have no weekly cadence, but they still get a day badge: the weekday the film
+// entered the system — its screening/watch anchor (started_at, e.g. a Tuesday ticket),
+// or failing that the day the row was logged. Mirrors the series weekly-release TAG.
+// A film's day badge is ONLY the theater-ticket day (screening weekday); a movie with
+// no ticket gets no day badge (its freshness lives on the ticket, not a generic tag).
+function filmDayTag(s){
+  if(!s || s.kind!=='movie' || !s.ticketAt) return '';
+  const scr = parseTicketDate(s.ticketDate, s.ticketAt);
+  if(!scr) return '';
+  return new Date(scr).toLocaleDateString('en-US',{weekday:'long'}).toUpperCase();
+}
+
+// ── Theater ticket stub badge ────────────────────────────────────────────────
+// A film watched at a theater (a ticket is on file) gets a torn-ticket badge: the
+// weekday you went + a freshness class from how long after theatrical release you
+// caught it — HOT ≤7 days, FRESH 7–14, CASUAL after. Only films with BOTH a ticket
+// and a real release date qualify (others keep the plain filmDayTag).
+const TB_DOW=['SUN','MON','TUE','WED','THU','FRI','SAT'];
+const TB_MON={jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+const TB_DOWI={sun:0,mon:1,tue:2,wed:3,thu:4,fri:5,sat:6};
+// Turn a ticket's printed date ("TUE, AUG 04", "Aug 6 2026") into a real screening
+// timestamp. Tickets rarely print a year, so infer it: an explicit 4-digit year wins;
+// else if the weekday is printed (AMC does), pick the year near the upload where that
+// month/day actually falls on that weekday (deterministic); else the nearest year.
+function parseTicketDate(dateStr, fallbackMs){
+  if(!dateStr) return fallbackMs?Number(fallbackMs):null;
+  const s=String(dateStr).toLowerCase();
+  const mo=s.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/);
+  const dy=s.match(/\b(\d{1,2})\b/);
+  if(!mo||!dy) return fallbackMs?Number(fallbackMs):null;
+  const month=TB_MON[mo[1]], day=parseInt(dy[1],10);
+  const yr4=s.match(/\b(20\d{2})\b/), dow=s.match(/\b(sun|mon|tue|wed|thu|fri|sat)/);
+  const anchor=fallbackMs?new Date(Number(fallbackMs)):new Date(), base=anchor.getFullYear();
+  const nearest=()=>{ let b=base,g=Infinity; for(let y=base-2;y<=base+1;y++){ const c=new Date(y,month,day,12).getTime(), gg=Math.abs(c-anchor.getTime()); if(gg<g){g=gg;b=y;} } return b; };
+  let year;
+  if(yr4) year=parseInt(yr4[1],10);
+  else if(dow){
+    const want=TB_DOWI[dow[1]]; let b=null,g=Infinity;
+    for(let y=base-3;y<=base+1;y++){ const c=new Date(y,month,day,12); if(c.getDay()===want){ const gg=Math.abs(c-anchor); if(gg<g){g=gg;b=y;} } }
+    year = b!=null ? b : nearest();
+  } else year=nearest();
+  const ts=new Date(year,month,day,12).getTime();
+  return isNaN(ts) ? (fallbackMs?Number(fallbackMs):null) : ts;
+}
+function ticketClass(releaseDate, whenMs){
+  if(!releaseDate || !whenMs) return null;
+  const rel=new Date(releaseDate+'T12:00').getTime(); if(isNaN(rel)) return null;
+  const days=Math.floor((whenMs-rel)/86400000);
+  if(days < -1) return null;                       // "watched" before release → not a theater catch
+  if(days <= 7)  return {cls:'hot',    label:'HOT'};
+  if(days <= 14) return {cls:'fresh',  label:'FRESH'};
+  return           {cls:'casual', label:'CASUAL'};
+}
+// Deterministic RNG so a film's tear is stable across re-renders (no flicker).
+function tbSeed(str){ let h=2166136261>>>0; for(let i=0;i<str.length;i++){ h^=str.charCodeAt(i); h=Math.imul(h,16777619);} return h>>>0; }
+function tbRand(seed){ let x=(seed||1)>>>0; return ()=>{ x=(Math.imul(x,1664525)+1013904223)>>>0; return x/4294967296; }; }
+// Stub outline: straight top & bottom, a semicircle notch on the RIGHT, an irregular
+// RIPPED left edge (seeded jitter). Same shape approved in the localhost preview.
+function tbPath(w,h,n,rng){
+  const m=h/2, jMax=6;
+  let p='M 0 0 H '+w+' V '+(m-n)+' A '+n+' '+n+' 0 0 0 '+w+' '+(m+n)+' V '+h+' H 0 ';
+  let y=h;
+  while(y>0){ y=Math.max(0, y-(1.6+rng()*2.6)); const x=(Math.pow(rng(),0.7)*jMax); p+='L '+x.toFixed(1)+' '+y.toFixed(1)+' '; }
+  return p+'L 0 0 Z';
+}
+// The film's real start = printed showtime + 25 min of previews. Drives the auto-flip
+// from "upcoming" to watched once that moment has passed.
+function screeningStart(s){
+  if(!s || s.kind!=='movie' || !s.ticketAt) return null;
+  const dayMs=parseTicketDate(s.ticketDate, s.ticketAt); if(!dayMs) return null;   // midday of screening day
+  const d=new Date(dayMs);
+  const tm=String(s.ticketTime||'').toLowerCase().match(/(\d{1,2}):(\d{2})\s*(am|pm)?/);
+  if(tm){ let hh=+tm[1]; const mm=+tm[2], ap=tm[3];
+    if(ap==='pm'&&hh<12)hh+=12; if(ap==='am'&&hh===12)hh=0; d.setHours(hh,mm,0,0); }
+  return d.getTime() + 25*60000;
+}
+function ticketWatched(s){ const f=screeningStart(s); return f!=null && f<=Date.now(); }
+function ticketBadge(s){
+  if(!s || s.kind!=='movie' || !s.ticketAt) return '';
+  // Real screening date from the ticket (weekday-confirmed year); fall back to upload time.
+  const when=parseTicketDate(s.ticketDate, s.ticketAt) || Number(s.ticketAt);
+  const info=ticketClass(s.releaseDate, when); if(!info) return '';
+  const day=TB_DOW[new Date(when).getDay()];
+  const W=54,H=34, d=tbPath(W,H,3.4, tbRand(tbSeed(s.titleId||s.name||'x')));
+  return '<div class="tikbadge '+info.cls+'">'
+    + '<svg viewBox="0 0 '+W+' '+H+'"><path d="'+d+'" fill="rgba(26,18,6,.92)" stroke="currentColor" stroke-width="1.5"/></svg>'
+    + '<span class="tb-txt"><span class="tb-day">'+day+'</span><span class="tb-cls">'+info.label+'</span></span></div>';
 }
 function tileFor(s,asStopped){
   const b=bucketOf(s);
@@ -661,23 +1037,57 @@ function tileFor(s,asStopped){
   if(asStopped) footer='<button class="tryagain" data-act="resume" data-id="'+s.id+'">&#8635; try again</button>';
   else if(s.returnDate&&b!=="completed") footer=returnLine(s);
   else footer='<div class="meta">'+metaFor(s)+"</div>";
-  const tg = wowTag(s);
-  return '<div class="'+cls+'" data-id="'+s.id+'">'+posterDiv(s)+'<div class="scrim"></div>'+
+  const tb = ticketBadge(s);                         // theater films: torn-ticket stub
+  // A curated marathon owns the corner: "🍿 MARATHON" wins over the weekly/return tag,
+  // and its name rides under the show title so the tile reads as the queue, not the series.
+  const isMar = !!s.mapName && b!=="completed";
+  const tg = (tb||isMar) ? '' : (returnTag(s) || wowTag(s) || filmDayTag(s)); // return-month / day / airdate tag
+  const corner = tb || (isMar?'<div class="wowtag martag">&#127871; MARATHON</div>'
+                            : (tg?'<div class="wowtag">'+tg+'</div>':''));
+  const marsub = isMar ? '<div class="marsub">'+esc(s.mapName)+'</div>' : '';
+  return '<div class="'+cls+(isMar?' marathon':'')+'" data-id="'+s.id+'">'+posterDiv(s)+'<div class="scrim"></div>'+
     (s.isNew?'<div class="newflag">NEW</div>':'')+
-    (tg?'<div class="wowtag">'+tg+'</div>':'')+
+    corner+
     wowStampHTML(s)+
-    '<div class="body"><div class="title">'+titleHTML(s.name)+"</div>"+bars+footer+"</div></div>";
+    '<div class="body"><div class="title">'+titleHTML(s.name)+"</div>"+marsub+bars+footer+"</div></div>";
 }
 
 // Selected-show expanded card (CURRENT + COMPLETED). Snaps to the top of the grid
 // and expands in place — poster left, info right, two two-line action buttons.
+// Marathon progress pop-in (beta parity): when a show is being watched via a curated marathon
+// (active_map_id → s.mapName + map-scoped counts), the expanded card leads with a segmented
+// progress bar (popcorn marker at the current step) + "EP X of N" and the current episode. The
+// counts come straight from `s` (map-scoped by the account endpoint); the episode name is filled
+// async once the archive detail loads (see loadEpisodeArchive).
+function marathonProgressHTML(s){
+  if(!s || !s.mapName) return '';
+  const N=Math.max(0, s.total||0); if(!N) return '';
+  const done=Math.min(Math.max(0, s.watched||0), N);
+  const allDone = done>=N;
+  const curPos = allDone ? N : done+1;   // 1-based current step
+  let segs='';
+  for(let i=1;i<=N;i++){
+    const st = i<=done ? ' done' : (i===curPos && !allDone ? ' cur' : '');
+    const pop = (i===curPos) ? '<span class="mp-pop">\u{1F37F}</span>' : '';
+    segs += '<span class="mp-seg'+st+'">'+pop+'</span>';
+  }
+  const count = allDone ? (N+' of '+N+' · complete') : ('EP '+curPos+' of '+N);
+  return '<div class="mp">'+
+    '<div class="mp-head"><span class="mp-name">\u{1F37F} '+esc(s.mapName)+'</span><span class="mp-badge">MARATHON</span></div>'+
+    '<div class="mp-bar">'+segs+'</div>'+
+    '<div class="mp-meta"><span class="mp-count">'+count+'</span><span class="mp-now" id="mp-now-'+esc(s.id)+'"></span></div>'+
+    '</div>';
+}
 function expandedCard(s, mode){
   const syn = s.summary ? esc(s.summary) : 'No synopsis yet.';
   const isMovie = s.kind==='movie';
   const pos = isMovie ? 'Film' : (s.lastWatched ? ('S'+s.lastWatched.season+' E'+s.lastWatched.number) : '');
   let metaTxt;
-  if(mode==='completed'){ metaTxt = isMovie ? '&#10003; watched &middot; film' : ('&#10003; done &middot; '+(s.total||0)+' episodes'); }
-  else if(isMovie){ metaTxt = '&#127909; film &middot; '+(s.lastMinute>0?'in progress':'not started'); }
+  const dayTg = isMovie ? filmDayTag(s) : '';
+  const dayPill = dayTg ? '<span class="exc-tag">'+dayTg+'</span>' : '';
+  if(mode==='completed'){ metaTxt = isMovie ? ('&#10003; watched &middot; film'+dayPill) : ('&#10003; done &middot; '+(s.total||0)+' episodes'); }
+  else if(isMovie){ const rt=s.runtime||0, mins=Math.max(0,s.lastMinute||0), left=Math.max(0,rt-mins);
+    metaTxt = '&#127909; film &middot; '+((mins>0&&rt>0)?(left+' min left'):(rt>0?(rt+' min'):(mins>0?'in progress':'not started')))+dayPill; }
   else { const left=s.released-s.watched; metaTxt=(pos?pos+' &middot; ':'')+(left>0?left+' left':'caught up');
     const tg=wowTag(s); if(tg) metaTxt+='<span class="exc-tag">'+tg+'</span>'; }
   const poster = s.poster ? 'style="background-image:url('+s.poster+')"'
@@ -693,7 +1103,9 @@ function expandedCard(s, mode){
         '<div class="exc-top"><div class="exc-poster" '+poster+'></div>'+
           '<div class="exc-info"><div class="exc-title">'+titleHTML(s.name)+'</div>'+
             '<div class="exc-meta done">'+metaTxt+'</div>'+
-            '<div class="exc-syn">'+syn+'</div></div></div>'+
+            '<div class="exc-syn">'+syn+'</div>'+
+            '<button class="exc-remove" data-act="remove" data-id="'+s.id+'"><span class="ic">&#128465;</span>'+
+              (s.stopped?'REMOVE FROM LOG':'DELETE')+'</button></div></div>'+
         '<div class="ep-arch" id="arch-'+s.id+'"><div class="vw-empty">loading episodes…</div></div>'+
         '</div>';
   }
@@ -701,14 +1113,17 @@ function expandedCard(s, mode){
   // Seasons column (chips filled async after render via fillSeasons; films have none).
   // The watch-pattern stamp lives at the bottom of this column, under the season
   // selector, as a sibling of the chips host so fillSeasons' innerHTML swap leaves it be.
-  const seasonsCol = isMovie ? '' :
+  // Marathons are a curated cross-season run — the season selector doesn't apply, so skip it.
+  const seasonsCol = (isMovie || s.mapName) ? '' :
     '<div class="exc-seas-col"><div class="exc-seasons" id="seas-'+s.id+'"></div>'+wowStampHTML(s,true)+'</div>';
   return '<div class="exp-card" data-id="'+s.id+'">'+
       '<div class="exc-top"><div class="exc-poster" '+poster+'></div>'+
         '<div class="exc-info"><div class="exc-title">'+titleHTML(s.name)+'</div>'+
           '<div class="exc-meta">'+metaTxt+'</div><div class="exc-syn">'+syn+'</div></div>'+
         seasonsCol+'</div>'+
+      marathonProgressHTML(s)+
       '<div class="exc-btns">'+btns+'</div>'+
+      '<div class="coview" data-cov="'+s.id+'"></div>'+
       '<div class="ep-arch" id="arch-'+s.id+'"><div class="vw-empty">loading episodes…</div></div>'+
       '</div>';
 }
@@ -738,9 +1153,15 @@ function crowFor(s){
 }
 
 function counts(){
-  const c={current:0,returning:0,comfort:0,completed:0};
-  LOG.forEach(s=>{c[bucketOf(s)]++;});
-  for(const k in c)document.getElementById("n-"+k).textContent=c[k];
+  // QUEUE = the old 'current' bucket. TICKETS + STACK counts are wired when their content lands
+  // here (ported from Browse). Null-safe: COMFORT/COMPLETED count elements left the Watch bar.
+  const c={current:0};
+  LOG.forEach(s=>{ if(isTheaterMovie(s)) return; if(bucketOf(s)==='current') c.current++; });
+  for(const k in c){ const el=document.getElementById("n-"+k); if(el) el.textContent=c[k]; }
+  // STACK count (owned media, local, sync).
+  try{ const ns=document.getElementById("n-stack"); if(ns){ let st=loadStack(); if(STACK_SEED && !st.length) st=sampleStack(); ns.textContent = st.length ? String(st.length) : ''; } }catch(_){}
+  // TICKETS count (server-backed, async) — best-effort; blank on empty.
+  try{ loadTickets().then(tix=>{ const nt=document.getElementById("n-tickets"); if(nt) nt.textContent = (tix&&tix.length)?String(tix.length):''; }).catch(()=>{}); }catch(_){}
 }
 
 /* ── COMFORT tab: curated marathons ────────────────────────────────────────
@@ -748,6 +1169,8 @@ function counts(){
    inside WATCH (an in-face overlay — faces never call each other). Add a second
    marathon by adding a row here, not a new layout. Pre-beta, hand curated. */
 const MARATHONS=[
+  { id:"moonlighting", title:"The Ultimate Moonlighting Rewatch", sub:"7 essential episodes · David & Maddie",
+    icon:"\u{1F576}", file:"cube_watch_comfort_face.html?m=moonlighting" },
   { id:"psycho", title:"Tressany's PSYCH-O Marathon!", sub:"12 episodes · 20 years of Psych",
     icon:"\u{1F37F}", file:"cube_watch_comfort_face.html" }
 ];
@@ -780,6 +1203,337 @@ function closeMarathon(){
   ov.classList.remove("show");
   const fr=document.getElementById("marFrame"); if(fr) fr.removeAttribute("src");   // stop it; reopen loads fresh
 }
+// The comfort marathon (in marFrame) asks to watch a step in the REAL app: activate the
+// curated map on this member's watch of that title, then open the LOG at that episode. From
+// then on the app's Current/Next follows the marathon (the map is honored by the catalog/
+// profile episode endpoints via active_map_id).
+window.addEventListener("message",async function(e){
+  const d=e.data; if(!d || d.type!=="comfort:watch" || !d.titleId) return;
+  const email=acct();
+  if(email && d.mapId){
+    // Set the curated map on this member's watch of the show, then pull the account back
+    // so the marathon lands in the WATCH list as its QUEUE tile (map-scoped counts + name).
+    try{ await fetch(API+"/profile/"+encodeURIComponent(email)+"/titles/"+encodeURIComponent(d.titleId)+"/map",
+      {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({map_id:d.mapId})}); }catch(_){}
+    try{ LOG = await loadAccount(email); activeTab="current"; render(); renderPierre(); }catch(_){}
+  }
+  closeMarathon();
+  window.cube.rotateTo("episodes",{titleId:d.titleId, pattern:d.pattern||{kind:"beginning"}, addToLog:true});
+});
+
+// Load the member's archived rewatch passes once (sets PASSES to an array, even []).
+async function loadPasses(){
+  const email=acct(); if(!email){ PASSES=[]; return; }
+  try{ const r=await fetch(API+"/profile/"+encodeURIComponent(email)+"/passes"); PASSES=r.ok?((await r.json()).passes||[]):[]; }
+  catch(_){ PASSES=[]; }
+}
+// A pass tile: poster + "S{n} · view {ordinal}", stamped with the locked pattern
+// (complete) or the highlighter marker (a partial pass restarted from the beginning).
+function passTile(p){
+  const poster=p.poster?"background-image:url('"+esc(p.poster)+"')":"";
+  const isHi=p.pass_kind==='highlights';
+  const badge=isHi
+    ? '<span class="passbadge highlights">'+HILITE_SVG+'highlights</span>'
+    : '<span class="passbadge">'+esc(p.pattern||'✓ complete')+'</span>';
+  const where=(p.title_kind==='movie')?'film':('S'+p.season);
+  const count=isHi?(p.watched_ct+' of '+p.season_ct):(p.season_ct+' eps');
+  return '<div class="tile passtile" data-passid="'+esc(p.pass_id)+'">'+
+    '<div class="poster" style="'+poster+'"></div><div class="scrim"></div>'+badge+
+    '<div class="body"><div class="title">'+titleHTML(p.name||'Untitled')+'</div>'+
+    '<div class="meta"><span>'+esc(where)+' &middot; <span class="ord">view '+p.ordinal+'</span></span>'+
+    '<span>'+esc(count)+'</span></div></div></div>';
+}
+
+// ── STACK (ported from Browse "shelf"): the physical media + owned PVOD the member owns. Scan a
+//    disc barcode (camera → ZXing) or type it in; the collection persists in localStorage until a
+//    backend exists. Namespaced stk*/stk-add to avoid the Watch header's #addBtn/.addbtn.
+const STACK_SEED = (()=>{ try{ return new URLSearchParams(location.search).has('seed'); }catch(_){ return false; } })();
+const STACK_ART_API = API.includes('localhost') ? 'https://pangolin-rc.edward-m-willett.workers.dev' : API;
+// SHELF renamed STACK: read the new key; fall back to and migrate the old 'pg_irl_media' once.
+const STACK_KEY = 'pg_stack';
+function loadStack(){
+  try{ const m = JSON.parse(localStorage.getItem(STACK_KEY)||'null'); if(Array.isArray(m)) return m; }catch(_){}
+  try{ const old = JSON.parse(localStorage.getItem('pg_irl_media')||'[]');
+    if(Array.isArray(old) && old.length){ localStorage.setItem(STACK_KEY, JSON.stringify(old)); return old; } }catch(_){}
+  return [];
+}
+function saveStack(list){ try{ localStorage.setItem(STACK_KEY, JSON.stringify(list)); }catch(_){} }
+function stackId(){ return 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+function addStack(item){ const list = loadStack(); list.unshift({ id:stackId(), ...item }); saveStack(list); }
+function sampleStack(){
+  return [
+    { id:'d1', title:'Homicide: Life on the Street', fmt:'DVD',     barcode:'', poster:'https://m.media-amazon.com/images/I/91adBKeJ4bL._SY679_.jpg' },
+    { id:'d2', title:'Mr. Robot',                    fmt:'BLU-RAY', barcode:'', poster:'https://m.media-amazon.com/images/I/81MzYDozu0L._SX522_.jpg' },
+    { id:'d3', title:'V for Vendetta',               fmt:'DVD',     barcode:'', poster:'https://m.media-amazon.com/images/I/915bUmAaOJL._SY679_.jpg' },
+  ];
+}
+let stackAdding = false;
+function renderStack(pane){
+  const addPanel = stackAdding ? `
+    <div class="addpanel">
+      <div class="cam" id="stkCam">
+        <div class="placeholder" id="stkPlaceholder">camera preview<br>tap to use your camera · or drop a screengrab</div>
+        <div class="reticle"></div><div class="laser"></div>
+        <button class="camclose" id="stkClose" aria-label="Close">✕</button>
+      </div>
+      <div class="camrow">
+        <button class="scan" id="stkScan">Scan barcode</button>
+        <button class="manual" id="stkManual">Enter by hand</button>
+      </div>
+      <div class="camstatus" id="stkStatus">point the camera at the barcode on the case</div>
+    </div>` : '';
+  pane.innerHTML = `
+    ${addPanel}
+    <div class="shelfhead"><h2>Your stack</h2>
+      <div class="shelfright"><em id="stkCount"></em>
+        <button class="stk-add ${stackAdding?'on':''}" id="stkAdd" aria-label="Add a disc">${stackAdding?'✕':'+'}</button></div>
+    </div>
+    <div class="shelf" id="stkShelf"></div>`;
+  document.getElementById('stkAdd').onclick = () => { stackAdding = !stackAdding; renderStack(pane); };
+  if(stackAdding){
+    const cam = document.getElementById('stkCam');
+    function setStatus(msg, cls){ const st = document.getElementById('stkStatus');
+      if(st){ st.textContent = msg; st.classList.remove('ok','bad'); if(cls) st.classList.add(cls); } }
+    function loadImg(src){ return new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=()=>rej(new Error('load')); i.src=src; }); }
+    function variantCanvas(img, rot, scale){
+      const w=Math.round(img.naturalWidth*scale), h=Math.round(img.naturalHeight*scale);
+      const c=document.createElement('canvas');
+      if(rot===90||rot===270){ c.width=h; c.height=w; } else { c.width=w; c.height=h; }
+      const ctx=c.getContext('2d'); ctx.imageSmoothingQuality='high';
+      ctx.translate(c.width/2,c.height/2); ctx.rotate(rot*Math.PI/180); ctx.drawImage(img,-w/2,-h/2,w,h); return c;
+    }
+    async function readOnce(cv){
+      try{ const r=await new ZXing.BrowserMultiFormatReader(new Map([[ZXing.DecodeHintType.TRY_HARDER,true]]))
+                          .decodeFromImageUrl(cv.toDataURL('image/jpeg',0.92)); return (r.getText()||'').trim(); }
+      catch(_){ return null; }
+    }
+    async function decodeBarcode(src){
+      if(!window.ZXing){ setStatus('scanner unavailable — use Enter by hand','bad'); return; }
+      setStatus('scanning…');
+      let img; try{ img=await loadImg(src); }catch(_){ setStatus('could not open that image — retake','bad'); return; }
+      const tally={}; let best=null, bestN=0;
+      for(const scale of [0.6,0.5]) for(const rot of [0,90,270,180]){
+        const code=await readOnce(variantCanvas(img,rot,scale));
+        if(!code) continue;
+        tally[code]=(tally[code]||0)+1;
+        if(tally[code]>bestN){ best=code; bestN=tally[code]; }
+        if(bestN>=2){ shelveBarcode(best); setStatus('found '+best+' · added to stack','ok'); return; }
+      }
+      setStatus('no clear read — fill the frame, hold steady, and retake','bad');
+    }
+    function showCam(src){
+      let img = cam.querySelector('img');
+      if(!img){ img = document.createElement('img'); cam.insertBefore(img, cam.firstChild); }
+      img.src = src;
+      const ph = document.getElementById('stkPlaceholder'); if(ph) ph.style.display='none';
+      decodeBarcode(src);
+    }
+    function openCapture(){
+      const inp = document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.capture='environment';
+      inp.onchange = () => { const f = inp.files && inp.files[0]; if(f) showCam(URL.createObjectURL(f)); };
+      inp.click();
+    }
+    cam.onclick = openCapture;
+    cam.addEventListener('dragover', e => e.preventDefault());
+    cam.addEventListener('drop', e => { e.preventDefault();
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if(f && /^image\//.test(f.type)) showCam(URL.createObjectURL(f)); });
+    try{ const preset = new URLSearchParams(location.search).get('cam'); if(preset) showCam(preset); }catch(_){}
+    document.getElementById('stkClose').onclick = () => { stackAdding = false; renderStack(pane); };
+    document.getElementById('stkScan').onclick = openCapture;
+    document.getElementById('stkManual').onclick = () => {
+      const title = prompt('Title on the disc');
+      if(!title || !title.trim()) return;
+      const fmt = (prompt('Format (DVD / BLU-RAY / 4K UHD / VHS)','BLU-RAY')||'').trim().toUpperCase() || 'DISC';
+      addStack({ title:title.trim(), fmt, barcode:'', poster:'' });
+      paintStack();
+    };
+  }
+  paintStack();
+}
+// A scanned UPC resolves through the Worker: GET /tmdb/resolve (UPCitemdb + guarded TMDB poster
+// match, keys held server-side). Localhost has no local API, so resolve always hits the Worker.
+async function resolveDiscArt(code){
+  try{
+    const r = await fetch(STACK_ART_API + '/tmdb/resolve?upc=' + encodeURIComponent(code));
+    if(!r.ok) return null;
+    const d = await r.json();
+    if(!d || !d.title) return null;
+    return { title:d.title, fmt:d.fmt || 'DISC', poster:d.poster || '' };
+  }catch(_){ return null; }
+}
+function updateStack(id, patch){ saveStack(loadStack().map(m => m.id===id ? {...m, ...patch} : m)); paintStack(); }
+function shelveBarcode(code){
+  const id = stackId();
+  const list = loadStack(); list.unshift({ id, title:'Looking up…', fmt:'DISC', barcode:code, poster:'' });
+  saveStack(list); paintStack();
+  resolveDiscArt(code)
+    .then(res => updateStack(id, res ? { title:res.title, fmt:res.fmt, poster:res.poster } : { title:'Barcode '+code }))
+    .catch(() => updateStack(id, { title:'Barcode '+code }));
+}
+function paintStack(){
+  const shelf = document.getElementById('stkShelf'); if(!shelf) return;
+  let list = loadStack();
+  if(STACK_SEED && !list.length) list = sampleStack();
+  const count = document.getElementById('stkCount'); if(count) count.textContent = list.length ? list.length+' titles' : '';
+  if(!list.length){
+    shelf.innerHTML = `<div class="stk-empty"><b>Nothing in your stack yet.</b><br>Tap <b>+</b> to scan a disc's barcode or add one by hand.</div>`;
+    return;
+  }
+  shelf.innerHTML = list.map(m=>`<div class="mcard" data-id="${esc(m.id)}" style="${m.poster?`background-image:url('${esc(m.poster)}')`:''}">
+    <span class="fmt">${esc(m.fmt||'DISC')}</span>
+    <button class="x" data-x="${esc(m.id)}" aria-label="Remove">✕</button>
+    <div class="spine"><div class="mtitle">${esc(m.title||'Untitled')}</div></div></div>`).join('');
+  shelf.querySelectorAll('[data-x]').forEach(x => x.onclick = (ev)=>{
+    ev.stopPropagation();
+    saveStack(loadStack().filter(m=>m.id!==x.dataset.x));
+    paintStack();
+  });
+}
+
+// ── TICKETS (ported from Browse): the member's logged theater stubs (watch_ticket). The list +
+//    stubs move here; tapping a stub opens that film on the Watch/Log. (The full ticket-detail
+//    audio-reflection recorder stays a Browse-only subsystem for now — deferred follow-up.)
+const MONTHS = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+const MONTH_IDX = {JAN:0,FEB:1,MAR:2,APR:3,MAY:4,JUN:5,JUL:6,AUG:7,SEP:8,OCT:9,NOV:10,DEC:11,SEPT:8};
+const tixEsc = s => (s==null?'':String(s)).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function ticketDateBits(dateStr){
+  const s=(dateStr||'').trim(); if(!s) return { d:'—', mo:'', y:null };
+  let m=s.match(/^([A-Za-z]{3,4})\s+(\d{1,2})(?:,\s*(\d{4}))?$/);
+  if(m){ const i=MONTH_IDX[m[1].toUpperCase()]; if(i!=null) return { d:String(+m[2]), mo:MONTHS[i], y:m[3]?+m[3]:null }; }
+  m=s.match(/^(\d{1,2})\s+([A-Za-z]{3,4})(?:,?\s*(\d{4}))?$/);
+  if(m){ const i=MONTH_IDX[m[2].toUpperCase()]; if(i!=null) return { d:String(+m[1]), mo:MONTHS[i], y:m[3]?+m[3]:null }; }
+  m=s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(m){ const i=+m[2]-1; if(i>=0&&i<12) return { d:String(+m[3]), mo:MONTHS[i], y:+m[1] }; }
+  const dt=new Date(s); if(!isNaN(dt)) return { d:String(dt.getDate()), mo:MONTHS[dt.getMonth()], y:dt.getFullYear() };
+  return { d:'—', mo:'', y:null };
+}
+function ticketDateLabel(dateStr){
+  const {d,mo,y} = ticketDateBits(dateStr);
+  if(d==='—' || !mo) return '';
+  const base = mo+' '+d;
+  return (y && y !== new Date().getFullYear()) ? base+', '+y : base;
+}
+function ticketDateValue(dateStr, createdAt){
+  const {d,mo,y} = ticketDateBits(dateStr);
+  const mi = MONTH_IDX[mo];
+  if(d==='—' || mi==null) return createdAt || 0;
+  if(y) return new Date(y, mi, +d).getTime();
+  const base = createdAt ? new Date(createdAt) : new Date();
+  let dv = new Date(base.getFullYear(), mi, +d).getTime();
+  const HALF = 183*864e5;
+  if(createdAt){ if(dv - createdAt > HALF) dv = new Date(base.getFullYear()-1, mi, +d).getTime();
+                 else if(createdAt - dv > HALF) dv = new Date(base.getFullYear()+1, mi, +d).getTime(); }
+  return dv;
+}
+function sampleTickets(){
+  return [
+    { id:'s1', film:'Dune: Part Two',  theater:'Alamo Drafthouse',  date:'2026-03-14', time:'7:40 PM', poster:'' },
+    { id:'s2', film:'The Brutalist',   theater:'IFC Center',        date:'2026-01-22', time:'6:15 PM', poster:'' },
+    { id:'s3', film:'Anora',           theater:'Metrograph',        date:'2025-11-08', time:'9:00 PM', poster:'' },
+  ];
+}
+async function loadTickets(){
+  if(STACK_SEED) return sampleTickets();
+  const email = acct();
+  if(!email) return [];
+  try{
+    const r = await fetch(STACK_ART_API + '/profile/' + encodeURIComponent(email) + '/tickets');
+    if(!r.ok) return [];
+    return (await r.json()).tickets || [];
+  }catch(_){ return []; }
+}
+const IC_SPEAKER='<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M16 9.2a3.6 3.6 0 0 1 0 5.6"/></svg>';
+const IC_BUBBLE='<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/></svg>';
+function tixCardHTML(t){
+  const img = t.poster || t.ticketUrl || '';
+  const hasAudio = !!(t.reflection && t.reflection.audioUrl);
+  const refl = (t.reflection && (t.reflection.text || t.reflection.audioUrl))
+    ? `<span class="tix-hasrefl" title="reflection saved">${hasAudio ? IC_SPEAKER : IC_BUBBLE}</span>` : '';
+  const meta = [t.theater||'', ticketDateLabel(t.date), t.time||''].filter(Boolean).join(' · ');
+  return `<div class="tix" data-id="${tixEsc(t.id)}">
+    <div class="tix-row" style="${img?`background-image:url('${tixEsc(img)}')`:''}" data-poster="${tixEsc(t.poster||'')}">
+      <div class="body">
+        <div class="film">${tixEsc(t.film||'Untitled')}${refl}</div>
+        <div class="where">${tixEsc(meta)}</div>
+      </div>
+    </div>
+  </div>`;
+}
+function ticketBgPos(focalY, w, openH){
+  const H = w * 1.5;
+  let oy = focalY * H - openH * 0.45;
+  oy = Math.max(0, Math.min(oy, Math.max(0, H - openH)));
+  return '50% ' + (-oy).toFixed(0) + 'px';
+}
+// Tapping a stub opens the enlarged REAL-LIFE ticket (the theater stub), NOT the show's episode
+// log — a theater watch happened out in the world, so it stays in its own ticket detail. Fixed
+// overlay with a close button; no episode/log handoff.
+function closeTicketDetail(){ const el=document.querySelector('.tixfull'); if(el) el.remove(); }
+function openTicketDetail(t){
+  if(!t) return;
+  closeTicketDetail();
+  const img = t.poster || t.ticketUrl || '';
+  const meta = [t.theater||'', ticketDateLabel(t.date), t.time||''].filter(Boolean).join(' · ');
+  const el = document.createElement('div');
+  el.className = 'tixfull';
+  if(img) el.style.backgroundImage = `url('${tixEsc(img)}')`;
+  if(t._bgpos) el.style.backgroundPosition = t._bgpos;
+  el.innerHTML = `<button class="tf-close" aria-label="Close">&#10005;</button>
+    <div class="tf-head">
+      <div class="tf-film">${tixEsc(t.film||'Untitled')}</div>
+      <div class="tf-meta">${tixEsc(meta)}</div>
+    </div>
+    <div class="tf-body"></div>`;
+  document.body.appendChild(el);
+  el.querySelector('.tf-close').onclick = closeTicketDetail;
+}
+let _tixData = {};
+const _todayLabel = 'Today, ' + new Date().toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
+async function renderTickets(pane, opts){
+  opts = opts || {};
+  const awaitId = opts.awaitId || null, openId = opts.openTicketId || null, tries = opts.tries || 0;
+  if(!tries) pane.innerHTML = `<div class="tixgrid" id="tixGrid"><div class="state" style="margin-top:14px">loading…</div></div>`;
+  const tickets = await loadTickets();
+  const grid = document.getElementById('tixGrid'); if(!grid) return;
+  const scheduleRetry = () => {
+    if(tries>=5) return;
+    const at = awaitId ? tickets.find(x=>x.id===awaitId) : null;
+    const aOk = !awaitId || (at && at.poster);
+    if(aOk) return;
+    setTimeout(()=>{ if(activeTab==='tickets') renderTickets(pane, {awaitId, tries:tries+1}); }, 1000);
+  };
+  if(!tickets.length){
+    grid.innerHTML = `<div class="stk-empty" style="margin-top:14px"><b>Your ticket stubs live here.</b><br>
+      Log a theater watch with a photo of the ticket (LOG → Finish → IRL Theater, or ask Pierre) and it lands on this shelf.</div>`;
+    scheduleRetry();
+    return;
+  }
+  const startToday = new Date(); startToday.setHours(0,0,0,0); const todayMs = startToday.getTime();
+  tickets.forEach(t => t._dv = ticketDateValue(t.date, t.createdAt));
+  tickets.sort((a,b) => b._dv - a._dv);
+  _tixData = {}; tickets.forEach(t => _tixData[t.id] = t);
+  let firstPast = tickets.findIndex(t => t._dv < todayMs);
+  let html = '';
+  tickets.forEach((t,i) => { if(i===firstPast) html += `<div class="tixtoday">${_todayLabel}</div>`; html += tixCardHTML(t); });
+  if(firstPast === -1) html += `<div class="tixtoday">${_todayLabel}</div>`;
+  grid.innerHTML = html;
+  const openH = (pane && pane.clientHeight) || 420;
+  grid.querySelectorAll('.tix').forEach(tx => {
+    const t = _tixData[tx.dataset.id];
+    tx.addEventListener('click', () => openTicketDetail(t));
+    const row = tx.querySelector('.tix-row');
+    const poster = row ? row.dataset.poster : '';
+    const apply = (y)=>{ const bg = ticketBgPos(y, row.clientWidth || 360, openH); t._bgpos = bg; row.style.backgroundPosition = bg; };
+    if(row && typeof t.focalY === 'number'){ apply(t.focalY); }
+    else if(row && poster && /^https:\/\/image\.tmdb\.org\//.test(poster)){
+      fetch(STACK_ART_API + '/img/focal?u=' + encodeURIComponent(poster)).then(r=>r.ok?r.json():null).then(p=>{
+        if(p && typeof p.y==='number') apply(p.y);
+      }).catch(()=>{});
+    }
+  });
+  scheduleRetry();
+}
 
 function render(){
   counts();
@@ -791,30 +1545,32 @@ function render(){
   const pierreEl=document.querySelector('.pierre');
   if(pierreEl) pierreEl.style.display = (activeTab==='completed' || selectedId) ? 'none' : '';
   const grid=document.getElementById("grid");
-  if(activeTab==="returning"){
-    // Returning is being reworked: under-construction notice for now.
-    grid.classList.remove("list");
-    grid.innerHTML='<div class="state">&#128679; under construction</div>';
-    return;
-  }
   if(activeTab==="comfort"){ renderComfort(grid); return; }   // curated marathons (pre-beta)
+  // TICKETS + STACK: the full rendering (theater stubs / owned physical + PVOD) is being ported
+  // in from the Browse face. Interim honest state until that lands, so the tabs are non-empty and
+  // read as intentional, not broken.
+  if(activeTab==="tickets"){ grid.classList.remove("list"); renderTickets(grid); return; }
+  if(activeTab==="stack"){ grid.classList.remove("list"); renderStack(grid); return; }
   grid.classList.remove("list");
   if(activeTab==="completed"){
-    const list=LOG.filter(s=>bucketOf(s)==="completed");
-    grid.innerHTML=list.length?gridWithSelection(list,"completed"):'<div class="state">nothing finished yet</div>';
+    const list=LOG.filter(s=>bucketOf(s)==="completed"&&!isTheaterMovie(s));
+    let html = list.length ? gridWithSelection(list,"completed") : '';
+    if(PASSES===null) loadPasses().then(()=>{ if(activeTab==='completed') render(); });   // one-shot
+    else if(PASSES.length) html += '<div class="passhead">Rewatch passes</div>' + PASSES.map(passTile).join('');
+    grid.innerHTML = html || '<div class="state">nothing finished yet</div>';
   }else{
-    const list=LOG.filter(s=>bucketOf(s)===activeTab);
+    const list=LOG.filter(s=>bucketOf(s)===activeTab&&!isTheaterMovie(s));
     list.sort((a,b)=>{
       const an=a.isNew?0:1, bn=b.isNew?0:1;
       if(an!==bn) return an-bn;                                 // NEW shows first
       if(an===0) return (a.addedSeq||0)-(b.addedSeq||0);        // NEW: order requested
       // Timely: in-season shows sort by soonest upcoming drop; those with nothing
       // upcoming (sortKey Infinity) fall through to recently-active order.
-      const ak=(window.WoW?WoW.sortKey(wowEps(a)):Infinity), bk=(window.WoW?WoW.sortKey(wowEps(b)):Infinity);
+      const ak=wowSortKey(a), bk=wowSortKey(b);
       if(ak!==bk) return ak-bk;
       return new Date(b.lastDate)-new Date(a.lastDate);         // rest: recently active
     });
-    grid.innerHTML=list.length?gridWithSelection(list,"current"):'<div class="state">nothing here yet</div>';
+    grid.innerHTML=list.length?gridWithSelection(list,"current"):'<div class="state">Click +Show/Movie to watch something here.</div>';
   }
   // Tiles: CURRENT + COMPLETED tap to expand in place (other tabs handled above).
   grid.querySelectorAll(".tile").forEach(t=>t.addEventListener("click",()=>{
@@ -848,10 +1604,45 @@ function render(){
     WoW.store.setMode(email, showId, off ? null : 'DECLINED').then(()=>render());
   }));
   // Completed card expanded → per-episode archive INCLUDING force-advanced (BP) eps.
-  if(activeTab==="completed" && selectedId){ const s=LOG.find(x=>x.id===selectedId); if(s){ loadEpisodeArchive(s,true); ensureSyn(s); } }
+  if(activeTab==="completed" && selectedId){ const s=LOG.find(x=>x.id===selectedId); if(s){ loadEpisodeArchive(s,true); ensureSyn(s); loadCoview(s); } }
   // Current card expanded → SEASONS chips + per-episode archive EXCLUDING BP eps,
   // and the action buttons shrink-stick to the top as the archive scrolls.
-  else if(selectedId){ const s=LOG.find(x=>x.id===selectedId); if(s){ fillSeasons(s); loadEpisodeArchive(s,false); ensureSyn(s); } }
+  else if(selectedId){ const s=LOG.find(x=>x.id===selectedId); if(s){ fillSeasons(s); loadEpisodeArchive(s,false); ensureSyn(s); loadCoview(s); } }
+}
+
+// "Watching with" (co-viewing) on the expanded card: show who this title is watched
+// with, editable inline against the roster. Hidden entirely if no roster is set up.
+async function loadCoview(s){
+  const host=document.querySelector('.coview[data-cov="'+s.id+'"]'); if(!host) return;
+  const email=acct(); if(!email || !s.titleId){ host.innerHTML=''; return; }
+  const em=encodeURIComponent(email), sid=encodeURIComponent(s.titleId);
+  let roster=[], current=[];
+  try{ const r=await fetch(API+'/profile/'+em+'/coviewers'); if(r.ok) roster=(await r.json()).coviewers||[]; }catch(_){}
+  if(!roster.length){ host.innerHTML=''; return; }   // no room set up → nothing to show
+  try{ const r=await fetch(API+'/profile/'+em+'/titles/'+sid+'/coviewers'); if(r.ok) current=(await r.json()).coviewers||[]; }catch(_){}
+  if(selectedId!==s.id) return;                       // card collapsed/changed mid-fetch
+  coviewDisplay(host, s, roster, current);
+}
+function coviewDisplay(host, s, roster, current){
+  const names=current.map(c=>c.display_name);
+  const val=names.length ? ('with '+names.join(' & ')) : 'just you';
+  host.innerHTML='<span class="cv-lbl">Watching</span> <span class="cv-val">'+esc(val)+'</span> <button class="cv-edit">edit</button>';
+  host.querySelector('.cv-edit').onclick=e=>{ e.stopPropagation(); coviewEditor(host, s, roster, current); };
+}
+function coviewEditor(host, s, roster, current){
+  const sel=new Set(current.map(c=>c.id));
+  host.innerHTML='<span class="cv-lbl">Watching with</span>'+
+    roster.map(c=>'<button class="cv-chip'+(sel.has(c.id)?' on':'')+'" data-cid="'+c.id+'">'+esc(c.display_name)+'</button>').join('')+
+    '<button class="cv-save">Save</button><button class="cv-cancel">Cancel</button>';
+  host.querySelectorAll('.cv-chip').forEach(b=>b.onclick=e=>{ e.stopPropagation();
+    const id=b.dataset.cid; if(sel.has(id)){sel.delete(id);b.classList.remove('on');}else{sel.add(id);b.classList.add('on');} });
+  host.querySelector('.cv-save').onclick=async e=>{ e.stopPropagation();
+    const email=acct();
+    try{ await fetch(API+'/profile/'+encodeURIComponent(email)+'/titles/'+encodeURIComponent(s.titleId)+'/coviewers',
+      {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({coviewer_ids:[...sel]})}); }catch(_){}
+    coviewDisplay(host, s, roster, roster.filter(c=>sel.has(c.id)));
+  };
+  host.querySelector('.cv-cancel').onclick=e=>{ e.stopPropagation(); coviewDisplay(host, s, roster, current); };
 }
 
 // Backfill a missing synopsis on the expanded card. /titles only carries summary
@@ -1077,7 +1868,16 @@ function recordFromTitle(t){
     lastDate:today, returnDate:null,
     comfort:t.status==="comfort", forceCompleted:t.status==="completed", stopped:t.status==="stopped",
     plan:null, isNew:false, addedSeq:0,
-    lastMinute:0, startedAt:t.started_at||null, epDetail:{}, currentEpisodeId:t.current_episode_id||null };
+    mapName:t.map_name||null,   // curated-marathon name → the tile brands as the marathon queue, not the whole series
+    activeMapId:t.active_map_id||null,
+    runtime: t.runtime||null,   // movie length (episodes.runtime of the single unit), for "min left"
+    // Seed a movie's paused position from its summed minutes so the tile bar/meta show
+    // progress on cold load (episode shows fill from watched counts instead).
+    lastMinute: isMovie ? (t.minutes||0) : 0, startedAt:t.started_at||null, epDetail:{}, currentEpisodeId:t.current_episode_id||null,
+    releaseDate: t.premiered||null,          // film's theatrical release (drives the ticket freshness class)
+    ticketAt: t.ticket_at||null,             // when a theater ticket was logged (epoch ms) → shows the stub badge
+    ticketDate: t.ticket_date||null,         // the ticket's printed date ("TUE, AUG 04") → real screening day
+    ticketTime: t.ticket_time||null };       // the ticket's showtime ("6:30 PM") → auto-flip point (+25 min previews)
 }
 
 // Load the signed-in member's tracked titles from the catalog-backed endpoint.
@@ -1126,6 +1926,7 @@ async function refreshTitle(titleId){
     const t=((await r.json()).titles||[]).find(x=>x.title_id===titleId);
     const s=LOG.find(x=>x.titleId===titleId); if(!t || !s) return;
     s.watched=t.watched||0; s.total=t.total||0; s.released=t.released||0;
+    s.mapName=t.map_name||null; s.activeMapId=t.active_map_id||null;
     s.forceCompleted=t.status==="completed"; s.stopped=t.status==="stopped"; s.comfort=t.status==="comfort";
     s.lastWatched = t.last_season ? {season:t.last_season,number:t.last_number,title:"",at:s.lastDate} : s.lastWatched;
     s.currentEpisodeId = t.current_episode_id || s.currentEpisodeId;
@@ -1263,16 +2064,60 @@ async function refreshLog(){
   _refreshing=false;
 }
 
+// CURRENT button: the shell forwards the running-watch state as watch:active; on focus we also
+// ask (watch:query) in case a timer started while this face was off-screen. Tapping goes back to
+// the running Log with an empty payload (don't reload — keep the live timer).
+// Marquee arrows on the CURRENT button flow right toward the running watch, so a live timer draws
+// the eye back to it. Frames cycle only while the button is shown (cleared when it hides).
+const CB_FRAMES=['>>-','>>>','->>','-->','>--'];
+let _cbT=0, _cbI=0;
+function setCurBack(active, live){
+  const cb=document.getElementById('curBack'); if(!cb) return;
+  cb.hidden=!active;
+  // The top-right corner is shared: CURRENT while there's an active watch, else the savings stat.
+  // Without this a phone-width header (centered +Show/Movie + savings + CURRENT) overflows and
+  // clips CURRENT off the right edge — the "CURRENT never visible" seen on device.
+  const sv=document.getElementById('savingsBtn'); if(sv) sv.style.display = active ? 'none' : '';
+  clearInterval(_cbT); _cbT=0;
+  const ar=document.getElementById('cbArrows');
+  if(active && live){
+    // Marquee ONLY while the timer is actually live — a paused/in-progress watch shows a static
+    // CURRENT (no false "running" motion).
+    _cbT=setInterval(()=>{ _cbI=(_cbI+1)%CB_FRAMES.length; if(ar) ar.textContent=CB_FRAMES[_cbI]; }, 190);
+  } else if(ar){ ar.textContent='›'; }   // static chevron when paused / not live
+}
+(function wireCurBack(){
+  const cb=document.getElementById('curBack'); if(!cb) return;
+  cb.addEventListener('click', ()=>{
+    if(window.parent===window) return;
+    if(window.cube && window.cube.rotateTo) window.cube.rotateTo('episodes', {});
+    else if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('episodes', {});
+    else window.parent.postMessage({ type:'cube:rotateTo', face:'episodes', payload:{} }, '*');
+  });
+})();
 window.addEventListener("message",(e)=>{
-  if(e.data && e.data.type==="cube:focus"){ refreshLog(); return; }   // resync on rotate-in
+  if(e.data && (e.data.type==="watch:active" || e.data.type==="watch:state")){ setCurBack(!!e.data.active, !!e.data.live); return; }
+  if(e.data && e.data.type==="cube:focus"){ refreshLog(); try{ window.parent.postMessage({type:'watch:query'}, '*'); }catch(_){} return; }   // resync on rotate-in
   if(e.data && e.data.type==="cube:payload" && e.data.face==="log"){
     const p=e.data.payload||{};
+    // Back-to-QUEUE escape hatch from the Log detail (flat app): land on the QUEUE sub-tab.
+    if(p.showQueue && activeTab!=="current") switchTab("current");
     // Front-door deep-link: land on the COMFORT tab and open the named marathon
     // (so the marathon's own back button returns cleanly to this tab).
     if(p.openMarathon){
       if(activeTab!=="comfort") switchTab("comfort");
       const m=MARATHONS.find(x=>x.id===p.openMarathon);
       if(m) openMarathon(m);
+    }
+    // A ticket just logged in Pierre → land on its tab (CURRENT = upcoming, COMPLETED =
+    // already screened) and select the tile once the log reloads.
+    if(p.focusTicket && p.focusTicket.titleId){
+      const tab=p.focusTicket.tab||'current', tid=p.focusTicket.titleId;
+      Promise.resolve(refreshLog()).then(()=>{
+        if(activeTab!==tab) switchTab(tab);
+        const s=LOG.find(x=>x.titleId===tid); if(s){ selectedId=s.id; }
+        render(); renderPierre();
+      });
     }
     if(p.addShow && p.addShow.id) addToLog(p.addShow, p.pattern);
     if(p.progress && p.progress.tvmazeId) applyProgress(p.progress);   // Episode minute log
@@ -1304,15 +2149,22 @@ function dustParticles(rect,fr){const fx=document.getElementById("fx");
 function finishShow(id, land){
   const tileEl=document.querySelector('.tile[data-id="'+id+'"]'),s=LOG.find(x=>x.id===id); if(!s)return;
   const fr=face.getBoundingClientRect();
+  // COMPLETED left the Watch bar (it lives on SET now), so there's no completed tab to fly the tile
+  // into. Fade the tile out in place instead; the finished show surfaces on SET. Null-safe throughout.
+  const tabEl=document.querySelector('.tab[data-tab="completed"]');
   if(tileEl){const tr=tileEl.getBoundingClientRect();
     burst(tr.left-fr.left+tr.width/2,tr.top-fr.top+tr.height/2);
-    const tab=document.querySelector('.tab[data-tab="completed"]').getBoundingClientRect();
     tileEl.style.transition="transform .75s cubic-bezier(.5,0,.2,1),opacity .75s ease";
-    tileEl.style.transform="translate("+((tab.left+tab.width/2)-(tr.left+tr.width/2))+"px,"+((tab.top+tab.height/2)-(tr.top+tr.height/2))+"px) scale(.1)";
+    if(tabEl){const tab=tabEl.getBoundingClientRect();
+      tileEl.style.transform="translate("+((tab.left+tab.width/2)-(tr.left+tr.width/2))+"px,"+((tab.top+tab.height/2)-(tr.top+tr.height/2))+"px) scale(.1)";}
+    else tileEl.style.transform="scale(.1)";
     tileEl.style.opacity="0";}else burst(fr.width/2,fr.height/2);
   s.forceCompleted=true;s.watched=s.total; patchTitle(s,{op:'finish'});
-  const tabEl=document.querySelector('.tab[data-tab="completed"]');tabEl.classList.add("pulse");setTimeout(()=>tabEl.classList.remove("pulse"),700);
-  setTimeout(()=>{render();renderPierre();},780); setTimeout(()=>switchTab(land||"completed"),1300);
+  if(tabEl){tabEl.classList.add("pulse");setTimeout(()=>tabEl.classList.remove("pulse"),700);}
+  // Land back on QUEUE (the finished show has left it); never switch to a 'completed' tab that no
+  // longer exists on Watch.
+  const landTab=(land && land!=='completed') ? land : 'current';
+  setTimeout(()=>{render();renderPierre();},780); setTimeout(()=>switchTab(landTab),1300);
   // After the popcorn: Pierre catches the reaction. He hosts the thought and
   // the share offer on his own face — no in-face comment box.
   setTimeout(()=>routeFinishedToPierre(s),900);
@@ -1369,12 +2221,28 @@ async function loadEpisodeArchive(s, includeBp){
     if(vr&&vr.ok) coview=(await vr.json()).comments||[];
   }catch(_){}
   renderEpisodeArchive(host, s, {episodes:detail.episodes||[], comments, tickets, refs, coview}, includeBp);
+  // Marathon pop-in: fill the "now watching" line with the current step (first undone episode in
+  // map order — detail.episodes are already map-ordered for a marathon). Best-effort.
+  if(s.mapName){
+    const eps=detail.episodes||[];
+    const cur=eps.find(e=>!e.done) || eps[eps.length-1];
+    const el=document.getElementById('mp-now-'+s.id);
+    if(el && cur){
+      const code='S'+(cur.season||1)+'E'+String(cur.number||1).padStart(2,'0');
+      el.textContent = code + (cur.name && !/^episode\s/i.test(cur.name) ? ' · '+cur.name : '');
+    }
+  }
 }
 
 function renderEpisodeArchive(host, s, data, includeBp){
   const isMovie = s.kind==='movie';
   // Completed episodes only; drop force-advanced (BP) unless this is COMPLETED.
-  let eps=(data.episodes||[]).filter(e=>e.done && (includeBp || !e.bp));
+  // An episode with a real (non-BP) finished session is a genuine watch and always
+  // shows on CURRENT — even if its episode-level `bp` flag was clobbered by a repeat
+  // finish (see finishEpisode's idempotency guard). This recovers such rows without
+  // a data migration.
+  const hasRealWatch=e=>Array.isArray(e.sessions)&&e.sessions.some(x=>x&&x.finished&&!x.bp);
+  let eps=(data.episodes||[]).filter(e=>e.done && (includeBp || !e.bp || hasRealWatch(e)));
   // A film has no real episode rows — fold its whole record into one block.
   if(isMovie || !eps.length){
     if(isMovie || data.tickets.length || data.comments.length || data.refs.length || data.coview.length)
@@ -1398,25 +2266,49 @@ function renderEpisodeArchive(host, s, data, includeBp){
     (ticketsByEp[key(e)]||[]).forEach(t=>{ if((t.createdAt||0)>m) m=t.createdAt; }); return m; };
   eps.sort((a,b)=>sortTs(b)-sortTs(a));
 
-  host.innerHTML = eps.map((e,i)=>{
+  // A different show than the state remembers → start it all-closed.
+  if(archState.showId !== s.id) archState = { showId:s.id, open:false, eps:new Set() };
+
+  const rowsHTML = eps.map((e,i)=>{
     const k = e._all ? (Object.keys(ticketsByEp)[0] ?? Object.keys(commentsByEp)[0] ?? Object.keys(coviewByEp)[0] ?? '') : key(e);
     const sessions=e.sessions||[];
     const fin=sessions.filter(x=>x.finished).pop();
-    const when = e._all ? (s.lastDate?relDate(s.lastDate):'') : (fin?fin.date:'');
+    // Ticketed film → the viewing header shows the real screening date, not the upload day.
+    const tScreen = (isMovie && s.ticketAt) ? parseTicketDate(s.ticketDate, s.ticketAt) : null;
+    const when = e._all
+      ? (tScreen ? new Date(tScreen).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})
+                 : (s.lastDate?relDate(s.lastDate):''))
+      : (fin?fin.date:'');
     const head = e._all ? (isMovie?'Film':'Viewing') : ('<b>'+key(e)+'</b>'+(e.name?' '+esc(e.name):''));
     const refl = (reflByEp[k]||[]).concat(i===0?orphanRefs:[]);
     const body = archiveBody(s, k, sessions, ticketsByEp[k]||[], commentsByEp[k]||[], coviewByEp[k]||[], refl, includeBp);
-    return '<div class="vw">'+
+    const openCls = archState.eps.has(k) ? ' open' : '';   // restore this episode's state
+    return '<div class="vw'+openCls+'" data-k="'+esc(String(k))+'">'+
       '<div class="vw-head"><span class="vw-caret">&#8250;</span><span class="vw-when">'+head+
         (when?' <span class="th">&middot; '+when+'</span>':'')+'</span></div>'+
       '<div class="vw-body">'+body+'</div></div>';
   }).join('');
 
-  host.querySelectorAll('.vw-head').forEach(h=>h.addEventListener('click',()=>h.parentElement.classList.toggle('open')));
+  // Whole log starts collapsed behind one header; the chevron > turns to v on tap.
+  const label = isMovie ? 'VIEWING' : 'VIEWING LOG';
+  host.innerHTML = '<div class="arch-toggle"><span class="arch-caret">&#8250;</span>'+label+
+    ' <span class="arch-n">'+eps.length+'</span></div><div class="arch-list">'+rowsHTML+'</div>';
+  host.classList.toggle('open', !!archState.open);   // restore the master toggle
+  host.querySelector('.arch-toggle').addEventListener('click',()=>{
+    archState.open = !archState.open; host.classList.toggle('open', archState.open);
+  });
+
+  // Each episode toggles independently; its open/closed persists in archState.eps so the
+  // next render (refresh/rotate-in) restores exactly what the member left open.
+  host.querySelectorAll('.vw-head').forEach(h=>h.addEventListener('click',()=>{
+    const vw=h.parentElement, k=vw.dataset.k||'';
+    if(vw.classList.toggle('open')) archState.eps.add(k); else archState.eps.delete(k);
+  }));
   host.querySelectorAll('.ep-tix').forEach(b=>b.addEventListener('click',()=>showImg(b.dataset.img)));
   host.querySelectorAll('.ep-play').forEach(b=>b.addEventListener('click',()=>playAudio(b.dataset.audio)));
   host.querySelectorAll('.ep-share').forEach(b=>b.addEventListener('click',()=>viewingShare(s, b.dataset.tid||null, includeBp)));
   host.querySelectorAll('.rf-share').forEach(b=>b.addEventListener('click',()=>reshareFromLog(s, b.dataset)));
+  host.querySelectorAll('.rf-del').forEach(b=>b.addEventListener('click',()=>deleteLogEntry(b)));
 }
 // Stage 3 — share a past reflection from the logs. Hands the existing text (+ audio URL /
 // comment id for a recorded one) to Pierre, who rebuilds the card and offers the share.
@@ -1452,7 +2344,8 @@ function archiveBody(s, k, sessions, tickets, comments, coview, refl, includeBp)
   coview.filter(c=>!c.replyTo).forEach(c=>{ h+=coviewLine(c,false); (repliesByParent[c.id]||[]).forEach(r=>h+=coviewLine(r,true)); });
   // 5) reflections
   refl.forEach(r=>{ h+='<div class="ep-refl">&ldquo;'+esc(r.text)+'&rdquo; <span class="rq">'+relDate(new Date(r.createdAt).toISOString())+'</span>'+
-    '<button class="rf-share" data-txt="'+esc(r.text)+'" data-key="'+esc(k||'')+'">Share</button></div>'; });
+    '<button class="rf-share" data-txt="'+esc(r.text)+'" data-key="'+esc(k||'')+'">Share</button>'+
+    '<button class="rf-del" data-rid="'+esc(r.id||'')+'" title="Delete">&#10005;</button></div>'; });
   // 6) share a thought (lands as a reflection on this episode's first ticket, if any)
   h+='<div class="ep-actions"><button class="ep-share" data-tid="'+((tickets[0]&&tickets[0].id)||'')+'">&#8599; share a thought</button></div>';
   return h;
@@ -1460,8 +2353,9 @@ function archiveBody(s, k, sessions, tickets, comments, coview, refl, includeBp)
 function myCommentLine(c){
   const play=c.audioUrl?'<button class="ep-play" data-audio="'+esc(c.audioUrl)+'">&#9654;</button>':'';
   const share='<button class="rf-share" data-txt="'+esc(c.transcription||'')+'" data-audio="'+esc(c.audioUrl||'')+'" data-id="'+esc(c.id||'')+'" data-key="'+esc(c.episodeId||'')+'">Share</button>';
+  const del='<button class="rf-del" data-cid="'+esc(c.id||'')+'" title="Delete">&#10005;</button>';
   return '<div class="ep-cmt mine">'+play+'<span class="ep-mark">'+markAt(c.timestampMs)+'</span>'+
-    '<span class="ep-txt">'+esc(c.transcription||'Audio')+'</span>'+share+'</div>';
+    '<span class="ep-txt">'+esc(c.transcription||'Audio')+'</span>'+share+del+'</div>';
 }
 function coviewLine(c, nested){
   const play=c.audioUrl?'<button class="ep-play" data-audio="'+esc(c.audioUrl)+'">&#9654;</button>':'';
@@ -1469,6 +2363,22 @@ function coviewLine(c, nested){
     '<span class="ep-who">'+esc(c.author||'friend')+(nested?' &#8617;':'')+'</span>'+
     '<span class="ep-mark">'+markAt(c.timestampMs)+'</span>'+
     '<span class="ep-txt">'+esc(c.transcription||'Audio')+'</span></div>';
+}
+
+// Delete one of my own viewing-log entries — a reflection (data-rid) or an audio comment
+// (data-cid) — via the scoped DELETE endpoints, then drop the row from view.
+async function deleteLogEntry(btn){
+  const email=acct(); if(!email) return;
+  const rid=btn.dataset.rid, cid=btn.dataset.cid;
+  if(!rid && !cid) return;
+  if(!confirm('Delete this? This can’t be undone.')) return;
+  const url = rid ? (API+'/reflection/'+encodeURIComponent(rid)) : (API+'/transcribe/'+encodeURIComponent(cid));
+  btn.disabled=true;
+  try{
+    const r = await fetch(url, { method:'DELETE', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email }) });
+    if(r.ok || r.status===404){ const row=btn.closest('.ep-refl, .ep-cmt'); if(row) row.remove(); }
+    else { btn.disabled=false; alert('Could not delete that.'); }
+  }catch(_){ btn.disabled=false; alert('Could not delete that.'); }
 }
 
 // Share a thought → Pierre hosts the entry (and the share offer) on his face;
@@ -1493,7 +2403,7 @@ function stopShow(id){
   s.stopped=true; patchTitle(s,{status:'stopped'}); setTimeout(()=>{render();renderPierre();},640);
 }
 
-const OWNER_EMAIL='edward.m.willett@gmail.com';
+const OWNER_EMAIL='ted@pangolinrc.com';
 // COMPLETED → "try again": reset progress and send the show back to CURRENT.
 function tryAgain(id){
   const s=LOG.find(x=>x.id===id); if(!s)return;
@@ -1502,14 +2412,17 @@ function tryAgain(id){
   s.lastDate=new Date().toISOString().slice(0,10);
   selectedId=null; patchTitle(s,{op:'reset'}); switchTab("current"); renderPierre();
 }
-// COMPLETED → "remove permanently": the owner account gets a real delete (show +
-// all its data); everyone else just hides it locally for the session.
+// COMPLETED/STOPPED → "remove from log": a real, permanent delete of THIS member's
+// title + all its progress (the shared catalog row stays). The DELETE endpoint is
+// scoped to the caller's own email, so any signed-in member may delete their own —
+// not just the owner. Irreversible, so confirm first.
 function removePermanently(id){
   const s=LOG.find(x=>x.id===id); if(!s)return;
+  if(!confirm('Delete “'+(s.name||'this title')+'” from your log? This removes it and all its viewing history for good.')) return;
   const i=LOG.indexOf(s); if(i>=0) LOG.splice(i,1);
   selectedId=null;
   const email=acct();
-  if(email && email.toLowerCase()===OWNER_EMAIL && s.titleId)
+  if(email && s.titleId)
     fetch(API+"/profile/"+encodeURIComponent(email)+"/titles/"+encodeURIComponent(s.titleId),{method:"DELETE"}).catch(()=>{});
   render(); renderPierre();
 }
@@ -1578,7 +2491,7 @@ if(window.parent!==window){
   // chaining ("had to scroll down a little first").
   const _sc=document.querySelector(".scroll");
   if(_sc) document.addEventListener("touchstart",()=>{
-    const max=_sc.scrollHeight-_sc.clientHeight; if(max<=0) return;
+    const max=_sc.scrollHeight-_sc.clientHeight; if(!(max>0)) return;   // !(max>0) also bails on NaN
     if(_sc.scrollTop<=0) _sc.scrollTop=1; else if(_sc.scrollTop>=max) _sc.scrollTop=max-1;
   },{passive:true});
 }

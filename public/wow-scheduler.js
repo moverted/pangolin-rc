@@ -83,29 +83,30 @@
   }
 
   // ── nudge law (five rules, one place; ported from the prototype) ───────────────
-  function nudge(ph, mode, watchLog, eps, now, seasonNum) {
+  function nudge(ph, mode, watchLog, eps, now, seasonNum, show) {
     now = now || Date.now();
     const S = seasonNum || (eps[0] && eps[0].season) || 1;
+    const sh = show ? show + ' ' : '';   // name the show in the line so "S4E3" is not ambiguous
     const watched = new Set((watchLog || []).map(w => w.epNum));
     const airedEps = eps.filter(e => e.airstamp && new Date(e.airstamp).getTime() <= now);
     const behind = airedEps.filter(e => !watched.has(e.number));
     if (mode.src === 'off') return { silent: true, why: 'classifier off (two-strike)' };
     if (ph.name === 'SEASON WRAP' && mode.mode === 'MORE!')
-      return { silent: false, text: `MORE! is ready. All ${eps.length} episodes.` };
+      return { silent: false, text: `${show ? show + ': ' : ''}MORE! is ready. All ${eps.length} episodes.` };
     if (mode.mode === 'UNSAMPLED' || mode.mode === 'DECLINED') return { silent: true, why: `mode ${mode.mode}: silence is default` };
     if (mode.mode === 'MORE!') return { silent: true, why: 'MORE!: silent all season, one message at wrap' };
     if (ph.name !== 'RAMP') return { silent: true, why: `nudges fire only during RAMP (now: ${ph.name})` };
     if (behind.length === 0) {
       const next = ph.next, d = Math.ceil((new Date(next.airstamp).getTime() - now) / DAY);
-      return { silent: false, text: `S${S}E${next.number} "${next.name}" ${d <= 1 ? 'drops tonight' : 'in ' + d + ' days'}. You're caught up.` };
+      return { silent: false, text: `${sh}S${S}E${next.number} "${next.name}" ${d <= 1 ? 'drops tonight' : 'in ' + d + ' days'}. You're caught up.` };
     }
     const gap = behind[behind.length - 1], next = ph.next;
     const tt = new Date(next.airstamp).getTime() - now;
     if (mode.mode === 'LIVE' || mode.mode === 'FRESH') {
-      if (tt < 24 * H) return { silent: false, text: `You have tonight to watch S${S}E${gap.number} before S${S}E${next.number} drops!` };
-      return { silent: false, text: `S${S}E${next.number} drops ${fmtDay(next.airstamp)}. That's your spoiler deadline for S${S}E${gap.number}.` };
+      if (tt < 24 * H) return { silent: false, text: `You have tonight to watch ${sh}S${S}E${gap.number} before S${S}E${next.number} drops!` };
+      return { silent: false, text: `${sh}S${S}E${next.number} drops ${fmtDay(next.airstamp)}. That's your spoiler deadline for S${S}E${gap.number}.` };
     }
-    return { silent: false, text: `Heads up: S${S}E${next.number} arrives ${fmtDay(next.airstamp)}. E${gap.number} is waiting whenever you are.` };
+    return { silent: false, text: `Heads up: ${sh}S${S}E${next.number} arrives ${fmtDay(next.airstamp)}. E${gap.number} is waiting whenever you are.` };
   }
 
   // ── TAG: the airdate relative to today, in local time ──────────────────────────
@@ -120,23 +121,31 @@
     if (days === 0) return 'Today';
     if (days === 1) return 'Tomorrow';
     if (days <= 6) return new Date(airstamp).toLocaleDateString('en-US', { weekday: 'long' });
-    if (days <= 13) return 'Next Week';
+    if (days <= 13) return 'Next ' + new Date(airstamp).toLocaleDateString('en-US', { weekday: 'long' });
     if (days <= 41) return WEEKS[Math.floor(days / 7)] || ('in ' + Math.floor(days / 7) + ' weeks');
     return new Date(airstamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   }
 
+  // Keep only episodes strictly AFTER a given {season, number} (the last watched one),
+  // so "next up" skips episodes you've already seen. Passthrough when `after` is null.
+  function afterFilter(eps, after) {
+    if (!after || after.season == null || after.number == null) return eps;
+    return eps.filter(e => e.season > after.season || (e.season === after.season && e.number > after.number));
+  }
   // The next episode "coming up": soonest airstamp that is today or later. Drives the
   // TAG and the timely sort. Returns null when nothing is upcoming (dormant/wrapped).
-  function nextUp(eps, now) {
+  // Optional `after` = the last watched {season, number}; passing it makes the result
+  // watch-aware (a caught-up show points at its NEXT unwatched drop, not today's).
+  function nextUp(eps, now, after) {
     now = now || Date.now();
     const floor = startOfDay(now);
-    const up = eps.filter(e => e.airstamp && new Date(e.airstamp).getTime() >= floor)
+    const up = afterFilter(eps, after).filter(e => e.airstamp && new Date(e.airstamp).getTime() >= floor)
       .sort((a, b) => new Date(a.airstamp) - new Date(b.airstamp));
     return up[0] || null;
   }
   // Sort key for the WATCH face: soonest upcoming airstamp first; no-upcoming sorts last.
-  function sortKey(eps, now) { const n = nextUp(eps, now); return n ? new Date(n.airstamp).getTime() : Infinity; }
-  function inSeason(eps, now) { const n = nextUp(eps, now); return !!n && (new Date(n.airstamp).getTime() - (now || Date.now())) <= CFG.INSEASON_D * DAY; }
+  function sortKey(eps, now, after) { const n = nextUp(eps, now, after); return n ? new Date(n.airstamp).getTime() : Infinity; }
+  function inSeason(eps, now, after) { const n = nextUp(eps, now, after); return !!n && (new Date(n.airstamp).getTime() - (now || Date.now())) <= CFG.INSEASON_D * DAY; }
 
   function fmtDay(iso) { return new Date(iso).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }); }
 
@@ -173,7 +182,8 @@
   async function load(email) {
     if (_state) return _state;
     const cached = lsGet();
-    _state = cached.user ? cached : { user: { declinedCount: 0, positiveInteraction: false, globalKill: false, defaultMode: null }, modes: {} };
+    _state = cached.user ? cached : { user: { declinedCount: 0, positiveInteraction: false, globalKill: false, defaultMode: null }, modes: {}, notified: [] };
+    if (!Array.isArray(_state.notified)) _state.notified = [];
     if (email) {
       try {
         const r = await fetch(`${API}/scheduler/state?email=${encodeURIComponent(email)}`);
@@ -197,8 +207,15 @@
     try { await fetch(`${API}/scheduler/default`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, mode }) }); } catch (_) {} return _state; }
   async function reenable(email) { await load(email); _state.user.globalKill = false; _state.user.declinedCount = 0; lsSet(_state);
     try { await fetch(`${API}/scheduler/reenable`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) }); } catch (_) {} return _state; }
-  async function notify(email, showId, episodeId) { await load(email); _state.user.positiveInteraction = true; lsSet(_state);
+  async function notify(email, showId, episodeId) { await load(email); _state.user.positiveInteraction = true;
+    // Remember this exact drop locally too, so Pierre stops re-offering it immediately
+    // (before the next /state fetch). Server mirror is sched_sent kind='notify'.
+    if (!Array.isArray(_state.notified)) _state.notified = [];
+    const k = `${showId}|${episodeId}`; if (!_state.notified.includes(k)) _state.notified.push(k);
+    lsSet(_state);
     try { await fetch(`${API}/scheduler/notify`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, showId, episodeId }) }); } catch (_) {} return _state; }
+  // Has the member already asked to be notified about this exact drop?
+  function isNotified(showId, episodeId) { return !!(_state && Array.isArray(_state.notified) && _state.notified.includes(`${showId}|${episodeId}`)); }
   function stateNow() { return _state; }
 
   // Cycle order for the chip: auto -> LIVE -> FRESH -> CASUAL -> MORE! -> DECLINED -> auto
@@ -228,7 +245,7 @@
     CFG, MODES, KILL_MSG,
     phase, classify, classifyDeltas, nudge, tag, nextUp, sortKey, inSeason, episodes, epsCached, prefetch,
     daysUntil, weekday,
-    store: { load, setMode, setDefault, reenable, notify, stateNow },
+    store: { load, setMode, setDefault, reenable, notify, isNotified, stateNow },
     nextInCycle, fmtDay,
   };
 })();
