@@ -161,6 +161,29 @@ const SEED_TASTE =
 const MODEL = 'claude-sonnet-4-6';
 const MAX_TURNS = 40;     // abuse cap: messages per request
 const MAX_CHARS = 12000;  // abuse cap: total characters across the conversation
+const IMG_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+
+// Admin-only Outreach skill. Appended to Pierre's system prompt ONLY when the request
+// is a verified admin (native app secret + user_type='admin') in mode 'outreach'. It
+// flips Pierre from member-host to Ted's outreach copywriter and asks for one structured
+// [OUTREACH: {json}] tag the client turns into a tracker row. Never reaches a member.
+const OUTREACH_SKILL = `OUTREACH DRAFTING (admin only — you are helping Ted, the founder of PangolinRC, not a member):
+This is a private founder tool. Ted is doing cold outreach to a TV/film creator or influencer to invite them to PangolinRC and its Marathon Maker feature (you program a curated episode course and see how many people actually FINISH it, not just how many watched). Drop every member-facing rule here — no [ROUTE]/[WATCHED]/[BACKFILL]/[SHADOW]/[MARATHON]/[GETTED] tags, no "what do you want to watch" framing. You are a sharp, warm copywriter who still sounds like Pierre.
+
+Ted will usually paste a screenshot of the person's profile (Instagram, TikTok, YouTube, etc.) and tell you who they are, the channel to use (DM or email), and the angle he wants. From the screenshot read their name, @handle, platform, follower count, and any bio/content signal you can see.
+
+Draft the message Ted should send:
+- DM: short, casual, human — a few sentences, no subject line.
+- Email: a subject line plus a warm body. Reference their actual content, pitch Marathon Maker in a sentence, offer early access, and sign off as Ted (not Pierre).
+Keep it specific and un-templated — one person who genuinely likes their work reaching out, not a marketing blast.
+
+Then, on the VERY LAST line with nothing after it, emit exactly one tag: [OUTREACH: <minified JSON>] shaped exactly like this (unknown string fields → ""; followers is a number or null):
+[OUTREACH: {"name":"","handle":"","platform":"","followers":null,"channel":"DM","status":"Drafted","angle":"","contact_email":"","subject":"","body":"","notes":""}]
+- channel is "DM" or "Email" — match what Ted asked, default "DM".
+- subject is "" for a DM; body is the full drafted message (same text you wrote above).
+- angle is a one-line summary of the hook you used. notes is any useful context about the person (who they are, follower count, why they fit).
+- contact_email only if Ted gave you one.
+Write the drafted message in your visible reply AND copy it into body. Never mention the tag or the JSON to Ted.`;
 
 type Msg = { role: 'user' | 'assistant'; content: string };
 
@@ -571,7 +594,7 @@ export const pierreRoutes = new Hono<{ Bindings: Env }>();
 
 // Frontend (cube_pierre_face.html) → POST /pierre/chat  { messages: [{role, content}] }
 pierreRoutes.post('/chat', async (c) => {
-  let body: { messages?: unknown; token?: unknown; appToken?: unknown; email?: unknown; mode?: unknown; context?: unknown; conversation_id?: unknown; kind?: unknown; tz?: unknown };
+  let body: { messages?: unknown; token?: unknown; appToken?: unknown; email?: unknown; mode?: unknown; context?: unknown; conversation_id?: unknown; kind?: unknown; tz?: unknown; image?: unknown };
   try {
     body = await c.req.json();
   } catch {
@@ -619,7 +642,35 @@ pierreRoutes.post('/chat', async (c) => {
   // order). We relay tool_use → run the lookup → tool_result, up to TOOL_ROUNDS
   // round-trips, then take his final text. Tools only offered when TMDB is
   // configured; without the key this is exactly the old single-shot call.
-  const convo: Array<{ role: 'user' | 'assistant'; content: any }> = [...clean];
+  const convo: Array<{ role: 'user' | 'assistant'; content: any }> = clean.map((m) => ({ ...m }));
+
+  // Optional image on the latest user turn — the admin Outreach skill pastes a profile
+  // screenshot for Pierre (vision) to read. Rewrite ONLY the final user message into
+  // Anthropic's content-block form; every other message stays a plain string.
+  const rawImg = body.image as { mediaType?: unknown; data?: unknown } | undefined;
+  if (
+    rawImg &&
+    typeof rawImg.data === 'string' &&
+    typeof rawImg.mediaType === 'string' &&
+    IMG_MEDIA_TYPES.has(rawImg.mediaType) &&
+    rawImg.data.length > 0 &&
+    rawImg.data.length < 9_500_000 // ~7MB decoded
+  ) {
+    for (let i = convo.length - 1; i >= 0; i--) {
+      const turn = clean[i];
+      if (turn && turn.role === 'user') {
+        convo[i] = {
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: rawImg.mediaType, data: rawImg.data } },
+            { type: 'text', text: String(turn.content) },
+          ],
+        };
+        break;
+      }
+    }
+  }
+
   const tools = c.env.TMDB_API_KEY ? TOOLS : undefined;
 
   // Ground Pierre in the signed-in user's real log when we have one; the demo
@@ -628,8 +679,24 @@ pierreRoutes.post('/chat', async (c) => {
     typeof body.email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email)
       ? body.email.trim().toLowerCase().slice(0, 120)
       : '';
-  const taste = email ? await tasteBlock(c.env, email) : SEED_TASTE;
-  const shadow = email ? await shadowBlock(c.env, email) : '';
+  // Admin-only Outreach skill gate. Require the native app secret AND a user_type='admin'
+  // account, exactly like /admin/app-status — for anyone else we silently drop the mode
+  // (never leak the skill) and fall through to a normal chat turn. The member taste/shadow
+  // context is irrelevant to outreach drafting, so skip those reads when it's live.
+  let outreachOk = false;
+  if (body.mode === 'outreach') {
+    const appToken = typeof body.appToken === 'string' ? body.appToken : '';
+    const nativeOk = !!c.env.APP_NATIVE_SECRET && appToken.length > 0 && safeEqual(appToken, c.env.APP_NATIVE_SECRET);
+    if (nativeOk && email) {
+      const u = await c.env.DB.prepare('SELECT user_type FROM users WHERE email = ?')
+        .bind(email)
+        .first<{ user_type: string | null }>();
+      outreachOk = u?.user_type === 'admin';
+    }
+  }
+
+  const taste = outreachOk ? '' : email ? await tasteBlock(c.env, email) : SEED_TASTE;
+  const shadow = outreachOk ? '' : email ? await shadowBlock(c.env, email) : '';
 
   // The member's IANA timezone (browser: Intl…timeZone), so premiere_timing can render a
   // drop time in THEIR local clock. Defaults to US Eastern when the client sends nothing.
@@ -661,7 +728,9 @@ pierreRoutes.post('/chat', async (c) => {
       '\n- If their thought stands on its own, no question in it, respond to it and ask once if they want to share the thought with their people. If they say yes, put [PANEL: Share] alone on the last line. Never use that tag any other way, and never mention it.';
   }
 
-  const system = PIERRE + '\n\n' + taste + shadow + modeBlock;
+  const system = outreachOk
+    ? PIERRE + '\n\n' + OUTREACH_SKILL
+    : PIERRE + '\n\n' + taste + shadow + modeBlock;
 
   let data: { content?: Array<any>; stop_reason?: string };
   for (let round = 0; ; round++) {

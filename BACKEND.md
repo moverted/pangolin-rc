@@ -2840,3 +2840,37 @@ recur.
 - **Pages deploy:** `wrangler pages deploy public --project-name pangolin-rc --branch main` →
   `3bdb1dad`, Production (`remote.pangolinrc.com`). Verified live: both fix markers present via
   `curl -sL --compressed` on `/cube_log_face`.
+
+## 2026-09-06 — Pierre admin Outreach skill (vision + tracker create)
+- **What:** admin-only Pierre skill. Ted picks "Outreach draft" in the flat-app chat picker,
+  attaches/pastes a creator's profile screenshot + says how to reach out; Pierre (vision) drafts
+  the DM/email and emits `[OUTREACH: {json}]` → a draft card (Copy + channel-aware Send-via-Gmail)
+  and a prefilled tracker form that writes a row to the `outreach` table (migration 0059).
+- **Worker (`src/handlers/pierre.ts`):** `/pierre/chat` now accepts an optional top-level
+  `image {mediaType,data(base64)}` and rewrites the last user turn into Anthropic content blocks
+  (allowed png/jpeg/webp/gif, ~7MB cap); MODEL `claude-sonnet-4-6` (vision-capable). New
+  `mode:'outreach'` appends the `OUTREACH_SKILL` system block, gated `nativeOk (APP_NATIVE_SECRET)
+  && users.user_type='admin'` — dropped silently otherwise (taste/shadow reads skipped when live).
+- **Worker (`src/handlers/admin.ts`):** new `POST /admin/outreach` — create one row. Authed like
+  `/app-status` (app secret + admin email), NOT the portal password. Slugifies name → id,
+  `INSERT OR IGNORE`, `date_contacted`=today. Returns `{ok,id,existed}`.
+- **Frontend (`public/cube_pierre_face.html`):** admin-gated picker option (`window.parent.__pgAdmin`),
+  `enterOutreachFlow` + image attach/paste, `mode`+`image` on the chat POST, `parseOutreach` +
+  `renderOutreachCard` (draft card + prefilled form → `/admin/outreach`).
+- **No migration.** `outreach` already exists (0059). No flat_shell.js change (skill self-contained
+  in the face; `__pgAdmin` already set by flat_shell.js on native).
+- **Verified locally:** `tsc --noEmit` clean; `node`-checked the face inline script; local D1 INSERT
+  matches schema; `wrangler dev` — `/admin/outreach` returns ok/existed for admin+correct token,
+  401 for non-admin email, 401 for wrong appToken, 400 for missing name; `/pierre/chat` handles the
+  image/mode body shape without crashing.
+- **Deployed 2026-09-06:** Worker version `c90aaaab`; Pages `a7f1aba2` (Production). Verified live:
+  `POST …workers.dev/admin/outreach` → 401 on a bad token (gate live); `/cube_pierre_face` on
+  remote.pangolinrc.com carries the outreach code. `ted@pangolinrc.com` already `user_type='admin'`
+  in remote D1 (no promotion needed — earlier "not yet promoted" note was stale).
+- **iOS:** `sync-www` + `cap copy ios` done — `ios/App/App/public/cube_pierre_face.html` has the
+  skill. Native-only (gate needs the app `appToken`; `__pgAdmin` only set on native), so Ted must
+  archive/distribute a fresh TestFlight build to exercise it on device. Xcode opened for handoff.
+- **Follow-up (frontend-only, Pages `9d1a79fd`):** "Send via Gmail" now hands off to the GMAIL APP
+  via the `googlegmail:///co?to=&subject=&body=` URL scheme on device (web compose URL kept as the
+  web/dev fallback). Fixes the draft opening in Safari with a raw %20/%0A-encoded body. `sync-www`
+  + `cap copy ios` re-run so the iOS bundle carries it — needs a fresh archive.

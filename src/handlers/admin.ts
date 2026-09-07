@@ -903,6 +903,57 @@ adminRoutes.post('/app-status', async (c) => {
   return c.json({ isAdmin: true, waitlistNew: wl?.n ?? 0, getTedOpen, adminUrl: 'https://admin.pangolinrc.com' });
 });
 
+// POST /admin/outreach — create ONE outreach-tracker row from the in-app admin skill
+// (Pierre's Outreach draft). Distinct from the portal's password gate: this is called
+// inside the app by an admin user, so it's authed like /app-status (native app secret +
+// user_type='admin'), NOT USERS_ADMIN_PASSWORD. Mirrors scripts/outreach-seed.sql.
+function slugify(s: string): string {
+  const base = s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
+  return base || 'contact-' + Math.random().toString(36).slice(2, 8);
+}
+
+adminRoutes.post('/outreach', async (c) => {
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const email = (typeof body.email === 'string' ? body.email : '').trim().toLowerCase();
+  const appToken = typeof body.appToken === 'string' ? body.appToken : '';
+
+  // Same gate as /app-status: prove it's the real app AND an admin account.
+  const nativeOk = !!c.env.APP_NATIVE_SECRET && appToken.length > 0 && safeEqual(appToken, c.env.APP_NATIVE_SECRET);
+  if (!nativeOk) return c.json({ error: 'unauthorized' }, 401);
+  const u = email
+    ? await c.env.DB.prepare('SELECT user_type FROM users WHERE email = ?').bind(email).first<{ user_type: string | null }>()
+    : null;
+  if (u?.user_type !== 'admin') return c.json({ error: 'unauthorized' }, 401);
+
+  const str = (v: unknown, max = 2000) => (typeof v === 'string' ? v.slice(0, max) : '');
+  const name = str(body.name, 200).trim();
+  if (!name) return c.json({ error: 'name required' }, 400);
+
+  const id = slugify(typeof body.id === 'string' && body.id.trim() ? body.id : name);
+  const channel = (OUTREACH_CHANNELS as readonly string[]).includes(body.channel) ? body.channel : 'DM';
+  const status = (OUTREACH_STATUSES as readonly string[]).includes(body.status) ? body.status : 'Drafted';
+  const platform = (OUTREACH_PLATFORMS as readonly string[]).includes(body.platform) ? body.platform : str(body.platform, 40);
+  const fc = Number(body.follower_count);
+  const followers = Number.isFinite(fc) && fc >= 0 ? Math.trunc(fc) : null;
+  const today = new Date().toISOString().slice(0, 10);
+
+  const res = await c.env.DB.prepare(
+    `INSERT OR IGNORE INTO outreach
+       (id, name, handle, platform, follower_count, channel, status, angle, date_contacted, contact_email, notes, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  )
+    .bind(
+      id, name, str(body.handle, 120), platform, followers, channel, status,
+      str(body.angle, 2000), today, str(body.contact_email, 200).trim().toLowerCase(),
+      str(body.notes, 2000), Date.now(),
+    )
+    .run();
+
+  // INSERT OR IGNORE: no change means the slug already exists (dupe contact).
+  return c.json({ ok: true, id, existed: !res.meta.changes });
+});
+
 // POST /admin/write/:resource — { id, key, value } → inline-edit one column of one
 // row, for columns declared editable in the resource's `writes` map. table/column/
 // idColumn are author-controlled registry literals; id + value are bound params and
