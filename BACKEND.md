@@ -2874,3 +2874,29 @@ recur.
   via the `googlegmail:///co?to=&subject=&body=` URL scheme on device (web compose URL kept as the
   web/dev fallback). Fixes the draft opening in Safari with a raw %20/%0A-encoded body. `sync-www`
   + `cap copy ios` re-run so the iOS bundle carries it — needs a fresh archive.
+
+## 2026-09-07 — Outreach follow-up cadence + dedup + status-via-Pierre
+- **Migration `0060_outreach_cadence.sql`:** adds to `outreach` → `initial_draft`, `one_week_draft`,
+  `one_month_draft`, `follow_up_stage` (0 init/1 wk1-sent/2 mo1-sent/3 closed), `initial_sent_at`,
+  `wk1_sent_at`, `mo1_sent_at`, `next_due_at` (ms), + index on `next_due_at`. Cadence re-anchors on
+  each ACTUAL send: init on first `status='Sent'` (next_due +7d), wk1 send → +30d, mo1 send → +7d
+  final window, then auto `Soft Decline`. Status change to Replied/Converted/Declined halts it.
+- **Worker (`admin.ts`):** `Soft Decline` added to `OUTREACH_STATUSES`; cadence helpers
+  (`advanceOutreachStage`, `sweepOutreachSoftDecline`, plus init in create + `/outreach/update`);
+  new endpoints `POST /admin/outreach/followups` (due queue + lazy soft-decline sweep),
+  `/outreach/update` (status/note/draft-store, resolves by id OR fuzzy query), `/outreach/followup-sent`
+  (advance + re-anchor) — all authed like `/app-status` (app secret + admin). `/app-status` now sweeps
+  + returns `outreachDue`; outreach resource gains a derived Cadence column + Initial/Wk1/Mo1 Draft columns.
+- **Worker (`pierre.ts`):** admin-only `lookup_outreach` tool (dedup before drafting) via the existing
+  tool-loop; follow-up sub-mode (`context.followup` → stage-appropriate nudge); `[OUTREACH_UPDATE:{json}]`
+  status-report tag.
+- **Frontend (`cube_pierre_face.html`, `flat_shell.js`):** due-follow-up queue on entering Outreach
+  mode (Pierre lists chips) → follow-up draft card + Mark sent (`followup-sent`); id/stage draft store;
+  `parseOutreachUpdate` confirm chip; `Soft Decline` in the create form; badge sum includes `outreachDue`.
+- **Verified locally** (`tsc` clean; face+flat_shell syntax; 0060 applied local): create-as-Sent inits
+  cadence (+7d); followups lists the due wk1 task; `outreachDue=1` in app-status; draft store +
+  followup-sent advances 0→1 re-anchored +30d; advance→2 then back-dated sweep flips to Soft Decline
+  (stage 3, next_due NULL); status update by query = Replied clears next_due + appends note; all new
+  endpoints 401 for non-admin/wrong token.
+- **NOT yet applied/deployed:** remote migration 0060, Worker + Pages deploy, iOS bundle — pending
+  Ted's production authorization. Native-only UI (admin gate).

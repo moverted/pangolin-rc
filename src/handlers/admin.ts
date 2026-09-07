@@ -93,9 +93,51 @@ const LIST_TYPE_EXPR = "COALESCE(NULLIF(waitlist.list_type,''),'waitlist')";
 
 // Outreach (creators/influencers we contact). Status/Channel are the inline-edit
 // dropdowns; enums are shared across cols/filters/writes so they can't drift.
-const OUTREACH_STATUSES = ['Drafted', 'Sent', 'Replied', 'Converted', 'Declined', 'No Response'] as const;
+const OUTREACH_STATUSES = ['Drafted', 'Sent', 'Replied', 'Converted', 'Declined', 'Soft Decline', 'No Response'] as const;
 const OUTREACH_CHANNELS = ['DM', 'Email'] as const;
 const OUTREACH_PLATFORMS = ['Instagram', 'Twitter', 'TikTok', 'YouTube', 'Email', 'Other'] as const;
+
+// Follow-up cadence timing. Each next_due_at is RE-ANCHORED on the ACTUAL send date of the
+// prior step (see migration 0060), so a slow send just slides the whole schedule.
+const WK1_MS = 7 * 24 * 60 * 60 * 1000;    // initial → 1-week follow-up
+const MO1_MS = 30 * 24 * 60 * 60 * 1000;   // 1-week send → 1-month follow-up
+const FINAL_MS = 7 * 24 * 60 * 60 * 1000;  // 1-month send → soft-decline window
+// Statuses that keep the cadence live; any other status halts it.
+const CADENCE_ACTIVE = ['Sent', 'No Response'];
+// Statuses that terminate the cadence when set (clear next_due_at).
+const CADENCE_HALT = ['Replied', 'Converted', 'Declined', 'Soft Decline'];
+
+// A follow-up was just sent for `id`: stamp the real send time, bump the stage, and
+// re-anchor next_due_at off NOW. stage 0→1 (wk1 sent) schedules the 1-month; 1→2 (mo1
+// sent) schedules the final window; 2→3 closes. No-op past stage 2.
+async function advanceOutreachStage(env: Env, id: string, now: number): Promise<void> {
+  const row = await env.DB.prepare('SELECT follow_up_stage FROM outreach WHERE id = ?')
+    .bind(id)
+    .first<{ follow_up_stage: number }>();
+  if (!row) return;
+  const stage = row.follow_up_stage | 0;
+  if (stage === 0) {
+    await env.DB.prepare('UPDATE outreach SET follow_up_stage = 1, wk1_sent_at = ?, next_due_at = ? WHERE id = ?')
+      .bind(now, now + MO1_MS, id).run();
+  } else if (stage === 1) {
+    await env.DB.prepare('UPDATE outreach SET follow_up_stage = 2, mo1_sent_at = ?, next_due_at = ? WHERE id = ?')
+      .bind(now, now + FINAL_MS, id).run();
+  } else {
+    await env.DB.prepare('UPDATE outreach SET follow_up_stage = 3, next_due_at = NULL WHERE id = ?')
+      .bind(id).run();
+  }
+}
+
+// Unattended transition: any row whose final (post-1-month) window has lapsed with no reply
+// becomes 'Soft Decline'. Run lazily at the top of the follow-up/app-status reads (fires
+// whenever an admin foregrounds the app) — cheaper than a cron and only matters when surfaced.
+async function sweepOutreachSoftDecline(env: Env, now: number): Promise<void> {
+  await env.DB.prepare(
+    `UPDATE outreach SET status = 'Soft Decline', follow_up_stage = 3, next_due_at = NULL
+       WHERE follow_up_stage = 2 AND next_due_at IS NOT NULL AND next_due_at <= ?
+         AND status IN ('Sent', 'No Response')`,
+  ).bind(now).run();
+}
 // Funnel fold: match outreach.contact_email against the inbound tables so the view
 // shows live funnel state (member / waitlist status) instead of a hand-kept guess.
 // `o`/`ow`/`ou` are the aliases used in the outreach resource's FROM.
@@ -104,6 +146,15 @@ const OUTREACH_FUNNEL_EXPR = `CASE
   WHEN ou.email IS NOT NULL THEN 'Member'
   WHEN ow.email IS NOT NULL THEN 'Waitlist: ' || COALESCE(NULLIF(ow.status,''),'new')
   ELSE 'not in funnel' END`;
+
+// Follow-up cadence, human-readable: which stage is next and how close it is (or "DUE").
+// stage 0→wk1, 1→mo1, 2→final(soft-decline) window, 3/closed → em dash.
+const OUTREACH_CADENCE_EXPR = `CASE
+  WHEN o.follow_up_stage >= 3 OR o.next_due_at IS NULL THEN '—'
+  WHEN o.next_due_at <= strftime('%s','now')*1000 THEN
+    (CASE o.follow_up_stage WHEN 0 THEN 'wk1 DUE' WHEN 1 THEN 'mo1 DUE' ELSE 'final DUE' END)
+  ELSE (CASE o.follow_up_stage WHEN 0 THEN 'wk1' WHEN 1 THEN 'mo1' ELSE 'final' END)
+       || ' in ' || CAST((o.next_due_at - strftime('%s','now')*1000)/86400000 AS INT) || 'd' END`;
 
 // Millisecond epoch → local-ish date bucket. All created_at/updated_at are ms.
 const monthOf = (col: string) => `strftime('%Y-%m', ${col}/1000, 'unixepoch')`;
@@ -517,11 +568,15 @@ const RESOURCES: Record<string, Resource> = {
       { key: 'follower_count', label: 'Followers', expr: 'o.follower_count' },
       { key: 'channel',        label: 'Channel',   expr: 'o.channel' },
       { key: 'status',         label: 'Status',    expr: 'o.status' },
+      { key: 'cadence',        label: 'Cadence',   expr: OUTREACH_CADENCE_EXPR },
       { key: 'funnel',         label: 'Funnel',    expr: OUTREACH_FUNNEL_EXPR },
       { key: 'angle',          label: 'Angle',     expr: 'o.angle' },
       { key: 'date_contacted', label: 'Contacted', expr: 'o.date_contacted' },
       { key: 'contact_email',  label: 'Email',     expr: 'o.contact_email' },
       { key: 'notes',          label: 'Notes',     expr: 'o.notes' },
+      { key: 'initial_draft',  label: 'Initial Draft', expr: 'o.initial_draft' },
+      { key: 'one_week_draft', label: 'Wk1 Draft',     expr: 'o.one_week_draft' },
+      { key: 'one_month_draft',label: 'Mo1 Draft',     expr: 'o.one_month_draft' },
     ],
     searchExprs: ['o.name', 'o.handle', 'o.contact_email', 'o.angle', 'o.notes'],
     filters: [
@@ -900,7 +955,20 @@ adminRoutes.post('/app-status', async (c) => {
     .prepare("SELECT COUNT(DISTINCT conversation_id) AS n FROM pierre_chat WHERE needs_ted = 1 AND COALESCE(ted_status,'') <> 'handled'")
     .first<{ n: number }>();
   const getTedOpen = gt?.n ?? 0;
-  return c.json({ isAdmin: true, waitlistNew: wl?.n ?? 0, getTedOpen, adminUrl: 'https://admin.pangolinrc.com' });
+  // Outreach follow-ups due: sweep any lapsed soft-declines first, then count the open tasks
+  // (stage 0/1 whose next_due_at has passed) so the app badge reflects work waiting on Ted.
+  const nowTs = Date.now();
+  await sweepOutreachSoftDecline(c.env, nowTs);
+  const od = await c.env.DB
+    .prepare(
+      `SELECT COUNT(*) AS n FROM outreach
+        WHERE next_due_at IS NOT NULL AND next_due_at <= ? AND follow_up_stage < 2
+          AND status IN ('Sent', 'No Response')`,
+    )
+    .bind(nowTs)
+    .first<{ n: number }>();
+  const outreachDue = od?.n ?? 0;
+  return c.json({ isAdmin: true, waitlistNew: wl?.n ?? 0, getTedOpen, outreachDue, adminUrl: 'https://admin.pangolinrc.com' });
 });
 
 // POST /admin/outreach — create ONE outreach-tracker row from the in-app admin skill
@@ -936,22 +1004,145 @@ adminRoutes.post('/outreach', async (c) => {
   const platform = (OUTREACH_PLATFORMS as readonly string[]).includes(body.platform) ? body.platform : str(body.platform, 40);
   const fc = Number(body.follower_count);
   const followers = Number.isFinite(fc) && fc >= 0 ? Math.trunc(fc) : null;
+  const now = Date.now();
   const today = new Date().toISOString().slice(0, 10);
 
+  // Cadence init: if the contact is created already Sent, start the clock now — real send
+  // time + the 1-week follow-up due. Created as Drafted → cadence stays dormant until a
+  // later status change to Sent (handled in /outreach/update).
+  const sentNow = status === 'Sent';
   const res = await c.env.DB.prepare(
     `INSERT OR IGNORE INTO outreach
-       (id, name, handle, platform, follower_count, channel, status, angle, date_contacted, contact_email, notes, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, name, handle, platform, follower_count, channel, status, angle, date_contacted, contact_email, notes,
+        initial_draft, initial_sent_at, next_due_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       id, name, str(body.handle, 120), platform, followers, channel, status,
       str(body.angle, 2000), today, str(body.contact_email, 200).trim().toLowerCase(),
-      str(body.notes, 2000), Date.now(),
+      str(body.notes, 2000), str(body.initial_draft, 4000),
+      sentNow ? now : null, sentNow ? now + WK1_MS : null, now,
     )
     .run();
 
   // INSERT OR IGNORE: no change means the slug already exists (dupe contact).
   return c.json({ ok: true, id, existed: !res.meta.changes });
+});
+
+// Shared in-app admin gate for the outreach endpoints: the same check as /app-status
+// (native app secret + user_type='admin'), NOT the portal password. Returns true if OK.
+async function appAdminOk(env: Env, email: string, appToken: string): Promise<boolean> {
+  const nativeOk = !!env.APP_NATIVE_SECRET && appToken.length > 0 && safeEqual(appToken, env.APP_NATIVE_SECRET);
+  if (!nativeOk || !email) return false;
+  const u = await env.DB.prepare('SELECT user_type FROM users WHERE email = ?')
+    .bind(email)
+    .first<{ user_type: string | null }>();
+  return u?.user_type === 'admin';
+}
+
+// POST /admin/outreach/followups — the in-app follow-up queue. Sweeps soft-declines first,
+// then returns the DUE tasks (a 1-week or 1-month follow-up to send). stage 2 rows are not
+// tasks (they auto-soft-decline via the sweep), so the queue is stage 0/1 only.
+adminRoutes.post('/outreach/followups', async (c) => {
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const email = (typeof body.email === 'string' ? body.email : '').trim().toLowerCase();
+  const appToken = typeof body.appToken === 'string' ? body.appToken : '';
+  if (!(await appAdminOk(c.env, email, appToken))) return c.json({ error: 'unauthorized' }, 401);
+
+  const now = Date.now();
+  await sweepOutreachSoftDecline(c.env, now);
+  const rs = await c.env.DB.prepare(
+    `SELECT id, name, handle, platform, channel, angle, contact_email, follow_up_stage,
+            initial_draft, one_week_draft, one_month_draft, initial_sent_at, wk1_sent_at, next_due_at
+       FROM outreach
+      WHERE next_due_at IS NOT NULL AND next_due_at <= ? AND follow_up_stage < 2
+        AND status IN ('Sent', 'No Response')
+      ORDER BY next_due_at ASC`,
+  ).bind(now).all();
+  const due = (rs.results || []).map((r: any) => ({
+    id: r.id, name: r.name, handle: r.handle, platform: r.platform, channel: r.channel,
+    angle: r.angle, contact_email: r.contact_email,
+    stage: r.follow_up_stage | 0,                          // 0 → wk1 due, 1 → mo1 due
+    kind: (r.follow_up_stage | 0) === 0 ? 'week' : 'month',
+    initial_draft: r.initial_draft || '', one_week_draft: r.one_week_draft || '', one_month_draft: r.one_month_draft || '',
+  }));
+  return c.json({ ok: true, due });
+});
+
+// POST /admin/outreach/update — { id, status?, note?, draft? }. Status change may halt the
+// cadence (clears next_due_at) or START it (Drafted→Sent inits stage 0). draft {stage,text}
+// stores a generated draft into the right column. Used by Pierre status-report + draft-store.
+adminRoutes.post('/outreach/update', async (c) => {
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const email = (typeof body.email === 'string' ? body.email : '').trim().toLowerCase();
+  const appToken = typeof body.appToken === 'string' ? body.appToken : '';
+  if (!(await appAdminOk(c.env, email, appToken))) return c.json({ error: 'unauthorized' }, 401);
+  // Resolve the row by explicit id, or by a fuzzy query (name/@handle/email) when Ted
+  // reports back via Pierre and only names the person.
+  let id = typeof body.id === 'string' ? body.id : '';
+  if (!id && typeof body.query === 'string' && body.query.trim()) {
+    const q = body.query.trim().replace(/^@+/, '');
+    const like = '%' + q.replace(/[%_]/g, '') + '%';
+    const hit = await c.env.DB.prepare(
+      'SELECT id FROM outreach WHERE name LIKE ? OR handle LIKE ? OR contact_email LIKE ? ORDER BY created_at DESC LIMIT 1',
+    ).bind(like, like, like).first<{ id: string }>();
+    if (hit) id = hit.id;
+  }
+  if (!id) return c.json({ error: 'id required' }, 400);
+  const row = await c.env.DB.prepare(
+    'SELECT status, initial_sent_at, follow_up_stage FROM outreach WHERE id = ?',
+  ).bind(id).first<{ status: string; initial_sent_at: number | null; follow_up_stage: number }>();
+  if (!row) return c.json({ error: 'not found' }, 404);
+  const now = Date.now();
+
+  // Draft store: write the generated stage draft into the matching column.
+  if (body.draft && typeof body.draft === 'object') {
+    const stage = Number(body.draft.stage);
+    const col = stage === 1 ? 'one_week_draft' : stage === 2 ? 'one_month_draft' : 'initial_draft';
+    const text = typeof body.draft.text === 'string' ? body.draft.text.slice(0, 4000) : '';
+    await c.env.DB.prepare(`UPDATE outreach SET ${col} = ? WHERE id = ?`).bind(text, id).run();
+  }
+
+  // Note: append (don't clobber) so the history builds up.
+  if (typeof body.note === 'string' && body.note.trim()) {
+    const note = body.note.trim().slice(0, 1000);
+    await c.env.DB.prepare(
+      "UPDATE outreach SET notes = CASE WHEN notes = '' THEN ? ELSE notes || char(10) || ? END WHERE id = ?",
+    ).bind(note, note, id).run();
+  }
+
+  // Status: validate, then reconcile the cadence.
+  if (typeof body.status === 'string' && (OUTREACH_STATUSES as readonly string[]).includes(body.status)) {
+    const status = body.status;
+    if (status === 'Sent' && row.initial_sent_at == null) {
+      // First send → start the clock (stage 0, 1-week follow-up due).
+      await c.env.DB.prepare(
+        'UPDATE outreach SET status = ?, initial_sent_at = ?, next_due_at = ?, follow_up_stage = 0 WHERE id = ?',
+      ).bind(status, now, now + WK1_MS, id).run();
+    } else if (CADENCE_HALT.includes(status)) {
+      // Reply/convert/decline halts the cadence.
+      await c.env.DB.prepare('UPDATE outreach SET status = ?, next_due_at = NULL WHERE id = ?').bind(status, id).run();
+    } else {
+      await c.env.DB.prepare('UPDATE outreach SET status = ? WHERE id = ?').bind(status, id).run();
+    }
+  }
+  return c.json({ ok: true, id });
+});
+
+// POST /admin/outreach/followup-sent — { id }. A follow-up was just sent; advance the stage
+// and re-anchor the next due date off NOW (the actual send).
+adminRoutes.post('/outreach/followup-sent', async (c) => {
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const email = (typeof body.email === 'string' ? body.email : '').trim().toLowerCase();
+  const appToken = typeof body.appToken === 'string' ? body.appToken : '';
+  if (!(await appAdminOk(c.env, email, appToken))) return c.json({ error: 'unauthorized' }, 401);
+  const id = typeof body.id === 'string' ? body.id : '';
+  if (!id) return c.json({ error: 'id required' }, 400);
+  await advanceOutreachStage(c.env, id, Date.now());
+  return c.json({ ok: true, id });
 });
 
 // POST /admin/write/:resource — { id, key, value } → inline-edit one column of one
