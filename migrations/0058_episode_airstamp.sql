@@ -1,0 +1,12 @@
+-- Store the episode's real release INSTANT (ISO-8601 UTC), not just the date-only `airdate`.
+-- The date column loses the drop time, which varies by platform, so counting an episode
+-- "released" at UTC-midnight of its airdate flipped it up to a full day early/late — reading a
+-- caught-up member as one episode behind and killing the FRESH badge the night before a drop.
+--
+-- `airstamp` holds our BEST-KNOWN drop instant (see src/premiere_timing.ts): for a known
+-- streamer the platform's real convention WINS over TVmaze's often-imprecise value (HBO cable
+-- 9pm ET simulcast; Netflix/Disney+/Prime/Max-originals midnight PT; Hulu midnight ET; Apple TV+
+-- midnight GMT, so a "Wednesday" episode is up Tuesday in the U.S.); cable/broadcast with no
+-- rule keeps TVmaze's precise airtime. Written at ingest + on self-heal refresh. `released`
+-- compares against it; `airdate 23:59:59` (ET) is the fallback for legacy rows until refreshed.
+ALTER TABLE episodes ADD COLUMN airstamp TEXT;

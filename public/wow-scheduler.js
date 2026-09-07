@@ -16,6 +16,57 @@
   // Phase boundaries (spec v1.0). Tunable surface.
   const CFG = { LIVE_H: 3, FRESH_H: 48, RAMP_H: 72, PRESHOW_H: 2, INSEASON_D: 14, WRAP_D: 7 };
   const MODES = ['LIVE', 'FRESH', 'CASUAL', 'MORE!'];
+
+  // ── premiere_timing (browser port of src/premiere_timing.ts) ──────────────────
+  // TVmaze's airstamp is precise for cable/broadcast but often wrong for streamers (it
+  // tends to stamp the listed-date midnight in a US zone). Each streamer has a real drop
+  // convention; the rule WINS over the raw airstamp for known platforms, so a caught-up
+  // badge and the "next drop" weekday land on the true day in the member's timezone. The
+  // big one: Apple TV+ drops 12am GMT, so a "Wednesday" episode is up Tuesday in the U.S.
+  const RZ = { ET: 'America/New_York', PT: 'America/Los_Angeles', UTC: 'UTC' };
+  const PTR = {
+    hbo:    { zone: RZ.ET,  hour: 21, minute: 0,  day: 0 },  // HBO cable flagship: 9pm ET simulcast
+    midPT:  { zone: RZ.PT,  hour: 0,  minute: 0,  day: 0 },  // Netflix / Disney+ / Prime / Max originals
+    midET:  { zone: RZ.ET,  hour: 0,  minute: 0,  day: 0 },  // Hulu
+    apple:  { zone: RZ.UTC, hour: 0,  minute: 0,  day: 0 },  // 12am GMT → U.S. the evening before
+    unknown:{ zone: RZ.ET,  hour: 23, minute: 59, day: 0 },  // end of airdate ET
+  };
+  function ptRuleFor(platform) {
+    const p = (platform || '').toLowerCase().trim();
+    if (!p) return null;                                     // unknown → keep raw airstamp
+    if (p.indexOf('apple') >= 0) return PTR.apple;
+    if (p.indexOf('netflix') >= 0) return PTR.midPT;
+    if (p.indexOf('disney') >= 0) return PTR.midPT;
+    if (p.indexOf('prime') >= 0 || p.indexOf('amazon') >= 0) return PTR.midPT;
+    if (p.indexOf('hulu') >= 0) return PTR.midET;
+    if (p === 'max' || p.indexOf('hbo max') >= 0) return PTR.midPT;
+    if (p.indexOf('hbo') >= 0) return PTR.hbo;
+    return null;
+  }
+  function zonedWallToEpoch(y, mo, d, h, mi, zone) {
+    if (zone === 'UTC') return Date.UTC(y, mo - 1, d, h, mi);
+    const target = Date.UTC(y, mo - 1, d, h, mi);
+    const offAt = (e) => {
+      const p = new Intl.DateTimeFormat('en-US', { timeZone: zone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+        .formatToParts(new Date(e)).reduce((a, x) => (a[x.type] = x.value, a), {});
+      return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) - e;
+    };
+    let epoch = target - offAt(target); epoch = target - offAt(epoch); return epoch;
+  }
+  function ruleEpoch(rule, airdate) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(airdate || ''); if (!m) return null;
+    let base = Date.UTC(+m[1], +m[2] - 1, +m[3]); if (rule.day) base += rule.day * DAY;
+    const b = new Date(base);
+    return zonedWallToEpoch(b.getUTCFullYear(), b.getUTCMonth() + 1, b.getUTCDate(), rule.hour, rule.minute, rule.zone);
+  }
+  // Best-known drop ISO for an episode. Known streamer rule wins; else the raw airstamp
+  // (cable/broadcast real airtime); else end-of-airdate ET.
+  function dropStamp(platform, airdate, rawAirstamp) {
+    const rule = ptRuleFor(platform);
+    if (rule) { const e = ruleEpoch(rule, airdate); if (e != null) return new Date(e).toISOString(); }
+    if (rawAirstamp) { const t = new Date(rawAirstamp).getTime(); if (!isNaN(t)) return rawAirstamp; }
+    const e = ruleEpoch(PTR.unknown, airdate); return e != null ? new Date(e).toISOString() : null;
+  }
   const KILL_MSG = "You can turn this back on in your profile, but Pierre won't guess your watch habits anymore.";
 
   // ── phase engine: airWindow x timeNow (ported from the prototype) ──────────────
@@ -159,7 +210,18 @@
     if (_epCache.has(id)) return _epCache.get(id);
     const p = fetch(`https://api.tvmaze.com/shows/${id}?embed=episodes`)
       .then(r => r.ok ? r.json() : null)
-      .then(d => (d && d._embedded && d._embedded.episodes) ? d._embedded.episodes.filter(e => e.airstamp) : [])
+      .then(d => {
+        if (!d || !d._embedded || !d._embedded.episodes) return [];
+        // Rewrite each episode's airstamp to the real per-platform drop instant, so the
+        // phase engine, next-up TAG and countdown all read the true drop day in the
+        // member's timezone (keeps the raw value as airstamp_raw). Platform = the show's
+        // streaming channel or broadcast network.
+        const platform = (d.webChannel && d.webChannel.name) || (d.network && d.network.name) || '';
+        return d._embedded.episodes.map(e => {
+          const corrected = dropStamp(platform, e.airdate, e.airstamp);
+          return corrected ? Object.assign({}, e, { airstamp: corrected, airstamp_raw: e.airstamp || null }) : null;
+        }).filter(Boolean);
+      })
       .catch(() => [])
       .then(eps => { _epResolved.set(id, eps); return eps; });
     _epCache.set(id, p);

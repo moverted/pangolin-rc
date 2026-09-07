@@ -4,6 +4,128 @@ Append-only log. Any session that touches the Worker, D1, or deploy
 configuration adds an entry here before the session ends (see CLAUDE.md,
 "Backend and deploy rules").
 
+## 2026-09-06 — Outreach tracker: new D1 table + admin resource, email-linked to funnel (DEPLOYED)
+
+Worker `5696d8d8` + migration `0059_outreach.sql` (remote applied) + seed `scripts/outreach-seed.sql`
+(6 rows). Tracks creators/influencers WE contact (cold DM/email) — top of the funnel, distinct from
+the inbound `waitlist`. NO Airtable: that sync was retired 2026-08-18, admin.pangolinrc.com is the
+source of truth, so this is a pure D1 table + declarative admin resource (matches Waitlist/Users).
+
+- **`migrations/0059_outreach.sql`** — `outreach` table: `id` (TEXT slug PK, the inline-edit idColumn),
+  `name`, `handle`, `platform`, `follower_count` (INT, nullable), `channel` (DM|Email), `status`
+  (Drafted|Sent|Replied|Converted|Declined|No Response), `angle`, `date_contacted` (ISO 'YYYY-MM-DD'
+  TEXT, hand-entered), `contact_email`, `notes`, `created_at` (ms). Index `idx_outreach_email`.
+- **`src/handlers/admin.ts`** — `OUTREACH_STATUSES/CHANNELS/PLATFORMS` enums + `OUTREACH_FUNNEL_EXPR`;
+  new `outreach` Resource (group `secondary`). Inline-edit: Status/Channel/Platform (enum dropdowns),
+  Angle/Notes (text). **Funnel fold ("link by email", Ted's call):** FROM LEFT JOINs `waitlist ow` and
+  `users ou` on `lower(contact_email)`; derived **Funnel** col shows `Member` / `Waitlist: <status>` /
+  `not in funnel` / `—` — so a contact who fills join.pangolinrc.com surfaces here with no re-typing of
+  "Converted". Verified live: Melanie Greenwald (centralparkbookmark1@gmail.com — invited waitlist +
+  prospect user) and Tressany Camille (tressanycamille@gmail.com — Founder's-Circle prospect) both
+  render **Member**; the 4 email-less rows render `—`.
+- Melanie's spec status `"Converted - TestFlight invited"` was collapsed to `Converted`; the
+  invited/TestFlight detail now rides the live Funnel column + her waitlist status instead of a
+  compound enum. No iOS/Pages change (admin Worker only; label served from `/admin/meta`).
+
+## 2026-09-05 — Pierre finish-flow: flat "Done" fix + bare-title put-on (DEPLOYED)
+
+Worker `8b047c2d` + App Pages (`pangolin-rc`, `26b7f3bf`) deployed. No D1 change. iOS bundle NOT
+yet re-synced (needs a Capacitor rebuild + Xcode archive to reach TestFlight; the Worker prompt
+change is live for everyone already).
+
+- **`src/handlers/pierre.ts`** — added a bare-title rule to the [BACKFILL] section: a title dropped
+  with no verb ("Deathly hollows") defaults to a put-on ([ROUTE: … Put it on]), not a finish. Pierre
+  asks one question when genuinely ambiguous and never narrates "oh you finished X" off a bare name.
+  Fixes the reported flow where a next-movie title got read as a completion report.
+- **`public/cube_pierre_face.html`** — `backOut()` / `backToCube()` now post `pierre:back-to-watch`
+  when `IS_FLAT_APP` (`?app=1`) instead of the cube-only `pangolin-back`. Cube path unchanged.
+- **`public/flat_shell.js`** — handles `pierre:back-to-watch` → `goWatch()` (running watch if a timer
+  is live, else the queue). Root cause: `pangolin-back` was only handled by `cube_shell.js`, so the
+  finish-fork "Done" chip dead-ended on-screen in the flat app. Face↔shell message-parity gotcha
+  logged to memory; one remaining flat gap noted (`pg-demo` join-flow waitlist→demo flip, unhandled
+  in flat_shell — narrow under invite-only provisioning).
+
+## 2026-09-05 — BROWSE opens on PROGRAM tab (DEPLOYED, frontend-only)
+
+App Pages (`pangolin-rc`, `2accf6f6`) + iOS bundle re-synced. No Worker/D1 change.
+
+- **`public/cube_browse_face.html`** — default `irlTab` flipped `'suggestions'` → `'collect'`, so
+  BROWSE now opens on PROGRAM (marathons) instead of Suggest/Discover. Suggest is still a tab away.
+  Bundled alongside the app-icon badge port below for the same Xcode archive.
+
+## 2026-09-05 — Port admin app-icon badge to the flat app (DEPLOYED, frontend-only)
+
+App Pages (`pangolin-rc`, `52fc1405`) + iOS bundle re-synced (Xcode opened). No Worker/D1 change
+(reuses the already-deployed `/admin/app-status`).
+
+- **`public/flat_shell.js`** — ported `initAdminBadge()` from `cube_shell.js`. The flat app (default
+  since 2026-08-26) never had it, so the admin app-icon badge was dead there — a new waitlist
+  signup never painted a number. Now the flat shell POSTs `/admin/app-status` on load + on
+  foreground and sets the AppBadge (waitlistNew + getTedOpen) for `user_type='admin'`. Still
+  PULL-based (updates on app open/foreground, not a live push — a true push needs APNs, not built).
+  Takes effect natively after Ted's next archive/distribute.
+
+## 2026-09-04 — Admin: rename "Contact" resource to "Waitlist" (DEPLOYED)
+
+Worker `918f45a0`. One-line label change (`src/handlers/admin.ts`: waitlist resource
+`label: 'Contact'` → `'Waitlist'`). Same `waitlist` table (join.pangolinrc.com signups + investor
+"Request the deck", split by the List column) — just findable now. Label is served from
+`/admin/meta`, so no admin-Pages redeploy needed. (Considered folding coviewing/friend-invite data
+into the Users row; Ted dropped it — wouldn't scale, keep Users/Waitlist/Coviewers separate.)
+
+## 2026-09-04 — Admin Users status: colour-coded + multiselect filter, default hides dummy+inactive (DEPLOYED)
+
+Worker `b8534ea8` + admin Pages (`pangolinrc-admin`, `52e9e38b`) deployed. No D1 change. Follows
+the status column added earlier today.
+
+- **`src/handlers/admin.ts`** — `Filter` gains `multi?: boolean`; `buildWhere` renders a multi
+  filter as `expr IN (?,?,…)` from a comma-separated `f_<key>` (empty = no constraint, never zero
+  rows); `/meta` passes `multi` per filter. Users `status` filter is now `multi:true` with
+  `defaultFilters: { status: 'active,prospect,waitlist' }` → opens hiding dummy + inactive.
+- **`admin/index.html`** — multi filters render as a `<details>` checkbox dropdown (count in the
+  summary, click-away closes it); the editable `status` <select> is colour-tinted by value
+  (`COLOR_ENUM` = {`users.status`}, `.v-<val>` CSS) and re-tints on change; matching colour dots
+  in the filter menu. Palette: active green, prospect cyan, dummy grey, waitlist amber, inactive red.
+- Verified live: default IN-filter returns the 5 real rows (4 active + Tressany prospect) and hides
+  the 4 dummy seed accounts; no inactive rows exist.
+- **`inactive` is manual-only:** `users.status` is written ONLY by `POST /admin/write/users`
+  (validated against the enum); the auto-derivation ever produces just `dummy`/`active`. No signup/
+  login/cron path sets it. So inactive (and waitlist) only ever appear via a hand edit here.
+
+## 2026-09-04 — Founder's-circle provisioned accounts + admin Users "status" column (DEPLOYED)
+
+Worker `7b723dad` + Pages (`pangolin-rc` public/, `c8c848a9`) deployed; both migrations applied
+to REMOTE D1 (`pangolin-rc`); iOS bundle re-synced (public→www→ios, Pierre face byte-matched) and
+Xcode opened for Ted's archive. Tressany provisioned live + smoke-tested (GET profile
+`must_set_password:true`, POST login `status:set_password`).
+
+- **Migration `0056_user_pw_required.sql`** (APPLIED remote) — adds `users.pw_required`. A
+  pre-created ("provisioned") account is a `users` row with email + username + `pw_required=1` and
+  no password. On first login the app FORCES a set-password step instead of the legacy
+  no-password auto-allow (which the demo account still relies on). Flag cleared the moment a
+  password is set.
+- **Migration `0057_user_status.sql`** (APPLIED remote) — adds `users.status`. Admin-managed
+  account classification: active / prospect / dummy / waitlist / inactive.
+- **`src/handlers/profile.ts`** — `POST /profile/login`: when a row has no password AND
+  `pw_required`, returns `{ ok:false, status:'set_password' }` (200) so the client routes to a
+  create-password step; other no-password rows keep the legacy allow-in. `POST /profile/signup`:
+  setting the first password now also clears `pw_required`. `GET /profile/:email`: adds derived
+  `user.must_set_password` flag (raw pw_* columns stay out of SAFE).
+- **`src/handlers/admin.ts`** — Users resource gains `idExpr: 'users.email'`, an editable
+  `status` column (enum active/prospect/dummy/waitlist/inactive; unset defaults derive dummy for
+  @pangolinrc.app + demo@/reviewer@, else active), a Status filter, a `writes.status` spec
+  (UPDATE users SET status WHERE email), and a "By status" pivot. Admin portal HTML unchanged
+  (fully metadata-driven → no admin Pages redeploy needed).
+- **`public/cube_pierre_face.html`** — new `provision-pw` join flow: a provisioned account is
+  greeted "your spot's been saved, set a password to claim it" and its password saved via
+  `/profile/signup`. Needs web Pages deploy + iOS bundle rebuild.
+- **Provisioned Tressany (DONE):** `tressanycamille@gmail.com`, username `Tressany`,
+  `pw_required=1`, `status='prospect'`, no password + seeded mutual founder follows with
+  `ted@pangolinrc.com` + reassigned `map:psych-psycho` owner to her (so she can edit her PSYCH-O
+  marathon in place; still reads as COMMUNITY for everyone else, byline `blurb_by='Tressany'`).
+  Ran via `scripts` ad-hoc file `/tmp/provision_tressany.sql` (not committed).
+- Verified: `tsc --noEmit` clean; both migrations applied remote; live login flow smoke-tested OK.
+
 ## 2026-08-29 — SET = Shadow page + Watch/Log tab-start logic (DEPLOYED, frontend-only)
 
 No Worker/D1 change (reuses the already-deployed `/shadow` + `/marathons` endpoints). App Pages
@@ -2624,3 +2746,97 @@ recur.
 - Verified: `tsc --noEmit` clean; migration applies on local D1; flattened query + backfill
   produce byte-identical results to the old subqueries on a seeded fixture (watched/minutes/
   last-position all match). Deploy (Worker + remote migration) left to Ted.
+
+## 2026-09-05 — episode `released` uses real airstamp, not date-only (FRESH-badge fix)
+
+- **Symptom.** Ted was caught up on *Lanterns* (E1–E3 watched, E4 airs tomorrow) but the WATCH
+  badge would not read FRESH. `GET /profile/:email/titles` returned `released:4, watched:3`, so
+  the client saw him one episode behind (`wowFreshNow` bails when `watched < released`). The
+  frontend phase engine, which uses TVmaze's precise `airstamp`, correctly placed E4 in the
+  future (RAMP) — backend and frontend disagreed.
+- **Root cause.** `episodes` stored only a date-only `airdate`. `released` counted an episode via
+  `airdate <= date('now')`, and `date('now')` is UTC. At the moment of debugging UTC was already
+  `2026-09-06 04:48` (still evening of 9/05 in the Americas), so E4 (airdate 2026-09-06, actually
+  airing ~evening ET on 9/06) counted as released ~a full day early. Drop time is platform-
+  specific (HBO 6pm PT; Apple TV+ earliest-timezone, so a "Wed" episode is up Tue evening;
+  Netflix midnight local) — no date-only heuristic can be right for all of them.
+- **Migration `0058_episode_airstamp.sql`** — adds `airstamp TEXT` to `episodes` (TVmaze ISO-8601
+  with the network tz offset). NOT YET APPLIED to remote (`wrangler d1 migrations apply
+  pangolin-rc --remote`). Nullable; legacy rows fall back to the date heuristic until refreshed.
+- **`src/handlers/catalog.ts`** — `materializeTitle` + `refreshTitleEpisodes` now capture
+  `e.airstamp` and write it (INSERTs + `loadEpisodes` SELECT + `EpisodeRow` extended); movie
+  path sets `airstamp:null`. The JS `released()` helper now takes the row and prefers `airstamp`
+  (`new Date(airstamp)`), else `airdate + 'T23:59:59'`.
+- **`src/handlers/profile.ts`** — all four `released` counts (recompute map/non-map, `/titles`
+  read map/non-map) now compare `COALESCE(datetime(e.airstamp), datetime(e.airdate||' 23:59:59'))
+  <= datetime('now')`. SQLite normalizes the offset airstamp to UTC. Verified the fallback gives
+  `released=3` for Lanterns against remote today.
+- **Backfill.** New/refreshed titles get airstamp automatically; existing rows self-heal via
+  `refreshTitleEpisodes` (maybeHealTitle) on next open after an episode airs, or run
+  `POST /catalog/refresh` per title. Even before any backfill the fallback already fixes the
+  Lanterns case on deploy.
+- Verified: `tsc --noEmit` clean. Deploy (Worker + remote migration 0058) left to Ted.
+
+## 2026-09-05 (cont.) — pierre_skill_premiere_timing (real per-platform drop time, member tz)
+
+- **`src/premiere_timing.ts`** (new) — encodes each streamer's real drop convention and resolves
+  a listed airdate to a true UTC instant (DST-aware via Intl), then renders it in a member's IANA
+  timezone. Rules: HBO cable flagship 9pm ET simulcast; Netflix/Disney+/Prime/Max-originals 12am
+  PT; Hulu 12am ET; Apple TV+ 12am GMT (U.S. evening before). Resolution order: a KNOWN streamer
+  rule wins over TVmaze's raw airstamp (TVmaze mis-times streamers); else raw airstamp
+  (cable/broadcast real airtime); else end-of-airdate ET. Exports resolveDrop / dropEpoch /
+  dropStampISO / hasDropped / describeLocal / premiereTiming / ruleForPlatform. Pure; unit-checked
+  (HBO 9/06 → 2026-09-07T01:00Z == real airstamp; Apple "Wed" → Tue in the U.S.).
+- **`src/handlers/catalog.ts`** — `airstamp` is now the BEST-KNOWN drop instant, not raw TVmaze:
+  materializeTitle + refreshTitleEpisodes write `dropStampISO(platform, airdate, tvmazeAirstamp)`.
+  So `released` (which compares the airstamp column) is platform-accurate, and a self-heal re-pull
+  fixes a mis-timed streamer stamp.
+- **`src/handlers/pierre.ts`** — new model-invoked tool `premiere_timing(title)`: resolves the show
+  on TVmaze, finds the soonest upcoming real drop, returns `{ episode, when_local, dropped, basis,
+  rule }` phrased in the member's tz. The chat handler reads `body.tz` (browser IANA zone, default
+  America/New_York) and threads it into `runTool(env,name,input,{tz})`. Prompt updated: Pierre must
+  use the tool for "when does it drop" and trust its day over the calendar (Apple drops a day early
+  in the U.S.). `cube_pierre_face.html` now sends `tz` in the chat POST.
+- **`public/wow-scheduler.js`** — browser port of premiere_timing; `episodes()` rewrites each
+  TVmaze episode's `airstamp` to the corrected drop instant (raw kept as `airstamp_raw`), so the
+  phase engine, next-up TAG and countdown show the true drop DAY in the member's timezone. This is
+  the fix for Apple shows badging the listed (Wednesday) day instead of the real U.S. (Tuesday) day.
+- Verified: `tsc --noEmit` clean; `node --check` on wow-scheduler.js; badge weekday correct in ET
+  and PT for Apple/HBO/Netflix. Deploy (Worker + remote migration 0058 + Pages) left to Ted.
+
+## 2026-09-05 (deploy) — shipped the airstamp + premiere_timing + Completed-list work
+
+- **Applied:** migration `0058_episode_airstamp.sql` → remote D1 (`wrangler d1 migrations apply
+  pangolin-rc --remote`).
+- **Worker deployed:** version `f12835b2` (premiere_timing tool, airstamp-based released + phase).
+- **Pages deployed:** `pangolin-rc` prod — first `79a0cce4` (airstamp/premiere_timing frontend +
+  Completed-as-word-list), then `c2f16d6b` (keep SERIES/MOVIES grouping while a completed card is
+  expanded — `completedGroupedRows` shared by both states).
+- **Backfilled airstamps:** `POST /catalog/refresh` on all 44 of Ted's tracked TVmaze series
+  (0 tracked episodes left without an airstamp). Verified: Lanterns released=3 / FRESH; Ted Lasso
+  (Apple) badges the U.S. day (Tuesday, not the listed Wednesday); CBS/broadcast keep real airtime.
+- Verified live in Chrome on ted@pangolinrc.com: WATCH badges correct; SET→COMPLETED renders the
+  grouped word list (SERIES 20 / MOVIES 54), rows expand to the full card, Rewatch passes stay as
+  poster tiles, grouping holds while expanded.
+
+## 2026-09-06 — Finish-then-comment reverted a movie to "timer ran out" (done:0)
+- **Bug (reported):** finishing a movie then making a comment left it showing as timer-ran-out-but-
+  not-finished; reopening the LOG went to the expired `FINISHED?` mode. Hit every recent Harry Potter
+  film. Root cause in `public/cube_log_face.html`: `finishEpisode()` back-dates `startedAt[focus]`
+  (for the BP calc) and set `watchingLive=false` but never cleared `startedAt`. The stray anchor let a
+  later `visibilitychange` on the LOG face (triggered by sitting on Pierre to comment → background/
+  return) pass the `!startedAt` guard → `placeAwayTime()` → episode already at full runtime (needed=0)
+  → `stageReturnFinish()` → re-armed FINISHED? + wrote `emitProgress(false, rt)`, reverting the row.
+- **Confirmed via D1:** `tmdb:12445:s1e1` (Deathly Hallows: Part 2) had a `finished:true` session in
+  its `sessions` blob but top-level `done:0, minute:130, status:current`, last-written ~3 min after the
+  finish (during the comment) — exactly `stageReturnFinish`'s signature.
+- **Fix:** `finishEpisode()` now nulls `startedAt[focus]` (+re-bases sessionBase) after logSession/
+  emitProgress read it (mirrors completeWatch / LOG-IT). Plus two guards: `placeAwayTime()` and
+  `stageReturnFinish()` both bail if `epDone[focus]` — a completed episode can never be walked forward
+  or re-staged, so no path can write `done:false` over a real finish.
+- **Data repair:** `UPDATE watch_episode SET done=1 WHERE user_email='ted@pangolinrc.com' AND
+  episode_id='tmdb:12445:s1e1'` + `UPDATE watch_title SET status='completed' … title_id='tmdb:12445'`
+  (both changes=1). Verified `done:1, status:completed`.
+- **Pages deploy:** `wrangler pages deploy public --project-name pangolin-rc --branch main` →
+  `3bdb1dad`, Production (`remote.pangolinrc.com`). Verified live: both fix markers present via
+  `curl -sL --compressed` on `/cube_log_face`.

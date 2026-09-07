@@ -96,6 +96,19 @@ waitlistRoutes.post('/', async (c) => {
        source      = excluded.source`
   ).bind(email, first_name, last_name, fav_show, buddy_email, phone, now).run();
 
+  // Friend-invite lead capture: a named buddy who isn't already on the platform lands in the
+  // Users list as a PROSPECT (no password, pw_required=1 → they claim it via the forced
+  // set-password flow on first login). INSERT OR IGNORE leaves any existing account — real member
+  // OR prospect — untouched. Unclaimed prospects are excluded from the member cap (profile
+  // /signup), so leads can never lock out real signups. The waitlist.buddy_email row itself
+  // records who did the inviting.
+  if (buddy_email) {
+    await c.env.DB.prepare(
+      `INSERT OR IGNORE INTO users (email, username, pw_required, status, created_at, updated_at)
+       VALUES (?, NULL, 1, 'prospect', ?, ?)`
+    ).bind(buddy_email, now, now).run();
+  }
+
   // Fire-and-forget signup notification email (SendGrid). Best-effort; never blocks
   // or fails the signup.
   c.executionCtx.waitUntil(

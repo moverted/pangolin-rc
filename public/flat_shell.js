@@ -476,6 +476,10 @@ window.addEventListener('message', (e) => {
   }
   // A face asked to navigate (postMessage fallback for window.cubeRotateTo).
   if (d.type === 'cube:rotateTo') cubeRotateTo(d.face, d.payload);
+  // Pierre finished a reflection ("Done" on a finished movie/season, or a caught-up dead-end).
+  // The cube unlocks its face on pangolin-back; the flat app has no cube, so route to WATCH
+  // (the running watch if a timer's live, else the queue) instead of leaving the prompt on-screen.
+  if (d.type === 'pierre:back-to-watch') goWatch();
   // Pierre reports how many answered Get-Ted threads are waiting → badge on the hero tab.
   if (d.type === 'pierre:ted-waiting') {
     const el = document.getElementById('tedBadge');
@@ -533,6 +537,50 @@ function injectFaceChrome(fr) {
     doc.addEventListener('keydown', act, { passive: true, capture: true });
   } catch (_) {}
 }
+
+// ── Admin app-icon badge ─────────────────────────────────────────────────────
+// Ported from cube_shell.js (the flat shell never had it, so the admin app-icon badge was dead
+// in the flat app — which is now the default). For an admin account, mirror the admin panel's
+// waitlist "new" count (+ chats waiting on Ted) onto the iOS app-icon badge, and expose it to
+// faces via window.__pgAdmin. Native-only + best-effort: no-ops on web, swallows every failure.
+// Pull-based: refreshes on load and whenever the app returns to the foreground (NOT a push — the
+// number only moves when you open/foreground the app; a live push would need APNs, not built).
+(function initAdminBadge() {
+  async function appAuthToken() {
+    try {
+      const C = window.Capacitor; if (!C) return '';
+      const p = C.registerPlugin ? C.registerPlugin('AppAuth') : (C.Plugins && C.Plugins.AppAuth);
+      if (!p || !p.token) return '';
+      const r = await p.token(); return (r && r.value) || '';
+    } catch (_) { return ''; }
+  }
+  async function setAppIconBadge(n) {
+    try {
+      const C = window.Capacitor;
+      if (!C || !C.isNativePlatform || !C.isNativePlatform()) return;
+      const p = C.registerPlugin ? C.registerPlugin('AppBadge') : (C.Plugins && C.Plugins.AppBadge);
+      if (p && p.set) await p.set({ count: n | 0 });
+    } catch (_) {}
+  }
+  async function refresh() {
+    try {
+      let email = ''; try { email = (localStorage.getItem('pg_user') || '').trim(); } catch (_) {}
+      if (!email) { setAppIconBadge(0); return; }
+      const appToken = await appAuthToken();
+      if (!appToken) return;   // web / no native secret → leave the badge alone
+      const r = await fetch(`${API}/admin/app-status`, {
+        method: 'POST', mode: 'cors', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, appToken }),
+      });
+      if (!r.ok) return;
+      const d = await r.json();
+      window.__pgAdmin = { isAdmin: !!d.isAdmin, waitlistNew: d.waitlistNew || 0, getTedOpen: d.getTedOpen || 0 };
+      setAppIconBadge(d.isAdmin ? ((d.waitlistNew || 0) + (d.getTedOpen || 0)) : 0);
+    } catch (_) {}
+  }
+  refresh();
+  try { document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); }); } catch (_) {}
+})();
 
 // ─── init ───────────────────────────────────────────────────────────────────
 // Focus each face once it loads (and re-assert the current face's focus), so a

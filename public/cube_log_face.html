@@ -2276,6 +2276,15 @@ function finishEpisode(screening){
     ? {minutes:rt, finished:true, bp:false, forceAppend:true, atTs:scrStart, startTs:scrStart, finishTs:scrStart+rt*60000}
     : {minutes:rt, finished:true, bp:bp});
   emitProgress(focus, true, bp, rt);
+  // Clear the live anchor AFTER logSession/emitProgress have read it (the BP branch above
+  // back-dates startedAt to compute bp + the session's startTs). Leaving it set let a later
+  // background/return of this face pass the visibilitychange !startedAt guard → placeAwayTime →
+  // (episode already at full runtime, needed=0) → stageReturnFinish, which re-armed FINISHED?
+  // and wrote emitProgress(false, rt), reverting the just-committed finish to done:0. This is
+  // the "finish a movie, make a comment, and it comes back as timer-ran-out-but-not-finished"
+  // bug: the comment kept you on Pierre long enough to trigger that stray cycle. Mirrors the
+  // startedAt=null that completeWatch / logIt already do.
+  startedAt[focus]=null; sessionBase[focus]=rt;
   // Completing well short of the stored runtime (watched ≥ half, yet ≥ 5 min still
   // "remaining") points at a too-long catalog runtime. Two signals fire: a background
   // TMDB cross-check (auto-corrects + files an admin note), and — the visible one —
@@ -2713,6 +2722,7 @@ $('micBtn').onclick=()=>{
 // you on S(N+1)E1 (or partway in) — not stalling at the season finale.
 function placeAwayTime(awayMin){
   if(!(awayMin>0) || !eps.length) return;
+  if(epDone[focus]) return;   // a finished episode has no time left to place — never walk it forward (would re-stage FINISHED?)
   // Away-time fills only the CURRENT episode and never advances past it. Wall-clock time
   // since a launch/start is NOT evidence the member kept watching later episodes — letting
   // it cascade across episode boundaries is what auto-completed whole seasons when the app
@@ -2754,6 +2764,7 @@ function returnToLogFace(){
 // synchronously here also neutralises the queued 5s tickWatch so it can't complete
 // underneath the prompt.
 function stageReturnFinish(i){
+  if(epDone[i]) return;   // already committed → never re-stage FINISHED? or write emitProgress(false) over a real finish
   const rt=runtimeOf(i);
   epMin[i]=rt; watchingLive[i]=false; startedAt[i]=null; sessionBase[i]=rt;
   minPreview=null; awaitingLog=false; cooled=false;

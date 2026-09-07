@@ -799,7 +799,7 @@ const IRL_TABS = [
   { key:'suggestions', label:'Suggest', badge:'DISCOVER' },
   { key:'collect',     label:'Program', badge:'MARATHONS' },   // internal key stays 'collect'; UI label is PROGRAM
 ];
-let irlTab = 'suggestions';
+let irlTab = 'collect';   // BROWSE opens on PROGRAM (marathons); Suggest is a tab away
 // Dev/layout preview only: ?seed populates sample stubs + discs so the layout can be
 // screenshotted before real data exists. Never on for a real member (no query flag).
 const SEED = (()=>{ try{ return new URLSearchParams(location.search).has('seed'); }catch(_){ return false; } })();

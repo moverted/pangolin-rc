@@ -1397,7 +1397,10 @@
       {label:'Done', onClick:()=>{ backOut(); }}
     ]);
   }
-  function backOut(){ try{ if(window.parent!==window) window.parent.postMessage({type:'pangolin-back'}, '*'); }catch(_){} }
+  // "I'm done here, back to watching." In the cube this unlocks the face (pangolin-back); the flat
+  // app has no cube to zoom out of, so pangolin-back is a no-op there and a terminal chip (finished-fork
+  // Done, remindDone Done, caught-up) would dead-end on-screen. In flat mode route to WATCH instead.
+  function backOut(){ try{ if(window.parent!==window) window.parent.postMessage({type: IS_FLAT_APP ? 'pierre:back-to-watch' : 'pangolin-back'}, '*'); }catch(_){} }
   // Stage 3 — share an EXISTING reflection from the logs. We already have the text (and,
   // for a recorded one, its audio URL + comment id), so skip Comment/input and go straight
   // to spoiler → share/journal. A journaled (private) one publishes on Share (no-op if public).
@@ -1469,7 +1472,7 @@
   function offerNotify(show, titleId, next, tg){
     const S=next.season, E=next.number;
     // After either choice, pop back out to the spinning cube (the shell's unlock).
-    const backToCube=(ms)=>setTimeout(()=>{ try{ window.parent.postMessage({type:'pangolin-back'}, '*'); }catch(_){} }, ms);
+    const backToCube=(ms)=>setTimeout(()=>{ try{ window.parent.postMessage({type: IS_FLAT_APP ? 'pierre:back-to-watch' : 'pangolin-back'}, '*'); }catch(_){} }, ms);
     pierreSay((show||'That show')+" S"+S+"E"+E+" drops "+(tg||'soon')+". Want me to flag it when it's out? "
       +"And if you already have early access to it, long-press the greyed START on the log to force it through.", [
       {label:'Notify me', onClick:()=>{ const em=pgSession(); if(em && window.WoW) WoW.store.notify(em, titleId, next.id||('S'+S+'E'+E)); addPierre("Done. I'll flag S"+S+"E"+E+" when it drops."); backToCube(1100); }},
@@ -2007,7 +2010,7 @@
       const res = await fetch(`${API}/pierre/chat`,{
         method:"POST",
         headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({ messages: history, token, appToken, email: pgSession()||undefined, conversation_id: PIERRE_CONVO, kind: (currentCtx==='game'?'game':'chat') })
+        body:JSON.stringify({ messages: history, token, appToken, email: pgSession()||undefined, conversation_id: PIERRE_CONVO, kind: (currentCtx==='game'?'game':'chat'), tz: (Intl.DateTimeFormat().resolvedOptions().timeZone||'') })
       });
       const data = await res.json();
       const reply = ((data && data.reply) || "").trim();
@@ -2060,6 +2063,7 @@
     // Join / Login: the email step branches; the picking step searches shows.
     if(joinFlow==='auth-email'){ input.focus(); joinAuthEmail(text); return; }
     if(joinFlow==='login-pw'){ joinLoginPw(text); return; }
+    if(joinFlow==='provision-pw'){ joinProvisionPw(text); return; }
     if(joinFlow==='set-pw'){ joinSetPw(text); return; }
     if(joinFlow==='picking'){ input.focus(); joinSearch(text); return; }
     // Add flow: if they type before tapping Series/Movie, don't assume — search
@@ -2944,6 +2948,11 @@
     try{ const r=await fetch(API+'/profile/'+encodeURIComponent(joinEmail)); if(r.ok){ user=(await r.json()).user; } }
     catch(e){}
     clearTyping();
+    if(user && user.must_set_password){   // provisioned founder's-circle account -> claim it by setting a password
+      joinFlow='provision-pw'; inputSecret(true); input.placeholder='create a password'; refreshKb();
+      pierreSay("Welcome, "+(user.username||joinEmail)+" — your spot's been saved. Set a password to claim it.");
+      input.focus(); return;
+    }
     if(user){                          // returning member -> greet by name, ask password
       joinFlow='login-pw'; inputSecret(true); input.placeholder='your password'; refreshKb();
       pierreSay("Welcome back, "+(user.username||joinEmail)+". What's your password?");
@@ -2977,6 +2986,20 @@
     if(ok){ pgSet(joinEmail); joinFlow=null; inputSecret(false); input.placeholder="Ask Pierre what to watch...";
       pierreSay("In you go. Taking you to your profile."); setTimeout(()=>nav('profile'),1200); return; }
     pierreSay("That's not the password. Try again?"); input.focus();
+  }
+  // Provisioned account claiming its password on first login. Signup sets the password (the row
+  // has none yet) and clears pw_required server-side, so next time they're a normal login.
+  async function joinProvisionPw(text){
+    if(text.length<4){ input.focus(); pierreSay("Make it at least 4 characters."); return; }
+    showTyping();
+    let ok=false;
+    try{ const r=await fetch(API+'/profile/signup',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({email:joinEmail, password:text})}); if(r.ok){ ok=(await r.json()).status==='member'; } }
+    catch(e){}
+    clearTyping();
+    if(ok){ pgSet(joinEmail); joinFlow=null; inputSecret(false); input.placeholder="Ask Pierre what to watch...";
+      pierreSay("Claimed. In you go — taking you to your profile."); setTimeout(()=>nav('profile'),1200); return; }
+    pierreSay("Couldn't save that just now. Try again, or get Ted?", tedChip()); input.focus();
   }
   function promptJoinStep(){
     const cfg=JOIN_STEPS[joinStep];

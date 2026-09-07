@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { Env } from '../types';
 import { fetchTmdbMovie, fetchTmdbTvRuntime, searchAll } from './tmdb';
 import { refreshCounts } from './watch_rollup';
+import { dropStampISO } from '../premiere_timing';
 
 // ─── Shared catalog + server-side materialization ────────────────────────────
 //
@@ -15,8 +16,8 @@ export const catalogRoutes = new Hono<{ Bindings: Env }>();
 
 export interface EpisodeRow {
   episode_id: string; title_id: string; season: number | null; number: number | null;
-  name: string | null; runtime: number | null; airdate: string | null; summary: string | null;
-  next_episode_id: string | null; updated_at: number;
+  name: string | null; runtime: number | null; airdate: string | null; airstamp: string | null;
+  summary: string | null; next_episode_id: string | null; updated_at: number;
 }
 
 const epId = (titleId: string, season: number, number: number) => `${titleId}:s${season}e${number}`;
@@ -28,7 +29,12 @@ function splitTitleId(titleId: string): { source: string; ref: string } | null {
   const source = titleId.slice(0, i), ref = titleId.slice(i + 1);
   return ref && (source === 'tvmaze' || source === 'tmdb') ? { source, ref } : null;
 }
-const released = (airdate: string | null, now: number) => !!airdate && new Date(airdate + 'T23:59:59').getTime() <= now;
+// An episode is "released" once its real drop moment has passed. Prefer the precise TVmaze
+// `airstamp` (ISO-8601 with the network timezone) since drop time varies by platform; fall back
+// to the end of the date-only `airdate` for legacy rows with no airstamp. See migration 0058.
+const released = (ep: { airdate: string | null; airstamp?: string | null }, now: number) =>
+  ep.airstamp ? new Date(ep.airstamp).getTime() <= now
+  : (!!ep.airdate && new Date(ep.airdate + 'T23:59:59').getTime() <= now);
 
 // TVmaze summaries arrive as HTML (`<p>…</p>`); TMDB overviews are plain text.
 // Strip tags + collapse whitespace so the same field renders cleanly everywhere.
@@ -52,7 +58,7 @@ function resolveRef(body: any): { source: string; ref: string; titleId: string }
 // Read a title's episodes from D1 in canonical (air) order.
 export async function loadEpisodes(env: Env, titleId: string): Promise<EpisodeRow[]> {
   const rows = await env.DB.prepare(
-    `SELECT episode_id, title_id, season, number, name, runtime, airdate, summary, next_episode_id, updated_at
+    `SELECT episode_id, title_id, season, number, name, runtime, airdate, airstamp, summary, next_episode_id, updated_at
        FROM episodes WHERE title_id = ? ORDER BY season, number`).bind(titleId).all<EpisodeRow>();
   return rows.results || [];
 }
@@ -66,7 +72,7 @@ async function materializeTitle(env: Env, source: string, ref: string, titleId: 
 
   const now = Date.now();
   let titleRow: any;
-  let epInputs: { season: number; number: number; name: string; runtime: number | null; airdate: string | null; summary: string | null }[] = [];
+  let epInputs: { season: number; number: number; name: string; runtime: number | null; airdate: string | null; airstamp: string | null; summary: string | null }[] = [];
 
   if (source === 'tmdb') {
     const m = await fetchTmdbMovie(env, ref);
@@ -78,7 +84,7 @@ async function materializeTitle(env: Env, source: string, ref: string, titleId: 
       poster: m.poster || null, platform: '', total_episodes: 1, summary: cleanSummary(m.overview),
       premiered: relDate, updated_at: now };
     epInputs = [{ season: 1, number: 1, name: m.title || '', runtime: m.runtime || 120,
-      airdate: relDate, summary: cleanSummary(m.overview) }];
+      airdate: relDate, airstamp: null, summary: cleanSummary(m.overview) }];
   } else {
     let show: any;
     try {
@@ -98,8 +104,13 @@ async function materializeTitle(env: Env, source: string, ref: string, titleId: 
     // names). These now self-heal on read: maybeHealTitle() re-pulls the full episode
     // list from TVmaze (via refreshTitleEpisodes) the next time the title is opened after
     // the episode airs, TTL-gated so it can't hammer TVmaze. See BACKEND.md (Ted Lasso S4).
+    // `airstamp` stores our BEST-KNOWN drop instant, not the raw TVmaze value: a known
+    // streamer rule (premiere_timing) wins over TVmaze's often-imprecise streamer timestamp
+    // (e.g. Apple TV+ drops the U.S. copy the evening before the listed date). Cable/broadcast
+    // with no rule keeps TVmaze's real airtime. Drives `released` + the phase/badge.
     epInputs = eps.map((e: any) => ({ season: e.season, number: e.number, name: e.name || '',
-      runtime: e.runtime || null, airdate: e.airdate || null, summary: cleanSummary(e.summary) }));
+      runtime: e.runtime || null, airdate: e.airdate || null,
+      airstamp: dropStampISO(titleRow.platform, e.airdate || null, e.airstamp || null), summary: cleanSummary(e.summary) }));
   }
 
   // Build episode rows with canonical next_episode_id links (NULL on the finale).
@@ -107,8 +118,8 @@ async function materializeTitle(env: Env, source: string, ref: string, titleId: 
     const nxt = epInputs[i + 1];
     return {
       episode_id: epId(titleId, e.season, e.number), title_id: titleId,
-      season: e.season, number: e.number, name: e.name, runtime: e.runtime, airdate: e.airdate, summary: e.summary,
-      next_episode_id: nxt ? epId(titleId, nxt.season, nxt.number) : null,
+      season: e.season, number: e.number, name: e.name, runtime: e.runtime, airdate: e.airdate, airstamp: e.airstamp,
+      summary: e.summary, next_episode_id: nxt ? epId(titleId, nxt.season, nxt.number) : null,
       updated_at: now,
     };
   });
@@ -119,9 +130,9 @@ async function materializeTitle(env: Env, source: string, ref: string, titleId: 
       VALUES (?,?,?,?,?,?,?,?,?,?,?)`).bind(titleRow.title_id, titleRow.source, titleRow.name, titleRow.kind,
         titleRow.status, titleRow.poster, titleRow.platform, titleRow.total_episodes, titleRow.summary, titleRow.premiered, titleRow.updated_at),
     ...episodes.map((e) => env.DB.prepare(`INSERT OR REPLACE INTO episodes
-      (episode_id, title_id, season, number, name, runtime, airdate, summary, next_episode_id, updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?)`).bind(e.episode_id, e.title_id, e.season, e.number, e.name, e.runtime,
-        e.airdate, e.summary, e.next_episode_id, e.updated_at)),
+      (episode_id, title_id, season, number, name, runtime, airdate, airstamp, summary, next_episode_id, updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?)`).bind(e.episode_id, e.title_id, e.season, e.number, e.name, e.runtime,
+        e.airdate, e.airstamp, e.summary, e.next_episode_id, e.updated_at)),
   ];
   await env.DB.batch(stmts);
   return { episodes, titleRow, created: true };
@@ -211,12 +222,16 @@ export async function refreshTitleEpisodes(env: Env, titleId: string): Promise<b
   if (!eps.length) return false;
 
   const now = Date.now();
+  // Same platform-aware drop instant as materializeTitle (see note there): the streamer rule
+  // wins over TVmaze's raw timestamp so a re-pull heals a mis-timed streamer airstamp too.
+  const platform = (show.webChannel && show.webChannel.name) || (show.network && show.network.name) || '';
   const epInputs = eps.map((e: any) => ({ season: e.season, number: e.number, name: e.name || '',
-    runtime: e.runtime || null, airdate: e.airdate || null, summary: cleanSummary(e.summary) }));
+    runtime: e.runtime || null, airdate: e.airdate || null,
+    airstamp: dropStampISO(platform, e.airdate || null, e.airstamp || null), summary: cleanSummary(e.summary) }));
   const rows = epInputs.map((e: any, i: number) => {
     const nxt = epInputs[i + 1];
     return { episode_id: epId(titleId, e.season, e.number), season: e.season, number: e.number,
-      name: e.name, runtime: e.runtime, airdate: e.airdate, summary: e.summary,
+      name: e.name, runtime: e.runtime, airdate: e.airdate, airstamp: e.airstamp, summary: e.summary,
       next_episode_id: nxt ? epId(titleId, nxt.season, nxt.number) : null };
   });
 
@@ -227,9 +242,9 @@ export async function refreshTitleEpisodes(env: Env, titleId: string): Promise<b
         (show.image && (show.image.original || show.image.medium)) || null,
         (show.webChannel && show.webChannel.name) || (show.network && show.network.name) || '', now, titleId),
     ...rows.map((e: any) => env.DB.prepare(`INSERT OR REPLACE INTO episodes
-      (episode_id, title_id, season, number, name, runtime, airdate, summary, next_episode_id, updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?)`).bind(e.episode_id, titleId, e.season, e.number, e.name, e.runtime,
-        e.airdate, e.summary, e.next_episode_id, now)),
+      (episode_id, title_id, season, number, name, runtime, airdate, airstamp, summary, next_episode_id, updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?)`).bind(e.episode_id, titleId, e.season, e.number, e.name, e.runtime,
+        e.airdate, e.airstamp, e.summary, e.next_episode_id, now)),
   ];
   await env.DB.batch(stmts);
   return true;
@@ -289,7 +304,7 @@ catalogRoutes.post('/initiate', async (c) => {
   let bpThru = -1;                                    // ...of which, how many count as BP (Before Pierre)
   let currentIdx = 0;
   if (pattern.kind === 'live') {
-    episodes.forEach((e, i) => { if (released(e.airdate, now)) doneThru = i; });
+    episodes.forEach((e, i) => { if (released(e, now)) doneThru = i; });
     currentIdx = Math.min(doneThru + 1, episodes.length - 1);
   } else if (pattern.kind === 'resume' && pattern.season) {
     // Resume = pick up where you left off: the earlier episodes were watched on Pierre.
@@ -379,7 +394,7 @@ catalogRoutes.post('/backfill', async (c) => {
   if (!mat || !mat.episodes.length) return c.json({ ok: false, reason: 'materialize_failed' });
   const isMovie = source === 'tmdb';
   // A film is its single unit; a series is every AIRED episode (that is what "finished" means).
-  const eps = isMovie ? mat.episodes.slice(0, 1) : mat.episodes.filter((e) => !e.airdate || released(e.airdate, watchedAt));
+  const eps = isMovie ? mat.episodes.slice(0, 1) : mat.episodes.filter((e) => !e.airdate || released(e, watchedAt));
   if (!eps.length) return c.json({ ok: false, reason: 'no_episode' });
   const last = eps[eps.length - 1]!;
 
@@ -448,7 +463,7 @@ catalogRoutes.post('/backfill-episode', async (c) => {
   if (wantSeason != null && wantNumber != null) {
     ep = mat.episodes.find((e) => e.season === wantSeason && e.number === wantNumber) || null;
   } else {
-    const aired = mat.episodes.filter((e) => released(e.airdate, watchedAt));
+    const aired = mat.episodes.filter((e) => released(e, watchedAt));
     ep = aired.length ? aired[aired.length - 1]! : null;
   }
   if (!ep) return c.json({ ok: false, reason: 'no_episode' });

@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { Env } from '../types';
 import { tmdbFetch } from './tmdb';
 import { shadowTitleNames } from './shadow';
+import { premiereTiming, resolveDrop } from '../premiere_timing';
 
 // Pierre's persona lives server-side so the system prompt, the seed context, and
 // the Anthropic API key never ship to the browser. The client sends only the
@@ -36,7 +37,8 @@ FILM
 - A film logs as watched in one go, or you can mark it started and come back. Treat a movie someone is partway through like a show they have paused: you remember where they are and you do not spoil past it.
 
 FETCHING (real lookups, use them)
-- You have tools: search_title, franchise_films, where_to_watch. They are your remote for the real world. Use them whenever someone asks where to watch something, which service has it, what comes next in a film series, or what order to watch one in. Never answer availability from memory, it goes stale. Look it up.
+- You have tools: search_title, franchise_films, where_to_watch, premiere_timing. They are your remote for the real world. Use them whenever someone asks where to watch something, which service has it, what comes next in a film series, what order to watch one in, or when the next episode drops. Never answer availability or drop times from memory, they go stale. Look it up.
+- WHEN THE NEXT EPISODE DROPS: use premiere_timing with the show name. It returns the real drop moment in THEIR timezone, already phrased ("tonight at 6:00 PM", "Tue, Sep 8 at 8:00 PM"). Give them that. Do not compute it yourself and do not read the drop day off the calendar, because the U.S. day often differs from the listed airdate (Apple TV+ especially drops the evening before). Trust the tool's day and time over your own sense of the schedule.
 - What the lookup says beats what you remember. Titles move between services constantly.
 - where_to_watch is US only for now. Streaming means included with a subscription. Rent and buy are the fallback, mention them only when nothing streams.
 - Keep the answer small. Name the one or two services that matter, never the whole list. If nothing has it, say so plainly and offer the nearest thing that is watchable tonight.
@@ -82,6 +84,7 @@ LOGGING SOMETHING THEY ALREADY WATCHED (a backfill) — a HARD rule
 - NOT a backfill, two cases you must never [BACKFILL]:
   - FUTURE / WANT-TO: "I'd like to watch Sharp Objects", "I want to watch X", "I'm going to start Y", "put X on my list", "add X". They have NOT watched it. This is a put-on, not a log — offer the handoff instead: [ROUTE: Episodes | Put it on | <title>] for a series, or [ROUTE: Movie | Put it on | <title>] for a film. That lands it in their Current, never Completed. Do not [BACKFILL], and never say it is completed or done.
   - PARTWAY THROUGH: they have seen only SOME of a series ("I watched the first episode of Black Rabbit but want to watch the rest", "I'm a few episodes into X"). That is the [WATCHED] single-episode path below, which keeps the show IN PROGRESS — never [BACKFILL], which would wrongly mark the whole series completed.
+  - A BARE TITLE, no verb ("Deathly Hallows", "Nine to Five", just the name dropped in): do NOT assume they finished it. The odds are they want to watch it now, especially right after they wrapped something else, so the default is a put-on: [ROUTE: Movie | Put it on | <title>] for a film, [ROUTE: Episodes | Put it on | <title>] for a series. Only read a bare title as watched if this exact moment plainly points that way (you just asked what they watched, or they are clearly reacting to it). If you honestly cannot tell whether they mean start it or log it as done, ask one short question first — never narrate "oh you finished X" off a bare name. Guessing "finished" is the costly miss: it colors everything after and wrongly heads toward completed. When unsure, lean toward putting it on.
 - You have NO way to log anything by saying so. The ONLY thing that logs is the [BACKFILL] tag. If you say "done", "logged", "shelved", "added to your completed", or anything past-tense WITHOUT the tag in that same message, nothing happens and you have lied to the member. That is the single worst thing you can do here. So never confirm a log in words. Either emit the tag, or do not claim it.
 - Gather the exact title, the day they watched it (a weekday like "Sunday", "yesterday", or a date), and their rating or reaction if they offer one. You can log with just the title (day defaults to today), but a warm quick ask for the day and reaction is better.
 - When you have the title, end your message with this tag on its own line, exactly:
@@ -408,10 +411,49 @@ const TOOLS = [
       required: ['media_type', 'id'],
     },
   },
+  {
+    name: 'premiere_timing',
+    description:
+      "When does a show's next episode actually become available, in the member's own timezone? Give a show name. Returns the next upcoming episode, the real local drop time (e.g. 'tonight at 6:00 PM', 'Tue, Sep 8 at 8:00 PM'), and which day it lands on for them. Use this whenever someone asks when the next episode drops, what time it comes out, or what day it is up. Note the U.S. day can differ from the listed airdate (Apple TV+ drops the evening before), so trust this over the calendar date.",
+    input_schema: {
+      type: 'object',
+      properties: { title: { type: 'string', description: 'the show name' } },
+      required: ['title'],
+    },
+  },
 ];
 
-async function runTool(env: Env, name: string, input: any): Promise<string> {
+async function runTool(env: Env, name: string, input: any, ctx: { tz: string }): Promise<string> {
   try {
+    if (name === 'premiere_timing') {
+      const title = String(input?.title ?? '').trim().slice(0, 120);
+      if (!title) return 'empty title';
+      const show = await tvmazeResolve(title);
+      if (!show) return `could not find "${title}"`;
+      let data: any;
+      try {
+        const r = await fetch(`https://api.tvmaze.com/shows/${show.id}?embed=episodes`);
+        if (!r.ok) return 'lookup failed';
+        data = await r.json();
+      } catch { return 'lookup failed'; }
+      const platform = (data.webChannel && data.webChannel.name) || (data.network && data.network.name) || '';
+      const eps = ((data._embedded && data._embedded.episodes) || []).filter((e: any) => e && e.airdate);
+      const now = Date.now();
+      // Next upcoming = soonest real drop instant that is still in the future.
+      let next: any = null, nextEpoch = Infinity;
+      for (const e of eps) {
+        const d = resolveDrop(platform, e.airdate, e.airstamp);
+        if (d && d.epoch >= now && d.epoch < nextEpoch) { next = e; nextEpoch = d.epoch; }
+      }
+      if (!next) return JSON.stringify({ title: show.name, platform: platform || 'unknown', upcoming: false, note: 'no upcoming episode on record (between seasons or ended)' });
+      const t = premiereTiming(platform, next.airdate, ctx.tz, next.airstamp, now)!;
+      return JSON.stringify({
+        title: show.name, platform: platform || 'unknown',
+        episode: (next.season != null && next.number != null) ? `S${next.season}E${next.number}` : null,
+        episode_name: next.name || null,
+        when_local: t.local, dropped: t.dropped, basis: t.source, rule: t.rule,
+      });
+    }
     if (name === 'search_title') {
       const q = String(input?.query ?? '').trim().slice(0, 120);
       if (!q) return 'empty query';
@@ -529,7 +571,7 @@ export const pierreRoutes = new Hono<{ Bindings: Env }>();
 
 // Frontend (cube_pierre_face.html) → POST /pierre/chat  { messages: [{role, content}] }
 pierreRoutes.post('/chat', async (c) => {
-  let body: { messages?: unknown; token?: unknown; appToken?: unknown; email?: unknown; mode?: unknown; context?: unknown; conversation_id?: unknown; kind?: unknown };
+  let body: { messages?: unknown; token?: unknown; appToken?: unknown; email?: unknown; mode?: unknown; context?: unknown; conversation_id?: unknown; kind?: unknown; tz?: unknown };
   try {
     body = await c.req.json();
   } catch {
@@ -588,6 +630,11 @@ pierreRoutes.post('/chat', async (c) => {
       : '';
   const taste = email ? await tasteBlock(c.env, email) : SEED_TASTE;
   const shadow = email ? await shadowBlock(c.env, email) : '';
+
+  // The member's IANA timezone (browser: Intl…timeZone), so premiere_timing can render a
+  // drop time in THEIR local clock. Defaults to US Eastern when the client sends nothing.
+  const tz =
+    typeof body.tz === 'string' && body.tz.length > 0 && body.tz.length < 64 ? body.tz : 'America/New_York';
 
   // Moderation trail: if this turn is a request for porn/explicit content, log it to
   // the flagged-request object for admin review. Pierre still declines in-chat via his
@@ -655,7 +702,7 @@ pierreRoutes.post('/chat', async (c) => {
       uses.map(async (u) => ({
         type: 'tool_result',
         tool_use_id: u.id,
-        content: await runTool(c.env, u.name, u.input),
+        content: await runTool(c.env, u.name, u.input, { tz }),
       })),
     );
     convo.push({ role: 'user', content: results });

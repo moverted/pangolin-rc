@@ -129,6 +129,31 @@
   td textarea.edit-text.ok { border-color: #9fe0b0; }
   td textarea.edit-text.bad { border-color: #ffcf8f; }
   td input.edit-bool { width: 18px; height: 18px; accent-color: #9fe0b0; cursor: pointer; }
+  /* Status colour-coding: the editable Status <select> is tinted by its value; the filter menu
+     shows the same colour as a dot. Keep the two palettes in sync with STATUS_COLOR in JS. */
+  select.edit-cell.stsel { font-weight: 700; }
+  .v-active   { color: #7fd39a; }
+  .v-prospect { color: #5fd6e0; }
+  .v-dummy    { color: rgba(250,246,236,0.5); }
+  .v-waitlist { color: #f0a93b; }
+  .v-inactive { color: #e0736b; }
+  .st-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 8px; vertical-align: middle; }
+  .d-active   { background: #7fd39a; }
+  .d-prospect { background: #5fd6e0; }
+  .d-dummy    { background: rgba(250,246,236,0.4); }
+  .d-waitlist { background: #f0a93b; }
+  .d-inactive { background: #e0736b; }
+  /* Multiselect filter: a <details> chip that drops a checkbox menu. */
+  details.msfilter { position: relative; display: inline-block; }
+  details.msfilter > summary { list-style: none; cursor: pointer; background: rgba(0,0,0,0.25); color: var(--cream); border: 1px solid rgba(255,255,255,0.18); border-radius: 8px; padding: 8px 12px; font-size: 0.9rem; white-space: nowrap; }
+  details.msfilter > summary::-webkit-details-marker { display: none; }
+  details.msfilter > summary::after { content: '▾'; margin-left: 8px; opacity: 0.6; }
+  details.msfilter[open] > summary { border-color: var(--mustard); }
+  details.msfilter .ms-count { color: var(--mustard); font-weight: 700; }
+  .ms-menu { position: absolute; z-index: 30; margin-top: 5px; background: #0b2b31; border: 1px solid rgba(255,255,255,0.2); border-radius: 10px; padding: 6px; min-width: 170px; box-shadow: 0 8px 24px rgba(0,0,0,0.45); }
+  .ms-opt { display: flex; align-items: center; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; }
+  .ms-opt:hover { background: rgba(250,246,236,0.08); }
+  .ms-opt input { margin-right: 8px; accent-color: var(--mustard); }
   /* Row reorder: a drag handle in the rank cell. */
   /* Cut header is a short label over a narrow checkbox column — keep it small + on one line. */
   th[data-key="hidden"] { font-size: 0.6rem; white-space: nowrap; letter-spacing: 0; }
@@ -199,6 +224,16 @@
   let META = null;            // { resources: [...] }
   let cur = null;             // current resource meta
   const state = { q: '', filters: {}, sort: null, dir: 'desc', offset: 0, pivot: '' };
+
+  // Which resource.column pairs get value-colour-coding (editable <select> tinted + a colour
+  // dot in its multiselect filter). The values are the CSS suffixes (v-<val> / d-<val>), so any
+  // status in USER_STATUSES gets a colour without further wiring.
+  const COLOR_ENUM = new Set(['users.status']);
+
+  // Close any open multiselect filter dropdown when clicking outside it.
+  document.addEventListener('click', (e) => {
+    document.querySelectorAll('details.msfilter[open]').forEach(d => { if (!d.contains(e.target)) d.open = false; });
+  });
 
   const $ = (id) => document.getElementById(id);
   const esc = (s) => (s == null ? '' : String(s)).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
@@ -536,7 +571,15 @@
     let html = '';
     if (cur.search) html += `<input type="search" id="q" placeholder="Search…" value="${esc(state.q)}">`;
     for (const f of cur.filters) {
-      html += `<select data-filter="${f.key}"><option value="">${esc(f.label)}: all</option></select>`;
+      if (f.multi && f.options) {
+        const dot = (o) => COLOR_ENUM.has(cur.key + '.' + f.key) ? `<i class="st-dot d-${esc(o)}"></i>` : '';
+        html += `<details class="msfilter" data-filter="${f.key}"><summary>${esc(f.label)}: <span class="ms-count"></span></summary>` +
+          `<div class="ms-menu">` + f.options.map(o =>
+            `<label class="ms-opt"><input type="checkbox" value="${esc(o)}">${dot(o)}${esc(o)}</label>`).join('') +
+          `</div></details>`;
+      } else {
+        html += `<select data-filter="${f.key}"><option value="">${esc(f.label)}: all</option></select>`;
+      }
     }
     if (cur.pivots.length) {
       html += `<select id="pivot"><option value="">Table view</option>` +
@@ -554,6 +597,29 @@
       let t; q.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { state.q = q.value.trim(); state.offset = 0; load(); }, 250); });
     }
     for (const f of cur.filters) {
+      if (f.multi && f.options) {
+        // Multiselect: seed the checkboxes from state.filters[key] (a CSV; a default like
+        // 'active,prospect,waitlist' pre-checks those). Any change rebuilds the CSV and reloads.
+        // Nothing checked = clear the filter (show all), never "no rows".
+        const det = c.querySelector(`details.msfilter[data-filter="${f.key}"]`);
+        const boxes = [...det.querySelectorAll('input[type="checkbox"]')];
+        const seeded = new Set(String(state.filters[f.key] || '').split(',').filter(Boolean));
+        const countEl = det.querySelector('.ms-count');
+        const refresh = () => {
+          const on = boxes.filter(b => b.checked).length;
+          countEl.textContent = on === 0 ? 'none' : (on === boxes.length ? 'all' : String(on));
+        };
+        boxes.forEach(b => {
+          b.checked = seeded.has(b.value);
+          b.addEventListener('change', () => {
+            const vals = boxes.filter(x => x.checked).map(x => x.value);
+            if (vals.length) state.filters[f.key] = vals.join(','); else delete state.filters[f.key];
+            state.offset = 0; refresh(); load();
+          });
+        });
+        refresh();
+        continue;
+      }
       const sel = c.querySelector(`select[data-filter="${f.key}"]`);
       // Options come from the resource meta when provided; otherwise the endpoint
       // still filters, we just can't prefill choices — leave as "all".
@@ -614,7 +680,12 @@
         return `<textarea class="edit-cell edit-text" rows="1" data-key="${esc(col.key)}" data-prev="${esc(curVal)}" placeholder="…">${esc(curVal)}</textarea>`;
       }
       const opts = (col.edit.options || []).map(o => `<option value="${esc(o)}"${o === curVal ? ' selected' : ''}>${esc(o)}</option>`).join('');
-      return `<select class="edit-cell" data-key="${esc(col.key)}" data-prev="${esc(curVal)}">${opts}</select>`;
+      // Colour-coded enum (e.g. users.status): tint the select by its current value, and flag it
+      // so the change handler can re-tint on edit. See COLOR_ENUM / .v-<val> CSS.
+      const colored = COLOR_ENUM.has(cur.key + '.' + col.key);
+      const clr = colored ? ` stsel v-${esc(curVal)}` : '';
+      const flag = colored ? ' data-colorenum="1"' : '';
+      return `<select class="edit-cell${clr}"${flag} data-key="${esc(col.key)}" data-prev="${esc(curVal)}">${opts}</select>`;
     }
     // Hide: the one write action — a checkbox that toggles watch_comment.hidden.
     if (col.key === 'hidden') return `<input type="checkbox" class="hide-chk"${Number(val) ? ' checked' : ''} title="Hide this comment">`;
@@ -693,6 +764,11 @@
     }).join('') || `<tr><td colspan="${cols.length}" class="muted" style="padding:22px">No rows.</td></tr>`;
     $('tbody').querySelectorAll('.hide-chk').forEach(chk => chk.addEventListener('change', onHideToggle));
     $('tbody').querySelectorAll('.edit-cell').forEach(sel => sel.addEventListener('change', onEditCell));
+    // Colour-coded enums (users.status): re-tint the select the moment its value changes.
+    $('tbody').querySelectorAll('select[data-colorenum]').forEach(sel => sel.addEventListener('change', () => {
+      [...sel.classList].forEach(cl => { if (cl.startsWith('v-')) sel.classList.remove(cl); });
+      sel.classList.add('v-' + sel.value);
+    }));
     if (cur.reorder) enableRowReorder();
     $('tbody').querySelectorAll('.copy-comments').forEach(btn => btn.addEventListener('click', onCopyComments));
     $('tbody').querySelectorAll('.ted-reply-send').forEach(btn => btn.addEventListener('click', onTedReply));

@@ -42,7 +42,7 @@ function adminGate(c: any): Response | null {
 // nothing user-supplied is ever concatenated into SQL.
 
 type Col = { key: string; label: string; expr: string };
-type Filter = { key: string; label: string; expr: string; options?: string[] };
+type Filter = { key: string; label: string; expr: string; options?: string[]; multi?: boolean };
 type Pivot = { label: string; columns: { key: string; label: string }[]; sql: (from: string, where: string) => string };
 // An inline-editable column: the frontend renders a <select> of `options`, and
 // POST /admin/write/:resource runs `UPDATE table SET column = ? WHERE idColumn = ?`.
@@ -78,9 +78,32 @@ interface Resource {
 // so they can never drift. Empty test_group renders as 'Unassigned' (which is also a
 // selectable value that stores the literal string).
 const WAITLIST_STATUSES = ['new', 'invited', 'active', 'declined'] as const;
+// Admin-managed account status (users table). Editable inline. When users.status is unset, the
+// list derives a default: seed/demo/test accounts (the @pangolinrc.app testers + demo@/reviewer@)
+// read as 'dummy', everyone else 'active' — so the column is meaningful before anyone touches it.
+const USER_STATUSES = ['active', 'prospect', 'dummy', 'waitlist', 'inactive'] as const;
+const USER_STATUS_EXPR = `COALESCE(NULLIF(users.status,''), CASE
+  WHEN users.email LIKE '%@pangolinrc.app'
+    OR users.email LIKE 'demo@%'
+    OR users.email LIKE 'reviewer@%' THEN 'dummy'
+  ELSE 'active' END)`;
 const WAITLIST_GROUPS = ['Unassigned', 'Friends & Family Cohort 1', 'Internal', 'SNW Cohort', "Founder's Circle"] as const;
 const GROUP_EXPR = "COALESCE(NULLIF(waitlist.test_group,''),'Unassigned')";
 const LIST_TYPE_EXPR = "COALESCE(NULLIF(waitlist.list_type,''),'waitlist')";
+
+// Outreach (creators/influencers we contact). Status/Channel are the inline-edit
+// dropdowns; enums are shared across cols/filters/writes so they can't drift.
+const OUTREACH_STATUSES = ['Drafted', 'Sent', 'Replied', 'Converted', 'Declined', 'No Response'] as const;
+const OUTREACH_CHANNELS = ['DM', 'Email'] as const;
+const OUTREACH_PLATFORMS = ['Instagram', 'Twitter', 'TikTok', 'YouTube', 'Email', 'Other'] as const;
+// Funnel fold: match outreach.contact_email against the inbound tables so the view
+// shows live funnel state (member / waitlist status) instead of a hand-kept guess.
+// `o`/`ow`/`ou` are the aliases used in the outreach resource's FROM.
+const OUTREACH_FUNNEL_EXPR = `CASE
+  WHEN COALESCE(o.contact_email,'') = '' THEN '—'
+  WHEN ou.email IS NOT NULL THEN 'Member'
+  WHEN ow.email IS NOT NULL THEN 'Waitlist: ' || COALESCE(NULLIF(ow.status,''),'new')
+  ELSE 'not in funnel' END`;
 
 // Millisecond epoch → local-ish date bucket. All created_at/updated_at are ms.
 const monthOf = (col: string) => `strftime('%Y-%m', ${col}/1000, 'unixepoch')`;
@@ -151,9 +174,11 @@ const RESOURCES: Record<string, Resource> = {
     label: 'Users',
     group: 'core',
     from: 'users',
+    idExpr: 'users.email',
     cols: [
       { key: 'email',      label: 'Email',    expr: 'users.email' },
       { key: 'username',   label: 'Username', expr: 'users.username' },
+      { key: 'status',     label: 'Status',   expr: USER_STATUS_EXPR },
       { key: 'phone',      label: 'Phone',    expr: 'users.phone' },
       { key: 'timezone',   label: 'Timezone', expr: 'users.timezone' },
       { key: 'devices',    label: 'Devices',  expr: '(SELECT COUNT(*) FROM devices d WHERE d.user_email = users.email)' },
@@ -161,14 +186,23 @@ const RESOURCES: Record<string, Resource> = {
       { key: 'created_at', label: 'Joined',   expr: 'users.created_at' },
     ],
     searchExprs: ['users.email', 'users.username'],
+    filters: [{ key: 'status', label: 'Status', expr: USER_STATUS_EXPR, options: [...USER_STATUSES], multi: true }],
+    // Open on the "real people" slice: everything except dummy (seed/test) and inactive.
+    // Uncheck/recheck any status in the Status dropdown to change it.
+    defaultFilters: { status: 'active,prospect,waitlist' },
     sortDefault: 'created_at',
+    writes: {
+      status: { table: 'users', column: 'status', idColumn: 'email', options: USER_STATUSES },
+    },
     pivots: {
+      status:       countPivot('By status', USER_STATUS_EXPR, 'Status'),
       signup_month: countPivot('Signups by month', monthOf('users.created_at'), 'Month'),
       signup_week:  countPivot('Signups by week',  weekOf('users.created_at'),  'Week'),
       timezone:     countPivot('By timezone', "COALESCE(NULLIF(users.timezone,''),'—')", 'Timezone'),
       has_devices:  countPivot('Has devices?', "CASE WHEN (SELECT COUNT(*) FROM devices d WHERE d.user_email=users.email)>0 THEN 'has ≥1 device' ELSE 'no devices' END", 'Bucket'),
       has_connections: countPivot('Has connections?', "CASE WHEN (SELECT COUNT(*) FROM follows f WHERE f.follower_email=users.email OR f.followee_email=users.email)>0 THEN 'connected' ELSE 'none' END", 'Bucket'),
     },
+    note: 'Status is editable inline — active (real member), prospect (pre-provisioned, not yet claimed), dummy (seed/demo/test account), waitlist, or inactive. Unset rows default to dummy for seed accounts (@pangolinrc.app, demo@, reviewer@) and active for everyone else until you override. The Status filter is multi-select and opens hiding dummy + inactive — check them to see those rows. (inactive is never set automatically — only by a manual edit here.)',
   },
 
   devices: {
@@ -429,7 +463,7 @@ const RESOURCES: Record<string, Resource> = {
   },
 
   waitlist: {
-    label: 'Contact',
+    label: 'Waitlist',
     group: 'secondary',
     from: 'waitlist',
     idExpr: 'waitlist.email',
@@ -465,6 +499,51 @@ const RESOURCES: Record<string, Resource> = {
       cohort:    countPivot('Signups by month', monthOf('waitlist.created_at'), 'Month'),
     },
     note: 'One contact list: List = waitlist (join.pangolinrc.com) or investor (invest.pangolinrc.com "Request the deck"). Status and Group (TestFlight cohort) are editable inline — pick from the dropdowns. Company is investor-only.',
+  },
+
+  outreach: {
+    label: 'Outreach',
+    group: 'secondary',
+    // Fold into the funnel by email: LEFT JOIN the inbound tables so the Funnel
+    // column reflects a contact's live waitlist/member state (see OUTREACH_FUNNEL_EXPR).
+    from: `outreach o
+      LEFT JOIN waitlist ow ON lower(ow.email) = lower(o.contact_email) AND o.contact_email <> ''
+      LEFT JOIN users    ou ON lower(ou.email) = lower(o.contact_email) AND o.contact_email <> ''`,
+    idExpr: 'o.id',
+    cols: [
+      { key: 'name',           label: 'Name',      expr: 'o.name' },
+      { key: 'handle',         label: 'Handle',    expr: 'o.handle' },
+      { key: 'platform',       label: 'Platform',  expr: 'o.platform' },
+      { key: 'follower_count', label: 'Followers', expr: 'o.follower_count' },
+      { key: 'channel',        label: 'Channel',   expr: 'o.channel' },
+      { key: 'status',         label: 'Status',    expr: 'o.status' },
+      { key: 'funnel',         label: 'Funnel',    expr: OUTREACH_FUNNEL_EXPR },
+      { key: 'angle',          label: 'Angle',     expr: 'o.angle' },
+      { key: 'date_contacted', label: 'Contacted', expr: 'o.date_contacted' },
+      { key: 'contact_email',  label: 'Email',     expr: 'o.contact_email' },
+      { key: 'notes',          label: 'Notes',     expr: 'o.notes' },
+    ],
+    searchExprs: ['o.name', 'o.handle', 'o.contact_email', 'o.angle', 'o.notes'],
+    filters: [
+      { key: 'status',   label: 'Status',   expr: 'o.status',   options: [...OUTREACH_STATUSES] },
+      { key: 'channel',  label: 'Channel',  expr: 'o.channel',  options: [...OUTREACH_CHANNELS] },
+      { key: 'platform', label: 'Platform', expr: 'o.platform', options: [...OUTREACH_PLATFORMS] },
+    ],
+    sortDefault: 'date_contacted',
+    writes: {
+      status:   { table: 'outreach', column: 'status',   idColumn: 'id', options: OUTREACH_STATUSES },
+      channel:  { table: 'outreach', column: 'channel',  idColumn: 'id', options: OUTREACH_CHANNELS },
+      platform: { table: 'outreach', column: 'platform', idColumn: 'id', options: OUTREACH_PLATFORMS },
+      angle:    { table: 'outreach', column: 'angle',    idColumn: 'id', kind: 'text' },
+      notes:    { table: 'outreach', column: 'notes',    idColumn: 'id', kind: 'text' },
+    },
+    pivots: {
+      status:   countPivot('By status', "COALESCE(NULLIF(o.status,''),'—')", 'Status'),
+      channel:  countPivot('By channel', 'o.channel', 'Channel'),
+      platform: countPivot('By platform', "COALESCE(NULLIF(o.platform,''),'—')", 'Platform'),
+      funnel:   countPivot('By funnel state', OUTREACH_FUNNEL_EXPR, 'Funnel'),
+    },
+    note: 'Creators/influencers WE reach out to (cold DM or email) — the top of the funnel, distinct from the inbound Waitlist. Status, Channel, Platform, Angle and Notes are editable inline. The Funnel column is derived, not typed: it matches this contact\'s Email against the Waitlist/Users tables and shows "Member", "Waitlist: <status>", "not in funnel", or "—" (no email on file) — so once someone fills join.pangolinrc.com you see it here without re-typing "Converted". Set Status = Converted when they take the action you asked for; the Funnel column confirms whether they actually landed in the funnel.',
   },
 
   bug_report: {
@@ -712,7 +791,7 @@ adminRoutes.get('/meta', async (c) => {
     reorder: r.reorder ?? null,
     reorderScope: r.reorder ? (r.reorderScope ?? null) : null,
     reorderCutCol: r.reorder ? (r.reorderCutCol ?? null) : null,
-    filters: (r.filters ?? []).map((f) => ({ key: f.key, label: f.label, options: f.options ?? null })),
+    filters: (r.filters ?? []).map((f) => ({ key: f.key, label: f.label, options: f.options ?? null, multi: !!f.multi })),
     defaultFilters: r.defaultFilters ?? null,
     pivots: r.pivots ? Object.entries(r.pivots).map(([pk, p]) => ({ key: pk, label: p.label })) : [],
   }));
@@ -729,7 +808,18 @@ function buildWhere(r: Resource, c: any): { clause: string; binds: unknown[] } {
   }
   for (const f of r.filters ?? []) {
     const v = c.req.query(`f_${f.key}`);
-    if (v != null && v !== '') { parts.push(`${f.expr} = ?`); binds.push(v); }
+    if (v == null || v === '') continue;
+    if (f.multi) {
+      // Multiselect: f_<key> is a comma-separated list → expr IN (?,?,…). Values are bound
+      // params (never interpolated), so an unknown value just matches nothing. Empty → skip
+      // (no constraint), so "nothing checked" reads as "no filter", not "no rows".
+      const vals = v.split(',').map((s: string) => s.trim()).filter(Boolean);
+      if (!vals.length) continue;
+      parts.push(`${f.expr} IN (${vals.map(() => '?').join(',')})`);
+      for (const val of vals) binds.push(val);
+    } else {
+      parts.push(`${f.expr} = ?`); binds.push(v);
+    }
   }
   return { clause: parts.length ? 'WHERE ' + parts.join(' AND ') : '', binds };
 }

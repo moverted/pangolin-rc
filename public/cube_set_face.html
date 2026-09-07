@@ -465,6 +465,24 @@
   .shd-cut:active{color:var(--amber);border-color:var(--amber)}
   .shd-empty{padding:20px 6px;color:var(--muted);font-size:13px;line-height:1.5;border:1px dashed var(--line);border-radius:11px;margin-top:10px}
   .shd-empty b{color:var(--text)}
+  /* ── COMPLETED page (SET tab): a word list, not poster tiles. Same quiet, text-first
+       feel as Shadow — a résumé of what you've finished. cmp- namespace. Tapping a row still
+       expands the full card (episode archive + Watch again + delete) in place. ── */
+  .grid.done{display:block}
+  .cmp-group{display:flex;align-items:center;gap:9px;margin:16px 0 4px}
+  .cmp-group span{font-family:var(--mono);font-size:9.5px;letter-spacing:.18em;color:var(--amber)}
+  .cmp-group em{font-family:var(--mono);font-style:normal;font-size:9px;color:var(--muted)}
+  .cmp-group::after{content:"";flex:1;height:1px;background:rgba(255,255,255,.09)}
+  .cmp-row{display:flex;align-items:center;gap:11px;padding:12px 2px;border-bottom:1px solid rgba(255,255,255,.06);cursor:pointer}
+  .cmp-row:active{background:rgba(255,255,255,.03)}
+  .cmp-check{flex:0 0 auto;width:16px;height:16px;color:#5fbf6a}
+  .cmp-check svg{width:100%;height:100%;display:block}
+  .cmp-body{flex:1 1 auto;min-width:0}
+  .cmp-name{font-family:var(--display);font-weight:700;font-size:15px;line-height:1.2;color:var(--text);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .cmp-kind{font-family:var(--mono);font-size:8px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-left:7px;vertical-align:1px}
+  .cmp-meta{font-family:var(--mono);font-size:9.5px;letter-spacing:.05em;color:var(--muted);margin-top:3px}
+  .cmp-chev{flex:0 0 auto;color:var(--muted);font-size:17px;line-height:1;opacity:.55}
 </style>
 </head>
 <body>
@@ -1025,6 +1043,43 @@ function expandedCard(s, mode){
       '<div class="ep-arch" id="arch-'+s.id+'"><div class="vw-empty">loading episodes…</div></div>'+
       '</div>';
 }
+// COMPLETED is a word list (Shadow-style), not poster tiles: a quiet résumé of what you
+// finished. One row = check + title + a one-line "how it ended" meta. Tapping still expands
+// the full card (episode archive / Watch again / delete) via the same selectCurrent path.
+const CMP_CHECK_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
+function completedRowHTML(s){
+  const isMovie=s.kind==='movie';
+  const kind=isMovie?'FILM':'SERIES';
+  const how=isMovie?'watched &middot; film'
+                   :((s.stopped?'stopped':'done')+' &middot; '+(s.total||0)+' episodes');
+  const when=s.lastDate?(' &middot; '+fmtDate(s.lastDate)):'';
+  return '<div class="cmp-row" data-id="'+s.id+'">'
+    +'<span class="cmp-check">'+CMP_CHECK_SVG+'</span>'
+    +'<div class="cmp-body"><div class="cmp-name">'+titleHTML(s.name)+'<span class="cmp-kind">'+kind+'</span></div>'
+      +'<div class="cmp-meta">'+how+when+'</div></div>'
+    +'<span class="cmp-chev">&#8250;</span></div>';
+}
+// Word rows grouped SERIES then MOVIES (mirrors Shadow's grouping), most-recent first,
+// optionally skipping the currently-expanded show. Used in BOTH the collapsed and expanded
+// states so the grouping never flattens when a card is open.
+function completedGroupedRows(list, excludeId){
+  const rows=list.slice().sort((a,b)=>new Date(b.lastDate)-new Date(a.lastDate));
+  let h='';
+  [['series','SERIES'],['movie','MOVIES']].forEach(([g,label])=>{
+    const gr=rows.filter(s=>s.id!==excludeId && (s.kind==='movie')===(g==='movie'));
+    if(!gr.length) return;
+    h+='<div class="cmp-group"><span>'+label+'</span><em>'+gr.length+'</em></div>'+gr.map(completedRowHTML).join('');
+  });
+  return h;
+}
+// The COMPLETED list: the selected show expands to the full card at top; the rest follow as
+// grouped word rows.
+function completedListHTML(list){
+  const sel = selectedId ? list.find(s=>s.id===selectedId) : null;
+  if(sel) return expandedCard(sel,'completed') + completedGroupedRows(list, sel.id);
+  if(selectedId) selectedId=null;
+  return completedGroupedRows(list, null);
+}
 // Grid for a selectable tab: the selected show becomes a full-width expanded card
 // at the top, the rest follow as tiles.
 function gridWithSelection(list, mode){
@@ -1238,17 +1293,21 @@ function render(){
   const pierreEl=document.querySelector('.pierre');
   if(pierreEl) pierreEl.style.display = (activeTab==='completed' || activeTab==='shadow' || selectedId) ? 'none' : '';
   const grid=document.getElementById("grid");
-  if(activeTab==="shadow"){ grid.classList.remove("list"); grid.classList.add("shadow"); renderShadow(grid); return; }   // the fused taste profile (single-column block)
+  if(activeTab==="shadow"){ grid.classList.remove("list","done"); grid.classList.add("shadow"); renderShadow(grid); return; }   // the fused taste profile (single-column block)
   grid.classList.remove("shadow");
-  if(activeTab==="comfort"){ renderComfort(grid); return; }   // curated marathons (pre-beta)
+  if(activeTab==="comfort"){ grid.classList.remove("done"); renderComfort(grid); return; }   // curated marathons (pre-beta)
   grid.classList.remove("list");
   if(activeTab==="completed"){
+    grid.classList.add("done");   // block layout: COMPLETED is a word list, not the poster-tile grid
     const list=LOG.filter(s=>bucketOf(s)==="completed"&&!isTheaterMovie(s));
-    let html = list.length ? gridWithSelection(list,"completed") : '';
+    let html = list.length ? completedListHTML(list) : '';
     if(PASSES===null) loadPasses().then(()=>{ if(activeTab==='completed') render(); });   // one-shot
-    else if(PASSES.length) html += '<div class="passhead">Rewatch passes</div>' + PASSES.map(passTile).join('');
+    // Passes stay as poster tiles (a rewatch is a fresh viewing, not a finished résumé line):
+    // wrap them in their own grid so the block-level COMPLETED list doesn't stretch the tiles.
+    else if(PASSES.length) html += '<div class="passhead">Rewatch passes</div><div class="grid">' + PASSES.map(passTile).join('') + '</div>';
     grid.innerHTML = html || '<div class="state">Watch something or chat with Pierre to see it here.</div>';
   }else{
+    grid.classList.remove("done");
     const list=LOG.filter(s=>bucketOf(s)===activeTab&&!isTheaterMovie(s));
     list.sort((a,b)=>{
       const an=a.isNew?0:1, bn=b.isNew?0:1;
@@ -1262,9 +1321,14 @@ function render(){
     });
     grid.innerHTML=list.length?gridWithSelection(list,"current"):'<div class="state">nothing here yet</div>';
   }
-  // Tiles: CURRENT + COMPLETED tap to expand in place (other tabs handled above).
+  // Tiles: CURRENT tap to expand in place (other tabs handled above).
   grid.querySelectorAll(".tile").forEach(t=>t.addEventListener("click",()=>{
     const s=LOG.find(x=>x.id===t.dataset.id); if(!s||s.failed)return;
+    selectCurrent(s.id);
+  }));
+  // COMPLETED word rows: same tap-to-expand as tiles, into the full completed card.
+  grid.querySelectorAll(".cmp-row").forEach(r=>r.addEventListener("click",()=>{
+    const s=LOG.find(x=>x.id===r.dataset.id); if(!s||s.failed)return;
     selectCurrent(s.id);
   }));
   // Tap the expanded card (outside its buttons / archive) to collapse it. The

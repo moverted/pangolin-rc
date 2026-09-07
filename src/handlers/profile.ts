@@ -68,7 +68,13 @@ profileRoutes.post('/signup', async (c) => {
   const MEMBER_CAP = 20;
   const already = await c.env.DB.prepare('SELECT email FROM users WHERE email = ?').bind(email).first();
   if (!already) {
-    const countRow = await c.env.DB.prepare('SELECT COUNT(*) AS c FROM users').first<{ c: number }>();
+    // The cap counts CLAIMED/real members only. Unclaimed provisioned + friend-invite prospects
+    // (pw_required, no password yet) are leads, not members — they don't consume a slot until
+    // they actually sign in and set a password. Otherwise pre-populating a founder's circle or
+    // capturing buddy emails could lock out genuine signups.
+    const countRow = await c.env.DB.prepare(
+      'SELECT COUNT(*) AS c FROM users WHERE NOT (pw_required = 1 AND pw_hash IS NULL)'
+    ).first<{ c: number }>();
     if ((countRow?.c ?? 0) >= MEMBER_CAP) {
       await c.env.DB.prepare('INSERT OR IGNORE INTO waitlist (email, created_at) VALUES (?, ?)').bind(email, now).run();
       return c.json({ status: 'waitlist' });
@@ -102,7 +108,12 @@ profileRoutes.post('/signup', async (c) => {
     const cur = await c.env.DB.prepare('SELECT pw_hash FROM users WHERE email = ?').bind(email).first<{ pw_hash: string | null }>();
     if (cur && !cur.pw_hash) {
       const { salt, hash } = await hashPassword(password);
-      await c.env.DB.prepare('UPDATE users SET pw_salt = ?, pw_hash = ? WHERE email = ?').bind(salt, hash, email).run();
+      // Setting the password also clears the provisioned gate (pw_required) — it's a one-time
+      // "must set a password on first login" flag, spent the moment they do. A prospect who
+      // claims their account graduates to 'active' so the admin status reflects a real member.
+      await c.env.DB.prepare(
+        "UPDATE users SET pw_salt = ?, pw_hash = ?, pw_required = NULL, status = CASE WHEN status = 'prospect' THEN 'active' ELSE status END WHERE email = ?"
+      ).bind(salt, hash, email).run();
     }
   }
 
@@ -133,8 +144,12 @@ profileRoutes.post('/login', async (c) => {
   try { body = await c.req.json(); } catch { return c.json({ ok: false, error: 'Invalid JSON' }, 400); }
   const email = str(body.email, 200).toLowerCase();
   const password = str(body.password, 200);
-  const row = await c.env.DB.prepare('SELECT pw_salt, pw_hash FROM users WHERE email = ?').bind(email).first<{ pw_salt: string | null; pw_hash: string | null }>();
+  const row = await c.env.DB.prepare('SELECT pw_salt, pw_hash, pw_required FROM users WHERE email = ?').bind(email).first<{ pw_salt: string | null; pw_hash: string | null; pw_required: number | null }>();
   if (!row) return c.json({ ok: false, error: 'no account' }, 404);
+  // A provisioned account (pre-created for the founder's circle) has no password yet AND is
+  // flagged pw_required — it must SET a password on first login, not be auto-allowed. Tell the
+  // client to route into the set-password step instead of verifying.
+  if (!row.pw_hash && row.pw_required) return c.json({ ok: false, status: 'set_password' }, 200);
   // Legacy accounts with no password set are allowed in (e.g. the demo account).
   const ok = (row.pw_hash && row.pw_salt) ? await verifyPassword(password, row.pw_salt, row.pw_hash) : true;
   if (!ok) return c.json({ ok: false }, 401);
@@ -266,8 +281,13 @@ profileRoutes.post('/:email/room-seed', async (c) => {
 // (unsupported "Other" devices are collected silently to size demand).
 profileRoutes.get('/:email', async (c) => {
   const email = c.req.param('email').toLowerCase();
-  const user = await c.env.DB.prepare(`SELECT ${SAFE} FROM users WHERE email = ?`).bind(email).first();
+  const user = await c.env.DB.prepare(`SELECT ${SAFE} FROM users WHERE email = ?`).bind(email).first<any>();
   if (!user) return c.json({ error: 'not found' }, 404);
+  // A provisioned founder's-circle account (pw_required, no password yet) must set a password
+  // on first login. Surface it as a derived flag so the login flow greets + routes correctly
+  // (the raw pw_* columns stay out of SAFE and never reach the client).
+  const pw = await c.env.DB.prepare('SELECT pw_hash, pw_required FROM users WHERE email = ?').bind(email).first<{ pw_hash: string | null; pw_required: number | null }>();
+  user.must_set_password = !!(pw && !pw.pw_hash && pw.pw_required);
   const devices = await c.env.DB
     .prepare('SELECT id, type, location, ip, model, created_at FROM devices WHERE user_email = ? AND supported = 1 ORDER BY created_at')
     .bind(email).all();
@@ -378,13 +398,13 @@ async function recomputeTitle(env: Env, email: string, titleId: string): Promise
     // resume pointer follow the marathon, not canonical air order.
     total = (await env.DB.prepare('SELECT COUNT(*) AS c FROM map_steps WHERE map_id=?').bind(mapId).first<{ c: number }>())?.c ?? 0;
     watched = (await env.DB.prepare('SELECT COUNT(*) AS c FROM map_steps ms JOIN watch_episode we ON we.user_email=? AND we.episode_id=ms.episode_id AND we.done=1 WHERE ms.map_id=?').bind(email, mapId).first<{ c: number }>())?.c ?? 0;
-    released = (await env.DB.prepare("SELECT COUNT(*) AS c FROM map_steps ms JOIN episodes e ON e.episode_id=ms.episode_id WHERE ms.map_id=? AND e.airdate IS NOT NULL AND e.airdate <= date('now')").bind(mapId).first<{ c: number }>())?.c ?? 0;
+    released = (await env.DB.prepare("SELECT COUNT(*) AS c FROM map_steps ms JOIN episodes e ON e.episode_id=ms.episode_id WHERE ms.map_id=? AND e.airdate IS NOT NULL AND COALESCE(datetime(e.airstamp), datetime(e.airdate || ' 23:59:59')) <= datetime('now')").bind(mapId).first<{ c: number }>())?.c ?? 0;
     cur = await env.DB.prepare('SELECT ms.episode_id FROM map_steps ms LEFT JOIN watch_episode we ON we.user_email=? AND we.episode_id=ms.episode_id WHERE ms.map_id=? AND COALESCE(we.done,0)=0 ORDER BY ms.position LIMIT 1').bind(email, mapId).first<{ episode_id: string }>();
     last = await env.DB.prepare('SELECT episode_id FROM map_steps WHERE map_id=? ORDER BY position DESC LIMIT 1').bind(mapId).first<{ episode_id: string }>();
   } else {
     total = t.total_episodes || 0;
     watched = (await env.DB.prepare('SELECT COUNT(*) AS c FROM watch_episode WHERE user_email=? AND title_id=? AND done=1').bind(email, titleId).first<{ c: number }>())?.c ?? 0;
-    released = (await env.DB.prepare("SELECT COUNT(*) AS c FROM episodes WHERE title_id=? AND airdate IS NOT NULL AND airdate <= date('now')").bind(titleId).first<{ c: number }>())?.c ?? 0;
+    released = (await env.DB.prepare("SELECT COUNT(*) AS c FROM episodes WHERE title_id=? AND airdate IS NOT NULL AND COALESCE(datetime(airstamp), datetime(airdate || ' 23:59:59')) <= datetime('now')").bind(titleId).first<{ c: number }>())?.c ?? 0;
     // First not-done episode in air order = the resume pointer (else the finale).
     cur = await env.DB.prepare('SELECT e.episode_id FROM episodes e LEFT JOIN watch_episode we ON we.user_email=? AND we.episode_id=e.episode_id WHERE e.title_id=? AND COALESCE(we.done,0)=0 ORDER BY e.season, e.number LIMIT 1').bind(email, titleId).first<{ episode_id: string }>();
     last = await env.DB.prepare('SELECT episode_id FROM episodes WHERE title_id=? ORDER BY season DESC, number DESC LIMIT 1').bind(titleId).first<{ episode_id: string }>();
@@ -417,6 +437,14 @@ profileRoutes.get('/:email/titles', async (c) => {
   // off D1's per-load read cliff. `runtime` and `released` stay live: they are single
   // indexed lookups over the shared catalog and must reflect newly-aired episodes with no
   // cron. The 3 ticket subqueries collapse to one join to the member's latest ticket row.
+  // `released` counts an episode only once its real drop moment has passed. Prefer the precise
+  // `airstamp` (TVmaze ISO-8601 with the network timezone, e.g. "...T21:00:00-04:00") — SQLite
+  // normalizes it to UTC for comparison — since actual drop time varies by platform (HBO 6pm PT,
+  // Apple TV+ earliest-timezone so a "Wed" episode is up Tue evening, Netflix midnight local). A
+  // bare `airdate <= date('now')` (UTC) flipped an episode to released at UTC-midnight of its
+  // airdate — up to a day off either way — which wrongly read a caught-up member as one episode
+  // behind and killed the FRESH badge. `airdate 23:59:59` is the fallback for pre-0058 rows with a
+  // null airstamp (they self-heal via refreshTitleEpisodes on next open after air).
   const rows = await c.env.DB.prepare(
     `SELECT wt.title_id, t.name, t.kind, t.status AS title_status, t.poster, t.platform,
             t.premiered, t.summary, t.total_episodes AS total, wt.status, wt.active_map_id,
@@ -424,7 +452,7 @@ profileRoutes.get('/:email/titles', async (c) => {
             wt.watched_count AS watched, wt.minute_sum AS minutes,
             wt.last_season AS last_season, wt.last_number AS last_number,
             (SELECT e.runtime FROM episodes e WHERE e.title_id=wt.title_id ORDER BY e.season, e.number LIMIT 1) AS runtime,
-            (SELECT COUNT(*) FROM episodes e WHERE e.title_id=wt.title_id AND e.airdate IS NOT NULL AND e.airdate <= date('now')) AS released,
+            (SELECT COUNT(*) FROM episodes e WHERE e.title_id=wt.title_id AND e.airdate IS NOT NULL AND COALESCE(datetime(e.airstamp), datetime(e.airdate || ' 23:59:59')) <= datetime('now')) AS released,
             tk.created_at AS ticket_at, tk.ticket_date AS ticket_date, tk.ticket_time AS ticket_time
        FROM watch_title wt JOIN titles t ON t.title_id = wt.title_id
        LEFT JOIN watch_ticket tk
@@ -452,7 +480,7 @@ profileRoutes.get('/:email/titles', async (c) => {
         c.env.DB.prepare('SELECT name FROM maps WHERE map_id=?').bind(mapId).first<{ name: string }>(),
         c.env.DB.prepare('SELECT COUNT(*) AS c FROM map_steps WHERE map_id=?').bind(mapId).first<{ c: number }>(),
         c.env.DB.prepare('SELECT COUNT(*) AS c FROM map_steps ms JOIN watch_episode we ON we.user_email=? AND we.episode_id=ms.episode_id AND we.done=1 WHERE ms.map_id=?').bind(email, mapId).first<{ c: number }>(),
-        c.env.DB.prepare("SELECT COUNT(*) AS c FROM map_steps ms JOIN episodes e ON e.episode_id=ms.episode_id WHERE ms.map_id=? AND e.airdate IS NOT NULL AND e.airdate <= date('now')").bind(mapId).first<{ c: number }>(),
+        c.env.DB.prepare("SELECT COUNT(*) AS c FROM map_steps ms JOIN episodes e ON e.episode_id=ms.episode_id WHERE ms.map_id=? AND e.airdate IS NOT NULL AND COALESCE(datetime(e.airstamp), datetime(e.airdate || ' 23:59:59')) <= datetime('now')").bind(mapId).first<{ c: number }>(),
         c.env.DB.prepare('SELECT e.season, e.number FROM map_steps ms JOIN episodes e ON e.episode_id=ms.episode_id JOIN watch_episode we ON we.user_email=? AND we.episode_id=ms.episode_id AND we.done=1 WHERE ms.map_id=? ORDER BY ms.position DESC LIMIT 1').bind(email, mapId).first<{ season: number; number: number }>(),
       ]);
       t.total = tot?.c ?? 0;
