@@ -433,23 +433,62 @@
     }
     #cap-align-lbl { white-space: nowrap; min-width: 3.5em; text-align: left; }
     /* co-viewing: a friend's recorded comment, surfaced as its marker passes.
-       Sits under the caption line; the transcript shows even with audio muted. */
+       A prominent card — big comment text with Replay + Reply — that pops in above
+       the caption line, holds through the audio, then lingers ~15s (or until the
+       next comment fires). The transcript shows even with audio muted. */
     #cap-coview {
-      display: none; max-width: 88vw; margin-top: 2px;
-      align-items: center; gap: 8px;
+      display: none; flex-direction: column; align-items: stretch; gap: 12px;
+      width: min(88vw, 460px); margin: 2px auto 0; box-sizing: border-box;
       pointer-events: auto;
-      font-family: 'Comic Neue', cursive; font-size: 13px; font-weight: 700;
-      color: #f3ebe0; text-shadow: 0 2px 8px rgba(0,0,0,0.7);
+      background: linear-gradient(160deg, rgba(30,24,17,0.98), rgba(17,13,9,0.98));
+      border: 1px solid rgba(108,192,112,0.45); border-radius: 18px;
+      padding: 16px 18px 15px;
+      box-shadow: 0 18px 50px rgba(0,0,0,0.6);
+      font-family: 'Comic Neue', cursive;
+      animation: cvPop 0.28s cubic-bezier(0.2,0.9,0.3,1.2);
     }
     #cap-coview.show { display: flex; }
+    @keyframes cvPop {
+      from { opacity: 0; transform: translateY(-10px) scale(0.96); }
+      to   { opacity: 1; transform: none; }
+    }
+    #cap-coview .cv-head { display: flex; align-items: center; gap: 8px; }
     #cap-coview .cv-dot {
-      flex: none; width: 7px; height: 7px; border-radius: 50%;
-      background: #6cc070; box-shadow: 0 0 6px rgba(108,192,112,0.8);
+      flex: none; width: 9px; height: 9px; border-radius: 50%;
+      background: #6cc070; box-shadow: 0 0 8px rgba(108,192,112,0.9);
     }
-    #cap-coview .cv-who { color: #6cc070; white-space: nowrap; }
+    #cap-coview .cv-who {
+      color: #6cc070; white-space: nowrap; font-weight: 700; font-size: 14px;
+      letter-spacing: 0.02em;
+    }
     #cap-coview .cv-text {
-      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      color: #f6efe4; font-weight: 700; font-size: 23px; line-height: 1.28;
+      text-align: left; text-shadow: 0 2px 10px rgba(0,0,0,0.6);
+      max-height: 42vh; overflow: auto;
     }
+    #cap-coview .cv-actions { display: flex; gap: 10px; margin-top: 2px; }
+    #cap-coview.replying .cv-actions { display: none; }
+    #cap-coview .cv-btn {
+      flex: 1; border: none; border-radius: 999px; padding: 11px 10px;
+      font-family: inherit; font-weight: 700; font-size: 14px; letter-spacing: 0.02em;
+      cursor: pointer; -webkit-tap-highlight-color: transparent;
+      display: flex; align-items: center; justify-content: center; gap: 7px;
+      transition: transform 0.1s, filter 0.15s;
+    }
+    #cap-coview .cv-btn:active { transform: scale(0.96); }
+    #cap-coview .cv-btn:disabled { opacity: 0.5; }
+    #cap-coview .cv-btn.replay { background: rgba(255,255,255,0.1); color: #f3ede4; }
+    #cap-coview .cv-btn.reply  { background: #6cc070; color: #10240f; }
+    /* reply composer — revealed only after Reply is tapped */
+    #cap-coview .cv-reply { display: none; flex-direction: column; gap: 9px; }
+    #cap-coview.replying .cv-reply { display: flex; }
+    #cap-coview .cv-reply textarea {
+      width: 100%; box-sizing: border-box; min-height: 60px; resize: none;
+      border-radius: 12px; padding: 10px 12px;
+      border: 1px solid rgba(108,192,112,0.4); background: rgba(255,255,255,0.05);
+      color: #fff; font-family: inherit; font-size: 15px;
+    }
+    #cap-coview .cv-reply-row { display: flex; gap: 10px; }
 
     /* ── "rotate to use this face" (keyboard faces held sideways) ── */
     #rotate-msg {
@@ -566,9 +605,19 @@
     <span id="cap-align-lbl">in sync</span>
   </div>
   <div id="cap-coview">
-    <span class="cv-dot"></span>
-    <span class="cv-who"></span>
-    <span class="cv-text"></span>
+    <div class="cv-head"><span class="cv-dot"></span><span class="cv-who"></span></div>
+    <div class="cv-text"></div>
+    <div class="cv-actions">
+      <button type="button" class="cv-btn replay" id="cv-replay">&#9654; Replay</button>
+      <button type="button" class="cv-btn reply" id="cv-reply-open">Reply</button>
+    </div>
+    <div class="cv-reply">
+      <textarea id="cv-reply-text" placeholder="Reply to this&hellip;" maxlength="2000"></textarea>
+      <div class="cv-reply-row">
+        <button type="button" class="cv-btn replay" id="cv-reply-cancel">Cancel</button>
+        <button type="button" class="cv-btn reply" id="cv-reply-send">Send</button>
+      </div>
+    </div>
   </div>
 </div>
 

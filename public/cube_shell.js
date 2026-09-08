@@ -1586,6 +1586,11 @@ const _capLbl   = document.getElementById('cap-align-lbl');
 const _capCoEl  = document.getElementById('cap-coview');
 const _capCoWho = _capCoEl.querySelector('.cv-who');
 const _capCoTxt = _capCoEl.querySelector('.cv-text');
+const _capCoReplay      = document.getElementById('cv-replay');
+const _capCoReplyOpen   = document.getElementById('cv-reply-open');
+const _capCoReplyText   = document.getElementById('cv-reply-text');
+const _capCoReplyCancel = document.getElementById('cv-reply-cancel');
+const _capCoReplySend   = document.getElementById('cv-reply-send');
 let _capTick    = null;
 
 // The Profile picker caches the selection KIND: 'phone' (this is the screen),
@@ -1667,6 +1672,7 @@ async function capStart(ep) {
 }
 function capStop() {
   if (capSession && capSession.coAudio) { try { capSession.coAudio.pause(); } catch {} }
+  if (capSession && capSession.coHideTimer) { clearTimeout(capSession.coHideTimer); }
   capSession = null;
   if (_capTick) { clearInterval(_capTick); _capTick = null; }
   capHideCoview();
@@ -1698,6 +1704,9 @@ function capRender() {
 // original rather than on top of it.
 const COVIEW_REVEAL_OFFSET_MS = 30000;
 const COVIEW_REPLY_BEAT_MS = 5000;
+// After the voice stops, the prominent panel lingers this long so it stays readable
+// — unless the next comment fires first (which replaces it), whichever is sooner.
+const COVIEW_LINGER_MS = 15000;
 function capFireAt(clip) {
   const base = (clip.revealMs != null) ? clip.revealMs : (clip.timestampMs + COVIEW_REVEAL_OFFSET_MS);
   return base + (clip.replyTo ? COVIEW_REPLY_BEAT_MS : 0);
@@ -1719,25 +1728,98 @@ function capFireCoview(posMs) {
     capPlayCoview(clip);
   }
 }
+// Raise the prominent panel for a friend's clip: who + the comment in big type, a
+// Replay and a Reply button. The audio plays through, then the panel lingers (see
+// capCoviewLinger). The next clip firing replaces this one — capFireCoview calls
+// straight back in, and this cancels any pending hide.
 function capPlayCoview(clip) {
   if (!capSession) return;
+  if (capSession.coHideTimer) { clearTimeout(capSession.coHideTimer); capSession.coHideTimer = null; }
   capSession.coPlaying = true;
-  _capCoWho.textContent = clip.author || 'friend';
-  _capCoTxt.textContent = clip.transcription || '(audio)';
+  capSession.coClip = clip;
+  _capCoWho.textContent = (clip.author || 'a friend') + ' said';
+  _capCoTxt.textContent = clip.transcription || '(audio comment)';
+  capCoReplyReset();
+  _capCoReplay.style.display = clip.audioUrl ? '' : 'none';
+  // End-notes and already-threaded replies can't take a reply (one reply per comment).
+  _capCoReplyOpen.style.display = (clip.endNote || clip.replyTo) ? 'none' : '';
   _capCoEl.classList.add('show');
+  if (clip.audioUrl) capCoPlayAudio(clip);
+  else capCoviewLinger();   // text-only reply: nothing to play, just hold + linger
+}
+// Play (or Replay) a clip's audio; when it ends, hand off to the linger countdown so
+// the card stays up a beat longer than the voice.
+function capCoPlayAudio(clip) {
+  if (!capSession || !clip.audioUrl) return;
+  if (capSession.coAudio) { try { capSession.coAudio.pause(); } catch {} }
+  if (capSession.coHideTimer) { clearTimeout(capSession.coHideTimer); capSession.coHideTimer = null; }
+  capSession.coPlaying = true;
   const a = new Audio(clip.audioUrl);
   capSession.coAudio = a;
   const done = () => {
     if (capSession) { capSession.coPlaying = false; capSession.coAudio = null; }
-    capHideCoview();
+    capCoviewLinger();
   };
   a.onended = done; a.onerror = done;
-  a.play().catch(() => { if (capSession) capSession.coPlaying = false; });
+  a.play().catch(() => { if (capSession) capSession.coPlaying = false; capCoviewLinger(); });
+}
+// Hold the panel COVIEW_LINGER_MS after the voice stops, then hide it — but never
+// yank it out from under someone mid-reply (the composer being open pauses this).
+function capCoviewLinger() {
+  if (!capSession) return;
+  if (capSession.coHideTimer) clearTimeout(capSession.coHideTimer);
+  capSession.coHideTimer = setTimeout(() => {
+    if (capSession) capSession.coHideTimer = null;
+    if (!_capCoEl.classList.contains('replying')) capHideCoview();
+  }, COVIEW_LINGER_MS);
+}
+function capCoReplyReset() {
+  _capCoEl.classList.remove('replying');
+  if (_capCoReplyText) _capCoReplyText.value = '';
+  if (_capCoReplySend) _capCoReplySend.disabled = false;
 }
 function capHideCoview() {
+  if (capSession && capSession.coHideTimer) { clearTimeout(capSession.coHideTimer); capSession.coHideTimer = null; }
   _capCoEl.classList.remove('show');
   _capCoWho.textContent = ''; _capCoTxt.textContent = '';
+  capCoReplyReset();
 }
+// ── Panel controls: Replay the clip, or open a text reply (POST /transcribe/reply) ──
+_capCoReplay.addEventListener('click', () => {
+  const clip = capSession && capSession.coClip;
+  if (clip && clip.audioUrl) capCoPlayAudio(clip);
+});
+_capCoReplyOpen.addEventListener('click', () => {
+  if (!capSession || !capSession.coClip) return;
+  if (capSession.coHideTimer) { clearTimeout(capSession.coHideTimer); capSession.coHideTimer = null; }  // don't vanish mid-reply
+  _capCoEl.classList.add('replying');
+  _capCoReplyText.focus();
+});
+_capCoReplyCancel.addEventListener('click', () => {
+  _capCoEl.classList.remove('replying');
+  _capCoReplyText.value = '';
+  capCoviewLinger();   // resume the countdown
+});
+_capCoReplySend.addEventListener('click', async () => {
+  const clip = capSession && capSession.coClip;
+  const text = (_capCoReplyText.value || '').trim();
+  if (!clip || !clip.id || !text) return;
+  _capCoReplySend.disabled = true;
+  try {
+    const r = await fetch(API + '/transcribe/reply', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: capEmail(), replyTo: clip.id, text })
+    });
+    if (!r.ok) throw new Error('reply failed');
+    _capCoReplyText.value = '';
+    _capCoEl.classList.remove('replying');
+    _capCoWho.textContent = 'reply sent ✓';
+    capCoviewLinger();
+  } catch (_) {
+    _capCoReplyText.placeholder = "couldn't send — try again";
+    _capCoReplySend.disabled = false;
+  }
+});
 function capNudge(deltaMs) {
   if (!capSession) return;
   capSession.nudgeMs += deltaMs;

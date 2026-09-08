@@ -127,8 +127,9 @@ app.post('/transcribe', async (c) => {
         .bind(replyTo)
         .first();
       if (!parent) return c.json({ error: 'parent comment not found' }, 404);
-      // End-notes are terminal — react with your own end-note, never a reply.
-      if (parent.is_endnote) return c.json({ error: 'end-notes can\'t be replied to' }, 409);
+      // End-notes ARE repliable (end-of-episode flow): a reply threads under the friend's
+      // end-note and becomes a shareable comment+reply card. Still one reply per note, and
+      // still gated on mutual follow below.
       const mutual = await c.env.DB
         .prepare(
           `SELECT 1 FROM follows a
@@ -768,8 +769,9 @@ app.post('/transcribe/reply', async (c) => {
     .bind(replyTo)
     .first();
   if (!parent) return c.json({ error: 'parent comment not found' }, 404);
-  // End-notes are terminal — react with your own end-note, never a reply.
-  if (parent.is_endnote) return c.json({ error: 'end-notes can\'t be replied to' }, 409);
+  // End-notes ARE repliable (end-of-episode flow): the reply threads under the friend's
+  // end-note and becomes a shareable comment+reply card. One reply per note (locked below),
+  // still gated on mutual follow.
 
   // Mutual follow between replier and the parent's author (A→B and B→A).
   const mutual = await c.env.DB
