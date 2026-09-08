@@ -4,6 +4,16 @@ Append-only log. Any session that touches the Worker, D1, or deploy
 configuration adds an entry here before the session ends (see CLAUDE.md,
 "Backend and deploy rules").
 
+## 2026-09-08 — End-notes become repliable for the end-of-episode share flow (DEPLOYED)
+
+`src/index.ts`: removed the `409 "end-notes can't be replied to"` guard on BOTH reply paths
+(`POST /transcribe` audio-reply and `POST /transcribe/reply` text-reply). End-notes now accept a
+voice or text reply that threads under the friend's end-note; the one-reply-per-comment UNIQUE lock
+and mutual-follow gate are unchanged. Powers the new end-of-episode interstitial's shareable
+comment+reply card (frontend in `cube_log_face.html`). Worker DEPLOYED + Pages `public/` DEPLOYED +
+iOS bundle synced 2026-09-08. No D1 migration. (Test data: `seedtest-%` rows incl. 4 end-notes on
+Gentlemen S02E02 / Silo S03E08 — see [[pangolinrc-seedtest-comments]].)
+
 ## 2026-09-06 — Outreach tracker: new D1 table + admin resource, email-linked to funnel (DEPLOYED)
 
 Worker `5696d8d8` + migration `0059_outreach.sql` (remote applied) + seed `scripts/outreach-seed.sql`
