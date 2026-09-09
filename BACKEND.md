@@ -4,6 +4,28 @@ Append-only log. Any session that touches the Worker, D1, or deploy
 configuration adds an entry here before the session ends (see CLAUDE.md,
 "Backend and deploy rules").
 
+## 2026-09-09 — Admin Episode Feed: attributed + threaded transcript; grouped-by-person Copy (DEPLOYED)
+
+Worker `af685cd1` + admin Pages (`pangolinrc-admin`, `07d4ef9c`) deployed. No D1 migration
+(read-only serializer change). Fixes the "messy" episode transcript (no attribution, replies
+floating, Copy == on-screen serial).
+
+- **`src/handlers/admin.ts`:** the `episode_comments` `all_comments` column is no longer built
+  purely in SQL. Added `idExpr` (`ec.show_id || '|' || ec.episode_id`) so each row carries its
+  keys, and a post-process in `GET /admin/list/:resource` (gated to `episode_comments`) that
+  requeries each episode's visible comments (joined to `users` for username) and rebuilds two
+  views via `buildEpisodeTranscript()`: `all_comments` = on-screen (every line `MM:SS Author:`
+  / `SPLR|NOSP Author:`, chronological, replies indented `↳ replier:` under their parent) and
+  `copy_text` = clipboard (one `— Person —` section per ORIGINAL commenter; each reply threaded
+  under the parent it answers, in the parent author's section — never its own section).
+- **Timecode fix:** old SQL printed `HH:MM` (`ms/3600000`), so a 25-min mark read `00:25`.
+  `buildEpisodeTranscript` now emits true `MM:SS` (`25:00`).
+- **`admin/index.html`:** the `all_comments` cell stashes `copy_text` in a hidden `.serial-copy`
+  span; `onCopyComments` prefers it over the visible `.serial`, so Copy yields the grouped payload.
+- Verified live: `admin.pangolinrc.com` serves the new markup; Worker `/admin/meta` gated (401).
+  NOT shipped: the app Pages `pangolin-rc` (the end-note Play → circular ring change in
+  `public/cube_log_face.html` stays local until an app deploy is requested).
+
 ## 2026-09-08 — Outreach: add Tracy Swedlow (TVOT); correct stale "off-limits" DB note (PROD DATA)
 
 Single-row data insert into the PROD `outreach` table (`pangolin-rc` DB / `4bd25737`), no schema

@@ -279,8 +279,9 @@
   // .serial span so it copies the raw, un-escaped text with its line breaks intact.
   async function onCopyComments(ev) {
     const btn = ev.currentTarget;
-    const serial = btn.parentNode && btn.parentNode.querySelector('.serial');
-    const text = serial ? serial.textContent : '';
+    // Prefer the grouped-by-person payload (.serial-copy); fall back to the on-screen serial.
+    const copyNode = btn.parentNode && (btn.parentNode.querySelector('.serial-copy') || btn.parentNode.querySelector('.serial'));
+    const text = copyNode ? copyNode.textContent : '';
     if (!text) return;
     const flash = (msg) => { const o = btn.textContent; btn.textContent = msg; btn.disabled = true;
       setTimeout(() => { btn.textContent = o; btn.disabled = false; }, 1200); };
@@ -734,8 +735,10 @@
     if (col.key === 'timecode') { const min = Math.max(0, Math.floor(Number(val) / 60000)); return `${String(Math.floor(min/60)).padStart(2,'0')}:${String(min%60).padStart(2,'0')}`; }
     // Serialized "All comments" feed: preserve the line breaks between comments, and
     // offer a one-tap copy of the whole episode's comment list (reads the .serial text).
+    // On-screen shows the attributed + threaded transcript (all_comments); the Copy button
+    // lifts the grouped-by-person payload (copy_text) stashed in a hidden sibling span.
     if (col.key === 'all_comments') return (val == null || val === '') ? '<span class="muted">—</span>'
-      : `<div class="serial-wrap"><button type="button" class="copy-comments" title="Copy all comments for this episode">⧉ Copy</button><span class="serial">${esc(val)}</span></div>`;
+      : `<div class="serial-wrap"><button type="button" class="copy-comments" title="Copy — grouped by person, replies threaded">⧉ Copy</button><span class="serial">${esc(val)}</span><span class="serial-copy" hidden>${esc(row && row.copy_text != null ? row.copy_text : val)}</span></div>`;
     if (val == null || val === '') return '<span class="muted">—</span>';
     if (col.date) return esc(fmtDate(val));
     if (col.key === 'screenshot_url' && isUrl(val)) return `<a href="${esc(val)}" target="_blank" rel="noopener"><img class="shot" src="${esc(val)}" alt="shot"></a>`;

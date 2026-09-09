@@ -538,8 +538,12 @@
   .enq-actions{ display:flex; gap:8px; align-items:stretch; }
   .enq-btn{ border:none; border-radius:999px; padding:11px 12px; font-family:var(--body); font-weight:700; font-size:13px;
     display:flex; align-items:center; justify-content:center; gap:6px; cursor:pointer; -webkit-tap-highlight-color:transparent; }
-  .enq-btn.play{ flex:1; background:rgba(255,255,255,.1); color:var(--text); }
-  .enq-btn.play.on{ background:rgba(240,192,112,.16); color:var(--friend); box-shadow:inset 0 0 0 1px rgba(240,192,112,.5); }
+  /* Play is the SAME circular control as the reply mic: a round amber button with the
+     shared clip-ring (_RING_SVG) filling around it as the audio plays — see playClip(). */
+  .enq-btn.play{ flex:none; width:52px; height:52px; padding:0; border-radius:50%; position:relative;
+    background:rgba(240,169,59,.2); color:var(--friend); box-shadow:inset 0 0 0 1px rgba(240,192,112,.45); }
+  .enq-btn.play svg{ width:20px; height:20px; }
+  .enq-btn.play:active{ transform:scale(.95); }
   .enq-btn.thumb{ flex:none; width:48px; background:rgba(255,255,255,.06); color:var(--dim); font-size:17px; box-shadow:inset 0 0 0 1px rgba(255,255,255,.14); }
   .enq-btn.reply{ flex:1; background:var(--green); color:#0c1a0f; }
   .en-gate{ margin-top:10px; display:flex; align-items:center; justify-content:center; gap:9px; width:100%;
@@ -3653,7 +3657,7 @@ function renderEnQueue(){
       '<div class="enq-head"><div class="enq-av">'+enInitial(c.author)+'</div><div class="enq-who">'+enEsc(c.author)+'</div>'+chip+'</div>'+
       '<div class="enq-txt">'+enEsc(c.text)+'</div>'+
       '<div class="enq-actions">'+
-        (c.audioUrl?'<button class="enq-btn play" data-act="play">▶ Play</button>':'')+
+        (c.audioUrl?'<button class="enq-btn play" data-act="play" aria-label="Play voice note">'+_EN_PLAY_SVG+'</button>':'')+
         '<button class="enq-btn thumb" data-act="thumb" aria-label="Acknowledge">👍</button>'+
         '<button class="enq-btn reply" data-act="reply">Reply</button>'+
       '</div>';
@@ -3663,16 +3667,13 @@ function renderEnQueue(){
     host.appendChild(card);
   });
 }
-// Play (restart) a friend's end-note; the button reads Replay while it plays.
-function enPlay(c, btn){
-  try{ if(_enAudio) _enAudio.pause(); }catch(_){}
-  document.querySelectorAll('.enq-btn.play.on').forEach(b=>{ b.classList.remove('on'); b.textContent='▶ Play'; });
-  _enAudio=new Audio(c.audioUrl);
-  btn.classList.add('on'); btn.textContent='▶ Replay';
-  const reset=()=>{ btn.classList.remove('on'); btn.textContent='▶ Play'; };
-  _enAudio.onended=reset; _enAudio.onerror=reset;
-  _enAudio.play().catch(reset);
-}
+// Speaker glyph that lives in the round Play button until it's tapped; playClip() stashes
+// it (dataset.glyph) and swaps in the pause icon + filling clip-ring while the note plays,
+// then restores it on end — the exact control the co-view reply mic uses.
+const _EN_PLAY_SVG = '<svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 4 20 12 6 20 6 4" fill="currentColor" stroke="none"/></svg>';
+// Play a friend's end-note through the shared clip player so it gets the same circular
+// button + countdown ring as the reply mic. Re-tap pauses; the ring fills as it plays.
+function enPlay(c, btn){ if(!c || !c.audioUrl) return; playClip(c.audioUrl, btn); }
 // 👍 = acknowledge & clear this note (the only way to dismiss one), then advance.
 function enThumb(c){ endnoteMarkAck(c.id); enClearCard(c.id); }
 function enClearCard(id){

@@ -222,6 +222,61 @@ const EPISODE_COMMENTS_FROM = `(
    GROUP BY wc.show_id, wc.episode_id
 ) AS ec LEFT JOIN titles ON titles.title_id = ec.show_id`;
 
+// ── Attributed + threaded transcript builder (episode_comments) ──────────────
+// The SQL feeder above concatenates raw lines; it can't attribute per author or nest
+// replies under the comment they answer. So for the Episode Feed we rebuild two views in
+// TS from the raw rows: `all_comments` (on-screen — every line attributed, chronological,
+// replies indented under their parent) and `copy_text` (clipboard — grouped by person,
+// each reply threaded under the ORIGINAL commenter it answers, never as its own section).
+const _TXT_HEAD = 'To listen along join.pangolinrc.com';
+function _cmMark(r: any): string {
+  if (r.is_reflection || r.is_endnote) return r.spoiler ? 'SPLR' : 'NOSP';
+  const s = Math.max(0, Math.floor((r.timestamp_ms || 0) / 1000));
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+}
+function _cmName(r: any): string {
+  return (r.username && String(r.username).trim()) || String(r.user_email || '').split('@')[0] || 'friend';
+}
+// Build { display, copy } for one episode's visible comments (already ordered:
+// timed before reflections, then by timestamp, then created_at).
+function buildEpisodeTranscript(rows: any[]): { display: string; copy: string } {
+  const byId = new Map<string, any>(rows.map((r) => [r.id, r]));
+  const repliesOf = new Map<string, any[]>();
+  const originals: any[] = [];
+  for (const r of rows) {
+    if (r.reply_to && byId.has(r.reply_to)) {
+      (repliesOf.get(r.reply_to) ?? repliesOf.set(r.reply_to, []).get(r.reply_to)!).push(r);
+    } else {
+      originals.push(r);   // a real comment, or a reply whose parent is hidden/gone
+    }
+  }
+  // Display: chronological, every line attributed, replies indented under their parent.
+  const disp: string[] = [];
+  for (const r of rows) {
+    const line = `${_cmMark(r)}  ${_cmName(r)}: ${(r.transcription || '').trim()}`;
+    disp.push(r.reply_to && byId.has(r.reply_to) ? `    ↳ ${_cmName(r)}: ${(r.transcription || '').trim()}` : line);
+  }
+  // Copy: one section per original commenter (first appearance order); each of their
+  // comments followed by any replies, indented and attributed to the replier.
+  const order: string[] = [];
+  const sections = new Map<string, string[]>();
+  for (const o of originals) {
+    const key = o.user_email;
+    if (!sections.has(key)) { sections.set(key, []); order.push(key); }
+    const lines = sections.get(key)!;
+    lines.push(`${_cmMark(o)} ${(o.transcription || '').trim()}`);
+    for (const rep of repliesOf.get(o.id) ?? []) lines.push(`    ↳ ${_cmName(rep)}: ${(rep.transcription || '').trim()}`);
+  }
+  const copyBlocks = order.map((key) => {
+    const name = _cmName(rows.find((r) => r.user_email === key));
+    return `— ${name} —\n${sections.get(key)!.join('\n')}`;
+  });
+  return {
+    display: `${_TXT_HEAD}\n\n${disp.join('\n')}`,
+    copy: `${_TXT_HEAD}\n\n${copyBlocks.join('\n\n')}`,
+  };
+}
+
 // Simple GROUP BY bucket → count pivot.
 function countPivot(label: string, groupExpr: string, bucketLabel = 'Value'): Pivot {
   return {
@@ -514,6 +569,7 @@ const RESOURCES: Record<string, Resource> = {
     label: 'Episode Feed',
     group: 'core',
     from: EPISODE_COMMENTS_FROM,
+    idExpr: "ec.show_id || '|' || ec.episode_id",
     cols: [
       { key: 'show_name',    label: 'Show',         expr: 'COALESCE(titles.name, ec.show_id)' },
       { key: 'episode_id',   label: 'Episode',      expr: 'ec.episode_id' },
@@ -1025,12 +1081,36 @@ adminRoutes.get('/list/:resource', async (c) => {
     c.env.DB.prepare(countSql).bind(...binds).first<{ n: number }>(),
   ]);
 
+  const rows = rowsRes.results ?? [];
+
+  // Episode Feed: rebuild the attributed + threaded transcript per row (the SQL feeder
+  // can't attribute or nest). `all_comments` becomes the on-screen view; `copy_text` is
+  // the grouped-by-person clipboard payload the Copy button uses.
+  if (c.req.param('resource') === 'episode_comments' && rows.length) {
+    await Promise.all(rows.map(async (row: any) => {
+      const [show, ep] = String(row._id || '').split('|');
+      if (!show || !ep) return;
+      const { results } = await c.env.DB.prepare(
+        `SELECT c.id, c.user_email, c.timestamp_ms, c.transcription, c.reply_to,
+                c.is_reflection, c.is_endnote, c.spoiler, c.created_at, u.username
+           FROM watch_comment c LEFT JOIN users u ON u.email = c.user_email
+          WHERE c.show_id = ? AND c.episode_id = ?
+            AND COALESCE(c.hidden, 0) = 0 AND COALESCE(c.transcription, '') <> ''
+          ORDER BY (CASE WHEN c.is_reflection = 1 OR c.is_endnote = 1 THEN 1 ELSE 0 END) ASC,
+                   c.timestamp_ms ASC, c.created_at ASC`
+      ).bind(show, ep).all();
+      const t = buildEpisodeTranscript(results ?? []);
+      row.all_comments = t.display;
+      row.copy_text = t.copy;
+    }));
+  }
+
   return c.json({
     ok: true,
     total: countRes?.n ?? 0,
     limit, offset,
     sort: sortCol.key, dir: dir.toLowerCase(),
-    rows: rowsRes.results ?? [],
+    rows,
   });
 });
 
