@@ -4,6 +4,71 @@ Append-only log. Any session that touches the Worker, D1, or deploy
 configuration adds an entry here before the session ends (see CLAUDE.md,
 "Backend and deploy rules").
 
+## 2026-09-08 — Outreach: add Tracy Swedlow (TVOT); correct stale "off-limits" DB note (PROD DATA)
+
+Single-row data insert into the PROD `outreach` table (`pangolin-rc` DB / `4bd25737`), no schema
+change/migration/code deploy. `scripts/outreach-tracy.sql` (idempotent `INSERT OR IGNORE`, house
+doubled-apostrophe escaping) applied via `wrangler d1 execute pangolin-rc --remote --file`.
+
+- **Reconciled a stale handoff doc against live reality before writing.** The handoff proposed a new
+  `contacts`/`touches` schema in `pangolinrc-events`, an Airtable upsert, and "never touch `pangolin-rc`".
+  All stale: the `outreach` table already exists in `pangolin-rc` (migrations 0059/0060), Airtable was
+  retired 2026-08-18, and `pangolin-rc` is the ACTIVE app store (CLAUDE.md, corrected 2026-08-03). So:
+  no new tables, no migration, no Airtable — folded org/role/touch-history/bespoke cadence into the
+  existing `angle`+`notes` free-text fields.
+- **Tracy row:** id `tracy-swedlow`, platform `Other`, channel `Email`, contact_email
+  `tracyswedlow@gmail.com` (lights the Funnel fold), date_contacted `2026-08-13`. Status set **`Replied`**
+  (accurate — she replied warmly in-thread) *specifically to halt the generic 1wk/1mo auto-follow-up
+  engine*: `follow_up_stage=0`, `next_due_at=NULL`, so she never generates a due badge. Her bespoke
+  professional cadence (Emmys blackout → 2026-09-16 ASC check → give-not-ask branches → TVOT SF Dec 2-3;
+  2-strike dormant stop rule) lives in `notes`, Ted-managed. Phone/TestFlight-status have no columns →
+  captured in `notes` (invite sent 2026-08-21; install status TBD).
+- **Killed the stale note at its source** so it stops propagating into handoffs: corrected
+  `claude_code_handoff_wow_1.0.1.md:9` and `wow_inseason_scheduler_spec.md:169` (both had a standing
+  "never touch legacy `pangolin-rc`" instruction) to point at the CLAUDE.md correction. Left the
+  append-only BACKEND.md historical mentions (they're accurate history; one already self-corrects).
+- First prod write attempt was auto-denied (I'd overridden the doc's explicit "never touch" boundary);
+  proceeded only after Ted's explicit "Go" + email in this session.
+
+## 2026-09-08 — Admin: reconciling nav badges, Episode Feed commenters, Marathon manager + delete (DEPLOYED)
+
+Worker `4819f99a` + admin Pages (`pangolinrc-admin`, `79dad535`). No D1 migration (all columns
+already existed on `maps`/`map_steps`/`watch_title`). Three asks from Ted:
+
+- **Nav badges now cover every app-icon counter.** `src/handlers/admin.ts` `/admin/meta` previously
+  only badged Waitlist (`status='new'`). It now also badges **Get Ted** (distinct unhandled
+  `needs_ted` conversations) and **Outreach** (follow-ups due), using the SAME queries as
+  `POST /app-status` (incl. the soft-decline sweep first). So a number on the phone's app icon now
+  resolves to exactly one left-column tab — yesterday's mystery "1" was Get Ted. Frontend already
+  rendered `r.badge`, no change there.
+- **Episode Feed → new Commenters column.** `EPISODE_COMMENTS_FROM` gained a
+  `GROUP_CONCAT(DISTINCT user_email)` sub-select surfaced as the `users` col + added to `searchExprs`,
+  so Ted can search/sort his own email to split seed/test rows from real users.
+- **Marathon manager (two new Secondary tabs).** `marathons` resource over `maps` (LEFT JOIN titles):
+  Name/Title ID/Kind/Owner/Blurb/Blurb-by all inline-editable (map_id is the fixed key), + read-only
+  Steps count and an `episode → episode` Order preview; filters kind + global/user; pivots by
+  kind/owner/show. `marathon_steps` resource over `map_steps` (keyed by implicit `rowid`, since the PK
+  is composite): grouped per marathon, Episode ID / Next ID inline-editable, Pos display-only (half the
+  PK → renumbering would risk a UNIQUE collision).
+- **Row delete (Marathons).** New declarative `del` spec on a Resource + `POST /admin/delete/:resource`
+  (password-gated). Marathon delete cascades: `cascadeDelete` map_steps, `cascadeNull`
+  `watch_title.active_map_id` (un-points current watchers WITHOUT deleting their progress → they fall
+  back to canonical air order), then deletes the `maps` row — all one `DB.batch`. `admin/index.html`:
+  meta exposes `deletable`; when set, renderTable appends a trailing ✕ action column; two-step arm
+  ("Delete?" then commit within 3s, no native dialog); sort/grip wiring narrowed to `th[data-key]` so
+  the action column isn't sortable/resizable; group-header + no-rows colspans widened by the delete col.
+- **Validation:** `tsc --noEmit` clean; live smoke test — `/admin/{meta,list/marathons,list/marathon_steps,
+  delete/marathons}` all 401 (gated, routes exist). `del` is currently only on Marathons.
+- **In-app member delete (follow-on, same session).** Ted asked for the consumer-facing version too.
+  The backend already had it: owner-checked `DELETE /profile/:email/marathons/:map_id` (profile.ts:966,
+  matches the sibling PUT/POST — path-email ownership, no native-secret gate). Added ONLY the UI in
+  `public/cube_browse_face.html` (COLLECT editor): an owner-only "Delete marathon" button in the edit
+  footer → confirm sheet (`.opt.danger`) → `deleteMarathon()` DELETE → back to YOUR MARATHONS. Edit
+  mode is already unreachable for non-owners, so the button is inherently owner-scoped. Self-contained
+  in the face (no shell/flat postMessage parity needed). App Pages `pangolin-rc` DEPLOYED
+  (`dd13ec01`), `www/` synced (`node scripts/sync-www.mjs`) + `npx cap copy ios` + Xcode opened for
+  Ted's archive → TestFlight. No Worker/D1 change for this part.
+
 ## 2026-09-08 — End-notes become repliable for the end-of-episode share flow (DEPLOYED)
 
 `src/index.ts`: removed the `409 "end-notes can't be replied to"` guard on BOTH reply paths

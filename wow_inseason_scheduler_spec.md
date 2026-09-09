@@ -166,7 +166,7 @@ Still vetoable:
 ## Tech handoff (for Claude Code)
 
 - **Endpoints.** `https://api.tvmaze.com/shows/{id}?embed=episodes` or `/singlesearch/shows?q={name}&embed=episodes`. Each episode carries `airstamp` (ISO 8601 with offset). Phase math in local time, client-side.
-- **New storage** (D1, additive only; never touch legacy `pangolin-rc` schema): mode choice per user-show, DECLINED counter and positive-interaction flags per user, badge awards, Sentry and nudge sent-state, global kill flag.
+- **New storage** (D1, additive only; `pangolin-rc` is the **active app DB** — the old "legacy/off-limits" note was stale, corrected 2026-08-03, see CLAUDE.md): mode choice per user-show, DECLINED counter and positive-interaction flags per user, badge awards, Sentry and nudge sent-state, global kill flag.
 - **No cron required for v1.** Derive on app open; the daily poll can ride the existing Airtable cron pattern if a server check is wanted later.
 - **Live-fetch caveat.** Files fetch TVMaze in the browser. Do not hardcode data or treat a file as broken because a sandbox cannot reach the network.
 - **Copy rules.** No em-dashes anywhere. Mode names exactly: LIVE, FRESH, CASUAL, MORE!. Kill message exactly: "You can turn this back on in your profile, but Pierre won't guess your watch habits anymore."

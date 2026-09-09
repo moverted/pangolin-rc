@@ -6,7 +6,7 @@ Companion files: `wow_scheduler_1.0.1.html` (candidate prototype), `wow_inseason
 
 - App version for this work: **1.0.1**. Production **v1 (build 4) stays untouched** as the shipping app build.
 - Branch: `feat/wow-inseason-scheduler`. Deploy freely to the branch. **No merge to `main` and no production deploy without Ted's explicit confirmation.**
-- Never touch, migrate from, or rebind the legacy D1 database (`pangolin-rc` / `4bd25737`). All storage below is additive.
+- The D1 database `pangolin-rc` (`4bd25737`) is the **active app store** (bound as `DB`) — NOT legacy/off-limits. The old "quarantined/never touch" note was stale and was corrected 2026-08-03 (see CLAUDE.md). Migrate it only via `migrations/`; storage for this work is additive.
 - Edits target `public/` only. `www/` and `ios/App/App/public/` are generated. Sync: `node scripts/sync-www.mjs && npx cap sync ios`.
 - Log the work in BACKEND.md same-session, per standing rule. Wrangler deploys need a deploy message.
 

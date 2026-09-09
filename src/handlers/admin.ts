@@ -51,6 +51,15 @@ type Pivot = { label: string; columns: { key: string; label: string }[]; sql: (f
 // `enum` writes (default) validate value ∈ options → a dropdown. `int` writes take a
 // free whole number (e.g. episode runtime) → a number input, no options.
 type Write = { table: string; column: string; idColumn: string; kind?: 'enum' | 'int' | 'text' | 'bool'; options?: readonly string[] };
+// A row-level delete. `table`/`idColumn` are author-controlled literals; only the bound id
+// comes from the request. `cascadeDelete` removes dependent rows first (e.g. a marathon's
+// steps); `cascadeNull` clears foreign references instead of deleting them (e.g. a watcher's
+// active_map_id) so pointing rows aren't stranded but also aren't destroyed. Runs as one batch.
+type Delete = {
+  table: string; idColumn: string;
+  cascadeDelete?: { table: string; column: string }[];
+  cascadeNull?: { table: string; column: string }[];
+};
 
 interface Resource {
   label: string;
@@ -68,6 +77,7 @@ interface Resource {
   groupHeaderCols?: string[]; // col keys shown once in a group-header row (and dropped from the per-row columns)
   pivots?: Record<string, Pivot>;
   writes?: Record<string, Write>; // col key → inline-edit spec
+  del?: Delete;                   // row-level delete spec (renders a Delete action per row)
   reorder?: string;           // col key whose value is a 1..N rank the frontend can drag-reorder (renumbers + saves)
   reorderScope?: string;      // optional col key that sub-scopes the reorder (ranks are per this value, e.g. per kind)
   reorderCutCol?: string;     // optional bool col whose truthiness removes a row from ranking; toggling it compacts the scope
@@ -192,6 +202,9 @@ const SHARED_EXPR = `CASE
 const EPISODE_COMMENTS_FROM = `(
   SELECT wc.show_id AS show_id, wc.episode_id AS episode_id,
          COUNT(*) AS comments, MAX(wc.created_at) AS last_at,
+         (SELECT GROUP_CONCAT(DISTINCT w3.user_email) FROM watch_comment w3
+            WHERE w3.show_id = wc.show_id AND w3.episode_id = wc.episode_id
+              AND COALESCE(w3.hidden, 0) = 0 AND COALESCE(w3.transcription, '') <> '') AS users,
          ('To listen along join.pangolinrc.com' || char(10) || char(10) || (SELECT GROUP_CONCAT(line, char(10)) FROM (
             SELECT CASE
                      WHEN w2.is_reflection = 1 OR w2.is_endnote = 1
@@ -505,12 +518,13 @@ const RESOURCES: Record<string, Resource> = {
       { key: 'show_name',    label: 'Show',         expr: 'COALESCE(titles.name, ec.show_id)' },
       { key: 'episode_id',   label: 'Episode',      expr: 'ec.episode_id' },
       { key: 'comments',     label: '#',            expr: 'ec.comments' },
+      { key: 'users',        label: 'Commenters',   expr: 'ec.users' },
       { key: 'all_comments', label: 'All comments', expr: 'ec.all_comments' },
       { key: 'last_at',      label: 'Last',         expr: 'ec.last_at' },
     ],
-    searchExprs: ['titles.name', 'ec.episode_id', 'ec.all_comments'],
+    searchExprs: ['titles.name', 'ec.episode_id', 'ec.all_comments', 'ec.users'],
     sortDefault: 'last_at',
-    note: 'Serialized feeder: every episode with visible comments, all of them concatenated in play order — "mm:ss text" for timed comments, "SPLR text" for spoilers. Each feed opens with the call-to-action line "To listen along join.pangolinrc.com". Hidden comments are excluded. Read-only.',
+    note: 'Serialized feeder: every episode with visible comments, all of them concatenated in play order — "mm:ss text" for timed comments, "SPLR text" for spoilers. Each feed opens with the call-to-action line "To listen along join.pangolinrc.com". Hidden comments are excluded. The Commenters column lists the distinct users who commented — search your own email (or sort on it) to separate your seed/test rows from real users. Read-only.',
   },
 
   waitlist: {
@@ -599,6 +613,87 @@ const RESOURCES: Record<string, Resource> = {
       funnel:   countPivot('By funnel state', OUTREACH_FUNNEL_EXPR, 'Funnel'),
     },
     note: 'Creators/influencers WE reach out to (cold DM or email) — the top of the funnel, distinct from the inbound Waitlist. Status, Channel, Platform, Angle and Notes are editable inline. The Funnel column is derived, not typed: it matches this contact\'s Email against the Waitlist/Users tables and shows "Member", "Waitlist: <status>", "not in funnel", or "—" (no email on file) — so once someone fills join.pangolinrc.com you see it here without re-typing "Converted". Set Status = Converted when they take the action you asked for; the Funnel column confirms whether they actually landed in the funnel.',
+  },
+
+  marathons: {
+    label: 'Marathons',
+    group: 'secondary',
+    from: 'maps LEFT JOIN titles ON titles.title_id = maps.title_id',
+    idExpr: 'maps.map_id',
+    cols: [
+      { key: 'map_id',     label: 'Map ID',   expr: 'maps.map_id' },
+      { key: 'name',       label: 'Name',     expr: 'maps.name' },
+      { key: 'show_name',  label: 'Show',     expr: "COALESCE(titles.name, maps.title_id, 'cross-title')" },
+      { key: 'title_id',   label: 'Title ID', expr: "COALESCE(maps.title_id,'')" },
+      { key: 'kind',       label: 'Kind',     expr: 'maps.kind' },
+      { key: 'owner_email',label: 'Owner',    expr: "COALESCE(NULLIF(maps.owner_email,''),'global')" },
+      { key: 'steps',      label: 'Steps',    expr: '(SELECT COUNT(*) FROM map_steps ms WHERE ms.map_id = maps.map_id)' },
+      { key: 'order',      label: 'Order',    expr: "(SELECT GROUP_CONCAT(episode_id, ' → ') FROM (SELECT episode_id FROM map_steps WHERE map_id = maps.map_id ORDER BY position))" },
+      { key: 'blurb',      label: 'Blurb',    expr: "COALESCE(maps.blurb,'')" },
+      { key: 'blurb_by',   label: 'Blurb by', expr: "COALESCE(maps.blurb_by,'')" },
+      { key: 'created_at', label: 'Created',  expr: 'maps.created_at' },
+      { key: 'updated_at', label: 'Updated',  expr: 'maps.updated_at' },
+    ],
+    searchExprs: ['maps.map_id', 'maps.name', 'maps.blurb', 'titles.name'],
+    filters: [
+      { key: 'kind',  label: 'Kind',  expr: 'maps.kind', options: ['air_order', 'curated', 'user'] },
+      { key: 'owner', label: 'Owner', expr: "CASE WHEN maps.owner_email IS NULL OR maps.owner_email = '' THEN 'global' ELSE 'user' END", options: ['global', 'user'] },
+    ],
+    sortDefault: 'created_at',
+    writes: {
+      // Fully editable inline (Ted's call). map_id is the stable key and is not itself editable.
+      name:        { table: 'maps', column: 'name',        idColumn: 'map_id', kind: 'text' },
+      title_id:    { table: 'maps', column: 'title_id',    idColumn: 'map_id', kind: 'text' },
+      kind:        { table: 'maps', column: 'kind',        idColumn: 'map_id', options: ['air_order', 'curated', 'user'] },
+      owner_email: { table: 'maps', column: 'owner_email', idColumn: 'map_id', kind: 'text' },
+      blurb:       { table: 'maps', column: 'blurb',       idColumn: 'map_id', kind: 'text' },
+      blurb_by:    { table: 'maps', column: 'blurb_by',    idColumn: 'map_id', kind: 'text' },
+    },
+    pivots: {
+      kind:  countPivot('By kind', 'maps.kind', 'Kind'),
+      owner: countPivot('Global vs user-built', "CASE WHEN maps.owner_email IS NULL OR maps.owner_email = '' THEN 'global' ELSE 'user' END", 'Owner'),
+      show:  countPivot('By show', "COALESCE(titles.name, maps.title_id, 'cross-title')", 'Show'),
+    },
+    del: {
+      // Delete a marathon: drop its steps, un-point any watcher currently on it (clear
+      // active_map_id, don't delete the watch_title row), then remove the map itself.
+      table: 'maps', idColumn: 'map_id',
+      cascadeDelete: [{ table: 'map_steps', column: 'map_id' }],
+      cascadeNull: [{ table: 'watch_title', column: 'active_map_id' }],
+    },
+    note: 'Marathons = curated "maps": a member (or global) viewing order that overrides canonical air order when a watcher\'s active_map_id points at it. kind is air_order / curated (global, owner blank) / user (member-built). Name, Show (Title ID), Kind, Owner, Blurb and Blurb by are all editable inline — map_id is the fixed key and is not editable. The Order column previews the episode sequence; edit the actual steps on the Marathon steps tab. Delete (the ✕ at the end of each row) removes the marathon and its steps and un-points any watcher currently on it — it does NOT delete their viewing progress. This is consumer-facing in effect: a member watching that marathon falls back to canonical air order.',
+  },
+
+  marathon_steps: {
+    label: 'Marathon steps',
+    group: 'secondary',
+    from: 'map_steps ms JOIN maps ON maps.map_id = ms.map_id LEFT JOIN episodes e ON e.episode_id = ms.episode_id',
+    // map_steps has a composite PK (map_id, position) with no single-column id, so use the
+    // implicit rowid as the stable key for inline edits.
+    idExpr: 'ms.rowid',
+    cols: [
+      { key: 'marathon',        label: 'Marathon',   expr: 'maps.name' },
+      { key: 'map_id',          label: 'Map ID',     expr: 'ms.map_id' },
+      { key: 'position',        label: 'Pos',        expr: 'ms.position' },
+      { key: 'episode_name',    label: 'Episode',    expr: "COALESCE(e.name, '—')" },
+      { key: 'episode_id',      label: 'Episode ID', expr: 'ms.episode_id' },
+      { key: 'next_episode_id', label: 'Next ID',    expr: "COALESCE(ms.next_episode_id,'')" },
+    ],
+    searchExprs: ['maps.name', 'ms.map_id', 'ms.episode_id'],
+    filters: [{ key: 'map_id', label: 'Marathon', expr: 'ms.map_id' }],
+    sortDefault: 'position',
+    // Cluster by marathon, then walk positions in order.
+    defaultOrder: 'maps.name ASC, ms.map_id ASC, ms.position ASC',
+    groupBy: 'marathon',
+    groupHeaderCols: ['marathon', 'map_id'],
+    writes: {
+      // Episode wiring is editable inline (keyed by rowid). Position is display-only:
+      // it's half the primary key, so renumbering would risk a UNIQUE collision — edit
+      // ordering by rewriting the episode_id/next_episode_id at each step instead.
+      episode_id:      { table: 'map_steps', column: 'episode_id',      idColumn: 'rowid', kind: 'text' },
+      next_episode_id: { table: 'map_steps', column: 'next_episode_id', idColumn: 'rowid', kind: 'text' },
+    },
+    note: 'The ordered episode steps inside each marathon (from the Marathons tab). Filter or search to one marathon, then read down by Pos. Episode ID and Next ID are editable inline; Pos is the fixed step key and is not editable here.',
   },
 
   bug_report: {
@@ -822,11 +917,33 @@ const DATE_KEYS = new Set(['created_at', 'updated_at', 'started_at', 'last_share
 // filter/pivot options). No data, but still gated (it enumerates the schema).
 adminRoutes.get('/meta', async (c) => {
   const denied = adminGate(c); if (denied) return denied;
-  // Nav badges: unattended-work counters. Waitlist shows how many rows are still
-  // status='new' (untriaged signups). Cheap enough to compute on each meta load.
+  // Nav badges: unattended-work counters — one per tab so the number the app icon paints
+  // always resolves to a place in this nav. The app-icon badge is waitlistNew + getTedOpen
+  // + outreachDue (see POST /app-status); these three MUST use the SAME queries so a "1" on
+  // the phone lights up exactly one tab here. Cheap enough to compute on each meta load.
   const badges: Record<string, number> = {};
+  const nowTs = Date.now();
+  await sweepOutreachSoftDecline(c.env, nowTs);  // match /app-status: retire lapsed rows before counting
+
   const wlNew = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM waitlist WHERE status = 'new'").first<{ n: number }>();
   if (wlNew?.n) badges.waitlist = wlNew.n;
+
+  // Sessions waiting on Ted: distinct conversations with an open, unhandled escalation.
+  const gt = await c.env.DB
+    .prepare("SELECT COUNT(DISTINCT conversation_id) AS n FROM pierre_chat WHERE needs_ted = 1 AND COALESCE(ted_status,'') <> 'handled'")
+    .first<{ n: number }>();
+  if (gt?.n) badges.get_ted = gt.n;
+
+  // Outreach follow-ups due (stage 0/1 whose next_due_at has passed and still active).
+  const od = await c.env.DB
+    .prepare(
+      `SELECT COUNT(*) AS n FROM outreach
+        WHERE next_due_at IS NOT NULL AND next_due_at <= ? AND follow_up_stage < 2
+          AND status IN ('Sent', 'No Response')`,
+    )
+    .bind(nowTs)
+    .first<{ n: number }>();
+  if (od?.n) badges.outreach = od.n;
 
   const resources = Object.entries(RESOURCES).map(([key, r]) => ({
     key,
@@ -846,6 +963,7 @@ adminRoutes.get('/meta', async (c) => {
     reorder: r.reorder ?? null,
     reorderScope: r.reorder ? (r.reorderScope ?? null) : null,
     reorderCutCol: r.reorder ? (r.reorderCutCol ?? null) : null,
+    deletable: !!r.del,
     filters: (r.filters ?? []).map((f) => ({ key: f.key, label: f.label, options: f.options ?? null, multi: !!f.multi })),
     defaultFilters: r.defaultFilters ?? null,
     pivots: r.pivots ? Object.entries(r.pivots).map(([pk, p]) => ({ key: pk, label: p.label })) : [],
@@ -1179,6 +1297,33 @@ adminRoutes.post('/write/:resource', async (c) => {
   const res = await c.env.DB.prepare(`UPDATE ${w.table} SET ${w.column} = ? WHERE ${w.idColumn} = ?`).bind(bound, id).run();
   if (!res.meta.changes) return c.json({ error: 'not found' }, 404);
   return c.json({ ok: true, id, key, value });
+});
+
+// POST /admin/delete/:resource — { id } → delete one row of a resource that declares a
+// `del` spec (currently Marathons). table/idColumn/cascade targets are author-controlled
+// registry literals; only the bound id comes from the request. Cascades run first (drop
+// dependent rows, null out foreign references) then the row itself, all in one batch.
+adminRoutes.post('/delete/:resource', async (c) => {
+  const denied = adminGate(c); if (denied) return denied;
+  const r = RESOURCES[c.req.param('resource')];
+  if (!r || !r.del) return c.json({ error: 'resource is not deletable' }, 404);
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const id = typeof body.id === 'string' ? body.id : '';
+  if (!id) return c.json({ error: 'id required' }, 400);
+
+  const d = r.del;
+  const stmts = [
+    ...(d.cascadeNull ?? []).map((t) =>
+      c.env.DB.prepare(`UPDATE ${t.table} SET ${t.column} = NULL WHERE ${t.column} = ?`).bind(id)),
+    ...(d.cascadeDelete ?? []).map((t) =>
+      c.env.DB.prepare(`DELETE FROM ${t.table} WHERE ${t.column} = ?`).bind(id)),
+    c.env.DB.prepare(`DELETE FROM ${d.table} WHERE ${d.idColumn} = ?`).bind(id),
+  ];
+  const res = await c.env.DB.batch(stmts);
+  const deleted = res[res.length - 1]?.meta?.changes ?? 0;
+  if (!deleted) return c.json({ error: 'not found' }, 404);
+  return c.json({ ok: true, id, deleted });
 });
 
 // POST /admin/comments/hide — { id, hidden } → set a comment's moderation hide flag.
