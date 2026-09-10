@@ -195,39 +195,22 @@ const SHARED_EXPR = `CASE
     THEN CASE WHEN watch_comment.private = 1 THEN 'journaled' ELSE 'shared' END
   ELSE '—' END`;
 
-// Serialized "All comments" feeder: one row per episode that has visible comments,
-// with every comment concatenated in order — "mm:ss text" for timed comments, "SPLR
-// text" for spoilers (matching the LOG/feed rendering). Hidden comments are excluded.
-// The inner ORDER BY runs before GROUP_CONCAT so the lines come out in play order.
+// Episode Feed: ONE ROW PER COMMENTER PER EPISODE — each user gets their own record. The
+// grouping key is (show, episode, author); a record covers one person's ORIGINAL comments
+// (reply_to IS NULL) on that episode. Replies aren't their own record — they thread under
+// the comment they answer, inside the parent author's record (built in TS below). The
+// serialized transcript text is filled by the list handler's post-process, not here.
 const EPISODE_COMMENTS_FROM = `(
-  SELECT wc.show_id AS show_id, wc.episode_id AS episode_id,
-         COUNT(*) AS comments, MAX(wc.created_at) AS last_at,
-         (SELECT GROUP_CONCAT(DISTINCT w3.user_email) FROM watch_comment w3
-            WHERE w3.show_id = wc.show_id AND w3.episode_id = wc.episode_id
-              AND COALESCE(w3.hidden, 0) = 0 AND COALESCE(w3.transcription, '') <> '') AS users,
-         ('To listen along join.pangolinrc.com' || char(10) || char(10) || (SELECT GROUP_CONCAT(line, char(10)) FROM (
-            SELECT CASE
-                     WHEN w2.is_reflection = 1 OR w2.is_endnote = 1
-                       THEN CASE WHEN w2.spoiler = 1 THEN 'SPLR ' ELSE 'NOSP ' END
-                     ELSE printf('%02d:%02d ', w2.timestamp_ms/3600000, (w2.timestamp_ms/60000)%60)
-                   END || COALESCE(w2.transcription, '') AS line
-              FROM watch_comment w2
-             WHERE w2.show_id = wc.show_id AND w2.episode_id = wc.episode_id
-               AND COALESCE(w2.hidden, 0) = 0 AND COALESCE(w2.transcription, '') <> ''
-             ORDER BY (CASE WHEN w2.is_reflection = 1 OR w2.is_endnote = 1 THEN 1 ELSE 0 END) ASC,
-                      w2.timestamp_ms ASC, w2.created_at ASC
-         ))) AS all_comments
+  SELECT wc.show_id AS show_id, wc.episode_id AS episode_id, wc.user_email AS user_email,
+         COUNT(*) AS comments, MAX(wc.created_at) AS last_at
     FROM watch_comment wc
-   WHERE COALESCE(wc.hidden, 0) = 0 AND COALESCE(wc.transcription, '') <> ''
-   GROUP BY wc.show_id, wc.episode_id
-) AS ec LEFT JOIN titles ON titles.title_id = ec.show_id`;
+   WHERE COALESCE(wc.hidden, 0) = 0 AND COALESCE(wc.transcription, '') <> '' AND wc.reply_to IS NULL
+   GROUP BY wc.show_id, wc.episode_id, wc.user_email
+) AS ec
+  LEFT JOIN titles ON titles.title_id = ec.show_id
+  LEFT JOIN users cu ON cu.email = ec.user_email`;
 
-// ── Attributed + threaded transcript builder (episode_comments) ──────────────
-// The SQL feeder above concatenates raw lines; it can't attribute per author or nest
-// replies under the comment they answer. So for the Episode Feed we rebuild two views in
-// TS from the raw rows: `all_comments` (on-screen — every line attributed, chronological,
-// replies indented under their parent) and `copy_text` (clipboard — grouped by person,
-// each reply threaded under the ORIGINAL commenter it answers, never as its own section).
+// ── Per-commenter transcript helpers (episode_comments) ──────────────────────
 const _TXT_HEAD = 'To listen along join.pangolinrc.com';
 function _cmMark(r: any): string {
   if (r.is_reflection || r.is_endnote) return r.spoiler ? 'SPLR' : 'NOSP';
@@ -236,39 +219,6 @@ function _cmMark(r: any): string {
 }
 function _cmName(r: any): string {
   return (r.username && String(r.username).trim()) || String(r.user_email || '').split('@')[0] || 'friend';
-}
-// Build { display, copy } for one episode's visible comments (already ordered:
-// timed before reflections, then by timestamp, then created_at).
-function buildEpisodeTranscript(rows: any[]): { display: string; copy: string } {
-  const byId = new Map<string, any>(rows.map((r) => [r.id, r]));
-  const repliesOf = new Map<string, any[]>();
-  const originals: any[] = [];
-  for (const r of rows) {
-    if (r.reply_to && byId.has(r.reply_to)) {
-      (repliesOf.get(r.reply_to) ?? repliesOf.set(r.reply_to, []).get(r.reply_to)!).push(r);
-    } else {
-      originals.push(r);   // a real comment, or a reply whose parent is hidden/gone
-    }
-  }
-  // Both the on-screen and the clipboard views are grouped BY COMMENTER: one `— Person —`
-  // section per original commenter (first-appearance order), that person's comments listed
-  // together. Only REPLIES are threaded — nested + attributed to the replier under the
-  // comment they answer (which lives in the parent author's section). Display == copy.
-  const order: string[] = [];
-  const sections = new Map<string, string[]>();
-  for (const o of originals) {
-    const key = o.user_email;
-    if (!sections.has(key)) { sections.set(key, []); order.push(key); }
-    const lines = sections.get(key)!;
-    lines.push(`${_cmMark(o)} ${(o.transcription || '').trim()}`);
-    for (const rep of repliesOf.get(o.id) ?? []) lines.push(`    ↳ ${_cmName(rep)}: ${(rep.transcription || '').trim()}`);
-  }
-  const blocks = order.map((key) => {
-    const name = _cmName(rows.find((r) => r.user_email === key));
-    return `— ${name} —\n${sections.get(key)!.join('\n')}`;
-  });
-  const text = `${_TXT_HEAD}\n\n${blocks.join('\n\n')}`;
-  return { display: text, copy: text };
 }
 
 // Simple GROUP BY bucket → count pivot.
@@ -563,18 +513,18 @@ const RESOURCES: Record<string, Resource> = {
     label: 'Episode Feed',
     group: 'core',
     from: EPISODE_COMMENTS_FROM,
-    idExpr: "ec.show_id || '|' || ec.episode_id",
+    idExpr: "ec.show_id || '|' || ec.episode_id || '|' || ec.user_email",
     cols: [
       { key: 'show_name',    label: 'Show',         expr: 'COALESCE(titles.name, ec.show_id)' },
       { key: 'episode_id',   label: 'Episode',      expr: 'ec.episode_id' },
+      { key: 'commenter',    label: 'Commenter',    expr: 'COALESCE(cu.username, ec.user_email)' },
       { key: 'comments',     label: '#',            expr: 'ec.comments' },
-      { key: 'users',        label: 'Commenters',   expr: 'ec.users' },
-      { key: 'all_comments', label: 'All comments', expr: 'ec.all_comments' },
+      { key: 'all_comments', label: 'Comments',     expr: "''" },
       { key: 'last_at',      label: 'Last',         expr: 'ec.last_at' },
     ],
-    searchExprs: ['titles.name', 'ec.episode_id', 'ec.all_comments', 'ec.users'],
+    searchExprs: ['titles.name', 'ec.episode_id', 'ec.user_email', 'cu.username'],
     sortDefault: 'last_at',
-    note: 'Serialized feeder: every episode with visible comments, all of them concatenated in play order — "mm:ss text" for timed comments, "SPLR text" for spoilers. Each feed opens with the call-to-action line "To listen along join.pangolinrc.com". Hidden comments are excluded. The Commenters column lists the distinct users who commented — search your own email (or sort on it) to separate your seed/test rows from real users. Read-only.',
+    note: 'One record PER COMMENTER per episode — each user gets their own row of the comments they left on that episode ("mm:ss text" timed, "SPLR/NOSP text" reflections/end-notes), opening with the call-to-action "To listen along join.pangolinrc.com". Replies are not their own record: they thread (↳ replier) under the comment they answer, inside that comment author\'s record. Hidden comments excluded. The Comments text + the ⧉ Copy payload are identical. Search/sort on Commenter to isolate your own seed/test rows. Read-only.',
   },
 
   waitlist: {
@@ -1077,25 +1027,45 @@ adminRoutes.get('/list/:resource', async (c) => {
 
   const rows = rowsRes.results ?? [];
 
-  // Episode Feed: rebuild the attributed + threaded transcript per row (the SQL feeder
-  // can't attribute or nest). `all_comments` becomes the on-screen view; `copy_text` is
-  // the grouped-by-person clipboard payload the Copy button uses.
+  // Episode Feed: one record per commenter. Build that commenter's transcript — their own
+  // ORIGINAL comments (in play order), each followed by any replies (threaded + attributed
+  // to the replier). Filled here because the nesting/attribution can't be done in SQL.
+  // `all_comments` = on-screen, `copy_text` = clipboard; identical.
   if (c.req.param('resource') === 'episode_comments' && rows.length) {
     await Promise.all(rows.map(async (row: any) => {
-      const [show, ep] = String(row._id || '').split('|');
-      if (!show || !ep) return;
-      const { results } = await c.env.DB.prepare(
-        `SELECT c.id, c.user_email, c.timestamp_ms, c.transcription, c.reply_to,
-                c.is_reflection, c.is_endnote, c.spoiler, c.created_at, u.username
-           FROM watch_comment c LEFT JOIN users u ON u.email = c.user_email
-          WHERE c.show_id = ? AND c.episode_id = ?
+      const [show, ep, author] = String(row._id || '').split('|');
+      if (!show || !ep || !author) return;
+      const { results: origs } = await c.env.DB.prepare(
+        `SELECT c.id, c.timestamp_ms, c.transcription, c.is_reflection, c.is_endnote, c.spoiler
+           FROM watch_comment c
+          WHERE c.show_id = ? AND c.episode_id = ? AND c.user_email = ? AND c.reply_to IS NULL
             AND COALESCE(c.hidden, 0) = 0 AND COALESCE(c.transcription, '') <> ''
           ORDER BY (CASE WHEN c.is_reflection = 1 OR c.is_endnote = 1 THEN 1 ELSE 0 END) ASC,
                    c.timestamp_ms ASC, c.created_at ASC`
-      ).bind(show, ep).all();
-      const t = buildEpisodeTranscript(results ?? []);
-      row.all_comments = t.display;
-      row.copy_text = t.copy;
+      ).bind(show, ep, author).all();
+      const ids = (origs ?? []).map((o: any) => o.id);
+      const repliesOf = new Map<string, any[]>();
+      if (ids.length) {
+        const ph = ids.map(() => '?').join(',');
+        const { results: reps } = await c.env.DB.prepare(
+          `SELECT c.reply_to, c.transcription, c.user_email, u.username
+             FROM watch_comment c LEFT JOIN users u ON u.email = c.user_email
+            WHERE c.reply_to IN (${ph})
+              AND COALESCE(c.hidden, 0) = 0 AND COALESCE(c.transcription, '') <> ''
+            ORDER BY c.created_at ASC`
+        ).bind(...ids).all();
+        for (const rp of (reps ?? []) as any[]) {
+          (repliesOf.get(rp.reply_to) ?? repliesOf.set(rp.reply_to, []).get(rp.reply_to)!).push(rp);
+        }
+      }
+      const lines: string[] = [];
+      for (const o of (origs ?? []) as any[]) {
+        lines.push(`${_cmMark(o)} ${(o.transcription || '').trim()}`);
+        for (const rp of repliesOf.get(o.id) ?? []) lines.push(`    ↳ ${_cmName(rp)}: ${(rp.transcription || '').trim()}`);
+      }
+      const text = `${_TXT_HEAD}\n\n— ${row.commenter || author} —\n${lines.join('\n')}`;
+      row.all_comments = text;
+      row.copy_text = text;
     }));
   }
 

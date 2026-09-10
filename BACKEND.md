@@ -4,6 +4,21 @@ Append-only log. Any session that touches the Worker, D1, or deploy
 configuration adds an entry here before the session ends (see CLAUDE.md,
 "Backend and deploy rules").
 
+## 2026-09-09 — Admin Episode Feed: one record per commenter per episode (DEPLOYED)
+
+Worker `37a76612`. Per request ("each user gets their own record"): the Episode Feed now emits
+ONE ROW per (show, episode, commenter) instead of one row per episode.
+
+- **`EPISODE_COMMENTS_FROM`:** grouped by `show_id, episode_id, user_email` over ORIGINAL
+  comments only (`reply_to IS NULL`); joined `users cu` for the name. Dropped the old
+  GROUP_CONCAT `all_comments`/`users` (built in TS now). New `Commenter` column, `#` = that
+  user's comment count. `idExpr` → `show|episode|email`. `searchExprs` updated (no removed cols).
+- **List post-process:** for each record, queries that commenter's originals (play order) + any
+  replies to them (from anyone), builds `— Name —` + lines with replies threaded (`↳ replier:`).
+  `all_comments` == `copy_text`. Replaces `buildEpisodeTranscript` (removed).
+- Verified live on `admin.pangolinrc.com`: Silo S03E08 → 3 records (Alex #4, Sam #3 w/ Ted's
+  reply threaded under her end-note, Ted #1). No D1 / admin-Pages change.
+
 ## 2026-09-09 — App Pages: end-note Play → circular button + countdown ring (DEPLOYED, client-only)
 
 App Pages (`pangolin-rc`, `public/`) deployment `6a8cfadf`. No Worker/D1 change. Ships the
