@@ -4,6 +4,15 @@ Append-only log. Any session that touches the Worker, D1, or deploy
 configuration adds an entry here before the session ends (see CLAUDE.md,
 "Backend and deploy rules").
 
+## 2026-09-09 — App Pages: end-note Play → circular button + countdown ring (DEPLOYED, client-only)
+
+App Pages (`pangolin-rc`, `public/`) deployment `6a8cfadf`. No Worker/D1 change. Ships the
+`public/cube_log_face.html` change (commit `7ba18ba`): the end-of-episode end-note **Play**
+control is now the same round button + filling `clip-ring` as the co-view reply mic, via the
+shared `playClip()`. Verified live on `remote.pangolinrc.com/cube_log_face` (`-L`, extensionless
+— the `.html` 308 gotcha). NOT in the iOS bundle yet — native TestFlight needs a Capacitor
+bundle rebuild + Xcode archive (see [[pangolinrc-ios-bundle-rebuild]]).
+
 ## 2026-09-09 — Admin Episode Feed: group the on-screen view by commenter too (DEPLOYED)
 
 Worker `480991c4`. Per request: the on-screen ALL COMMENTS should be separated by commenter
