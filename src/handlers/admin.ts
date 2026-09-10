@@ -250,11 +250,14 @@ function buildEpisodeTranscript(rows: any[]): { display: string; copy: string } 
       originals.push(r);   // a real comment, or a reply whose parent is hidden/gone
     }
   }
-  // Display: chronological, every line attributed, replies indented under their parent.
+  // Display: original comments in play order, each immediately followed by its replies
+  // (indented + attributed). A reply inherits its parent's timestamp, so a reply to an
+  // end-note otherwise sorts in among the timed lines — detached from its parent. Nesting
+  // under `originals` keeps every reply beneath the comment it actually answers.
   const disp: string[] = [];
-  for (const r of rows) {
-    const line = `${_cmMark(r)}  ${_cmName(r)}: ${(r.transcription || '').trim()}`;
-    disp.push(r.reply_to && byId.has(r.reply_to) ? `    ↳ ${_cmName(r)}: ${(r.transcription || '').trim()}` : line);
+  for (const o of originals) {
+    disp.push(`${_cmMark(o)}  ${_cmName(o)}: ${(o.transcription || '').trim()}`);
+    for (const rep of repliesOf.get(o.id) ?? []) disp.push(`    ↳ ${_cmName(rep)}: ${(rep.transcription || '').trim()}`);
   }
   // Copy: one section per original commenter (first appearance order); each of their
   // comments followed by any replies, indented and attributed to the replier.

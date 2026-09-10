@@ -4,6 +4,18 @@ Append-only log. Any session that touches the Worker, D1, or deploy
 configuration adds an entry here before the session ends (see CLAUDE.md,
 "Backend and deploy rules").
 
+## 2026-09-09 — Admin Episode Feed: nest replies under their true parent in the display (DEPLOYED)
+
+Worker `fc86408a`. Follow-up to `af685cd1` below. No D1 / admin-Pages change.
+
+- **Bug:** a reply inherits its parent's `timestamp_ms` but keeps `is_endnote=0`, so a reply to
+  an END-NOTE sorts in among the timed lines (CASE=0) and rendered detached from its parent
+  (Silo S03E08: Ted's "Clearly, she's not a princess" showed under "What's the more lock?"
+  instead of under Sam's end-note). Verified against PROD via `wrangler d1 execute --remote`.
+- **Fix (`src/handlers/admin.ts` `buildEpisodeTranscript`):** the display view now iterates
+  `originals` and nests each comment's replies immediately after it (the nesting the copy view
+  already used), instead of indenting replies in flat SQL-sort order. Copy view unchanged.
+
 ## 2026-09-09 — Admin Episode Feed: attributed + threaded transcript; grouped-by-person Copy (DEPLOYED)
 
 Worker `af685cd1` + admin Pages (`pangolinrc-admin`, `07d4ef9c`) deployed. No D1 migration
