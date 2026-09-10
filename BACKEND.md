@@ -25,8 +25,10 @@ App Pages (`pangolin-rc`, `public/`) deployment `6a8cfadf`. No Worker/D1 change.
 `public/cube_log_face.html` change (commit `7ba18ba`): the end-of-episode end-note **Play**
 control is now the same round button + filling `clip-ring` as the co-view reply mic, via the
 shared `playClip()`. Verified live on `remote.pangolinrc.com/cube_log_face` (`-L`, extensionless
-— the `.html` 308 gotcha). NOT in the iOS bundle yet — native TestFlight needs a Capacitor
-bundle rebuild + Xcode archive (see [[pangolinrc-ios-bundle-rebuild]]).
+— the `.html` 308 gotcha). iOS bundle synced 2026-09-09 (`sync-www` → `cap copy ios`); the
+ONLY delta vs the Sep-8 bundle is this `cube_log_face.html` Play-ring change. Version
+1.0.1 (24), build auto-stamped. Xcode opened for Ted's clean → archive → TestFlight (still
+his manual step; see [[pangolinrc-ios-bundle-rebuild]] / [[pangolinrc-open-xcode-handoff]]).
 
 ## 2026-09-09 — Admin Episode Feed: group the on-screen view by commenter too (DEPLOYED)
 
