@@ -250,17 +250,10 @@ function buildEpisodeTranscript(rows: any[]): { display: string; copy: string } 
       originals.push(r);   // a real comment, or a reply whose parent is hidden/gone
     }
   }
-  // Display: original comments in play order, each immediately followed by its replies
-  // (indented + attributed). A reply inherits its parent's timestamp, so a reply to an
-  // end-note otherwise sorts in among the timed lines — detached from its parent. Nesting
-  // under `originals` keeps every reply beneath the comment it actually answers.
-  const disp: string[] = [];
-  for (const o of originals) {
-    disp.push(`${_cmMark(o)}  ${_cmName(o)}: ${(o.transcription || '').trim()}`);
-    for (const rep of repliesOf.get(o.id) ?? []) disp.push(`    ↳ ${_cmName(rep)}: ${(rep.transcription || '').trim()}`);
-  }
-  // Copy: one section per original commenter (first appearance order); each of their
-  // comments followed by any replies, indented and attributed to the replier.
+  // Both the on-screen and the clipboard views are grouped BY COMMENTER: one `— Person —`
+  // section per original commenter (first-appearance order), that person's comments listed
+  // together. Only REPLIES are threaded — nested + attributed to the replier under the
+  // comment they answer (which lives in the parent author's section). Display == copy.
   const order: string[] = [];
   const sections = new Map<string, string[]>();
   for (const o of originals) {
@@ -270,14 +263,12 @@ function buildEpisodeTranscript(rows: any[]): { display: string; copy: string } 
     lines.push(`${_cmMark(o)} ${(o.transcription || '').trim()}`);
     for (const rep of repliesOf.get(o.id) ?? []) lines.push(`    ↳ ${_cmName(rep)}: ${(rep.transcription || '').trim()}`);
   }
-  const copyBlocks = order.map((key) => {
+  const blocks = order.map((key) => {
     const name = _cmName(rows.find((r) => r.user_email === key));
     return `— ${name} —\n${sections.get(key)!.join('\n')}`;
   });
-  return {
-    display: `${_TXT_HEAD}\n\n${disp.join('\n')}`,
-    copy: `${_TXT_HEAD}\n\n${copyBlocks.join('\n\n')}`,
-  };
+  const text = `${_TXT_HEAD}\n\n${blocks.join('\n\n')}`;
+  return { display: text, copy: text };
 }
 
 // Simple GROUP BY bucket → count pivot.

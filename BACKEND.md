@@ -4,6 +4,14 @@ Append-only log. Any session that touches the Worker, D1, or deploy
 configuration adds an entry here before the session ends (see CLAUDE.md,
 "Backend and deploy rules").
 
+## 2026-09-09 — Admin Episode Feed: group the on-screen view by commenter too (DEPLOYED)
+
+Worker `480991c4`. Per request: the on-screen ALL COMMENTS should be separated by commenter
+(not chronological), with only replies threaded. `buildEpisodeTranscript` now returns the SAME
+grouped-by-commenter text for both `display` and `copy` — one `— Person —` section per original
+commenter (first-appearance order), replies nested + attributed under the comment they answer.
+Verified live on `admin.pangolinrc.com` (Silo S03E08). No D1 / admin-Pages change.
+
 ## 2026-09-09 — Admin Episode Feed: nest replies under their true parent in the display (DEPLOYED)
 
 Worker `fc86408a`. Follow-up to `af685cd1` below. No D1 / admin-Pages change.
