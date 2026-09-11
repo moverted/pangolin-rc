@@ -1556,6 +1556,35 @@
     ]);
   }
 
+  // ── rewatch → marathon question ────────────────────────────────────────────────
+  // When a member rewatches out-of-sequence episodes of a completed show, the server flags a
+  // pending rewatch session. On open, Pierre asks once whether they're building a marathon —
+  // YES has the server assemble a member marathon (map:u:*) from all their rewatch episodes.
+  const epTag=e=>'S'+e.season+'E'+String(e.number).padStart(2,'0');
+  async function checkRewatchQuestion(){
+    if(IS_DEMO) return false;
+    const em=pgSession(); if(!em) return false;
+    let q=null;
+    try{ const r=await fetch(`${API}/profile/${encodeURIComponent(em)}/rewatch-question`); if(r.ok) q=(await r.json()).question; }catch(_){ return false; }
+    if(!q || !(q.episodes||[]).length) return false;
+    const eps=q.episodes.map(epTag).join(', ');
+    pierreSay(`Looks like you're revisiting ${q.name} — ${eps}. Want me to build that into a marathon?`, [
+      {label:'Yes, build it', onClick:()=>answerRewatch(em, q, true)},
+      {label:'No, just list them', onClick:()=>answerRewatch(em, q, false)}
+    ]);
+    return true;
+  }
+  async function answerRewatch(em, q, marathon){
+    try{
+      const r=await fetch(`${API}/profile/${encodeURIComponent(em)}/rewatch-sessions/${encodeURIComponent(q.session_id)}/answer`,
+        {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({marathon})});
+      const d=r.ok?await r.json():{};
+      if(marathon && d.state==='marathon') addPierre(`Done — I lined up a ${q.name} marathon (${d.steps} episode${d.steps===1?'':'s'}). It's in your Collect, and I can reorder it whenever.`);
+      else if(marathon) addPierre("I couldn't line those up cleanly — I'll keep them listed together for now.");
+      else addPierre("Fair enough — I'll just keep those listed together in your rewatches.");
+    }catch(_){ addPierre("Something went sideways saving that. Give it another go in a moment."); }
+  }
+
   // ── watch state for the shared card ────────────────────────────────────────────
   // The share cards carry the member's watchPattern for the show: manual override
   // wins, else it's derived from their watch-vs-airstamp deltas (same law as the
@@ -3358,7 +3387,11 @@
     if (window.parent === window) input.focus();
     // After the room settles, if nothing steered Pierre into a flow, check whether a
     // tracked show is in RAMP and, if so, deliver the scheduler nudge (once).
-    setTimeout(()=>{ if(!_intentSeen && !addFlow && !joinFlow && !acctFlow && !noteCtx){ try{ wowProactiveNudge(); }catch(_){} } }, 1300);
+    setTimeout(async ()=>{
+      if(_intentSeen || addFlow || joinFlow || acctFlow || noteCtx) return;
+      let asked=false; try{ asked=await checkRewatchQuestion(); }catch(_){}   // a direct question wins over the nudge
+      if(!asked){ try{ wowProactiveNudge(); }catch(_){} }
+    }, 1300);
     if(IS_FLAT_APP) loadTedThread();   // flat app: one-at-a-time Ted queue
     else fetchTedMessages();           // cube: inline delivery, surface any reply since last time
   });

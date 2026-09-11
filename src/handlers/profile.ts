@@ -590,6 +590,7 @@ profileRoutes.get('/:email/completed', async (c) => {
       next_drop: nextBy.get(b.title_id) || null,
       completed_at: done ? (done.completed_at || null) : null,
       last_at: done ? done.last_at : null,
+      views: 1 as number, rewatch_at: null as number | null,   // movie view count (filled from rewatch events below)
     };
   });
 
@@ -610,7 +611,96 @@ profileRoutes.get('/:email/completed', async (c) => {
     r.total_seasons = 1; r.current_season = 1;
   }));
 
-  return c.json({ titles: out });
+  // ── Rewatches ────────────────────────────────────────────────────────────
+  // Lazy 14-day finalize (no cron): overdue pending sessions become solo (1 episode) or
+  // listed (an out-of-order set the member never marathon-ified).
+  const nowMs = Date.now();
+  await c.env.DB.prepare(
+    `UPDATE rewatch_session SET state = CASE
+        WHEN (SELECT COUNT(DISTINCT episode_id) FROM rewatch_event re WHERE re.session_id=rewatch_session.session_id) <= 1 THEN 'solo' ELSE 'listed' END,
+        updated_at = ?
+      WHERE user_email=? AND state='pending' AND ? - last_at > ?`).bind(nowMs, email, nowMs, REWATCH_WINDOW_MS).run();
+
+  const sessRows = ((await c.env.DB.prepare(
+    `SELECT rs.session_id, rs.title_id, rs.state, rs.map_id, rs.last_at, rs.asked,
+            t.name, t.poster, t.kind, mm.name AS marathon_name
+       FROM rewatch_session rs JOIN titles t ON t.title_id=rs.title_id
+       LEFT JOIN maps mm ON mm.map_id=rs.map_id
+      WHERE rs.user_email=?`).bind(email).all()).results || []) as any[];
+  const evRows = ((await c.env.DB.prepare(
+    `SELECT session_id, season, number, episode_id, watched_at FROM rewatch_event
+      WHERE user_email=? ORDER BY session_id, watched_at`).bind(email).all()).results || []) as any[];
+  const evBy = new Map<string, any[]>();
+  for (const e of evRows) { (evBy.get(e.session_id) || evBy.set(e.session_id, []).get(e.session_id)!).push(e); }
+
+  const outById = new Map(out.map((r) => [r.title_id, r]));
+  const rewatches: any[] = [];
+  for (const s of sessRows) {
+    const evs = evBy.get(s.session_id) || [];
+    if (s.kind === 'movie') {
+      // Movie rewatch → views on the film's own row (+1 for the original), pops it to top.
+      const row = outById.get(s.title_id);
+      if (row) { row.views = evs.length + 1; row.rewatch_at = s.last_at; }
+      continue;
+    }
+    if (!evs.length) continue;
+    rewatches.push({
+      session_id: s.session_id, title_id: s.title_id, name: s.name, poster: s.poster,
+      state: s.state, map_id: s.map_id || null, marathon_name: s.marathon_name || null,
+      last_at: s.last_at,
+      episodes: evs.map((e) => ({ season: e.season, number: e.number })),
+    });
+  }
+
+  return c.json({ titles: out, rewatches });
+});
+
+// The pending rewatch set (if any) Pierre should ask "building a marathon?" about — the oldest
+// session with >1 distinct out-of-order episode still awaiting an answer.
+profileRoutes.get('/:email/rewatch-question', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  const s = await c.env.DB.prepare(
+    `SELECT rs.session_id, rs.title_id, t.name,
+            (SELECT COUNT(DISTINCT re.episode_id) FROM rewatch_event re WHERE re.session_id=rs.session_id) AS ep_ct
+       FROM rewatch_session rs JOIN titles t ON t.title_id=rs.title_id
+      WHERE rs.user_email=? AND rs.state='pending' AND rs.asked=0
+      ORDER BY rs.opened_at LIMIT 1`).bind(email).first<any>();
+  if (!s || (s.ep_ct ?? 0) < 2) return c.json({ question: null });
+  const evs = ((await c.env.DB.prepare(
+    `SELECT DISTINCT season, number FROM rewatch_event WHERE session_id=? ORDER BY season, number`).bind(s.session_id).all()).results || []) as any[];
+  return c.json({ question: { session_id: s.session_id, title_id: s.title_id, name: s.name,
+    episodes: evs.map((e) => ({ season: e.season, number: e.number })) } });
+});
+
+// Answer the marathon question. YES builds a member marathon (map:u:*) from ALL the title's
+// rewatch episodes (in air order) and links the session to it; NO just lists them together.
+profileRoutes.post('/:email/rewatch-sessions/:id/answer', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  const sessionId = c.req.param('id');
+  let body: any; try { body = await c.req.json(); } catch { body = {}; }
+  const wantMarathon = !!body.marathon;
+  const s = await c.env.DB.prepare('SELECT title_id, state FROM rewatch_session WHERE session_id=? AND user_email=?').bind(sessionId, email).first<{ title_id: string; state: string }>();
+  if (!s) return c.json({ error: 'not found' }, 404);
+  const now = Date.now();
+  if (!wantMarathon) {
+    await c.env.DB.prepare("UPDATE rewatch_session SET state='listed', asked=1, updated_at=? WHERE session_id=?").bind(now, sessionId).run();
+    return c.json({ ok: true, state: 'listed' });
+  }
+  // Offer ALL of this title's rewatch episodes (any session), in air order, as the marathon.
+  const eps = ((await c.env.DB.prepare(
+    `SELECT DISTINCT e.season AS season, e.number AS number
+       FROM rewatch_event re JOIN episodes e ON e.episode_id=re.episode_id
+      WHERE re.user_email=? AND re.title_id=? ORDER BY e.season, e.number`).bind(email, s.title_id).all()).results || []) as any[];
+  const t = await c.env.DB.prepare('SELECT name FROM titles WHERE title_id=?').bind(s.title_id).first<{ name: string }>();
+  const { steps } = await resolveSteps(c.env, s.title_id, eps);
+  if (!steps.length) return c.json({ error: 'no valid episodes' }, 422);
+  const mapId = 'map:u:' + crypto.randomUUID();
+  await c.env.DB.prepare(
+    `INSERT INTO maps (map_id, title_id, name, kind, owner_email, blurb, blurb_by, created_at, updated_at)
+     VALUES (?,?,?,'user',?,?,?,?,?)`).bind(mapId, s.title_id, (t?.name || 'Rewatch') + ' Marathon', email, null, null, now, now).run();
+  await writeSteps(c.env, mapId, steps);
+  await c.env.DB.prepare("UPDATE rewatch_session SET state='marathon', map_id=?, asked=1, updated_at=? WHERE session_id=?").bind(mapId, now, sessionId).run();
+  return c.json({ ok: true, state: 'marathon', map_id: mapId, steps: steps.length });
 });
 
 // One title's full detail for the episode face: catalog episodes merged with the
@@ -817,6 +907,61 @@ profileRoutes.get('/:email/tickets', async (c) => {
   return c.json({ tickets });
 });
 
+// ── Rewatch sessions ─────────────────────────────────────────────────────────
+// A rewatch of an already-completed show/movie is grouped into a session (see migration
+// 0062). New episode IN AIR ORDER after the session's last → auto-marathon; OUT of order
+// within the window → left pending for Pierre to ask about; past the window → the old
+// session finalizes to a solo rewatch and a fresh one opens.
+const REWATCH_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+type RwEp = { title_id: string; episode_id: string; season: number; number: number; next_episode_id: string | null };
+async function attachRewatch(env: Env, email: string, ep: RwEp, isMovie: boolean, now: number): Promise<void> {
+  const newSession = async (state: string): Promise<string> => {
+    const id = 'rw:' + crypto.randomUUID();
+    await env.DB.prepare(
+      `INSERT INTO rewatch_session (session_id,user_email,title_id,state,asked,opened_at,last_at,created_at,updated_at)
+       VALUES (?,?,?,?,0,?,?,?,?)`).bind(id, email, ep.title_id, state, now, now, now, now).run();
+    return id;
+  };
+  const addEvent = async (sid: string): Promise<void> => {
+    await env.DB.prepare(
+      `INSERT INTO rewatch_event (event_id,session_id,user_email,title_id,episode_id,season,number,watched_at)
+       VALUES (?,?,?,?,?,?,?,?)`).bind('rwe:' + crypto.randomUUID(), sid, email, ep.title_id, ep.episode_id, ep.season, ep.number, now).run();
+    await env.DB.prepare('UPDATE rewatch_session SET last_at=?, updated_at=? WHERE session_id=?').bind(now, now, sid).run();
+  };
+  // Movies: one session per film, always 'solo'; each event is another view.
+  if (isMovie) {
+    const s = await env.DB.prepare(
+      "SELECT session_id FROM rewatch_session WHERE user_email=? AND title_id=? ORDER BY created_at LIMIT 1").bind(email, ep.title_id).first<{ session_id: string }>();
+    await addEvent(s?.session_id ?? await newSession('solo'));
+    return;
+  }
+  const sess = await env.DB.prepare(
+    `SELECT rs.session_id, rs.state, rs.last_at,
+            (SELECT re.episode_id FROM rewatch_event re WHERE re.session_id=rs.session_id ORDER BY re.watched_at DESC LIMIT 1) AS last_ep
+       FROM rewatch_session rs
+      WHERE rs.user_email=? AND rs.title_id=? AND rs.state IN ('pending','marathon','listed')
+      ORDER BY rs.last_at DESC LIMIT 1`).bind(email, ep.title_id).first<{ session_id: string; state: string; last_at: number; last_ep: string | null }>();
+  if (!sess) { await addEvent(await newSession('pending')); return; }
+  if (now - sess.last_at > REWATCH_WINDOW_MS) {
+    if (sess.state === 'pending') await env.DB.prepare("UPDATE rewatch_session SET state='solo', updated_at=? WHERE session_id=?").bind(now, sess.session_id).run();
+    await addEvent(await newSession('pending'));
+    return;
+  }
+  // In order = this episode is the air-order successor of the session's last-watched episode.
+  let inOrder = false;
+  if (sess.last_ep) {
+    const ln = await env.DB.prepare('SELECT next_episode_id FROM episodes WHERE episode_id=?').bind(sess.last_ep).first<{ next_episode_id: string | null }>();
+    inOrder = !!ln && ln.next_episode_id === ep.episode_id;
+  }
+  await addEvent(sess.session_id);
+  if (inOrder) {
+    if (sess.state === 'pending') await env.DB.prepare("UPDATE rewatch_session SET state='marathon', updated_at=? WHERE session_id=?").bind(now, sess.session_id).run();
+  } else if (sess.state === 'pending') {
+    // Out of order → a real ad-hoc set; surface the marathon question (asked=0).
+    await env.DB.prepare('UPDATE rewatch_session SET asked=0, updated_at=? WHERE session_id=?').bind(now, sess.session_id).run();
+  }
+}
+
 // Upsert one episode's progress, then recompute the title's bucket + resume pointer.
 profileRoutes.post('/:email/episodes/:episode_id', async (c) => {
   const email = c.req.param('email').toLowerCase();
@@ -824,9 +969,9 @@ profileRoutes.post('/:email/episodes/:episode_id', async (c) => {
   const exists = await c.env.DB.prepare('SELECT email FROM users WHERE email = ?').bind(email).first();
   if (!exists) return c.json({ error: 'unknown user' }, 404);
   const ep = await c.env.DB.prepare(
-    `SELECT e.title_id, e.season, e.number, e.name AS episode_name, t.name AS show_name
+    `SELECT e.title_id, e.season, e.number, e.name AS episode_name, e.next_episode_id, t.name AS show_name, t.kind AS kind
        FROM episodes e JOIN titles t ON t.title_id = e.title_id WHERE e.episode_id = ?`
-  ).bind(episode_id).first<{ title_id: string; season: number; number: number; episode_name: string | null; show_name: string | null }>();
+  ).bind(episode_id).first<{ title_id: string; season: number; number: number; episode_name: string | null; next_episode_id: string | null; show_name: string | null; kind: string }>();
   if (!ep) return c.json({ error: 'unknown episode' }, 404);
   let body: any;
   try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
@@ -836,6 +981,10 @@ profileRoutes.post('/:email/episodes/:episode_id', async (c) => {
   const sessions = body.sessions == null ? null
     : (typeof body.sessions === 'string' ? body.sessions : JSON.stringify(body.sessions)).slice(0, 100000);
   const now = Date.now();
+  // Was this episode ALREADY finished before this write? (captured pre-upsert) — the basis for
+  // detecting a rewatch of an already-completed show below.
+  const prior = await c.env.DB.prepare('SELECT done FROM watch_episode WHERE user_email=? AND episode_id=?').bind(email, episode_id).first<{ done: number }>();
+  const wasDone = prior?.done === 1;
   await c.env.DB.prepare(
     `INSERT INTO watch_episode (user_email, episode_id, title_id, show_name, episode_name, done, minute, bp, sessions, updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,?)
@@ -867,6 +1016,27 @@ profileRoutes.post('/:email/episodes/:episode_id', async (c) => {
     }
   }
   const recomputed = await recomputeTitle(c.env, email, ep.title_id);
+  // Rewatch: re-finishing an episode of an ALREADY-COMPLETED show/movie (never a bp backfill).
+  // Recorded in rewatch_session/event, NOT watch_episode — the ✅ completion is untouched.
+  if (done && wasDone && !bp) {
+    const isMovie = ep.kind === 'movie';
+    let completed = isMovie;
+    if (!isMovie) {
+      // Completed = no released episode is still unwatched (nothing left to progress to).
+      const gap = await c.env.DB.prepare(
+        `SELECT COUNT(*) AS c FROM episodes e
+          WHERE e.title_id=? AND e.season>=1
+            AND e.airdate IS NOT NULL AND COALESCE(datetime(e.airstamp), datetime(e.airdate || ' 23:59:59')) <= datetime('now')
+            AND NOT EXISTS (SELECT 1 FROM watch_episode we WHERE we.user_email=? AND we.episode_id=e.episode_id AND we.done=1)`
+      ).bind(ep.title_id, email).first<{ c: number }>();
+      completed = (gap?.c ?? 1) === 0;
+    }
+    if (completed) {
+      try {
+        await attachRewatch(c.env, email, { title_id: ep.title_id, episode_id, season: ep.season, number: ep.number, next_episode_id: ep.next_episode_id }, isMovie, now);
+      } catch { /* never block the watch write */ }
+    }
+  }
   return c.json({ ok: true, status: recomputed?.status, current_episode_id: recomputed?.current });
 });
 

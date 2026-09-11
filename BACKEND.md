@@ -2883,3 +2883,24 @@ recur.
   tab; résumé grouped by month-of-last-activity → SERIES → MOVIES, each header collapsible
   (state in localStorage), long-press → in-app "Collapse all?" confirm. Rewatch-passes
   section removed. Deployed Worker + Pages (`--message`).
+
+## Rewatch sessions — REWATCH rows, ad-hoc marathons, movie views (2026-09-11)
+- **Migration 0062** (`rewatch_session`, `rewatch_event`). A rewatch of an already-COMPLETED
+  show/movie is recorded here, never in `watch_episode` (single-row) — the original ✅
+  completion is untouched.
+- **Detection** in `POST /episodes` (`profile.ts`): when `done && wasDone && !bp` AND the title
+  has no unwatched released episodes (movie: single unit already done) → `attachRewatch`.
+  State machine: in air order (`next_episode_id`) → auto `marathon`; out of order within 14
+  days → stays `pending` (Pierre asks); >14 days → old session finalizes `solo`, new opens;
+  movies → one `solo` session, events = views.
+- **Endpoints:** `GET /rewatch-question` (oldest pending, ≥2 out-of-order eps), `POST
+  /rewatch-sessions/:id/answer {marathon}` — YES builds a member marathon (`map:u:*`) from ALL
+  the title's rewatch episodes via `resolveSteps`/`writeSteps`; NO → `listed`. `GET /completed`
+  gained a lazy 14-day sweep + a `rewatches[]` array + movie `views` on the film row.
+- **Frontend:** `cube_set_face.html` renders REWATCH rows (`?`/`✅`/MARATHON) in the month
+  grouping + movie "viewed N times"; `cube_pierre_face.html` asks the marathon question on
+  open (proactive nudge + YES/NO chips → answer endpoint). Deployed Worker + Pages.
+- **Verified live** (Sharp Objects/Station Eleven/Sheep Detectives, then cleaned up): out-of-
+  order→pending→question→YES built a 2-step map; in-order→auto marathon; movie→solo, views.
+- **Note:** the live test re-logged 5 already-completed episodes with empty `sessions`,
+  overwriting their original session timing (done=1 intact; résumé unaffected). No backup.

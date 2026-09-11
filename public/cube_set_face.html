@@ -480,6 +480,10 @@
   .cmp-check svg{width:100%;height:100%;display:block}
   .cmp-check.partial{color:var(--muted);font-size:16px;letter-spacing:1px}   /* … available */
   .cmp-check.stop{color:#c65a4f}                                             /* ✕ stopped */
+  .cmp-check.question{color:var(--amber);font-weight:800;font-size:15px}     /* ? pending rewatch */
+  .cmp-row.rewatch{cursor:default}
+  .cmp-row.rewatch .cmp-kind{color:var(--amber)}                             /* REWATCH / MARATHON label */
+  .cmp-row.rewatch .cmp-chev{opacity:.25}
   .cmp-body{flex:1 1 auto;min-width:0}
   .cmp-name{font-family:var(--display);font-weight:700;font-size:15px;line-height:1.2;color:var(--text);
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -602,6 +606,8 @@ let PASSES=null;
 // season/cadence/backlog breakdown the tab needs. null until first loaded; reset on account
 // load and after any progress write so the résumé re-derives.
 let COMPLETED=null;
+// Rewatch sessions (same endpoint) — REWATCH rows shown alongside the title rows in COMPLETED.
+let REWATCHES=[];
 // Highlighter marker: stamps a partial-then-restarted ("highlights") pass in the Completed tab.
 const HILITE_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l3-1L17.5 8.5a2.1 2.1 0 0 0-3-3L4 16z"/><path d="M13.5 6.5l4 4"/><path d="M3 21h6"/></svg>';
 // VIEWING LOG open-state, persisted across re-renders so a refresh/rotate-in can't wipe
@@ -1089,8 +1095,37 @@ const CMP_CHECK_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" 
 const CMP_GLYPH={
   done:'<span class="cmp-check done">'+CMP_CHECK_SVG+'</span>',   // caught up / finished
   partial:'<span class="cmp-check partial">&#8230;</span>',       // unwatched content is available
-  stop:'<span class="cmp-check stop">&#10005;</span>'             // explicitly stopped
+  stop:'<span class="cmp-check stop">&#10005;</span>',           // explicitly stopped
+  question:'<span class="cmp-check question">?</span>'            // pending rewatch (might become a marathon)
 };
+// "S1E07" / a contiguous run "S1E07–S1E09" / a mixed set "S1E07, S2E01".
+function padEp(n){ n=+n||0; return n<10?('0'+n):(''+n); }
+function fmtEpList(eps){
+  const s=(eps||[]).slice().sort((a,b)=>a.season-b.season||a.number-b.number);
+  const parts=[]; let i=0;
+  while(i<s.length){
+    let j=i; while(j+1<s.length && s[j+1].season===s[j].season && s[j+1].number===s[j].number+1) j++;
+    const a=s[i], b=s[j];
+    parts.push(j>i ? ('S'+a.season+'E'+padEp(a.number)+'&ndash;S'+b.season+'E'+padEp(b.number))
+                   : ('S'+a.season+'E'+padEp(a.number)));
+    i=j+1;
+  }
+  return parts.join(', ');
+}
+// A REWATCH row: pending/listed → `?`, solo → `✅`, built → MARATHON (+ name subtitle).
+function rewatchRowHTML(rw){
+  const isMar = rw.state==='marathon' && rw.map_id;
+  const glyph = isMar||rw.state==='solo' ? 'done' : 'question';
+  const label = isMar ? 'MARATHON' : 'REWATCH';
+  const sub = isMar && rw.marathon_name ? rw.marathon_name : '';
+  const date = rw.last_at ? (' &middot; '+fmtEpoch(rw.last_at)) : '';
+  return '<div class="cmp-row rewatch"'+(isMar?' data-mapid="'+esc(rw.map_id)+'"':'')+'>'
+    +CMP_GLYPH[glyph]
+    +'<div class="cmp-body"><div class="cmp-name">'+titleHTML(rw.name)+'<span class="cmp-kind">'+label+'</span></div>'
+      +(sub?'<div class="cmp-sub">'+esc(sub)+'</div>':'')
+      +'<div class="cmp-meta">'+fmtEpList(rw.episodes)+date+'</div></div>'
+    +'<span class="cmp-chev">&#8250;</span></div>';
+}
 // Completion date, tz-safe: completed_at / last_at are epoch ms (not a UTC-sliced string), so
 // the DEVICE (== member) timezone renders them correctly — no more off-by-one.
 function fmtEpoch(ms){ return new Date(ms).toLocaleDateString('en-US',{month:'short',day:'numeric'}); }
@@ -1114,9 +1149,11 @@ function resumeLine(r){
   const avail=Math.max(0,(r.season_released||0)-(r.season_watched||0));   // current-season backlog
 
   if(isMovie){
-    const watched=(r.watched||0)>0;
+    const watched=(r.watched||0)>0, views=r.views||1;
+    const how = views>1 ? ('viewed '+views+' times') : (r.stopped?'stopped':(watched?'watched':'not finished'));
+    const md = r.rewatch_at||r.completed_at||r.last_at;   // a rewatched film shows its latest view date
     return {glyph:r.stopped?'stop':(watched?'done':'partial'), label:'FILM', sub:'',
-      detail:(r.stopped?'stopped':(watched?'watched':'not finished'))+' &middot; film'+activeDate};
+      detail:how+' &middot; film'+(md?' &middot; '+fmtEpoch(md):'')};
   }
   if(r.map_name){
     const glyph=r.stopped?'stop':(avail>0?'partial':'done');
@@ -1171,8 +1208,7 @@ const CMP_MONTHS=['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGU
 let CMP_COLLAPSED=(function(){ try{ return new Set(JSON.parse(localStorage.getItem('cmpCollapsed')||'[]')); }catch(_){ return new Set(); } })();
 let CMP_MONTHKEYS=[];   // every month key in the last render — the target of "collapse all"
 function saveCollapsed(){ try{ localStorage.setItem('cmpCollapsed', JSON.stringify([...CMP_COLLAPSED])); }catch(_){} }
-function monthBucket(r){
-  const ms=r.completed_at||r.last_at;
+function monthBucketVal(ms){
   if(!ms) return {key:'nodate', label:'NO DATE', sort:-1};
   const d=new Date(ms);
   return {key:'m'+d.getFullYear()+'-'+d.getMonth(), label:CMP_MONTHS[d.getMonth()]+' '+d.getFullYear(), sort:d.getFullYear()*12+d.getMonth()};
@@ -1183,24 +1219,29 @@ function grpHeader(key,label,level,count){
     +'<span class="cmp-glabel">'+esc(label)+'</span>'+(count!=null?'<em>'+count+'</em>':'')
     +'<span class="cmp-chevg">'+(collapsed?'&#9656;':'&#9662;')+'</span></div>';   // ▸ / ▾
 }
-// Rows grouped by month, then SERIES then MOVIES; each header a collapse toggle. Used in both
-// the collapsed and expanded states so the grouping never flattens when a card is open.
-function completedGroupedRows(rows, excludeTitleId){
-  const list=rows.filter(r=>r.title_id!==excludeTitleId);
+// A title row's sort/month value: a rewatched film pops to its latest view.
+function titleSortVal(r){ return (r.kind==='movie' ? (r.rewatch_at||r.completed_at||r.last_at) : (r.completed_at||r.last_at)) || 0; }
+// Title rows + REWATCH rows, grouped by month, then SERIES then MOVIES; each header a collapse
+// toggle. Rewatches slot under SERIES by their last-watch date. Used in both the collapsed and
+// expanded states so the grouping never flattens when a card is open.
+function completedGroupedRows(titleRows, rewatchRows, excludeTitleId){
+  const entries=[];
+  titleRows.forEach(r=>{ if(r.title_id!==excludeTitleId) entries.push({sortVal:titleSortVal(r), group:(r.kind==='movie'?'movie':'series'), html:completedRowHTML(r)}); });
+  (rewatchRows||[]).forEach(rw=>entries.push({sortVal:(rw.last_at||0), group:'series', html:rewatchRowHTML(rw)}));
   const months=new Map();
-  list.forEach(r=>{ const m=monthBucket(r); if(!months.has(m.key)) months.set(m.key,{...m,rows:[]}); months.get(m.key).rows.push(r); });
+  entries.forEach(e=>{ const m=monthBucketVal(e.sortVal); if(!months.has(m.key)) months.set(m.key,{...m,items:[]}); months.get(m.key).items.push(e); });
   const ordered=[...months.values()].sort((a,b)=>b.sort-a.sort);
   CMP_MONTHKEYS=ordered.map(m=>m.key);
   let h='';
   ordered.forEach(m=>{
-    h+=grpHeader(m.key,m.label,0,m.rows.length);
+    h+=grpHeader(m.key,m.label,0,m.items.length);
     if(CMP_COLLAPSED.has(m.key)) return;
     [['series','SERIES'],['movie','MOVIES']].forEach(([g,label])=>{
-      const gr=m.rows.filter(r=>(r.kind==='movie')===(g==='movie')).sort((a,b)=>completedSortVal(b)-completedSortVal(a));
+      const gr=m.items.filter(e=>e.group===g).sort((a,b)=>b.sortVal-a.sortVal);
       if(!gr.length) return;
       const skey=m.key+'|'+g;
       h+=grpHeader(skey,label,1,gr.length);
-      if(!CMP_COLLAPSED.has(skey)) h+=gr.map(completedRowHTML).join('');
+      if(!CMP_COLLAPSED.has(skey)) h+=gr.map(e=>e.html).join('');
     });
   });
   return h;
@@ -1209,11 +1250,11 @@ function toggleGroup(key){ if(!key) return; if(CMP_COLLAPSED.has(key)) CMP_COLLA
 function openCollapseAll(){ const el=document.getElementById('cmpConfirm'); if(el) el.classList.add('show'); }
 // The COMPLETED list: the selected title expands to the full LOG card at top (matched by
 // title_id), the rest follow as grouped résumé rows.
-function completedListHTML(rows){
+function completedListHTML(rows, rewatchRows){
   const sel = selectedId ? LOG.find(s=>s.id===selectedId) : null;
-  if(sel) return expandedCard(sel,'completed') + completedGroupedRows(rows, sel.titleId);
+  if(sel) return expandedCard(sel,'completed') + completedGroupedRows(rows, rewatchRows, sel.titleId);
   if(selectedId) selectedId=null;
-  return completedGroupedRows(rows, null);
+  return completedGroupedRows(rows, rewatchRows, null);
 }
 // Grid for a selectable tab: the selected show becomes a full-width expanded card
 // at the top, the rest follow as tiles.
@@ -1322,9 +1363,10 @@ async function loadPasses(){
 // Load the COMPLETED résumé (all tracked titles + their season/cadence/backlog breakdown).
 // Sets COMPLETED to an array, even []. Seed/DEMO accounts have no server titles → [].
 async function loadCompleted(){
-  const email=acct(); if(!email){ COMPLETED=[]; return; }
-  try{ const r=await fetch(API+"/profile/"+encodeURIComponent(email)+"/completed"); COMPLETED=r.ok?((await r.json()).titles||[]):[]; }
-  catch(_){ COMPLETED=[]; }
+  const email=acct(); if(!email){ COMPLETED=[]; REWATCHES=[]; return; }
+  try{ const r=await fetch(API+"/profile/"+encodeURIComponent(email)+"/completed");
+    const d=r.ok?await r.json():{}; COMPLETED=d.titles||[]; REWATCHES=d.rewatches||[]; }
+  catch(_){ COMPLETED=[]; REWATCHES=[]; }
 }
 // A pass tile: poster + "S{n} · view {ordinal}", stamped with the locked pattern
 // (complete) or the highlighter marker (a partial pass restarted from the beginning).
@@ -1452,10 +1494,11 @@ function render(){
     const all=COMPLETED.filter(r=>{ const s=LOG.find(x=>x.titleId===r.title_id); return !(s&&isTheaterMovie(s)); });
     const stoppedRows=all.filter(r=>r.stopped), doneRows=all.filter(r=>!r.stopped);   // stopped lives in its own tab
     const list = activeTab==='stopped' ? stoppedRows : doneRows;
+    const rw = activeTab==='stopped' ? [] : (REWATCHES||[]);   // rewatches only in COMPLETED
     const empty = activeTab==='stopped'
       ? 'Nothing stopped. Shows you give up on land here.'
       : 'Watch something or chat with Pierre to see it here.';
-    grid.innerHTML = (list.length ? completedListHTML(list) : '') || '<div class="state">'+empty+'</div>';
+    grid.innerHTML = ((list.length||rw.length) ? completedListHTML(list, rw) : '') || '<div class="state">'+empty+'</div>';
   }else{
     grid.classList.remove("done");
     const list=LOG.filter(s=>bucketOf(s)===activeTab&&!isTheaterMovie(s));
