@@ -81,6 +81,7 @@ async function materializeTitle(env: Env, source: string, ref: string, titleId: 
     // fall back to Jan 1 of the year only when TMDB has no full date.
     const relDate = m.release_date || (m.year ? `${m.year}-01-01` : null);
     titleRow = { title_id: titleId, source, name: m.title || '', kind: 'movie', status: 'Film',
+      type: 'Film',
       poster: m.poster || null, platform: '', total_episodes: 1, summary: cleanSummary(m.overview),
       premiered: relDate, updated_at: now };
     epInputs = [{ season: 1, number: 1, name: m.title || '', runtime: m.runtime || 120,
@@ -96,6 +97,7 @@ async function materializeTitle(env: Env, source: string, ref: string, titleId: 
       .filter((e: any) => e.season >= 1)
       .sort((a: any, b: any) => a.season - b.season || a.number - b.number);
     titleRow = { title_id: titleId, source, name: show.name || '', kind: 'show', status: show.status || 'Unknown',
+      type: show.type || null,   // TVmaze structural type ("Scripted" | "Miniseries" | …) → SERIES vs LIMITED SERIES
       poster: (show.image && (show.image.original || show.image.medium)) || null,
       platform: (show.webChannel && show.webChannel.name) || (show.network && show.network.name) || '',
       total_episodes: eps.length, summary: cleanSummary(show.summary), premiered: show.premiered || null, updated_at: now };
@@ -126,9 +128,9 @@ async function materializeTitle(env: Env, source: string, ref: string, titleId: 
 
   const stmts = [
     env.DB.prepare(`INSERT OR REPLACE INTO titles
-      (title_id, source, name, kind, status, poster, platform, total_episodes, summary, premiered, updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?)`).bind(titleRow.title_id, titleRow.source, titleRow.name, titleRow.kind,
-        titleRow.status, titleRow.poster, titleRow.platform, titleRow.total_episodes, titleRow.summary, titleRow.premiered, titleRow.updated_at),
+      (title_id, source, name, kind, status, type, poster, platform, total_episodes, summary, premiered, updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).bind(titleRow.title_id, titleRow.source, titleRow.name, titleRow.kind,
+        titleRow.status, titleRow.type, titleRow.poster, titleRow.platform, titleRow.total_episodes, titleRow.summary, titleRow.premiered, titleRow.updated_at),
     ...episodes.map((e) => env.DB.prepare(`INSERT OR REPLACE INTO episodes
       (episode_id, title_id, season, number, name, runtime, airdate, airstamp, summary, next_episode_id, updated_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?)`).bind(e.episode_id, e.title_id, e.season, e.number, e.name, e.runtime,
@@ -236,9 +238,10 @@ export async function refreshTitleEpisodes(env: Env, titleId: string): Promise<b
   });
 
   const stmts = [
-    env.DB.prepare(`UPDATE titles SET total_episodes = ?, status = ?, name = COALESCE(NULLIF(?,''), name),
+    env.DB.prepare(`UPDATE titles SET total_episodes = ?, status = ?, type = COALESCE(?, type),
+      name = COALESCE(NULLIF(?,''), name),
       poster = COALESCE(?, poster), platform = COALESCE(NULLIF(?,''), platform), updated_at = ? WHERE title_id = ?`)
-      .bind(rows.length, show.status || 'Unknown', show.name || '',
+      .bind(rows.length, show.status || 'Unknown', show.type || null, show.name || '',
         (show.image && (show.image.original || show.image.medium)) || null,
         (show.webChannel && show.webChannel.name) || (show.network && show.network.name) || '', now, titleId),
     ...rows.map((e: any) => env.DB.prepare(`INSERT OR REPLACE INTO episodes

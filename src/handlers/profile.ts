@@ -494,6 +494,125 @@ profileRoutes.get('/:email/titles', async (c) => {
   return c.json({ titles: list });
 });
 
+// ── COMPLETED résumé ──────────────────────────────────────────────────────────
+// A richer, heavier read than /titles: one row PER tracked title with the season
+// breakdown, cadence, availability backlog and a real (tz-safe, epoch-ms) completion
+// date the SET → COMPLETED tab needs. Deliberately its OWN endpoint (called on tab
+// open, not on every WATCH render) so the hot, cached /titles path stays lean — this
+// project is D1-read-sensitive. All aggregation is done in a handful of batched,
+// GROUP BY queries + JS stitching, never a query-per-title.
+//
+// "released" mirrors /titles exactly: airstamp when known, else airdate 23:59:59,
+// compared against now (UTC) — the drop instant already carries the streamer rule.
+profileRoutes.get('/:email/completed', async (c) => {
+  const email = c.req.param('email').toLowerCase();
+  const RELEASED = "e.airdate IS NOT NULL AND COALESCE(datetime(e.airstamp), datetime(e.airdate || ' 23:59:59')) <= datetime('now')";
+
+  // Base rows: every tracked title + its catalog shape and watch status.
+  const baseRows = ((await c.env.DB.prepare(
+    `SELECT wt.title_id, t.name, t.kind, t.type, t.status AS title_status, t.poster,
+            t.total_episodes AS total, wt.status AS watch_status, wt.active_map_id
+       FROM watch_title wt JOIN titles t ON t.title_id = wt.title_id
+      WHERE wt.user_email = ?`).bind(email).all()).results || []) as any[];
+  if (!baseRows.length) return c.json({ titles: [] });
+
+  // NB: no `title_id IN (…)` lists — D1 caps bound params at 100 and a member can track
+  // more titles than that. Every aggregate instead JOINs watch_title on user_email, so the
+  // only bound value is the email.
+
+  // Per-title/season catalog aggregate: episode counts, released counts, and the
+  // airdate spread (MIN==MAX in a season ⇒ dropped ALL AT ONCE, else WEEKLY).
+  const seasonRows = ((await c.env.DB.prepare(
+    `SELECT e.title_id, e.season,
+            COUNT(*) AS season_total,
+            SUM(CASE WHEN ${RELEASED} THEN 1 ELSE 0 END) AS season_released,
+            MIN(e.airdate) AS first_air, MAX(e.airdate) AS last_air
+       FROM episodes e JOIN watch_title wt ON wt.title_id = e.title_id AND wt.user_email = ?
+      WHERE e.season >= 1
+      GROUP BY e.title_id, e.season`).bind(email).all()).results || []) as any[];
+
+  // Per-title/season watched (done) counts.
+  const watchedRows = ((await c.env.DB.prepare(
+    `SELECT we.title_id, e.season, COUNT(*) AS season_watched
+       FROM watch_episode we JOIN episodes e ON e.episode_id = we.episode_id
+      WHERE we.user_email = ? AND we.done = 1 AND e.season >= 1
+      GROUP BY we.title_id, e.season`).bind(email).all()).results || []) as any[];
+
+  // Per-title completion date: newest LOGGED (non-bp) done write, epoch ms → tz-safe.
+  // completed_at null when every done episode is bp ("Before PangolinRC") → client shows BP.
+  const doneRows = ((await c.env.DB.prepare(
+    `SELECT title_id,
+            MAX(CASE WHEN bp = 0 THEN updated_at END) AS completed_at,
+            MAX(updated_at) AS last_at
+       FROM watch_episode WHERE user_email = ? AND done = 1
+      GROUP BY title_id`).bind(email).all()).results || []) as any[];
+
+  // Earliest not-yet-released drop per title → drives the 60-day "still active" rule.
+  const nextRows = ((await c.env.DB.prepare(
+    `SELECT e.title_id, MIN(COALESCE(e.airstamp, e.airdate || ' 23:59:59')) AS next_drop
+       FROM episodes e JOIN watch_title wt ON wt.title_id = e.title_id AND wt.user_email = ?
+      WHERE e.airdate IS NOT NULL
+        AND COALESCE(datetime(e.airstamp), datetime(e.airdate || ' 23:59:59')) > datetime('now')
+      GROUP BY e.title_id`).bind(email).all()).results || []) as any[];
+
+  const seasonsBy = new Map<string, any[]>();
+  for (const r of seasonRows) { (seasonsBy.get(r.title_id) || seasonsBy.set(r.title_id, []).get(r.title_id))!.push(r); }
+  const watchedBy = new Map<string, Map<number, number>>();
+  for (const r of watchedRows) { const m = watchedBy.get(r.title_id) || watchedBy.set(r.title_id, new Map()).get(r.title_id)!; m.set(r.season, r.season_watched); }
+  const doneBy = new Map(doneRows.map((r) => [r.title_id, r]));
+  const nextBy = new Map(nextRows.map((r) => [r.title_id, r.next_drop]));
+
+  const out = baseRows.map((b) => {
+    const seasons = (seasonsBy.get(b.title_id) || []).slice().sort((a, z) => a.season - z.season);
+    const wmap = watchedBy.get(b.title_id) || new Map();
+    const done = doneBy.get(b.title_id);
+    let total = 0, released = 0, watched = 0;
+    for (const s of seasons) { total += s.season_total; released += s.season_released; watched += (wmap.get(s.season) || 0); }
+
+    // Current season = highest season with any RELEASED episode (what the member is
+    // progressing); fall back to the highest known season, else 1.
+    const releasedSeasons = seasons.filter((s) => s.season_released > 0);
+    const cur = releasedSeasons.length ? releasedSeasons[releasedSeasons.length - 1]
+              : (seasons.length ? seasons[seasons.length - 1] : null);
+    const curWatched = cur ? (wmap.get(cur.season) || 0) : 0;
+    const cadence = cur && cur.first_air && cur.first_air === cur.last_air ? 'once' : 'weekly';
+
+    return {
+      title_id: b.title_id, name: b.name, kind: b.kind, type: b.type,
+      title_status: b.title_status, poster: b.poster,
+      watch_status: b.watch_status, stopped: b.watch_status === 'stopped',
+      map_name: null as string | null, active_map_id: b.active_map_id || null,
+      total_seasons: seasons.length, current_season: cur ? cur.season : 1,
+      season_total: cur ? cur.season_total : (b.total || 0),
+      season_released: cur ? cur.season_released : 0,
+      season_watched: curWatched,
+      total, released, watched, cadence,
+      next_drop: nextBy.get(b.title_id) || null,
+      completed_at: done ? (done.completed_at || null) : null,
+      last_at: done ? done.last_at : null,
+    };
+  });
+
+  // Map-mode (curated marathon) titles: re-scope counts to the map's steps, exactly as
+  // /titles does, and carry the marathon name so the résumé reads MARATHON + subtitle.
+  await Promise.all(out.filter((r) => r.active_map_id).map(async (r) => {
+    const mapId = r.active_map_id as string;
+    const [mp, tot, wat, rel] = await Promise.all([
+      c.env.DB.prepare('SELECT name FROM maps WHERE map_id=?').bind(mapId).first<{ name: string }>(),
+      c.env.DB.prepare('SELECT COUNT(*) AS c FROM map_steps WHERE map_id=?').bind(mapId).first<{ c: number }>(),
+      c.env.DB.prepare('SELECT COUNT(*) AS c FROM map_steps ms JOIN watch_episode we ON we.user_email=? AND we.episode_id=ms.episode_id AND we.done=1 WHERE ms.map_id=?').bind(email, mapId).first<{ c: number }>(),
+      c.env.DB.prepare(`SELECT COUNT(*) AS c FROM map_steps ms JOIN episodes e ON e.episode_id=ms.episode_id WHERE ms.map_id=? AND ${RELEASED}`).bind(mapId).first<{ c: number }>(),
+    ]);
+    r.map_name = mp?.name ?? null;
+    r.total = r.season_total = tot?.c ?? 0;
+    r.watched = r.season_watched = wat?.c ?? 0;
+    r.released = r.season_released = rel?.c ?? 0;
+    r.total_seasons = 1; r.current_season = 1;
+  }));
+
+  return c.json({ titles: out });
+});
+
 // One title's full detail for the episode face: catalog episodes merged with the
 // member's per-episode progress.
 profileRoutes.get('/:email/titles/:title_id', async (c) => {

@@ -2840,3 +2840,26 @@ recur.
 - **Pages deploy:** `wrangler pages deploy public --project-name pangolin-rc --branch main` →
   `3bdb1dad`, Production (`remote.pangolinrc.com`). Verified live: both fix markers present via
   `curl -sL --compressed` on `/cube_log_face`.
+
+## COMPLETED tab redesign — full watch résumé (2026-09-10)
+- **Migration 0061 (`titles.type`).** `ALTER TABLE titles ADD COLUMN type TEXT;` seeds
+  `type='Film'` for movies. Captured going forward from TVmaze `show.type` in
+  `materializeTitle` (INSERT) and `refreshTitleEpisodes` (UPDATE, `COALESCE(?,type)`);
+  movies set `type='Film'` in `materializeTitle`. **Applied to remote pangolin-rc.**
+- **Type backfill.** One-off: read the 63 `source='tvmaze'` titles, fetched each show's
+  `type` from `api.tvmaze.com/shows/{ref}`, bulk `UPDATE titles SET type=…`. Note TVmaze
+  marks limited series (Station Eleven, Sharp Objects, Black Rabbit) as `Scripted`, not
+  `Miniseries` — so LIMITED SERIES is derived client-side as `type~mini OR (Ended & single
+  season & >1 ep)`, not from `type` alone. **Applied to remote (63 rows).**
+- **New endpoint `GET /profile/:email/completed`** (`profile.ts`). One résumé row per tracked
+  title: `kind,type,title_status,poster,map_name,stopped`, per-current-season
+  `current_season/total_seasons/season_watched/season_released/season_total`, overall
+  `watched/released/total`, `cadence` (weekly|once from current-season airdate spread),
+  `next_drop` (earliest unreleased airstamp → 60-day rule), and `completed_at` epoch ms
+  (newest non-bp done write; null ⇒ all bp ⇒ client shows `BP`). Map-mode titles re-scope to
+  `map_steps` like `/titles`. All aggregates JOIN `watch_title` on `user_email` — **no
+  `title_id IN (…)` lists** (D1 caps bound params at 100; members track >100 titles).
+- **Deploys:** `wrangler deploy` (Worker) + `wrangler pages deploy public` (Pages), both with
+  `--message`/`--commit-message`. Endpoint verified against ted@pangolinrc.com (116 titles).
+- **Branch:** `user-history` (off `main`). NOT merged. (Feature was developed/deployed while the
+  working tree sat on `pierre-outreach-skill`; moved to its own branch after the fact.)

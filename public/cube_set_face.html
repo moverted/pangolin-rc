@@ -475,12 +475,16 @@
   .cmp-group::after{content:"";flex:1;height:1px;background:rgba(255,255,255,.09)}
   .cmp-row{display:flex;align-items:center;gap:11px;padding:12px 2px;border-bottom:1px solid rgba(255,255,255,.06);cursor:pointer}
   .cmp-row:active{background:rgba(255,255,255,.03)}
-  .cmp-check{flex:0 0 auto;width:16px;height:16px;color:#5fbf6a}
+  .cmp-check{flex:0 0 auto;width:16px;height:16px;color:#5fbf6a;
+    display:flex;align-items:center;justify-content:center;font-size:15px;line-height:1}
   .cmp-check svg{width:100%;height:100%;display:block}
+  .cmp-check.partial{color:var(--muted);font-size:16px;letter-spacing:1px}   /* … available */
+  .cmp-check.stop{color:#c65a4f}                                             /* ✕ stopped */
   .cmp-body{flex:1 1 auto;min-width:0}
   .cmp-name{font-family:var(--display);font-weight:700;font-size:15px;line-height:1.2;color:var(--text);
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .cmp-kind{font-family:var(--mono);font-size:8px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-left:7px;vertical-align:1px}
+  .cmp-sub{font-family:var(--mono);font-size:9px;letter-spacing:.03em;color:var(--muted);opacity:.85;font-style:italic;margin-top:2px}
   .cmp-meta{font-family:var(--mono);font-size:9.5px;letter-spacing:.05em;color:var(--muted);margin-top:3px}
   .cmp-chev{flex:0 0 auto;color:var(--muted);font-size:17px;line-height:1;opacity:.55}
 </style>
@@ -568,6 +572,10 @@ const NOW=new Date();
 let LOG=[], activeTab="shadow", addSeq=0, selectedId=null;   // SET opens on SHADOW (the fused taste profile)
 // Archived rewatch passes (GET /profile/:email/passes) — null until first loaded.
 let PASSES=null;
+// COMPLETED résumé rows (GET /profile/:email/completed) — one per tracked title with the
+// season/cadence/backlog breakdown the tab needs. null until first loaded; reset on account
+// load and after any progress write so the résumé re-derives.
+let COMPLETED=null;
 // Highlighter marker: stamps a partial-then-restarted ("highlights") pass in the Completed tab.
 const HILITE_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l3-1L17.5 8.5a2.1 2.1 0 0 0-3-3L4 16z"/><path d="M13.5 6.5l4 4"/><path d="M3 21h6"/></svg>';
 // VIEWING LOG open-state, persisted across re-renders so a refresh/rotate-in can't wipe
@@ -1003,7 +1011,11 @@ function expandedCard(s, mode){
   let metaTxt;
   const dayTg = isMovie ? filmDayTag(s) : '';
   const dayPill = dayTg ? '<span class="exc-tag">'+dayTg+'</span>' : '';
-  if(mode==='completed'){ metaTxt = isMovie ? ('&#10003; watched &middot; film'+dayPill) : ('&#10003; done &middot; '+(s.total||0)+' episodes'); }
+  if(mode==='completed'){
+    const r=(COMPLETED||[]).find(x=>x.title_id===s.titleId);   // reuse the résumé detail line
+    if(r) metaTxt=resumeLine(r).detail+(isMovie?dayPill:'');
+    else metaTxt = isMovie ? ('&#10003; watched &middot; film'+dayPill) : ('&#10003; done &middot; '+(s.total||0)+' episodes');
+  }
   else if(isMovie){ const rt=s.runtime||0, mins=Math.max(0,s.lastMinute||0), left=Math.max(0,rt-mins);
     metaTxt = '&#127909; film &middot; '+((mins>0&&rt>0)?(left+' min left'):(rt>0?(rt+' min'):(mins>0?'in progress':'not started')))+dayPill; }
   else { const left=s.released-s.watched; metaTxt=(pos?pos+' &middot; ':'')+(left>0?left+' left':'caught up');
@@ -1043,42 +1055,108 @@ function expandedCard(s, mode){
       '<div class="ep-arch" id="arch-'+s.id+'"><div class="vw-empty">loading episodes…</div></div>'+
       '</div>';
 }
-// COMPLETED is a word list (Shadow-style), not poster tiles: a quiet résumé of what you
-// finished. One row = check + title + a one-line "how it ended" meta. Tapping still expands
-// the full card (episode archive / Watch again / delete) via the same selectCurrent path.
+// COMPLETED is a word list (Shadow-style), not poster tiles: a full résumé of every title
+// the member tracks — finished, caught-up, mid-stream or stopped — one row apiece. Data comes
+// from the /completed endpoint (résumé objects `r`), not the LOG records. Tapping a row still
+// expands the full LOG card (its data-id maps to "acct-"+title_id) via selectCurrent.
 const CMP_CHECK_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
-function completedRowHTML(s){
-  const isMovie=s.kind==='movie';
-  const kind=isMovie?'FILM':'SERIES';
-  const how=isMovie?'watched &middot; film'
-                   :((s.stopped?'stopped':'done')+' &middot; '+(s.total||0)+' episodes');
-  const when=s.lastDate?(' &middot; '+fmtDate(s.lastDate)):'';
-  return '<div class="cmp-row" data-id="'+s.id+'">'
-    +'<span class="cmp-check">'+CMP_CHECK_SVG+'</span>'
-    +'<div class="cmp-body"><div class="cmp-name">'+titleHTML(s.name)+'<span class="cmp-kind">'+kind+'</span></div>'
-      +'<div class="cmp-meta">'+how+when+'</div></div>'
+const CMP_GLYPH={
+  done:'<span class="cmp-check done">'+CMP_CHECK_SVG+'</span>',   // caught up / finished
+  partial:'<span class="cmp-check partial">&#8230;</span>',       // unwatched content is available
+  stop:'<span class="cmp-check stop">&#10005;</span>'             // explicitly stopped
+};
+// Completion date, tz-safe: completed_at / last_at are epoch ms (not a UTC-sliced string), so
+// the DEVICE (== member) timezone renders them correctly — no more off-by-one.
+function fmtEpoch(ms){ return new Date(ms).toLocaleDateString('en-US',{month:'short',day:'numeric'}); }
+function epLabel(n){ return (n||0)+' episode'+((n||0)===1?'':'s'); }
+// LIMITED SERIES vs SERIES. TVmaze marks few limited series as "Miniseries" (Station Eleven,
+// Sharp Objects et al. read "Scripted"), so an ended single-season, multi-episode show also
+// counts as limited — the season data the résumé already carries makes this reliable.
+function seriesFormatLabel(r){
+  const mini=/mini/i.test(String(r.type||''));
+  const ended=/^(ended|canceled|cancelled)$/i.test(String(r.title_status||'').trim());
+  return (mini || (ended && (r.total_seasons||1)<=1 && (r.total||0)>1)) ? 'LIMITED SERIES' : 'SERIES';
+}
+// The résumé taxonomy (see plan): a glyph, a KIND-LABEL (+ optional live STATE suffix), an
+// optional subtitle (marathon name), and a "how it stands" detail line ending in a date/BP.
+function resumeLine(r){
+  const isMovie=r.kind==='movie';
+  // Finished things print the real logged date, or BP when every done episode was bypassed
+  // ("Before PangolinRC", no session). Live things print last activity (never BP).
+  const finishedDate = r.completed_at ? fmtEpoch(r.completed_at) : 'BP';
+  const activeDate = (r.completed_at||r.last_at) ? (' &middot; '+fmtEpoch(r.completed_at||r.last_at)) : '';
+  const avail=Math.max(0,(r.season_released||0)-(r.season_watched||0));   // current-season backlog
+
+  if(isMovie){
+    const watched=(r.watched||0)>0;
+    return {glyph:r.stopped?'stop':(watched?'done':'partial'), label:'FILM', sub:'',
+      detail:(r.stopped?'stopped':(watched?'watched':'not finished'))+' &middot; film'+activeDate};
+  }
+  if(r.map_name){
+    const glyph=r.stopped?'stop':(avail>0?'partial':'done');
+    const how=r.stopped?('stopped &middot; '+(r.watched||0)+' of '+(r.total||0)+' episodes')
+             :avail>0?((r.watched||0)+' of '+(r.total||0)+' episodes')
+             :('done &middot; '+epLabel(r.total));
+    return {glyph, label:'MARATHON', sub:r.map_name, detail:how+' &middot; '+finishedDate};
+  }
+  if(r.stopped){
+    return {glyph:'stop', label:seriesFormatLabel(r), sub:'',
+      detail:'stopped &middot; '+(r.watched||0)+' of '+(r.total||0)+' episodes'+activeDate};
+  }
+  const ended=/^(ended|canceled|cancelled)$/i.test(String(r.title_status||'').trim());
+  const whole=(r.total||0)>0 && (r.watched||0)>=(r.total||0);
+  if(whole){
+    // Finished everything the catalog knows. Ended → SERIES/LIMITED SERIES; still Running
+    // (renewed, next season not yet materialized) → the finished SEASON.
+    return {glyph:'done', label:ended?seriesFormatLabel(r):'SEASON', sub:'',
+      detail:'done &middot; '+epLabel(r.total)+' &middot; '+finishedDate};
+  }
+  if(avail===0){
+    // Caught up on everything aired, more is coming. Next drop within 60 days → still live
+    // (CAUGHT UP); far off / unknown → the current season reads as done.
+    const near = r.next_drop && ((new Date(String(r.next_drop).replace(' ','T'))-Date.now())/86400000 <= 60);
+    const cad=r.cadence==='once'?'ALL AT ONCE':'WEEKLY';
+    if(near) return {glyph:'done', label:cad+' &middot; CAUGHT UP', sub:'',
+      detail:'season '+r.current_season+' of '+r.total_seasons+' &middot; '+(r.season_watched||0)+' episodes of '+(r.season_total||0)+activeDate};
+    return {glyph:'done', label:'SEASON', sub:'', detail:'done &middot; '+epLabel(r.watched)+' &middot; '+finishedDate};
+  }
+  // Behind: unwatched content is available now.
+  const cad=r.cadence==='once'?'ALL AT ONCE':'WEEKLY';
+  const state=(r.season_released>=r.season_total)?'ALL AVAILABLE':(avail+' EPISODE'+(avail===1?'':'S')+' AVAILABLE');
+  return {glyph:'partial', label:cad+' &middot; '+state, sub:'',
+    detail:'season '+r.current_season+' of '+r.total_seasons+' &middot; '+(r.season_watched||0)+' episodes of '+(r.season_total||0)+activeDate};
+}
+function completedRowHTML(r){
+  const L=resumeLine(r);
+  return '<div class="cmp-row" data-id="acct-'+r.title_id+'">'
+    +CMP_GLYPH[L.glyph]
+    +'<div class="cmp-body"><div class="cmp-name">'+titleHTML(r.name)+'<span class="cmp-kind">'+L.label+'</span></div>'
+      +(L.sub?'<div class="cmp-sub">'+esc(L.sub)+'</div>':'')
+      +'<div class="cmp-meta">'+L.detail+'</div></div>'
     +'<span class="cmp-chev">&#8250;</span></div>';
 }
+// Newest activity first (finished date, else last watch), for sort within a group.
+function completedSortVal(r){ return (r.completed_at||r.last_at||0); }
 // Word rows grouped SERIES then MOVIES (mirrors Shadow's grouping), most-recent first,
-// optionally skipping the currently-expanded show. Used in BOTH the collapsed and expanded
+// optionally skipping the currently-expanded title. Used in BOTH the collapsed and expanded
 // states so the grouping never flattens when a card is open.
-function completedGroupedRows(list, excludeId){
-  const rows=list.slice().sort((a,b)=>new Date(b.lastDate)-new Date(a.lastDate));
+function completedGroupedRows(rows, excludeTitleId){
+  const list=rows.slice().sort((a,b)=>completedSortVal(b)-completedSortVal(a));
   let h='';
   [['series','SERIES'],['movie','MOVIES']].forEach(([g,label])=>{
-    const gr=rows.filter(s=>s.id!==excludeId && (s.kind==='movie')===(g==='movie'));
+    const gr=list.filter(r=>r.title_id!==excludeTitleId && ((r.kind==='movie')===(g==='movie')));
     if(!gr.length) return;
     h+='<div class="cmp-group"><span>'+label+'</span><em>'+gr.length+'</em></div>'+gr.map(completedRowHTML).join('');
   });
   return h;
 }
-// The COMPLETED list: the selected show expands to the full card at top; the rest follow as
-// grouped word rows.
-function completedListHTML(list){
-  const sel = selectedId ? list.find(s=>s.id===selectedId) : null;
-  if(sel) return expandedCard(sel,'completed') + completedGroupedRows(list, sel.id);
+// The COMPLETED list: the selected title expands to the full LOG card at top (matched by
+// title_id), the rest follow as grouped résumé rows.
+function completedListHTML(rows){
+  const sel = selectedId ? LOG.find(s=>s.id===selectedId) : null;
+  if(sel) return expandedCard(sel,'completed') + completedGroupedRows(rows, sel.titleId);
   if(selectedId) selectedId=null;
-  return completedGroupedRows(list, null);
+  return completedGroupedRows(rows, null);
 }
 // Grid for a selectable tab: the selected show becomes a full-width expanded card
 // at the top, the rest follow as tiles.
@@ -1111,6 +1189,9 @@ function counts(){
   // COMFORT lists the curated marathons, not LOG shows bucketed as "comfort" — so its tab
   // count is the marathon count (else it reads 0 until you open the tab, looking like a bug).
   c.comfort = MARATHONS.length;
+  // COMPLETED now lists the WHOLE résumé (every tracked title), not just the completed bucket,
+  // so its count is the résumé length once loaded (the completed render refines it further).
+  if(Array.isArray(COMPLETED)) c.completed = COMPLETED.length;
   // SET only renders the COMPLETED sub-tab, so current/comfort count elements aren't present.
   for(const k in c){ const el=document.getElementById("n-"+k); if(el) el.textContent=c[k]; }
 }
@@ -1177,6 +1258,13 @@ async function loadPasses(){
   const email=acct(); if(!email){ PASSES=[]; return; }
   try{ const r=await fetch(API+"/profile/"+encodeURIComponent(email)+"/passes"); PASSES=r.ok?((await r.json()).passes||[]):[]; }
   catch(_){ PASSES=[]; }
+}
+// Load the COMPLETED résumé (all tracked titles + their season/cadence/backlog breakdown).
+// Sets COMPLETED to an array, even []. Seed/DEMO accounts have no server titles → [].
+async function loadCompleted(){
+  const email=acct(); if(!email){ COMPLETED=[]; return; }
+  try{ const r=await fetch(API+"/profile/"+encodeURIComponent(email)+"/completed"); COMPLETED=r.ok?((await r.json()).titles||[]):[]; }
+  catch(_){ COMPLETED=[]; }
 }
 // A pass tile: poster + "S{n} · view {ordinal}", stamped with the locked pattern
 // (complete) or the highlighter marker (a partial pass restarted from the beginning).
@@ -1299,7 +1387,10 @@ function render(){
   grid.classList.remove("list");
   if(activeTab==="completed"){
     grid.classList.add("done");   // block layout: COMPLETED is a word list, not the poster-tile grid
-    const list=LOG.filter(s=>bucketOf(s)==="completed"&&!isTheaterMovie(s));
+    if(COMPLETED===null){ loadCompleted().then(()=>{ if(activeTab==='completed') render(); }); grid.innerHTML='<div class="state">loading…</div>'; return; }
+    // The whole résumé, minus theater-ticket films (those live in the IRL tickets face).
+    const list=COMPLETED.filter(r=>{ const s=LOG.find(x=>x.titleId===r.title_id); return !(s&&isTheaterMovie(s)); });
+    const nc=document.getElementById("n-completed"); if(nc) nc.textContent=list.length;
     let html = list.length ? completedListHTML(list) : '';
     if(PASSES===null) loadPasses().then(()=>{ if(activeTab==='completed') render(); });   // one-shot
     // Passes stay as poster tiles (a rewatch is a fresh viewing, not a finished résumé line):
@@ -1630,6 +1721,7 @@ function recordFromTitle(t){
 // Load the signed-in member's tracked titles from the catalog-backed endpoint.
 async function loadAccount(email){
   _wowPrefetched=false; _wowModesPrefetched=false;   // fresh account load → re-derive scheduler
+  COMPLETED=null;                                    // résumé re-fetches on next COMPLETED render
   if(window.WoW){ try{ await WoW.store.load(email); }catch(_){} }
   try{
     const r=await fetch(API+"/profile/"+encodeURIComponent(email)+"/titles"); if(!r.ok) return [];
@@ -1668,6 +1760,7 @@ function applyProgress(pr){
 // Pull one title's authoritative counts/bucket back into its LOG record.
 async function refreshTitle(titleId){
   const email=acct(); if(!email) return;
+  COMPLETED=null;                                    // a progress write changes the résumé
   try{
     const r=await fetch(API+"/profile/"+encodeURIComponent(email)+"/titles"); if(!r.ok) return;
     const t=((await r.json()).titles||[]).find(x=>x.title_id===titleId);
