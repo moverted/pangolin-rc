@@ -574,8 +574,8 @@ function injectFaceChrome(fr) {
       });
       if (!r.ok) return;
       const d = await r.json();
-      window.__pgAdmin = { isAdmin: !!d.isAdmin, waitlistNew: d.waitlistNew || 0, getTedOpen: d.getTedOpen || 0 };
-      setAppIconBadge(d.isAdmin ? ((d.waitlistNew || 0) + (d.getTedOpen || 0)) : 0);
+      window.__pgAdmin = { isAdmin: !!d.isAdmin, waitlistNew: d.waitlistNew || 0, getTedOpen: d.getTedOpen || 0, outreachDue: d.outreachDue || 0 };
+      setAppIconBadge(d.isAdmin ? ((d.waitlistNew || 0) + (d.getTedOpen || 0) + (d.outreachDue || 0)) : 0);
     } catch (_) {}
   }
   refresh();

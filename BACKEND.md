@@ -4,6 +4,149 @@ Append-only log. Any session that touches the Worker, D1, or deploy
 configuration adds an entry here before the session ends (see CLAUDE.md,
 "Backend and deploy rules").
 
+## 2026-09-09 — Admin Episode Feed: one record per commenter per episode (DEPLOYED)
+
+Worker `37a76612`. Per request ("each user gets their own record"): the Episode Feed now emits
+ONE ROW per (show, episode, commenter) instead of one row per episode.
+
+- **`EPISODE_COMMENTS_FROM`:** grouped by `show_id, episode_id, user_email` over ORIGINAL
+  comments only (`reply_to IS NULL`); joined `users cu` for the name. Dropped the old
+  GROUP_CONCAT `all_comments`/`users` (built in TS now). New `Commenter` column, `#` = that
+  user's comment count. `idExpr` → `show|episode|email`. `searchExprs` updated (no removed cols).
+- **List post-process:** for each record, queries that commenter's originals (play order) + any
+  replies to them (from anyone), builds `— Name —` + lines with replies threaded (`↳ replier:`).
+  `all_comments` == `copy_text`. Replaces `buildEpisodeTranscript` (removed).
+- Verified live on `admin.pangolinrc.com`: Silo S03E08 → 3 records (Alex #4, Sam #3 w/ Ted's
+  reply threaded under her end-note, Ted #1). No D1 / admin-Pages change.
+
+## 2026-09-09 — App Pages: end-note Play → circular button + countdown ring (DEPLOYED, client-only)
+
+App Pages (`pangolin-rc`, `public/`) deployment `6a8cfadf`. No Worker/D1 change. Ships the
+`public/cube_log_face.html` change (commit `7ba18ba`): the end-of-episode end-note **Play**
+control is now the same round button + filling `clip-ring` as the co-view reply mic, via the
+shared `playClip()`. Verified live on `remote.pangolinrc.com/cube_log_face` (`-L`, extensionless
+— the `.html` 308 gotcha). iOS bundle synced 2026-09-09 (`sync-www` → `cap copy ios`); the
+ONLY delta vs the Sep-8 bundle is this `cube_log_face.html` Play-ring change. Version
+1.0.1 (24), build auto-stamped. Xcode opened for Ted's clean → archive → TestFlight (still
+his manual step; see [[pangolinrc-ios-bundle-rebuild]] / [[pangolinrc-open-xcode-handoff]]).
+
+## 2026-09-09 — Admin Episode Feed: group the on-screen view by commenter too (DEPLOYED)
+
+Worker `480991c4`. Per request: the on-screen ALL COMMENTS should be separated by commenter
+(not chronological), with only replies threaded. `buildEpisodeTranscript` now returns the SAME
+grouped-by-commenter text for both `display` and `copy` — one `— Person —` section per original
+commenter (first-appearance order), replies nested + attributed under the comment they answer.
+Verified live on `admin.pangolinrc.com` (Silo S03E08). No D1 / admin-Pages change.
+
+## 2026-09-09 — Admin Episode Feed: nest replies under their true parent in the display (DEPLOYED)
+
+Worker `fc86408a`. Follow-up to `af685cd1` below. No D1 / admin-Pages change.
+
+- **Bug:** a reply inherits its parent's `timestamp_ms` but keeps `is_endnote=0`, so a reply to
+  an END-NOTE sorts in among the timed lines (CASE=0) and rendered detached from its parent
+  (Silo S03E08: Ted's "Clearly, she's not a princess" showed under "What's the more lock?"
+  instead of under Sam's end-note). Verified against PROD via `wrangler d1 execute --remote`.
+- **Fix (`src/handlers/admin.ts` `buildEpisodeTranscript`):** the display view now iterates
+  `originals` and nests each comment's replies immediately after it (the nesting the copy view
+  already used), instead of indenting replies in flat SQL-sort order. Copy view unchanged.
+
+## 2026-09-09 — Admin Episode Feed: attributed + threaded transcript; grouped-by-person Copy (DEPLOYED)
+
+Worker `af685cd1` + admin Pages (`pangolinrc-admin`, `07d4ef9c`) deployed. No D1 migration
+(read-only serializer change). Fixes the "messy" episode transcript (no attribution, replies
+floating, Copy == on-screen serial).
+
+- **`src/handlers/admin.ts`:** the `episode_comments` `all_comments` column is no longer built
+  purely in SQL. Added `idExpr` (`ec.show_id || '|' || ec.episode_id`) so each row carries its
+  keys, and a post-process in `GET /admin/list/:resource` (gated to `episode_comments`) that
+  requeries each episode's visible comments (joined to `users` for username) and rebuilds two
+  views via `buildEpisodeTranscript()`: `all_comments` = on-screen (every line `MM:SS Author:`
+  / `SPLR|NOSP Author:`, chronological, replies indented `↳ replier:` under their parent) and
+  `copy_text` = clipboard (one `— Person —` section per ORIGINAL commenter; each reply threaded
+  under the parent it answers, in the parent author's section — never its own section).
+- **Timecode fix:** old SQL printed `HH:MM` (`ms/3600000`), so a 25-min mark read `00:25`.
+  `buildEpisodeTranscript` now emits true `MM:SS` (`25:00`).
+- **`admin/index.html`:** the `all_comments` cell stashes `copy_text` in a hidden `.serial-copy`
+  span; `onCopyComments` prefers it over the visible `.serial`, so Copy yields the grouped payload.
+- Verified live: `admin.pangolinrc.com` serves the new markup; Worker `/admin/meta` gated (401).
+  NOT shipped: the app Pages `pangolin-rc` (the end-note Play → circular ring change in
+  `public/cube_log_face.html` stays local until an app deploy is requested).
+
+## 2026-09-08 — Outreach: add Tracy Swedlow (TVOT); correct stale "off-limits" DB note (PROD DATA)
+
+Single-row data insert into the PROD `outreach` table (`pangolin-rc` DB / `4bd25737`), no schema
+change/migration/code deploy. `scripts/outreach-tracy.sql` (idempotent `INSERT OR IGNORE`, house
+doubled-apostrophe escaping) applied via `wrangler d1 execute pangolin-rc --remote --file`.
+
+- **Reconciled a stale handoff doc against live reality before writing.** The handoff proposed a new
+  `contacts`/`touches` schema in `pangolinrc-events`, an Airtable upsert, and "never touch `pangolin-rc`".
+  All stale: the `outreach` table already exists in `pangolin-rc` (migrations 0059/0060), Airtable was
+  retired 2026-08-18, and `pangolin-rc` is the ACTIVE app store (CLAUDE.md, corrected 2026-08-03). So:
+  no new tables, no migration, no Airtable — folded org/role/touch-history/bespoke cadence into the
+  existing `angle`+`notes` free-text fields.
+- **Tracy row:** id `tracy-swedlow`, platform `Other`, channel `Email`, contact_email
+  `tracyswedlow@gmail.com` (lights the Funnel fold), date_contacted `2026-08-13`. Status set **`Replied`**
+  (accurate — she replied warmly in-thread) *specifically to halt the generic 1wk/1mo auto-follow-up
+  engine*: `follow_up_stage=0`, `next_due_at=NULL`, so she never generates a due badge. Her bespoke
+  professional cadence (Emmys blackout → 2026-09-16 ASC check → give-not-ask branches → TVOT SF Dec 2-3;
+  2-strike dormant stop rule) lives in `notes`, Ted-managed. Phone/TestFlight-status have no columns →
+  captured in `notes` (invite sent 2026-08-21; install status TBD).
+- **Killed the stale note at its source** so it stops propagating into handoffs: corrected
+  `claude_code_handoff_wow_1.0.1.md:9` and `wow_inseason_scheduler_spec.md:169` (both had a standing
+  "never touch legacy `pangolin-rc`" instruction) to point at the CLAUDE.md correction. Left the
+  append-only BACKEND.md historical mentions (they're accurate history; one already self-corrects).
+- First prod write attempt was auto-denied (I'd overridden the doc's explicit "never touch" boundary);
+  proceeded only after Ted's explicit "Go" + email in this session.
+
+## 2026-09-08 — Admin: reconciling nav badges, Episode Feed commenters, Marathon manager + delete (DEPLOYED)
+
+Worker `4819f99a` + admin Pages (`pangolinrc-admin`, `79dad535`). No D1 migration (all columns
+already existed on `maps`/`map_steps`/`watch_title`). Three asks from Ted:
+
+- **Nav badges now cover every app-icon counter.** `src/handlers/admin.ts` `/admin/meta` previously
+  only badged Waitlist (`status='new'`). It now also badges **Get Ted** (distinct unhandled
+  `needs_ted` conversations) and **Outreach** (follow-ups due), using the SAME queries as
+  `POST /app-status` (incl. the soft-decline sweep first). So a number on the phone's app icon now
+  resolves to exactly one left-column tab — yesterday's mystery "1" was Get Ted. Frontend already
+  rendered `r.badge`, no change there.
+- **Episode Feed → new Commenters column.** `EPISODE_COMMENTS_FROM` gained a
+  `GROUP_CONCAT(DISTINCT user_email)` sub-select surfaced as the `users` col + added to `searchExprs`,
+  so Ted can search/sort his own email to split seed/test rows from real users.
+- **Marathon manager (two new Secondary tabs).** `marathons` resource over `maps` (LEFT JOIN titles):
+  Name/Title ID/Kind/Owner/Blurb/Blurb-by all inline-editable (map_id is the fixed key), + read-only
+  Steps count and an `episode → episode` Order preview; filters kind + global/user; pivots by
+  kind/owner/show. `marathon_steps` resource over `map_steps` (keyed by implicit `rowid`, since the PK
+  is composite): grouped per marathon, Episode ID / Next ID inline-editable, Pos display-only (half the
+  PK → renumbering would risk a UNIQUE collision).
+- **Row delete (Marathons).** New declarative `del` spec on a Resource + `POST /admin/delete/:resource`
+  (password-gated). Marathon delete cascades: `cascadeDelete` map_steps, `cascadeNull`
+  `watch_title.active_map_id` (un-points current watchers WITHOUT deleting their progress → they fall
+  back to canonical air order), then deletes the `maps` row — all one `DB.batch`. `admin/index.html`:
+  meta exposes `deletable`; when set, renderTable appends a trailing ✕ action column; two-step arm
+  ("Delete?" then commit within 3s, no native dialog); sort/grip wiring narrowed to `th[data-key]` so
+  the action column isn't sortable/resizable; group-header + no-rows colspans widened by the delete col.
+- **Validation:** `tsc --noEmit` clean; live smoke test — `/admin/{meta,list/marathons,list/marathon_steps,
+  delete/marathons}` all 401 (gated, routes exist). `del` is currently only on Marathons.
+- **In-app member delete (follow-on, same session).** Ted asked for the consumer-facing version too.
+  The backend already had it: owner-checked `DELETE /profile/:email/marathons/:map_id` (profile.ts:966,
+  matches the sibling PUT/POST — path-email ownership, no native-secret gate). Added ONLY the UI in
+  `public/cube_browse_face.html` (COLLECT editor): an owner-only "Delete marathon" button in the edit
+  footer → confirm sheet (`.opt.danger`) → `deleteMarathon()` DELETE → back to YOUR MARATHONS. Edit
+  mode is already unreachable for non-owners, so the button is inherently owner-scoped. Self-contained
+  in the face (no shell/flat postMessage parity needed). App Pages `pangolin-rc` DEPLOYED
+  (`dd13ec01`), `www/` synced (`node scripts/sync-www.mjs`) + `npx cap copy ios` + Xcode opened for
+  Ted's archive → TestFlight. No Worker/D1 change for this part.
+
+## 2026-09-08 — End-notes become repliable for the end-of-episode share flow (DEPLOYED)
+
+`src/index.ts`: removed the `409 "end-notes can't be replied to"` guard on BOTH reply paths
+(`POST /transcribe` audio-reply and `POST /transcribe/reply` text-reply). End-notes now accept a
+voice or text reply that threads under the friend's end-note; the one-reply-per-comment UNIQUE lock
+and mutual-follow gate are unchanged. Powers the new end-of-episode interstitial's shareable
+comment+reply card (frontend in `cube_log_face.html`). Worker DEPLOYED + Pages `public/` DEPLOYED +
+iOS bundle synced 2026-09-08. No D1 migration. (Test data: `seedtest-%` rows incl. 4 end-notes on
+Gentlemen S02E02 / Silo S03E08 — see [[pangolinrc-seedtest-comments]].)
+
 ## 2026-09-06 — Outreach tracker: new D1 table + admin resource, email-linked to funnel (DEPLOYED)
 
 Worker `5696d8d8` + migration `0059_outreach.sql` (remote applied) + seed `scripts/outreach-seed.sql`
@@ -2840,3 +2983,63 @@ recur.
 - **Pages deploy:** `wrangler pages deploy public --project-name pangolin-rc --branch main` →
   `3bdb1dad`, Production (`remote.pangolinrc.com`). Verified live: both fix markers present via
   `curl -sL --compressed` on `/cube_log_face`.
+
+## 2026-09-06 — Pierre admin Outreach skill (vision + tracker create)
+- **What:** admin-only Pierre skill. Ted picks "Outreach draft" in the flat-app chat picker,
+  attaches/pastes a creator's profile screenshot + says how to reach out; Pierre (vision) drafts
+  the DM/email and emits `[OUTREACH: {json}]` → a draft card (Copy + channel-aware Send-via-Gmail)
+  and a prefilled tracker form that writes a row to the `outreach` table (migration 0059).
+- **Worker (`src/handlers/pierre.ts`):** `/pierre/chat` now accepts an optional top-level
+  `image {mediaType,data(base64)}` and rewrites the last user turn into Anthropic content blocks
+  (allowed png/jpeg/webp/gif, ~7MB cap); MODEL `claude-sonnet-4-6` (vision-capable). New
+  `mode:'outreach'` appends the `OUTREACH_SKILL` system block, gated `nativeOk (APP_NATIVE_SECRET)
+  && users.user_type='admin'` — dropped silently otherwise (taste/shadow reads skipped when live).
+- **Worker (`src/handlers/admin.ts`):** new `POST /admin/outreach` — create one row. Authed like
+  `/app-status` (app secret + admin email), NOT the portal password. Slugifies name → id,
+  `INSERT OR IGNORE`, `date_contacted`=today. Returns `{ok,id,existed}`.
+- **Frontend (`public/cube_pierre_face.html`):** admin-gated picker option (`window.parent.__pgAdmin`),
+  `enterOutreachFlow` + image attach/paste, `mode`+`image` on the chat POST, `parseOutreach` +
+  `renderOutreachCard` (draft card + prefilled form → `/admin/outreach`).
+- **No migration.** `outreach` already exists (0059). No flat_shell.js change (skill self-contained
+  in the face; `__pgAdmin` already set by flat_shell.js on native).
+- **Verified locally:** `tsc --noEmit` clean; `node`-checked the face inline script; local D1 INSERT
+  matches schema; `wrangler dev` — `/admin/outreach` returns ok/existed for admin+correct token,
+  401 for non-admin email, 401 for wrong appToken, 400 for missing name; `/pierre/chat` handles the
+  image/mode body shape without crashing.
+- **Deployed 2026-09-06:** Worker version `c90aaaab`; Pages `a7f1aba2` (Production). Verified live:
+  `POST …workers.dev/admin/outreach` → 401 on a bad token (gate live); `/cube_pierre_face` on
+  remote.pangolinrc.com carries the outreach code. `ted@pangolinrc.com` already `user_type='admin'`
+  in remote D1 (no promotion needed — earlier "not yet promoted" note was stale).
+- **iOS:** `sync-www` + `cap copy ios` done — `ios/App/App/public/cube_pierre_face.html` has the
+  skill. Native-only (gate needs the app `appToken`; `__pgAdmin` only set on native), so Ted must
+  archive/distribute a fresh TestFlight build to exercise it on device. Xcode opened for handoff.
+- **Follow-up (frontend-only, Pages `9d1a79fd`):** "Send via Gmail" now hands off to the GMAIL APP
+  via the `googlegmail:///co?to=&subject=&body=` URL scheme on device (web compose URL kept as the
+  web/dev fallback). Fixes the draft opening in Safari with a raw %20/%0A-encoded body. `sync-www`
+  + `cap copy ios` re-run so the iOS bundle carries it — needs a fresh archive.
+
+## 2026-09-07 — Outreach follow-up cadence + dedup + status-via-Pierre
+- **Migration `0060_outreach_cadence.sql`:** adds to `outreach` → `initial_draft`, `one_week_draft`,
+  `one_month_draft`, `follow_up_stage` (0 init/1 wk1-sent/2 mo1-sent/3 closed), `initial_sent_at`,
+  `wk1_sent_at`, `mo1_sent_at`, `next_due_at` (ms), + index on `next_due_at`. Cadence re-anchors on
+  each ACTUAL send: init on first `status='Sent'` (next_due +7d), wk1 send → +30d, mo1 send → +7d
+  final window, then auto `Soft Decline`. Status change to Replied/Converted/Declined halts it.
+- **Worker (`admin.ts`):** `Soft Decline` added to `OUTREACH_STATUSES`; cadence helpers
+  (`advanceOutreachStage`, `sweepOutreachSoftDecline`, plus init in create + `/outreach/update`);
+  new endpoints `POST /admin/outreach/followups` (due queue + lazy soft-decline sweep),
+  `/outreach/update` (status/note/draft-store, resolves by id OR fuzzy query), `/outreach/followup-sent`
+  (advance + re-anchor) — all authed like `/app-status` (app secret + admin). `/app-status` now sweeps
+  + returns `outreachDue`; outreach resource gains a derived Cadence column + Initial/Wk1/Mo1 Draft columns.
+- **Worker (`pierre.ts`):** admin-only `lookup_outreach` tool (dedup before drafting) via the existing
+  tool-loop; follow-up sub-mode (`context.followup` → stage-appropriate nudge); `[OUTREACH_UPDATE:{json}]`
+  status-report tag.
+- **Frontend (`cube_pierre_face.html`, `flat_shell.js`):** due-follow-up queue on entering Outreach
+  mode (Pierre lists chips) → follow-up draft card + Mark sent (`followup-sent`); id/stage draft store;
+  `parseOutreachUpdate` confirm chip; `Soft Decline` in the create form; badge sum includes `outreachDue`.
+- **Verified locally** (`tsc` clean; face+flat_shell syntax; 0060 applied local): create-as-Sent inits
+  cadence (+7d); followups lists the due wk1 task; `outreachDue=1` in app-status; draft store +
+  followup-sent advances 0→1 re-anchored +30d; advance→2 then back-dated sweep flips to Soft Decline
+  (stage 3, next_due NULL); status update by query = Replied clears next_due + appends note; all new
+  endpoints 401 for non-admin/wrong token.
+- **NOT yet applied/deployed:** remote migration 0060, Worker + Pages deploy, iOS bundle — pending
+  Ted's production authorization. Native-only UI (admin gate).

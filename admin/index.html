@@ -129,6 +129,11 @@
   td textarea.edit-text.ok { border-color: #9fe0b0; }
   td textarea.edit-text.bad { border-color: #ffcf8f; }
   td input.edit-bool { width: 18px; height: 18px; accent-color: #9fe0b0; cursor: pointer; }
+  td.delcell { text-align: center; white-space: nowrap; }
+  button.del-btn { background: transparent; color: #d9534f; border: 1px solid rgba(217,83,79,0.45); border-radius: 8px; padding: 5px 9px; font-size: 0.82rem; font-weight: 700; cursor: pointer; transition: all 0.2s; }
+  button.del-btn:hover { background: rgba(217,83,79,0.12); }
+  button.del-btn.armed { background: #d9534f; color: #fff; border-color: #d9534f; }
+  button.del-btn:disabled { opacity: 0.6; cursor: default; }
   /* Status colour-coding: the editable Status <select> is tinted by its value; the filter menu
      shows the same colour as a dot. Keep the two palettes in sync with STATUS_COLOR in JS. */
   select.edit-cell.stsel { font-weight: 700; }
@@ -274,8 +279,9 @@
   // .serial span so it copies the raw, un-escaped text with its line breaks intact.
   async function onCopyComments(ev) {
     const btn = ev.currentTarget;
-    const serial = btn.parentNode && btn.parentNode.querySelector('.serial');
-    const text = serial ? serial.textContent : '';
+    // Prefer the grouped-by-person payload (.serial-copy); fall back to the on-screen serial.
+    const copyNode = btn.parentNode && (btn.parentNode.querySelector('.serial-copy') || btn.parentNode.querySelector('.serial'));
+    const text = copyNode ? copyNode.textContent : '';
     if (!text) return;
     const flash = (msg) => { const o = btn.textContent; btn.textContent = msg; btn.disabled = true;
       setTimeout(() => { btn.textContent = o; btn.disabled = false; }, 1200); };
@@ -409,6 +415,34 @@
     if (btn) { btn.textContent = dirty.length ? `Saved ${ok}/${dirty.length}` : 'Nothing to save'; setTimeout(() => { btn.textContent = 'Save all'; btn.disabled = false; }, 1400); }
   }
 
+  // Delete a row (resources with a `del` spec, e.g. Marathons). Two-step, no native
+  // dialog: first click arms the button ("Delete?"), a second click within 3s commits.
+  // Clicking away or waiting disarms it.
+  async function onDeleteRow(ev) {
+    const btn = ev.currentTarget;
+    const tr = btn.closest('tr');
+    const id = tr && tr.dataset.id;
+    if (!id) return;
+    if (btn.dataset.armed !== '1') {
+      btn.dataset.armed = '1';
+      btn.classList.add('armed');
+      btn.textContent = 'Delete?';
+      clearTimeout(btn._disarm);
+      btn._disarm = setTimeout(() => { btn.dataset.armed = ''; btn.classList.remove('armed'); btn.textContent = '✕'; }, 3000);
+      return;
+    }
+    clearTimeout(btn._disarm);
+    btn.disabled = true; btn.textContent = '…';
+    try {
+      await apiPost(`/admin/delete/${cur.key}`, { id });
+      tr.style.transition = 'opacity 0.3s'; tr.style.opacity = '0';
+      setTimeout(() => { tr.remove(); }, 300);
+    } catch (_) {
+      btn.disabled = false; btn.classList.remove('armed'); btn.dataset.armed = '';
+      btn.textContent = 'Failed'; setTimeout(() => { btn.textContent = '✕'; }, 1400);
+    }
+  }
+
   // ── Resizable columns (persisted per resource in localStorage) ──────────────
   const tableEl = () => $('thead').parentElement;
   const colWKey = () => 'admin_colw_' + (cur && cur.key);
@@ -439,7 +473,7 @@
     return cg;
   }
   function attachGrips(cols) {
-    $('thead').querySelectorAll('th').forEach((th, i) => {
+    $('thead').querySelectorAll('th[data-key]').forEach((th, i) => {
       const grip = document.createElement('span'); grip.className = 'col-grip';
       grip.addEventListener('click', e => e.stopPropagation());   // never triggers the sort
       grip.addEventListener('pointerdown', e => startColResize(e, i, grip, cols[i]));
@@ -701,8 +735,10 @@
     if (col.key === 'timecode') { const min = Math.max(0, Math.floor(Number(val) / 60000)); return `${String(Math.floor(min/60)).padStart(2,'0')}:${String(min%60).padStart(2,'0')}`; }
     // Serialized "All comments" feed: preserve the line breaks between comments, and
     // offer a one-tap copy of the whole episode's comment list (reads the .serial text).
+    // On-screen shows the attributed + threaded transcript (all_comments); the Copy button
+    // lifts the grouped-by-person payload (copy_text) stashed in a hidden sibling span.
     if (col.key === 'all_comments') return (val == null || val === '') ? '<span class="muted">—</span>'
-      : `<div class="serial-wrap"><button type="button" class="copy-comments" title="Copy all comments for this episode">⧉ Copy</button><span class="serial">${esc(val)}</span></div>`;
+      : `<div class="serial-wrap"><button type="button" class="copy-comments" title="Copy — grouped by person, replies threaded">⧉ Copy</button><span class="serial">${esc(val)}</span><span class="serial-copy" hidden>${esc(row && row.copy_text != null ? row.copy_text : val)}</span></div>`;
     if (val == null || val === '') return '<span class="muted">—</span>';
     if (col.date) return esc(fmtDate(val));
     if (col.key === 'screenshot_url' && isUrl(val)) return `<a href="${esc(val)}" target="_blank" rel="noopener"><img class="shot" src="${esc(val)}" alt="shot"></a>`;
@@ -720,12 +756,13 @@
     const headerKeys = cur.groupHeaderCols || [];
     const headerMeta = headerKeys.map(k => cur.columns.find(c => c.key === k)).filter(Boolean);
     const cols = cur.columns.filter(c => !headerKeys.includes(c.key));
+    const delCol = cur.deletable ? 1 : 0;   // trailing Delete action column
     $('thead').innerHTML = '<tr>' + cols.map(col => {
       const active = state.sort === col.key;
       const arrow = active ? ` <span class="arrow">${state.dir === 'asc' ? '▲' : '▼'}</span>` : '';
       return `<th data-key="${col.key}">${esc(col.label)}${arrow}</th>`;
-    }).join('') + '</tr>';
-    $('thead').querySelectorAll('th').forEach(th => th.addEventListener('click', () => {
+    }).join('') + (delCol ? '<th class="nosort"></th>' : '') + '</tr>';
+    $('thead').querySelectorAll('th[data-key]').forEach(th => th.addEventListener('click', () => {
       const k = th.dataset.key;
       if (state.sort === k) state.dir = state.dir === 'asc' ? 'desc' : 'asc';
       else { state.sort = k; state.dir = 'desc'; }
@@ -746,7 +783,7 @@
           const hdr = headerMeta.map(c =>
             `<span class="gh-k">${esc(c.label)}</span> <span class="gh-v">${esc(row[c.key] == null ? '' : row[c.key])}</span>`
           ).join('<span class="gh-sep">·</span>');
-          out += `<tr class="group-header" data-gi="${_gi}"><td colspan="${cols.length}"><span class="gh-caret">▾</span>${hdr}</td></tr>`;
+          out += `<tr class="group-header" data-gi="${_gi}"><td colspan="${cols.length + delCol}"><span class="gh-caret">▾</span>${hdr}</td></tr>`;
         }
         _prevGroup = g;
         if (Number(row.needs_reply) === 1) groupNeeds[_gi] = true;
@@ -759,11 +796,12 @@
         const wrap = ['note','name','episode_name','show_name','transcription','excerpt','flaggers','all_comments','feel'].includes(col.key);
         const cls = msg ? 'msgcell' : (wrap ? 'wrapcell' : '');
         return `<td class="${cls}">${cell(col, row[col.key], row)}</td>`;
-      }).join('') + '</tr>';
+      }).join('') + (delCol ? `<td class="delcell"><button class="del-btn" title="Delete">✕</button></td>` : '') + '</tr>';
       return out;
-    }).join('') || `<tr><td colspan="${cols.length}" class="muted" style="padding:22px">No rows.</td></tr>`;
+    }).join('') || `<tr><td colspan="${cols.length + delCol}" class="muted" style="padding:22px">No rows.</td></tr>`;
     $('tbody').querySelectorAll('.hide-chk').forEach(chk => chk.addEventListener('change', onHideToggle));
     $('tbody').querySelectorAll('.edit-cell').forEach(sel => sel.addEventListener('change', onEditCell));
+    $('tbody').querySelectorAll('.del-btn').forEach(btn => btn.addEventListener('click', onDeleteRow));
     // Colour-coded enums (users.status): re-tint the select the moment its value changes.
     $('tbody').querySelectorAll('select[data-colorenum]').forEach(sel => sel.addEventListener('change', () => {
       [...sel.classList].forEach(cl => { if (cl.startsWith('v-')) sel.classList.remove(cl); });

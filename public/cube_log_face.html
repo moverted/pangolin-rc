@@ -259,6 +259,12 @@
   .sfbtn.logpart{ --accent:var(--text);  --flipfg:#1a1206;         border-color:var(--accent); color:var(--accent); }
   .sfbtn.continue{ --accent:var(--text); --flipfg:#1a1206;         border-color:var(--accent); color:var(--accent); }
   .sfbtn.finish{ --accent:var(--green); --flipfg:#06140b;          border-color:var(--accent); color:var(--accent); }
+  /* Co-view card is up: START → REPLAY (amber-ish, matches the friend card) and FINISH →
+     CANCEL (neutral). These win over the state-machine classes while the card shows. */
+  .sfbtn.replaymode{ --accent:var(--friend); color:var(--friend); border-color:var(--friend);
+    background:rgba(240,192,112,.08); }
+  .sfbtn.cancelmode{ --accent:#f3a6a0; color:#f3a6a0; border-color:rgba(243,140,132,.6);
+    background:rgba(126,42,36,.22); box-shadow:none; animation:none; }
   /* Called out when the episode-end timer ran out while you were away in the streamer:
      the finish is waiting for your confirming tap. A green glow-pulse pulls the eye
      without changing the button's action. */
@@ -309,21 +315,30 @@
   .mic-center.recording svg, .mic-center.replymode svg{ display:none; }
   .mic-center #micLabel{ font-size:20px; font-weight:700; font-family:var(--mono); letter-spacing:.05em; }
   .mic-center.replymode #micLabel{ font-size:13px; }
-  /* Co-view notification: a friend's comment surfacing at its mark slides in from the
-     top like an OS notification. Tap to play (a tap also guarantees audio on iOS). */
-  .coview-toast{ position:absolute; left:10px; right:10px; top:8px; z-index:60;
-    display:flex; align-items:center; gap:10px; padding:9px 11px; border-radius:13px;
-    background:rgba(20,16,10,.94); border:1px solid var(--friend); color:var(--text);
-    box-shadow:0 12px 34px rgba(0,0,0,.55); cursor:pointer; font-family:var(--body);
-    transform:translateY(-150%); opacity:0; transition:transform .34s ease, opacity .34s ease; }
-  .coview-toast.show{ transform:translateY(0); opacity:1; }
-  .coview-toast .ct-ico{ width:34px; height:34px; flex-shrink:0; border-radius:50%;
-    display:flex; align-items:center; justify-content:center; font-size:17px;
+  /* Co-view: a friend's comment surfacing at its mark, shown as a card tucked between the
+     progress bar and the START/mic/FINISH row. It carries NO buttons of its own — while
+     it's up, START becomes REPLAY, the centre mic runs the reply countdown, and FINISH
+     becomes CANCEL. Holds through the audio, then lingers ~15s (or until the next comment
+     replaces it), whichever's sooner. Tap the body to play (a tap also guarantees audio). */
+  /* The group box is drawn ONLY while a comment is up (.boxed) — one rounded-rect border
+     wrapping the quote AND the START/mic/FINISH row together. */
+  .cvgroup.boxed{ margin-top:2px; padding:12px 13px 13px; border-radius:14px;
+    background:linear-gradient(160deg, rgba(30,24,17,.98), rgba(17,13,9,.98));
+    border:1px solid var(--friend); box-shadow:0 12px 30px rgba(0,0,0,.5); }
+  .cvgroup.boxed .startfin{ margin-top:0; }
+  /* The quote is borderless content inside the group box. */
+  .coview-inline{ margin:0 0 11px; color:var(--text); cursor:pointer; font-family:var(--body);
+    transform:translateY(-6px); opacity:0; transition:transform .28s ease, opacity .28s ease; }
+  .coview-inline.show{ transform:none; opacity:1; }
+  .coview-inline .ct-head{ display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+  .coview-inline .ct-ico{ width:26px; height:26px; flex-shrink:0; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
     background:rgba(240,192,112,.2); border:2px solid var(--friend); color:var(--friend); }
-  .coview-toast .ct-body{ flex:1; min-width:0; }
-  .coview-toast .ct-who{ color:var(--friend); font-weight:700; font-size:13px; }
-  .coview-toast .ct-txt{ font-size:12px; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .coview-toast .ct-x{ flex-shrink:0; color:var(--dim); font-size:15px; padding:2px 4px; }
+  .coview-inline .ct-who{ color:var(--friend); font-weight:700; font-size:13px; }
+  .coview-inline .ct-when{ color:var(--dim); font-size:11px; font-family:var(--mono);
+    letter-spacing:.02em; margin-left:auto; white-space:nowrap; }
+  .coview-inline .ct-x{ flex-shrink:0; color:var(--dim); font-size:15px; padding:0 2px; }
+  .coview-inline .ct-txt{ color:var(--text); font-weight:700; font-size:19px; line-height:1.28; }
   /* Mic for audio comments: narrow, sits at the end of the logging row */
   .sfbtn.mic{ flex:0 0 auto; padding-left:15px; padding-right:15px; font-size:14px;
     --accent:var(--amber); border-color:var(--accent); color:var(--accent); }
@@ -497,6 +512,70 @@
   .syn{ font-size:17px; }
   .credits{ font-size:14px; }
   .note{ font-size:14px; }
+
+  /* ===== End-of-episode friend end-notes interstitial (finish → here → Pierre) ===== */
+  #endnoteOverlay{ position:fixed; inset:0; z-index:120; display:none; flex-direction:column;
+    background:#0b0907; color:var(--text); font-family:var(--body);
+    padding:calc(env(safe-area-inset-top,0px) + 42px) 20px calc(env(safe-area-inset-bottom,0px) + 18px); }
+  #endnoteOverlay.show{ display:flex; }
+  .en-kick{ font-family:var(--mono); font-size:11px; letter-spacing:.18em; color:var(--green); text-transform:uppercase; margin-bottom:6px; }
+  .en-epline{ font-family:var(--mono); font-size:12px; color:var(--faint); margin-bottom:14px; }
+  .en-h1{ font-size:23px; font-weight:800; line-height:1.15; margin:0 0 4px; }
+  .en-sub{ color:var(--dim); font-size:13px; margin:0 0 16px; }
+  #enQueue{ flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+  .enq-card{ border:1px solid var(--friend); border-radius:16px; padding:14px 15px; margin-bottom:13px;
+    background:linear-gradient(160deg, rgba(30,24,17,.98), rgba(17,13,9,.98)); box-shadow:0 10px 26px rgba(0,0,0,.4);
+    transition:opacity .3s ease, transform .3s ease; }
+  .enq-card.clearing{ opacity:0; transform:scale(.96) translateY(-8px); }
+  .enq-head{ display:flex; align-items:center; gap:9px; margin-bottom:9px; }
+  .enq-av{ width:30px; height:30px; border-radius:50%; flex:none; display:flex; align-items:center; justify-content:center;
+    font-weight:800; font-size:13px; background:rgba(240,192,112,.2); border:2px solid var(--friend); color:var(--friend); }
+  .enq-who{ font-weight:700; font-size:14px; color:var(--friend); }
+  .enq-chip{ margin-left:auto; font-family:var(--mono); font-size:9.5px; letter-spacing:.12em; padding:3px 8px; border-radius:999px;
+    background:rgba(91,191,123,.14); border:1px solid rgba(91,191,123,.5); color:var(--green); }
+  .enq-chip.splr{ background:rgba(126,42,36,.2); border-color:rgba(243,140,132,.5); color:#f3a6a0; }
+  .enq-txt{ font-size:17px; font-weight:700; line-height:1.3; margin-bottom:12px; }
+  .enq-actions{ display:flex; gap:8px; align-items:stretch; }
+  .enq-btn{ border:none; border-radius:999px; padding:11px 12px; font-family:var(--body); font-weight:700; font-size:13px;
+    display:flex; align-items:center; justify-content:center; gap:6px; cursor:pointer; -webkit-tap-highlight-color:transparent; }
+  /* Play is the SAME circular control as the reply mic: a round amber button with the
+     shared clip-ring (_RING_SVG) filling around it as the audio plays — see playClip(). */
+  .enq-btn.play{ flex:none; width:52px; height:52px; padding:0; border-radius:50%; position:relative;
+    background:rgba(240,169,59,.2); color:var(--friend); box-shadow:inset 0 0 0 1px rgba(240,192,112,.45); }
+  .enq-btn.play svg{ width:20px; height:20px; }
+  .enq-btn.play:active{ transform:scale(.95); }
+  .enq-btn.thumb{ flex:none; width:48px; background:rgba(255,255,255,.06); color:var(--dim); font-size:17px; box-shadow:inset 0 0 0 1px rgba(255,255,255,.14); }
+  .enq-btn.reply{ flex:1; background:var(--green); color:#0c1a0f; }
+  .en-gate{ margin-top:10px; display:flex; align-items:center; justify-content:center; gap:9px; width:100%;
+    border:1px dashed rgba(255,255,255,.16); border-radius:16px; padding:14px; background:rgba(255,255,255,.02);
+    color:var(--faint); font-weight:600; font-size:13px; }
+  .en-gate img{ width:22px; height:22px; opacity:.5; filter:grayscale(1); }
+  /* reply composer + share screen overlay the queue */
+  #enComposer, #enShare{ position:absolute; inset:0; z-index:2; display:none; flex-direction:column;
+    background:#0b0907; padding:calc(env(safe-area-inset-top,0px) + 42px) 20px calc(env(safe-area-inset-bottom,0px) + 18px); }
+  #enComposer.show, #enShare.show{ display:flex; }
+  .enc-to{ color:var(--dim); font-size:13px; margin-bottom:8px; } .enc-to b{ color:var(--friend); }
+  .enc-quote{ border-left:2px solid var(--friend); padding:2px 0 2px 12px; margin-bottom:16px; color:var(--dim); font-size:14px; font-style:italic; }
+  #enReplyText{ width:100%; box-sizing:border-box; min-height:120px; resize:none; border-radius:14px; padding:14px;
+    border:1px solid rgba(108,192,112,.4); background:rgba(255,255,255,.05); color:#fff; font-family:inherit; font-size:16px; }
+  .enc-or{ text-align:center; color:var(--faint); font-size:12px; margin:14px 0; letter-spacing:.08em; }
+  #enReplyRec{ display:flex; align-items:center; justify-content:center; gap:10px; width:100%; border:1px solid var(--friend);
+    border-radius:14px; padding:14px; background:rgba(240,192,112,.08); color:var(--friend); font-weight:700; font-size:15px; cursor:pointer; }
+  #enReplyRec.recording{ border-color:#e06a5f; color:#f3a6a0; background:rgba(126,42,36,.2); }
+  #enReplyRec.done{ border-color:var(--green); color:var(--green); background:rgba(91,191,123,.08); }
+  .enc-actions{ margin-top:auto; display:flex; gap:10px; }
+  .enc-actions button{ flex:1; border:none; border-radius:14px; padding:15px; font-family:inherit; font-weight:800; font-size:15px; cursor:pointer; }
+  #enReplyCancel{ background:rgba(255,255,255,.1); color:var(--text); }
+  #enReplySend{ background:var(--green); color:#0c1a0f; } #enReplySend:disabled{ opacity:.5; }
+  .ens-kick{ font-family:var(--mono); font-size:11px; letter-spacing:.16em; color:var(--faint); text-transform:uppercase; margin-bottom:14px; }
+  #enShareImg{ display:block; width:min(320px,84%); margin:0 auto; border-radius:18px; box-shadow:0 18px 46px rgba(0,0,0,.55); }
+  .ens-hint{ color:var(--dim); font-size:12px; text-align:center; margin:18px 0 12px; }
+  .ens-row{ display:flex; justify-content:space-between; gap:8px; }
+  .ens-item{ display:flex; flex-direction:column; align-items:center; gap:6px; flex:1; cursor:pointer; -webkit-tap-highlight-color:transparent; }
+  .ens-ic{ width:52px; height:52px; border-radius:16px; display:flex; align-items:center; justify-content:center; color:#fff; font-size:20px; background:#3a3a3c; }
+  .ens-ic.ig{ background:linear-gradient(45deg,#feda75,#fa7e1e,#d62976,#962fbf,#4f5bd5); }
+  .ens-lbl{ font-size:10.5px; color:var(--dim); text-align:center; line-height:1.2; }
+  #enShareDone{ margin-top:auto; border:none; border-radius:14px; padding:15px; background:rgba(255,255,255,.1); color:var(--text); font-weight:800; font-size:15px; cursor:pointer; }
 </style>
 </head>
 <body>
@@ -512,15 +591,40 @@
   <symbol id="mkLeaf" viewBox="0 0 24 24"><path fill="url(#mkLeafG)" d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path fill="none" stroke="#e7fbee" stroke-width="1.6" stroke-linecap="round" d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></symbol>
 </defs></svg>
 <div class="face" id="face">
+  <!-- End-of-episode friend end-notes interstitial: shown after you finish an episode,
+       before Pierre's interview. Queue of friends' end-notes → Play/Replay · 👍 clear ·
+       Reply (voice or text) → shareable comment+reply card. No dismissal; clear the queue. -->
+  <div id="endnoteOverlay">
+    <div class="en-kick">Episode finished</div>
+    <div class="en-epline" id="enEpline"></div>
+    <div class="en-h1" id="enH1">Friends left end notes</div>
+    <div class="en-sub" id="enSub">Now that you've finished, here's what they thought.</div>
+    <div id="enQueue"></div>
+    <div class="en-gate" id="enGate"><img src="/pierre-host.png" alt="">Pierre unlocks once these are cleared</div>
+
+    <div id="enComposer">
+      <div class="en-kick">Reply</div>
+      <div class="enc-to">to <b id="encWho"></b></div>
+      <div class="enc-quote" id="encQuote"></div>
+      <textarea id="enReplyText" placeholder="Type your reply&hellip;" maxlength="2000"></textarea>
+      <div class="enc-or">&mdash; or &mdash;</div>
+      <button id="enReplyRec">🎙 Record voice reply</button>
+      <div class="enc-actions"><button id="enReplyCancel">Cancel</button><button id="enReplySend">Send</button></div>
+    </div>
+
+    <div id="enShare">
+      <div class="ens-kick" id="ensKick">Reply sent · share it</div>
+      <img id="enShareImg" alt="your reply card">
+      <div class="ens-hint" id="ensHint">Share your reply &mdash; or anywhere</div>
+      <div class="ens-row" id="ensRow"></div>
+      <button id="enShareDone">Done</button>
+    </div>
+  </div>
   <div class="bg bg-fallback" id="bg"></div>
   <div class="scrim"></div>
 
-  <!-- co-view notification: a friend's comment surfacing at its mark slides in here -->
-  <div id="coviewToast" class="coview-toast" style="display:none;">
-    <div class="ct-ico"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></div>
-    <div class="ct-body"><div class="ct-who"></div><div class="ct-txt"></div></div>
-    <div class="ct-x">✕</div>
-  </div>
+  <!-- (co-view comment surfaces inline between the progress bar and the START/mic/FINISH
+       row — see #coviewInline below) -->
 
   <!-- fixed top bar (Feed-style): stays put while the content below scrolls -->
   <div class="topbar">
@@ -583,6 +687,18 @@
             <span class="center" id="minMid">— min</span>
             <span class="d faint" id="minRem">— min</span>
           </div>
+          <!-- Co-view group: when a friend's comment is up, one box wraps the quote AND the
+               START/mic/FINISH row. The card carries no buttons — while it's up, START becomes
+               REPLAY, the centre mic runs the reply countdown, and FINISH becomes CANCEL. -->
+          <div id="cvGroup" class="cvgroup">
+          <div id="coviewInline" class="coview-inline" style="display:none;">
+            <div class="ct-head">
+              <div class="ct-ico"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></div>
+              <div class="ct-who"></div>
+              <div class="ct-when"></div>
+            </div>
+            <div class="ct-txt"></div>
+          </div>
           <!-- manual session logging: start a watch, log a partial, or finish -->
           <div class="startfin">
             <button class="sfbtn start" id="startEpBtn">START</button>
@@ -597,6 +713,7 @@
             </button>
             <button class="sfbtn finish" id="finishEpBtn">FINISH</button>
           </div>
+          </div><!-- /cvGroup -->
         </div>
       </div>
     </div>
@@ -1005,8 +1122,8 @@ function forceSeriesNote(){
   const payload={ intent:'series-note', scope:'series', finished:true, show:curShowName, titleId:curShowId,
                   ep: finale?epCode(finale):'', runtime: finale?(finale.runtime||avgRuntime):avgRuntime,
                   episodeCount:dg.episodeCount, daysWatched:dg.daysWatched, seasonCount:dg.seasonCount, yearsSpan:dg.yearsSpan };
-  if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('pierre', payload);
-  else window.parent.postMessage({type:'cube:rotateTo', face:'pierre', payload}, '*');
+  // Friends' end-notes on the series finale surface first (if any), then the series reflection.
+  interstitialThenPierre(payload.ep, ()=>rotateToPierre(payload));
 }
 function markWatchedThrough(i){
   if(i+1>watched) watched=i+1;
@@ -1054,8 +1171,8 @@ function forceSeasonNote(finishedSeason, dg){
   const payload={ intent:'season-note', scope:'season', finished:true, show:curShowName, titleId:curShowId,
                   seasonNum:finishedSeason, ep: finale?epCode(finale):'', runtime: finale?(finale.runtime||avgRuntime):avgRuntime,
                   episodeCount:dg.episodeCount, daysWatched:dg.daysWatched };
-  if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('pierre', payload);
-  else window.parent.postMessage({type:'cube:rotateTo', face:'pierre', payload}, '*');
+  // Friends' end-notes on the season finale surface first (if any), then the season reflection.
+  interstitialThenPierre(payload.ep, ()=>rotateToPierre(payload));
 }
 function switchToSeason(season){
   const next=allEps.filter(e=>sNum(e)===season);
@@ -1771,14 +1888,16 @@ const REPLY_WINDOW_S = 15;   // seconds = ticks on the REPLY mic; only runs whil
 let activeReply = null;      // { c } — the one comment currently answerable
 let replySecsLeft = 0;       // seconds remaining; only ticks while the app is visible
 let _replyInterval = null;
+let replyPaused = false;     // true once Reply is tapped — the countdown freezes while you compose
 
 function armReplyWindow(c, secs){
   activeReply = { c };
   replySecsLeft = secs;
+  replyPaused = false;       // a freshly-armed window starts running
   if(!_replyInterval){
     _replyInterval = setInterval(()=>{
       if(!activeReply){ clearInterval(_replyInterval); _replyInterval=null; return; }
-      if(document.hidden || isRecording) return;   // sleep + recording don't count
+      if(document.hidden || isRecording || replyPaused) return;   // sleep, recording, or composing a reply → paused
       replySecsLeft--;
       if(replySecsLeft<=0){ closeReplyWindow(); return; }
       _syncReplySegs();
@@ -1787,7 +1906,7 @@ function armReplyWindow(c, secs){
   updateMicMode(); _buildReplyRing();
 }
 function closeReplyWindow(){
-  activeReply = null; replySecsLeft = 0;
+  activeReply = null; replySecsLeft = 0; replyPaused = false;
   if(_replyInterval){ clearInterval(_replyInterval); _replyInterval=null; }
   updateMicMode();
 }
@@ -1827,41 +1946,81 @@ function surfaceCoview(c, autoplay){
   if(!c || !c.audioUrl) return;
   armReplyWindow(c, REPLY_WINDOW_S);
   showCoviewToast(c);
-  if(autoplay){
-    playClip(c.audioUrl, null, { silent:true, onEnded:()=>{
-      if(activeReply && activeReply.c.id===c.id) armReplyWindow(c, REPLY_WINDOW_S);
-    }});
-  }
+  if(autoplay) _ctPlay(c, true);   // live crossing → autoplay, then linger after the voice
 }
 
-// A friend's comment just reached its mark → slide a notification in from the top.
-// Tapping it plays the clip (a user tap guarantees audio even where autoplay is
-// blocked) and leaves the REPLY mic armed; ✕ or a timeout dismisses it.
-let _toastTimer = null;
-function showCoviewToast(c){
-  const t=$('coviewToast'); if(!t || !c) return;
-  t.querySelector('.ct-who').textContent = c.author || 'friend';
-  const preview = (c.text && c.text !== 'Audio recorded') ? c.text : 'voice comment';
-  t.querySelector('.ct-txt').textContent = `${c.epCode} ${c.time} · ${preview}`;
-  t.style.display='flex';
-  requestAnimationFrame(()=> t.classList.add('show'));
-  t.onclick=(e)=>{
-    if(e.target.classList.contains('ct-x')){ hideCoviewToast(); return; }
-    // Explicit tap → audio is guaranteed; re-arm the full window so the mic goes green.
-    armReplyWindow(c, REPLY_WINDOW_S);
-    playClip(c.audioUrl, null, { onEnded:()=>{
-      if(activeReply && activeReply.c.id===c.id) armReplyWindow(c, REPLY_WINDOW_S);
-    }});
-    hideCoviewToast();
-  };
+// A friend's comment just reached its mark → slide a card in between the progress bar and
+// the START/mic/FINISH row. The card carries no buttons: while it's up the three watch
+// buttons become its controls — START→REPLAY, the centre mic runs the reply countdown,
+// FINISH→CANCEL (see applyCoviewButtons). It holds through the audio, then lingers
+// COVIEW_LINGER_MS (or until the next comment replaces it), whichever's sooner.
+const COVIEW_LINGER_MS = 15000;
+let _toastTimer = null, _coviewToastClip = null, coviewActive = false;
+
+// Keep the card up COVIEW_LINGER_MS longer, then hide.
+function _ctLinger(){
   if(_toastTimer) clearTimeout(_toastTimer);
-  _toastTimer=setTimeout(hideCoviewToast, 9000);
+  _toastTimer = setTimeout(hideCoviewToast, COVIEW_LINGER_MS);
 }
+// Play (or Replay) the surfaced clip. The reply countdown PAUSES while the voice plays and
+// resumes when it ends — and on that restart it's topped back up to at least
+// REPLY_MIN_AFTER_REPLAY seconds, so hitting Replay never leaves you with too little time to
+// answer. `silent` is the autoplay path (no user gesture).
+const REPLY_MIN_AFTER_REPLAY = 7;
+function _ctPlay(c, silent){
+  c = c || _coviewToastClip;
+  if(!c || !c.audioUrl) return;
+  if(!activeReply || activeReply.c.id!==c.id) armReplyWindow(c, REPLY_WINDOW_S);   // ensure a window exists
+  replyPaused = true;                                                // freeze the countdown while replaying
+  if(_toastTimer){ clearTimeout(_toastTimer); _toastTimer=null; }    // don't hide mid-voice
+  playClip(c.audioUrl, null, { silent:!!silent, onEnded:()=>{
+    if(activeReply && activeReply.c.id===c.id){
+      replySecsLeft = Math.max(replySecsLeft, REPLY_MIN_AFTER_REPLAY);   // guarantee ≥7s on restart
+      _buildReplyRing(); _syncReplySegs();
+    }
+    replyPaused = false;                                             // resume the countdown
+    _ctLinger();
+  }});
+}
+// Re-cast the three watch buttons as the card's controls. Called on show and re-applied at
+// the end of paint() so a repaint can't revert them while the card is up.
+function applyCoviewButtons(){
+  const st=$('startEpBtn'), fn=$('finishEpBtn');
+  if(st){ st.disabled=false; st.classList.remove('logpart','continue','greyed','dropstoday');
+    st.classList.add('replaymode'); st.textContent='REPLAY'; st.dataset.action='ctReplay'; }
+  if(fn){ fn.disabled=false; fn.classList.remove('callout');
+    fn.classList.add('cancelmode'); fn.textContent='CANCEL'; fn.dataset.action='ctCancel'; }
+  updateMicMode();   // the centre mic → green REPLY + countdown ring
+}
+function showCoviewToast(c){
+  const t=$('coviewInline'); if(!t || !c) return;
+  _coviewToastClip = c;
+  coviewActive = true;
+  t.querySelector('.ct-who').textContent = (c.author || 'a friend') + ' said';
+  t.querySelector('.ct-when').textContent = `${c.epCode} ${c.time}`;
+  const preview = (c.text && c.text !== 'Audio recorded') ? c.text : 'voice comment';
+  t.querySelector('.ct-txt').textContent = preview;
+  const g=$('cvGroup'); if(g) g.classList.add('boxed');   // one box around the quote + buttons
+  t.style.display='block';
+  requestAnimationFrame(()=> t.classList.add('show'));
+  // Tapping the card body plays the clip (dismiss is the CANCEL button).
+  t.onclick=()=> _ctPlay(c);
+  applyCoviewButtons();
+  _ctLinger();   // default lifetime; _ctPlay extends it through the voice + 15s after
+}
+// Dismiss the card AND hand the three buttons back to their normal watch roles.
 function hideCoviewToast(){
-  const t=$('coviewToast'); if(!t) return;
-  t.classList.remove('show');
+  const t=$('coviewInline');
+  coviewActive = false;
   if(_toastTimer){ clearTimeout(_toastTimer); _toastTimer=null; }
-  setTimeout(()=>{ if(!t.classList.contains('show')) t.style.display='none'; }, 360);
+  try{ closeReplyWindow(); }catch(_){}   // drop the reply window + revert the mic
+  const fn=$('finishEpBtn'); if(fn) fn.classList.remove('cancelmode');   // start's class is cleared by paint
+  const g=$('cvGroup'); if(g) g.classList.remove('boxed');
+  if(t){
+    t.classList.remove('show');
+    setTimeout(()=>{ if(!t.classList.contains('show')) t.style.display='none'; }, 300);
+  }
+  try{ paint(); }catch(_){}              // restore START / FINISH labels + actions
 }
 // The comment the REPLY mic points at: whatever's inside its (still-open) window
 // and that you haven't already answered.
@@ -1896,6 +2055,7 @@ let pendingReply = null;   // the comment an in-flight audio recording is replyi
 // Tap on the green REPLY mic. OTT → record an audio reply; on-device → text+SMS.
 function replyTap(target){
   if(!target) return;
+  replyPaused = true;   // freeze the countdown the moment Reply is tapped (resumes/clears via closeReplyWindow)
   if(isOTT()){
     pendingReply = target;                 // tag the next recording as a reply
     recordAudioComment();
@@ -2246,7 +2406,7 @@ function finishEpisode(screening){
     _routedToPierre=false;
     finaleCheck();
     if(_suppressFinishRoute){ _suppressFinishRoute=false; return; }
-    if(!_routedToPierre) pierreFinishedNote(focus);
+    if(!_routedToPierre) routeFinishToPierre(focus);
     return;
   }
   const rt=runtimeOf(focus), now=Date.now();
@@ -2301,7 +2461,7 @@ function finishEpisode(screening){
   if(_suppressFinishRoute){ _suppressFinishRoute=false; return; }
   // Pierre catches the reaction while the credits roll — unless the finale or
   // season-wrap handoff already rotated the cube (they run their own Pierre flows).
-  if(!_routedToPierre) pierreFinishedNote(_noteIdx, _earlyWatched);
+  if(!_routedToPierre) routeFinishToPierre(_noteIdx, _earlyWatched);
 }
 let _suppressFinishRoute=false;
 
@@ -2389,7 +2549,7 @@ function paint(){
   const stBtn=$('startEpBtn');
   if(stBtn){
     stBtn.disabled = false;
-    stBtn.classList.remove('logpart', 'continue', 'greyed', 'dropstoday');
+    stBtn.classList.remove('logpart', 'continue', 'greyed', 'dropstoday', 'replaymode');
     // "Drops today" (airdate is the local calendar today) is out already, even though
     // released() waits for the full air-day to end -- so it is loggable now. Only a
     // genuinely future episode stays greyed/notify.
@@ -2511,6 +2671,9 @@ function paint(){
   if(_lastPaintFocus!==focus){ _lastPaintFocus=focus;
     if(_coviewFocus!==focus) loadCoview(); else paintTranscripts(); }
   reportCurrent();
+  // A co-view card is up → keep the three buttons cast as REPLAY / mic-countdown / CANCEL
+  // (the state machine above just reset them to their watch labels).
+  if(coviewActive) applyCoviewButtons();
 }
 
 // Season dots, colored by the episode convention.
@@ -2632,6 +2795,7 @@ $('startEpBtn').onclick=()=>{
   const btn=$('startEpBtn'); flashBtn(btn);
   primeAudio();   // ANY left-button tap (START/CONTINUE/LOG…) blesses audio for later autoplay
   const a=btn.dataset.action;
+  if(a==='ctReplay'){ _ctPlay(_coviewToastClip); return; }   // co-view card up → START is REPLAY
   if(a==='notify'){ swingToNotify(); return; }   // greyed START on an unaired episode → Pierre notify
   if(a==='log') logIt();
   else if(a==='rewatch') rewatchEpisode();
@@ -2678,7 +2842,10 @@ async function rewatchEpisode(){
     minPreview=null; awaitingLog=false; paint();
   }
 }
-$('finishEpBtn').onclick=()=>{ clearFinishCallout(); flashBtn($('finishEpBtn')); if(isTheater()) openTicket(); else finishEpisode(); };
+$('finishEpBtn').onclick=()=>{
+  if(coviewActive){ flashBtn($('finishEpBtn')); hideCoviewToast(); return; }   // co-view card up → FINISH is CANCEL
+  clearFinishCallout(); flashBtn($('finishEpBtn')); if(isTheater()) openTicket(); else finishEpisode();
+};
 
 // Call the FINISH button out (green glow-pulse) when the member returns from a watch
 // whose episode-end timer already ran out: the finish is staged and just needs their
@@ -3405,10 +3572,260 @@ function renderSvcCorner(){
   updateTheaterUI();
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// End-of-episode friend end-notes interstitial. After you FINISH an episode, before
+// Pierre's interview, surface friends' end-notes (revealed on your finish) as a queue:
+// Play/Replay their audio, 👍 to clear one, or Reply (voice or text) → a shareable
+// comment+reply card. No dismissal — clearing the whole queue is what advances to Pierre.
+// ═══════════════════════════════════════════════════════════════════════════════
+let _enQueue=[], _enOnDone=null, _enActive=null, _enAudio=null, _enShareText='';
+
+function enEsc(s){ return (typeof cwEsc==='function') ? cwEsc(s) : String(s==null?'':s); }
+function enInitial(name){ return (String(name||'?').trim().charAt(0)||'?').toUpperCase(); }
+
+// Thumbs-acked end-notes, persisted per account+show (mirrors coviewHeard/coviewReplied).
+function endnoteAckKey(){ const e=(typeof acctEmail==='function'?acctEmail():''); return (curShowId&&e)?'pg_endnote_ack:'+e+':'+curShowId:null; }
+function endnoteAckSet(){ try{ return new Set(JSON.parse(localStorage.getItem(endnoteAckKey())||'[]')); }catch(_){ return new Set(); } }
+function endnoteMarkAck(id){ const k=endnoteAckKey(); if(!k||!id) return; const s=endnoteAckSet(); s.add(id); try{ localStorage.setItem(k, JSON.stringify([...s])); }catch(_){} }
+
+// Fetch friends' end-notes for a just-finished episode CODE (revealed because YOU finished
+// it). Keyed on episode code, not index, so it works even after a season wrap has swapped
+// `eps` to the next season.
+async function fetchFriendEndnotesByCode(epc){
+  const email=(typeof acctEmail==='function'?acctEmail():''); const set=(coviewFriends||[]).map(f=>f.email);
+  if(!curShowId||!email||!set.length||!epc) return [];
+  try{
+    const u=new URL(`${API_BASE}/transcribe/coview`);
+    u.search=new URLSearchParams({ showId:curShowId, episodeId:epc, email, with:set.join(','), seenMs:'0', finishedEps:epc }).toString();
+    const r=await fetch(u); if(!r.ok) return [];
+    const d=await r.json();
+    return (d.comments||[]).filter(c=>c.endNote && c.revealed && !c.replyTo).map(c=>({
+      id:c.id, author:c.author||'friend', authorEmail:c.authorEmail||'', epCode:c.episodeId||epc,
+      spoiler:!!c.spoiler, audioUrl:c.audioUrl||null, phone:c.phone||null,
+      text:(c.transcription&&c.transcription.trim())||'Audio note', show:curShowName||'' }));
+  }catch(_){ return []; }
+}
+function fetchFriendEndnotes(epIdx){ const e=eps[epIdx]; return e ? fetchFriendEndnotesByCode(epCode(e)) : Promise.resolve([]); }
+
+// Rotate the shell to Pierre with a reflection payload (the raw handoff the season/series/
+// finished-note flows all use).
+function rotateToPierre(payload){
+  if(typeof window.parent.cubeRotateTo==='function') window.parent.cubeRotateTo('pierre', payload);
+  else window.parent.postMessage({type:'cube:rotateTo', face:'pierre', payload}, '*');
+}
+// Shared choke point for EVERY end-of-episode/season/series finish: show the interstitial
+// first if there are unhandled friend end-notes on `epc`, otherwise run `go` (route to
+// Pierre) straight away — unchanged behaviour when there's nothing to surface.
+function interstitialThenPierre(epc, go){
+  if(DEMO || window.parent===window){ go(); return; }
+  fetchFriendEndnotesByCode(epc).then(notes=>{
+    const acked=endnoteAckSet(), replied=(typeof coviewRepliedSet==='function'?coviewRepliedSet():new Set());
+    const queue=notes.filter(n=> !acked.has(n.id) && !replied.has(n.id) && !coviewIsAnswered(n.id));
+    if(!queue.length){ go(); return; }
+    openEndnoteInterstitial(queue, go);
+  }).catch(go);
+}
+// The standard (mid-run) finish → Pierre path.
+function routeFinishToPierre(idx, earlyWatched){
+  const e=eps[idx];
+  interstitialThenPierre(e?epCode(e):'', ()=>{ try{ pierreFinishedNote(idx, earlyWatched); }catch(_){} });
+}
+
+function openEndnoteInterstitial(queue, onDone){
+  const ov=$('endnoteOverlay'); if(!ov){ onDone&&onDone(); return; }
+  _enQueue=queue.slice(); _enOnDone=onDone||null;
+  const first=queue[0]||{};
+  $('enEpline').textContent=((first.show||curShowName||'')+' · '+(first.epCode||'')).replace(/(^ · | · $)/,'').trim();
+  $('enComposer').classList.remove('show'); $('enShare').classList.remove('show');
+  renderEnQueue();
+  ov.classList.add('show');
+}
+function enFinishInterstitial(){
+  const ov=$('endnoteOverlay'); if(ov) ov.classList.remove('show');
+  try{ if(_enAudio) _enAudio.pause(); }catch(_){}
+  const done=_enOnDone; _enOnDone=null; _enQueue=[];
+  if(done) try{ done(); }catch(_){}
+}
+function renderEnQueue(){
+  const n=_enQueue.length;
+  $('enH1').textContent = n===1 ? 'A friend left an end note' : (n+' friends left end notes');
+  const host=$('enQueue'); host.innerHTML='';
+  _enQueue.forEach(c=>{
+    const card=document.createElement('div'); card.className='enq-card'; card.dataset.id=c.id;
+    const chip = c.spoiler ? '<span class="enq-chip splr">SPLR</span>' : '<span class="enq-chip">NOSP</span>';
+    card.innerHTML =
+      '<div class="enq-head"><div class="enq-av">'+enInitial(c.author)+'</div><div class="enq-who">'+enEsc(c.author)+'</div>'+chip+'</div>'+
+      '<div class="enq-txt">'+enEsc(c.text)+'</div>'+
+      '<div class="enq-actions">'+
+        (c.audioUrl?'<button class="enq-btn play" data-act="play" aria-label="Play voice note">'+_EN_PLAY_SVG+'</button>':'')+
+        '<button class="enq-btn thumb" data-act="thumb" aria-label="Acknowledge">👍</button>'+
+        '<button class="enq-btn reply" data-act="reply">Reply</button>'+
+      '</div>';
+    const pb=card.querySelector('[data-act=play]'); if(pb) pb.onclick=()=>enPlay(c, pb);
+    card.querySelector('[data-act=thumb]').onclick=()=>enThumb(c);
+    card.querySelector('[data-act=reply]').onclick=()=>enOpenReply(c);
+    host.appendChild(card);
+  });
+}
+// Speaker glyph that lives in the round Play button until it's tapped; playClip() stashes
+// it (dataset.glyph) and swaps in the pause icon + filling clip-ring while the note plays,
+// then restores it on end — the exact control the co-view reply mic uses.
+const _EN_PLAY_SVG = '<svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 4 20 12 6 20 6 4" fill="currentColor" stroke="none"/></svg>';
+// Play a friend's end-note through the shared clip player so it gets the same circular
+// button + countdown ring as the reply mic. Re-tap pauses; the ring fills as it plays.
+function enPlay(c, btn){ if(!c || !c.audioUrl) return; playClip(c.audioUrl, btn); }
+// 👍 = acknowledge & clear this note (the only way to dismiss one), then advance.
+function enThumb(c){ endnoteMarkAck(c.id); enClearCard(c.id); }
+function enClearCard(id){
+  _enQueue=_enQueue.filter(x=>x.id!==id);
+  const card=$('enQueue').querySelector('.enq-card[data-id="'+id+'"]');
+  if(card){ card.classList.add('clearing'); setTimeout(()=>{ card.remove(); afterEnQueueChange(); }, 300); }
+  else afterEnQueueChange();
+}
+function afterEnQueueChange(){
+  const n=_enQueue.length;
+  if(n===0){ enFinishInterstitial(); return; }   // queue clear → on to Pierre
+  $('enH1').textContent = n===1 ? 'A friend left an end note' : (n+' friends left end notes');
+}
+// ── Reply composer (voice or text) ──
+let _enRec=null, _enChunks=[], _enRecBlob=null, _enRecTimer=null, _enRecLeft=0;
+function enResetRec(){
+  _enRecBlob=null; if(_enRecTimer){ clearInterval(_enRecTimer); _enRecTimer=null; }
+  const b=$('enReplyRec'); if(b){ b.classList.remove('recording','done'); b.textContent='🎙 Record voice reply'; }
+}
+function enOpenReply(c){
+  _enActive=c;
+  $('encWho').textContent=c.author;
+  $('encQuote').textContent='“'+c.text+'”';
+  $('enReplyText').value=''; $('enReplySend').disabled=false;
+  enResetRec();
+  $('enComposer').classList.add('show');
+  try{ $('enReplyText').focus(); }catch(_){}
+}
+async function enToggleRec(){
+  const b=$('enReplyRec');
+  if(_enRec && _enRec.state!=='inactive'){ try{ _enRec.stop(); }catch(_){} return; }
+  let stream; try{ stream=await navigator.mediaDevices.getUserMedia({audio:true}); }
+  catch(_){ alert('Mic unavailable — type your reply instead.'); return; }
+  _enChunks=[]; _enRec=new MediaRecorder(stream);
+  _enRec.ondataavailable=e=>_enChunks.push(e.data);
+  _enRec.onstop=()=>{ try{ stream.getTracks().forEach(t=>t.stop()); }catch(_){}
+    _enRecBlob=new Blob(_enChunks, {type:(_enChunks[0]&&_enChunks[0].type)||'audio/webm'});
+    if(_enRecTimer){ clearInterval(_enRecTimer); _enRecTimer=null; }
+    b.classList.remove('recording'); b.classList.add('done'); b.textContent='✓ Voice reply recorded — tap to redo'; };
+  _enRec.start(); b.classList.remove('done'); b.classList.add('recording');
+  _enRecLeft=20; b.textContent='● Recording… tap to stop ('+_enRecLeft+'s)';
+  _enRecTimer=setInterval(()=>{ _enRecLeft--; if(_enRecLeft<=0){ try{_enRec.stop();}catch(_){} return; } b.textContent='● Recording… tap to stop ('+_enRecLeft+'s)'; },1000);
+}
+async function enSendReply(){
+  const c=_enActive; if(!c) return;
+  const email=(typeof acctEmail==='function'?acctEmail():''); if(!email){ alert('Sign in to reply.'); return; }
+  const text=($('enReplyText').value||'').trim();
+  if(!_enRecBlob && !text){ alert('Type or record a reply first.'); return; }
+  $('enReplySend').disabled=true;
+  let replyText=text;
+  try{
+    if(_enRecBlob){
+      const fd=new FormData();
+      fd.append('audio', _enRecBlob, 'reply.webm');
+      fd.append('episodeId', c.epCode); fd.append('showId', curShowId||''); fd.append('userEmail', email); fd.append('replyTo', c.id);
+      const r=await fetch(`${API_BASE}/transcribe`, {method:'POST', body:fd});
+      if(r.status===409){ const d=await r.json().catch(()=>({})); alert(d.error||'Someone already replied.'); enReplyLost(c); return; }
+      if(!r.ok) throw new Error('reply failed');
+      const d=await r.json(); replyText=(d.transcription||'').trim()||'🎙 voice reply';
+    } else {
+      const r=await fetch(`${API_BASE}/transcribe/reply`, {method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ email, showId:curShowId, episodeId:c.epCode, replyTo:c.id, text })});
+      if(r.status===409){ const d=await r.json().catch(()=>({})); alert(d.error||'Someone already replied.'); enReplyLost(c); return; }
+      if(!r.ok) throw new Error('reply failed');
+    }
+  }catch(_){ $('enReplySend').disabled=false; alert('Could not send — try again.'); return; }
+  try{ if(typeof coviewMarkReplied==='function') coviewMarkReplied(c.id); }catch(_){}
+  enShowShare(c, replyText);
+}
+// Lost the one-reply race → treat as handled, clear the card, back to queue.
+function enReplyLost(c){ try{ if(typeof coviewMarkReplied==='function') coviewMarkReplied(c.id); }catch(_){}
+  $('enComposer').classList.remove('show'); enClearCard(c.id); }
+
+// ── Shareable comment+reply card ──
+function enShowShare(c, replyText){
+  _enShareText=replyText;
+  $('enComposer').classList.remove('show');
+  $('ensKick').textContent='Reply sent · share it';
+  $('ensHint').textContent='Share your reply with '+c.author+' — or anywhere';
+  const img=$('enShareImg');
+  enRenderShareCard(c, replyText).then(url=>{ img.src=url; img.dataset.b64=(url.split(',')[1]||''); }).catch(()=>{});
+  buildEnShareRow(c);
+  $('enShareDone').onclick=()=>{ $('enShare').classList.remove('show'); enClearCard(c.id); };
+  $('enShare').classList.add('show');
+}
+function buildEnShareRow(c){
+  const row=$('ensRow'); if(!row) return; row.innerHTML='';
+  const items=[
+    {cls:'ig', ic:'◎', lbl:'DM '+enEsc(c.author)+'<br>on Instagram', act:()=>enShareImage()},
+    {ic:'✉', lbl:'Messages', bg:'#34c759', act:()=>enShareImage()},
+    {ic:'✆', lbl:'WhatsApp', bg:'#25d366', act:()=>enShareImage()},
+    {ic:'⧉', lbl:'Copy', act:()=>enCopyReply()},
+    {ic:'•••', lbl:'More', act:()=>enShareImage()},
+  ];
+  items.forEach(it=>{
+    const d=document.createElement('div'); d.className='ens-item';
+    const style=it.bg?(' style="background:'+it.bg+'"'):'';
+    d.innerHTML='<div class="ens-ic '+(it.cls||'')+'"'+style+'>'+it.ic+'</div><div class="ens-lbl">'+it.lbl+'</div>';
+    d.onclick=it.act; row.appendChild(d);
+  });
+}
+// Hand the rendered PNG to the shell's native share bridge (Instagram/Messages/etc).
+function enShareImage(){
+  const b64=$('enShareImg').dataset.b64; if(!b64) return;
+  try{ (window.parent||window).postMessage({ type:'pg:shareFile', dataB64:b64, name:'pangolinrc-reply.png', caption:'' }, '*'); }catch(_){}
+}
+function enCopyReply(){ try{ navigator.clipboard.writeText(_enShareText||''); const el=document.querySelector('.ens-item .ens-lbl'); }catch(_){} }
+// Draw the comment+reply card to a PNG data URL.
+function _cvRR(x,rx,ry,w,h,r){ x.beginPath(); x.moveTo(rx+r,ry); x.arcTo(rx+w,ry,rx+w,ry+h,r); x.arcTo(rx+w,ry+h,rx,ry+h,r); x.arcTo(rx,ry+h,rx,ry,r); x.arcTo(rx,ry,rx+w,ry,r); x.closePath(); }
+function _cvWrap(x, text, px, py, maxW, lh){
+  const words=String(text||'').split(/\s+/); let line='';
+  for(const wd of words){ const t=line?line+' '+wd:wd; if(x.measureText(t).width>maxW && line){ x.fillText(line,px,py); py+=lh; line=wd; } else line=t; }
+  if(line){ x.fillText(line,px,py); py+=lh; } return py;
+}
+function _cvBlock(x, px, py, w, name, nameColor, quote, quoteColor){
+  x.fillStyle=nameColor; x.font='700 34px Inter, sans-serif'; x.fillText(name, px+48, py);
+  // avatar circle
+  x.beginPath(); x.arc(px+18, py-11, 20, 0, Math.PI*2); x.fillStyle='rgba(240,192,112,.2)'; x.fill();
+  x.lineWidth=3; x.strokeStyle=nameColor; x.stroke();
+  x.fillStyle=nameColor; x.font='800 22px Inter, sans-serif'; x.textAlign='center'; x.fillText(enInitial(name), px+18, py-3); x.textAlign='left';
+  py+=46; x.fillStyle=quoteColor; x.font='700 44px Inter, sans-serif';
+  return _cvWrap(x, quote, px, py, w, 58);
+}
+function enRenderShareCard(c, replyText){
+  return new Promise(res=>{
+    const W=1080, H=1350, cv=document.createElement('canvas'); cv.width=W; cv.height=H; const x=cv.getContext('2d');
+    let g=x.createLinearGradient(0,0,W,H); g.addColorStop(0,'#2b3a22'); g.addColorStop(.5,'#241c12'); g.addColorStop(1,'#100c08');
+    x.fillStyle=g; x.fillRect(0,0,W,H);
+    x.strokeStyle='rgba(240,192,112,.5)'; x.lineWidth=4; _cvRR(x,30,30,W-60,H-60,40); x.stroke();
+    const PAD=90; x.textBaseline='alphabetic';
+    x.fillStyle='#F8F2E8'; x.font='800 62px Inter, sans-serif'; x.fillText((c.show||'pangolinRC'), PAD, 170);
+    x.fillStyle='#D2C8B8'; x.font='30px "Space Mono", monospace'; x.fillText((c.epCode||'')+'   ·   END NOTE', PAD, 214);
+    let cy=320;
+    cy=_cvBlock(x, PAD, cy, W-PAD*2, c.author, '#F0C070', c.text, '#F8F2E8');
+    cy+=26; x.strokeStyle='rgba(240,192,112,.4)'; x.lineWidth=2; x.beginPath(); x.moveTo(PAD,cy); x.lineTo(W-PAD,cy); x.stroke(); cy+=64;
+    cy=_cvBlock(x, PAD, cy, W-PAD*2, 'You', '#FFFFFF', replyText, '#EAFBE9');
+    x.fillStyle='#A29684'; x.font='28px "Space Mono", monospace'; x.fillText('pangolinRC  ·  pangolinrc.com', PAD, H-96);
+    try{ res(cv.toDataURL('image/png')); }catch(_){ res(''); }
+  });
+}
+// Wire the composer + share buttons once (elements exist above this script).
+(function wireEndnoteInterstitial(){
+  const rec=$('enReplyRec'); if(rec) rec.onclick=enToggleRec;
+  const cancel=$('enReplyCancel'); if(cancel) cancel.onclick=()=>{ $('enComposer').classList.remove('show'); enResetRec(); };
+  const send=$('enReplySend'); if(send) send.onclick=enSendReply;
+})();
+
 // In a theater there are no live minutes to track: the FINISH button becomes the
 // ticket-upload prompt. Driven by chosenSvc, so it follows every pick/guess.
 function updateTheaterUI(){
   const fn=$('finishEpBtn'); if(!fn) return;
+  if(coviewActive) return;   // co-view card up → FINISH is CANCEL; don't relabel it
   fn.classList.toggle('finished', !!finishPrompt && !isTheater());
   if(isTheater()){ fn.textContent='TICKET'; fn.classList.add('theater'); }
   else { fn.textContent = finishPrompt ? 'FINISHED?' : 'FINISH'; fn.classList.remove('theater'); }

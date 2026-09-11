@@ -51,6 +51,15 @@ type Pivot = { label: string; columns: { key: string; label: string }[]; sql: (f
 // `enum` writes (default) validate value ∈ options → a dropdown. `int` writes take a
 // free whole number (e.g. episode runtime) → a number input, no options.
 type Write = { table: string; column: string; idColumn: string; kind?: 'enum' | 'int' | 'text' | 'bool'; options?: readonly string[] };
+// A row-level delete. `table`/`idColumn` are author-controlled literals; only the bound id
+// comes from the request. `cascadeDelete` removes dependent rows first (e.g. a marathon's
+// steps); `cascadeNull` clears foreign references instead of deleting them (e.g. a watcher's
+// active_map_id) so pointing rows aren't stranded but also aren't destroyed. Runs as one batch.
+type Delete = {
+  table: string; idColumn: string;
+  cascadeDelete?: { table: string; column: string }[];
+  cascadeNull?: { table: string; column: string }[];
+};
 
 interface Resource {
   label: string;
@@ -68,6 +77,7 @@ interface Resource {
   groupHeaderCols?: string[]; // col keys shown once in a group-header row (and dropped from the per-row columns)
   pivots?: Record<string, Pivot>;
   writes?: Record<string, Write>; // col key → inline-edit spec
+  del?: Delete;                   // row-level delete spec (renders a Delete action per row)
   reorder?: string;           // col key whose value is a 1..N rank the frontend can drag-reorder (renumbers + saves)
   reorderScope?: string;      // optional col key that sub-scopes the reorder (ranks are per this value, e.g. per kind)
   reorderCutCol?: string;     // optional bool col whose truthiness removes a row from ranking; toggling it compacts the scope
@@ -93,9 +103,51 @@ const LIST_TYPE_EXPR = "COALESCE(NULLIF(waitlist.list_type,''),'waitlist')";
 
 // Outreach (creators/influencers we contact). Status/Channel are the inline-edit
 // dropdowns; enums are shared across cols/filters/writes so they can't drift.
-const OUTREACH_STATUSES = ['Drafted', 'Sent', 'Replied', 'Converted', 'Declined', 'No Response'] as const;
+const OUTREACH_STATUSES = ['Drafted', 'Sent', 'Replied', 'Converted', 'Declined', 'Soft Decline', 'No Response'] as const;
 const OUTREACH_CHANNELS = ['DM', 'Email'] as const;
 const OUTREACH_PLATFORMS = ['Instagram', 'Twitter', 'TikTok', 'YouTube', 'Email', 'Other'] as const;
+
+// Follow-up cadence timing. Each next_due_at is RE-ANCHORED on the ACTUAL send date of the
+// prior step (see migration 0060), so a slow send just slides the whole schedule.
+const WK1_MS = 7 * 24 * 60 * 60 * 1000;    // initial → 1-week follow-up
+const MO1_MS = 30 * 24 * 60 * 60 * 1000;   // 1-week send → 1-month follow-up
+const FINAL_MS = 7 * 24 * 60 * 60 * 1000;  // 1-month send → soft-decline window
+// Statuses that keep the cadence live; any other status halts it.
+const CADENCE_ACTIVE = ['Sent', 'No Response'];
+// Statuses that terminate the cadence when set (clear next_due_at).
+const CADENCE_HALT = ['Replied', 'Converted', 'Declined', 'Soft Decline'];
+
+// A follow-up was just sent for `id`: stamp the real send time, bump the stage, and
+// re-anchor next_due_at off NOW. stage 0→1 (wk1 sent) schedules the 1-month; 1→2 (mo1
+// sent) schedules the final window; 2→3 closes. No-op past stage 2.
+async function advanceOutreachStage(env: Env, id: string, now: number): Promise<void> {
+  const row = await env.DB.prepare('SELECT follow_up_stage FROM outreach WHERE id = ?')
+    .bind(id)
+    .first<{ follow_up_stage: number }>();
+  if (!row) return;
+  const stage = row.follow_up_stage | 0;
+  if (stage === 0) {
+    await env.DB.prepare('UPDATE outreach SET follow_up_stage = 1, wk1_sent_at = ?, next_due_at = ? WHERE id = ?')
+      .bind(now, now + MO1_MS, id).run();
+  } else if (stage === 1) {
+    await env.DB.prepare('UPDATE outreach SET follow_up_stage = 2, mo1_sent_at = ?, next_due_at = ? WHERE id = ?')
+      .bind(now, now + FINAL_MS, id).run();
+  } else {
+    await env.DB.prepare('UPDATE outreach SET follow_up_stage = 3, next_due_at = NULL WHERE id = ?')
+      .bind(id).run();
+  }
+}
+
+// Unattended transition: any row whose final (post-1-month) window has lapsed with no reply
+// becomes 'Soft Decline'. Run lazily at the top of the follow-up/app-status reads (fires
+// whenever an admin foregrounds the app) — cheaper than a cron and only matters when surfaced.
+async function sweepOutreachSoftDecline(env: Env, now: number): Promise<void> {
+  await env.DB.prepare(
+    `UPDATE outreach SET status = 'Soft Decline', follow_up_stage = 3, next_due_at = NULL
+       WHERE follow_up_stage = 2 AND next_due_at IS NOT NULL AND next_due_at <= ?
+         AND status IN ('Sent', 'No Response')`,
+  ).bind(now).run();
+}
 // Funnel fold: match outreach.contact_email against the inbound tables so the view
 // shows live funnel state (member / waitlist status) instead of a hand-kept guess.
 // `o`/`ow`/`ou` are the aliases used in the outreach resource's FROM.
@@ -104,6 +156,15 @@ const OUTREACH_FUNNEL_EXPR = `CASE
   WHEN ou.email IS NOT NULL THEN 'Member'
   WHEN ow.email IS NOT NULL THEN 'Waitlist: ' || COALESCE(NULLIF(ow.status,''),'new')
   ELSE 'not in funnel' END`;
+
+// Follow-up cadence, human-readable: which stage is next and how close it is (or "DUE").
+// stage 0→wk1, 1→mo1, 2→final(soft-decline) window, 3/closed → em dash.
+const OUTREACH_CADENCE_EXPR = `CASE
+  WHEN o.follow_up_stage >= 3 OR o.next_due_at IS NULL THEN '—'
+  WHEN o.next_due_at <= strftime('%s','now')*1000 THEN
+    (CASE o.follow_up_stage WHEN 0 THEN 'wk1 DUE' WHEN 1 THEN 'mo1 DUE' ELSE 'final DUE' END)
+  ELSE (CASE o.follow_up_stage WHEN 0 THEN 'wk1' WHEN 1 THEN 'mo1' ELSE 'final' END)
+       || ' in ' || CAST((o.next_due_at - strftime('%s','now')*1000)/86400000 AS INT) || 'd' END`;
 
 // Millisecond epoch → local-ish date bucket. All created_at/updated_at are ms.
 const monthOf = (col: string) => `strftime('%Y-%m', ${col}/1000, 'unixepoch')`;
@@ -134,29 +195,31 @@ const SHARED_EXPR = `CASE
     THEN CASE WHEN watch_comment.private = 1 THEN 'journaled' ELSE 'shared' END
   ELSE '—' END`;
 
-// Serialized "All comments" feeder: one row per episode that has visible comments,
-// with every comment concatenated in order — "mm:ss text" for timed comments, "SPLR
-// text" for spoilers (matching the LOG/feed rendering). Hidden comments are excluded.
-// The inner ORDER BY runs before GROUP_CONCAT so the lines come out in play order.
+// Episode Feed: ONE ROW PER COMMENTER PER EPISODE — each user gets their own record. The
+// grouping key is (show, episode, author); a record covers one person's ORIGINAL comments
+// (reply_to IS NULL) on that episode. Replies aren't their own record — they thread under
+// the comment they answer, inside the parent author's record (built in TS below). The
+// serialized transcript text is filled by the list handler's post-process, not here.
 const EPISODE_COMMENTS_FROM = `(
-  SELECT wc.show_id AS show_id, wc.episode_id AS episode_id,
-         COUNT(*) AS comments, MAX(wc.created_at) AS last_at,
-         ('To listen along join.pangolinrc.com' || char(10) || char(10) || (SELECT GROUP_CONCAT(line, char(10)) FROM (
-            SELECT CASE
-                     WHEN w2.is_reflection = 1 OR w2.is_endnote = 1
-                       THEN CASE WHEN w2.spoiler = 1 THEN 'SPLR ' ELSE 'NOSP ' END
-                     ELSE printf('%02d:%02d ', w2.timestamp_ms/3600000, (w2.timestamp_ms/60000)%60)
-                   END || COALESCE(w2.transcription, '') AS line
-              FROM watch_comment w2
-             WHERE w2.show_id = wc.show_id AND w2.episode_id = wc.episode_id
-               AND COALESCE(w2.hidden, 0) = 0 AND COALESCE(w2.transcription, '') <> ''
-             ORDER BY (CASE WHEN w2.is_reflection = 1 OR w2.is_endnote = 1 THEN 1 ELSE 0 END) ASC,
-                      w2.timestamp_ms ASC, w2.created_at ASC
-         ))) AS all_comments
+  SELECT wc.show_id AS show_id, wc.episode_id AS episode_id, wc.user_email AS user_email,
+         COUNT(*) AS comments, MAX(wc.created_at) AS last_at
     FROM watch_comment wc
-   WHERE COALESCE(wc.hidden, 0) = 0 AND COALESCE(wc.transcription, '') <> ''
-   GROUP BY wc.show_id, wc.episode_id
-) AS ec LEFT JOIN titles ON titles.title_id = ec.show_id`;
+   WHERE COALESCE(wc.hidden, 0) = 0 AND COALESCE(wc.transcription, '') <> '' AND wc.reply_to IS NULL
+   GROUP BY wc.show_id, wc.episode_id, wc.user_email
+) AS ec
+  LEFT JOIN titles ON titles.title_id = ec.show_id
+  LEFT JOIN users cu ON cu.email = ec.user_email`;
+
+// ── Per-commenter transcript helpers (episode_comments) ──────────────────────
+const _TXT_HEAD = 'To listen along join.pangolinrc.com';
+function _cmMark(r: any): string {
+  if (r.is_reflection || r.is_endnote) return r.spoiler ? 'SPLR' : 'NOSP';
+  const s = Math.max(0, Math.floor((r.timestamp_ms || 0) / 1000));
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+}
+function _cmName(r: any): string {
+  return (r.username && String(r.username).trim()) || String(r.user_email || '').split('@')[0] || 'friend';
+}
 
 // Simple GROUP BY bucket → count pivot.
 function countPivot(label: string, groupExpr: string, bucketLabel = 'Value'): Pivot {
@@ -450,16 +513,18 @@ const RESOURCES: Record<string, Resource> = {
     label: 'Episode Feed',
     group: 'core',
     from: EPISODE_COMMENTS_FROM,
+    idExpr: "ec.show_id || '|' || ec.episode_id || '|' || ec.user_email",
     cols: [
       { key: 'show_name',    label: 'Show',         expr: 'COALESCE(titles.name, ec.show_id)' },
       { key: 'episode_id',   label: 'Episode',      expr: 'ec.episode_id' },
+      { key: 'commenter',    label: 'Commenter',    expr: 'COALESCE(cu.username, ec.user_email)' },
       { key: 'comments',     label: '#',            expr: 'ec.comments' },
-      { key: 'all_comments', label: 'All comments', expr: 'ec.all_comments' },
+      { key: 'all_comments', label: 'Comments',     expr: "''" },
       { key: 'last_at',      label: 'Last',         expr: 'ec.last_at' },
     ],
-    searchExprs: ['titles.name', 'ec.episode_id', 'ec.all_comments'],
+    searchExprs: ['titles.name', 'ec.episode_id', 'ec.user_email', 'cu.username'],
     sortDefault: 'last_at',
-    note: 'Serialized feeder: every episode with visible comments, all of them concatenated in play order — "mm:ss text" for timed comments, "SPLR text" for spoilers. Each feed opens with the call-to-action line "To listen along join.pangolinrc.com". Hidden comments are excluded. Read-only.',
+    note: 'One record PER COMMENTER per episode — each user gets their own row of the comments they left on that episode ("mm:ss text" timed, "SPLR/NOSP text" reflections/end-notes), opening with the call-to-action "To listen along join.pangolinrc.com". Replies are not their own record: they thread (↳ replier) under the comment they answer, inside that comment author\'s record. Hidden comments excluded. The Comments text + the ⧉ Copy payload are identical. Search/sort on Commenter to isolate your own seed/test rows. Read-only.',
   },
 
   waitlist: {
@@ -517,11 +582,15 @@ const RESOURCES: Record<string, Resource> = {
       { key: 'follower_count', label: 'Followers', expr: 'o.follower_count' },
       { key: 'channel',        label: 'Channel',   expr: 'o.channel' },
       { key: 'status',         label: 'Status',    expr: 'o.status' },
+      { key: 'cadence',        label: 'Cadence',   expr: OUTREACH_CADENCE_EXPR },
       { key: 'funnel',         label: 'Funnel',    expr: OUTREACH_FUNNEL_EXPR },
       { key: 'angle',          label: 'Angle',     expr: 'o.angle' },
       { key: 'date_contacted', label: 'Contacted', expr: 'o.date_contacted' },
       { key: 'contact_email',  label: 'Email',     expr: 'o.contact_email' },
       { key: 'notes',          label: 'Notes',     expr: 'o.notes' },
+      { key: 'initial_draft',  label: 'Initial Draft', expr: 'o.initial_draft' },
+      { key: 'one_week_draft', label: 'Wk1 Draft',     expr: 'o.one_week_draft' },
+      { key: 'one_month_draft',label: 'Mo1 Draft',     expr: 'o.one_month_draft' },
     ],
     searchExprs: ['o.name', 'o.handle', 'o.contact_email', 'o.angle', 'o.notes'],
     filters: [
@@ -544,6 +613,87 @@ const RESOURCES: Record<string, Resource> = {
       funnel:   countPivot('By funnel state', OUTREACH_FUNNEL_EXPR, 'Funnel'),
     },
     note: 'Creators/influencers WE reach out to (cold DM or email) — the top of the funnel, distinct from the inbound Waitlist. Status, Channel, Platform, Angle and Notes are editable inline. The Funnel column is derived, not typed: it matches this contact\'s Email against the Waitlist/Users tables and shows "Member", "Waitlist: <status>", "not in funnel", or "—" (no email on file) — so once someone fills join.pangolinrc.com you see it here without re-typing "Converted". Set Status = Converted when they take the action you asked for; the Funnel column confirms whether they actually landed in the funnel.',
+  },
+
+  marathons: {
+    label: 'Marathons',
+    group: 'secondary',
+    from: 'maps LEFT JOIN titles ON titles.title_id = maps.title_id',
+    idExpr: 'maps.map_id',
+    cols: [
+      { key: 'map_id',     label: 'Map ID',   expr: 'maps.map_id' },
+      { key: 'name',       label: 'Name',     expr: 'maps.name' },
+      { key: 'show_name',  label: 'Show',     expr: "COALESCE(titles.name, maps.title_id, 'cross-title')" },
+      { key: 'title_id',   label: 'Title ID', expr: "COALESCE(maps.title_id,'')" },
+      { key: 'kind',       label: 'Kind',     expr: 'maps.kind' },
+      { key: 'owner_email',label: 'Owner',    expr: "COALESCE(NULLIF(maps.owner_email,''),'global')" },
+      { key: 'steps',      label: 'Steps',    expr: '(SELECT COUNT(*) FROM map_steps ms WHERE ms.map_id = maps.map_id)' },
+      { key: 'order',      label: 'Order',    expr: "(SELECT GROUP_CONCAT(episode_id, ' → ') FROM (SELECT episode_id FROM map_steps WHERE map_id = maps.map_id ORDER BY position))" },
+      { key: 'blurb',      label: 'Blurb',    expr: "COALESCE(maps.blurb,'')" },
+      { key: 'blurb_by',   label: 'Blurb by', expr: "COALESCE(maps.blurb_by,'')" },
+      { key: 'created_at', label: 'Created',  expr: 'maps.created_at' },
+      { key: 'updated_at', label: 'Updated',  expr: 'maps.updated_at' },
+    ],
+    searchExprs: ['maps.map_id', 'maps.name', 'maps.blurb', 'titles.name'],
+    filters: [
+      { key: 'kind',  label: 'Kind',  expr: 'maps.kind', options: ['air_order', 'curated', 'user'] },
+      { key: 'owner', label: 'Owner', expr: "CASE WHEN maps.owner_email IS NULL OR maps.owner_email = '' THEN 'global' ELSE 'user' END", options: ['global', 'user'] },
+    ],
+    sortDefault: 'created_at',
+    writes: {
+      // Fully editable inline (Ted's call). map_id is the stable key and is not itself editable.
+      name:        { table: 'maps', column: 'name',        idColumn: 'map_id', kind: 'text' },
+      title_id:    { table: 'maps', column: 'title_id',    idColumn: 'map_id', kind: 'text' },
+      kind:        { table: 'maps', column: 'kind',        idColumn: 'map_id', options: ['air_order', 'curated', 'user'] },
+      owner_email: { table: 'maps', column: 'owner_email', idColumn: 'map_id', kind: 'text' },
+      blurb:       { table: 'maps', column: 'blurb',       idColumn: 'map_id', kind: 'text' },
+      blurb_by:    { table: 'maps', column: 'blurb_by',    idColumn: 'map_id', kind: 'text' },
+    },
+    pivots: {
+      kind:  countPivot('By kind', 'maps.kind', 'Kind'),
+      owner: countPivot('Global vs user-built', "CASE WHEN maps.owner_email IS NULL OR maps.owner_email = '' THEN 'global' ELSE 'user' END", 'Owner'),
+      show:  countPivot('By show', "COALESCE(titles.name, maps.title_id, 'cross-title')", 'Show'),
+    },
+    del: {
+      // Delete a marathon: drop its steps, un-point any watcher currently on it (clear
+      // active_map_id, don't delete the watch_title row), then remove the map itself.
+      table: 'maps', idColumn: 'map_id',
+      cascadeDelete: [{ table: 'map_steps', column: 'map_id' }],
+      cascadeNull: [{ table: 'watch_title', column: 'active_map_id' }],
+    },
+    note: 'Marathons = curated "maps": a member (or global) viewing order that overrides canonical air order when a watcher\'s active_map_id points at it. kind is air_order / curated (global, owner blank) / user (member-built). Name, Show (Title ID), Kind, Owner, Blurb and Blurb by are all editable inline — map_id is the fixed key and is not editable. The Order column previews the episode sequence; edit the actual steps on the Marathon steps tab. Delete (the ✕ at the end of each row) removes the marathon and its steps and un-points any watcher currently on it — it does NOT delete their viewing progress. This is consumer-facing in effect: a member watching that marathon falls back to canonical air order.',
+  },
+
+  marathon_steps: {
+    label: 'Marathon steps',
+    group: 'secondary',
+    from: 'map_steps ms JOIN maps ON maps.map_id = ms.map_id LEFT JOIN episodes e ON e.episode_id = ms.episode_id',
+    // map_steps has a composite PK (map_id, position) with no single-column id, so use the
+    // implicit rowid as the stable key for inline edits.
+    idExpr: 'ms.rowid',
+    cols: [
+      { key: 'marathon',        label: 'Marathon',   expr: 'maps.name' },
+      { key: 'map_id',          label: 'Map ID',     expr: 'ms.map_id' },
+      { key: 'position',        label: 'Pos',        expr: 'ms.position' },
+      { key: 'episode_name',    label: 'Episode',    expr: "COALESCE(e.name, '—')" },
+      { key: 'episode_id',      label: 'Episode ID', expr: 'ms.episode_id' },
+      { key: 'next_episode_id', label: 'Next ID',    expr: "COALESCE(ms.next_episode_id,'')" },
+    ],
+    searchExprs: ['maps.name', 'ms.map_id', 'ms.episode_id'],
+    filters: [{ key: 'map_id', label: 'Marathon', expr: 'ms.map_id' }],
+    sortDefault: 'position',
+    // Cluster by marathon, then walk positions in order.
+    defaultOrder: 'maps.name ASC, ms.map_id ASC, ms.position ASC',
+    groupBy: 'marathon',
+    groupHeaderCols: ['marathon', 'map_id'],
+    writes: {
+      // Episode wiring is editable inline (keyed by rowid). Position is display-only:
+      // it's half the primary key, so renumbering would risk a UNIQUE collision — edit
+      // ordering by rewriting the episode_id/next_episode_id at each step instead.
+      episode_id:      { table: 'map_steps', column: 'episode_id',      idColumn: 'rowid', kind: 'text' },
+      next_episode_id: { table: 'map_steps', column: 'next_episode_id', idColumn: 'rowid', kind: 'text' },
+    },
+    note: 'The ordered episode steps inside each marathon (from the Marathons tab). Filter or search to one marathon, then read down by Pos. Episode ID and Next ID are editable inline; Pos is the fixed step key and is not editable here.',
   },
 
   bug_report: {
@@ -767,11 +917,33 @@ const DATE_KEYS = new Set(['created_at', 'updated_at', 'started_at', 'last_share
 // filter/pivot options). No data, but still gated (it enumerates the schema).
 adminRoutes.get('/meta', async (c) => {
   const denied = adminGate(c); if (denied) return denied;
-  // Nav badges: unattended-work counters. Waitlist shows how many rows are still
-  // status='new' (untriaged signups). Cheap enough to compute on each meta load.
+  // Nav badges: unattended-work counters — one per tab so the number the app icon paints
+  // always resolves to a place in this nav. The app-icon badge is waitlistNew + getTedOpen
+  // + outreachDue (see POST /app-status); these three MUST use the SAME queries so a "1" on
+  // the phone lights up exactly one tab here. Cheap enough to compute on each meta load.
   const badges: Record<string, number> = {};
+  const nowTs = Date.now();
+  await sweepOutreachSoftDecline(c.env, nowTs);  // match /app-status: retire lapsed rows before counting
+
   const wlNew = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM waitlist WHERE status = 'new'").first<{ n: number }>();
   if (wlNew?.n) badges.waitlist = wlNew.n;
+
+  // Sessions waiting on Ted: distinct conversations with an open, unhandled escalation.
+  const gt = await c.env.DB
+    .prepare("SELECT COUNT(DISTINCT conversation_id) AS n FROM pierre_chat WHERE needs_ted = 1 AND COALESCE(ted_status,'') <> 'handled'")
+    .first<{ n: number }>();
+  if (gt?.n) badges.get_ted = gt.n;
+
+  // Outreach follow-ups due (stage 0/1 whose next_due_at has passed and still active).
+  const od = await c.env.DB
+    .prepare(
+      `SELECT COUNT(*) AS n FROM outreach
+        WHERE next_due_at IS NOT NULL AND next_due_at <= ? AND follow_up_stage < 2
+          AND status IN ('Sent', 'No Response')`,
+    )
+    .bind(nowTs)
+    .first<{ n: number }>();
+  if (od?.n) badges.outreach = od.n;
 
   const resources = Object.entries(RESOURCES).map(([key, r]) => ({
     key,
@@ -791,6 +963,7 @@ adminRoutes.get('/meta', async (c) => {
     reorder: r.reorder ?? null,
     reorderScope: r.reorder ? (r.reorderScope ?? null) : null,
     reorderCutCol: r.reorder ? (r.reorderCutCol ?? null) : null,
+    deletable: !!r.del,
     filters: (r.filters ?? []).map((f) => ({ key: f.key, label: f.label, options: f.options ?? null, multi: !!f.multi })),
     defaultFilters: r.defaultFilters ?? null,
     pivots: r.pivots ? Object.entries(r.pivots).map(([pk, p]) => ({ key: pk, label: p.label })) : [],
@@ -852,12 +1025,56 @@ adminRoutes.get('/list/:resource', async (c) => {
     c.env.DB.prepare(countSql).bind(...binds).first<{ n: number }>(),
   ]);
 
+  const rows = rowsRes.results ?? [];
+
+  // Episode Feed: one record per commenter. Build that commenter's transcript — their own
+  // ORIGINAL comments (in play order), each followed by any replies (threaded + attributed
+  // to the replier). Filled here because the nesting/attribution can't be done in SQL.
+  // `all_comments` = on-screen, `copy_text` = clipboard; identical.
+  if (c.req.param('resource') === 'episode_comments' && rows.length) {
+    await Promise.all(rows.map(async (row: any) => {
+      const [show, ep, author] = String(row._id || '').split('|');
+      if (!show || !ep || !author) return;
+      const { results: origs } = await c.env.DB.prepare(
+        `SELECT c.id, c.timestamp_ms, c.transcription, c.is_reflection, c.is_endnote, c.spoiler
+           FROM watch_comment c
+          WHERE c.show_id = ? AND c.episode_id = ? AND c.user_email = ? AND c.reply_to IS NULL
+            AND COALESCE(c.hidden, 0) = 0 AND COALESCE(c.transcription, '') <> ''
+          ORDER BY (CASE WHEN c.is_reflection = 1 OR c.is_endnote = 1 THEN 1 ELSE 0 END) ASC,
+                   c.timestamp_ms ASC, c.created_at ASC`
+      ).bind(show, ep, author).all();
+      const ids = (origs ?? []).map((o: any) => o.id);
+      const repliesOf = new Map<string, any[]>();
+      if (ids.length) {
+        const ph = ids.map(() => '?').join(',');
+        const { results: reps } = await c.env.DB.prepare(
+          `SELECT c.reply_to, c.transcription, c.user_email, u.username
+             FROM watch_comment c LEFT JOIN users u ON u.email = c.user_email
+            WHERE c.reply_to IN (${ph})
+              AND COALESCE(c.hidden, 0) = 0 AND COALESCE(c.transcription, '') <> ''
+            ORDER BY c.created_at ASC`
+        ).bind(...ids).all();
+        for (const rp of (reps ?? []) as any[]) {
+          (repliesOf.get(rp.reply_to) ?? repliesOf.set(rp.reply_to, []).get(rp.reply_to)!).push(rp);
+        }
+      }
+      const lines: string[] = [];
+      for (const o of (origs ?? []) as any[]) {
+        lines.push(`${_cmMark(o)} ${(o.transcription || '').trim()}`);
+        for (const rp of repliesOf.get(o.id) ?? []) lines.push(`    ↳ ${_cmName(rp)}: ${(rp.transcription || '').trim()}`);
+      }
+      const text = `${_TXT_HEAD}\n\n— ${row.commenter || author} —\n${lines.join('\n')}`;
+      row.all_comments = text;
+      row.copy_text = text;
+    }));
+  }
+
   return c.json({
     ok: true,
     total: countRes?.n ?? 0,
     limit, offset,
     sort: sortCol.key, dir: dir.toLowerCase(),
-    rows: rowsRes.results ?? [],
+    rows,
   });
 });
 
@@ -900,7 +1117,194 @@ adminRoutes.post('/app-status', async (c) => {
     .prepare("SELECT COUNT(DISTINCT conversation_id) AS n FROM pierre_chat WHERE needs_ted = 1 AND COALESCE(ted_status,'') <> 'handled'")
     .first<{ n: number }>();
   const getTedOpen = gt?.n ?? 0;
-  return c.json({ isAdmin: true, waitlistNew: wl?.n ?? 0, getTedOpen, adminUrl: 'https://admin.pangolinrc.com' });
+  // Outreach follow-ups due: sweep any lapsed soft-declines first, then count the open tasks
+  // (stage 0/1 whose next_due_at has passed) so the app badge reflects work waiting on Ted.
+  const nowTs = Date.now();
+  await sweepOutreachSoftDecline(c.env, nowTs);
+  const od = await c.env.DB
+    .prepare(
+      `SELECT COUNT(*) AS n FROM outreach
+        WHERE next_due_at IS NOT NULL AND next_due_at <= ? AND follow_up_stage < 2
+          AND status IN ('Sent', 'No Response')`,
+    )
+    .bind(nowTs)
+    .first<{ n: number }>();
+  const outreachDue = od?.n ?? 0;
+  return c.json({ isAdmin: true, waitlistNew: wl?.n ?? 0, getTedOpen, outreachDue, adminUrl: 'https://admin.pangolinrc.com' });
+});
+
+// POST /admin/outreach — create ONE outreach-tracker row from the in-app admin skill
+// (Pierre's Outreach draft). Distinct from the portal's password gate: this is called
+// inside the app by an admin user, so it's authed like /app-status (native app secret +
+// user_type='admin'), NOT USERS_ADMIN_PASSWORD. Mirrors scripts/outreach-seed.sql.
+function slugify(s: string): string {
+  const base = s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
+  return base || 'contact-' + Math.random().toString(36).slice(2, 8);
+}
+
+adminRoutes.post('/outreach', async (c) => {
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const email = (typeof body.email === 'string' ? body.email : '').trim().toLowerCase();
+  const appToken = typeof body.appToken === 'string' ? body.appToken : '';
+
+  // Same gate as /app-status: prove it's the real app AND an admin account.
+  const nativeOk = !!c.env.APP_NATIVE_SECRET && appToken.length > 0 && safeEqual(appToken, c.env.APP_NATIVE_SECRET);
+  if (!nativeOk) return c.json({ error: 'unauthorized' }, 401);
+  const u = email
+    ? await c.env.DB.prepare('SELECT user_type FROM users WHERE email = ?').bind(email).first<{ user_type: string | null }>()
+    : null;
+  if (u?.user_type !== 'admin') return c.json({ error: 'unauthorized' }, 401);
+
+  const str = (v: unknown, max = 2000) => (typeof v === 'string' ? v.slice(0, max) : '');
+  const name = str(body.name, 200).trim();
+  if (!name) return c.json({ error: 'name required' }, 400);
+
+  const id = slugify(typeof body.id === 'string' && body.id.trim() ? body.id : name);
+  const channel = (OUTREACH_CHANNELS as readonly string[]).includes(body.channel) ? body.channel : 'DM';
+  const status = (OUTREACH_STATUSES as readonly string[]).includes(body.status) ? body.status : 'Drafted';
+  const platform = (OUTREACH_PLATFORMS as readonly string[]).includes(body.platform) ? body.platform : str(body.platform, 40);
+  const fc = Number(body.follower_count);
+  const followers = Number.isFinite(fc) && fc >= 0 ? Math.trunc(fc) : null;
+  const now = Date.now();
+  const today = new Date().toISOString().slice(0, 10);
+
+  // Cadence init: if the contact is created already Sent, start the clock now — real send
+  // time + the 1-week follow-up due. Created as Drafted → cadence stays dormant until a
+  // later status change to Sent (handled in /outreach/update).
+  const sentNow = status === 'Sent';
+  const res = await c.env.DB.prepare(
+    `INSERT OR IGNORE INTO outreach
+       (id, name, handle, platform, follower_count, channel, status, angle, date_contacted, contact_email, notes,
+        initial_draft, initial_sent_at, next_due_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  )
+    .bind(
+      id, name, str(body.handle, 120), platform, followers, channel, status,
+      str(body.angle, 2000), today, str(body.contact_email, 200).trim().toLowerCase(),
+      str(body.notes, 2000), str(body.initial_draft, 4000),
+      sentNow ? now : null, sentNow ? now + WK1_MS : null, now,
+    )
+    .run();
+
+  // INSERT OR IGNORE: no change means the slug already exists (dupe contact).
+  return c.json({ ok: true, id, existed: !res.meta.changes });
+});
+
+// Shared in-app admin gate for the outreach endpoints: the same check as /app-status
+// (native app secret + user_type='admin'), NOT the portal password. Returns true if OK.
+async function appAdminOk(env: Env, email: string, appToken: string): Promise<boolean> {
+  const nativeOk = !!env.APP_NATIVE_SECRET && appToken.length > 0 && safeEqual(appToken, env.APP_NATIVE_SECRET);
+  if (!nativeOk || !email) return false;
+  const u = await env.DB.prepare('SELECT user_type FROM users WHERE email = ?')
+    .bind(email)
+    .first<{ user_type: string | null }>();
+  return u?.user_type === 'admin';
+}
+
+// POST /admin/outreach/followups — the in-app follow-up queue. Sweeps soft-declines first,
+// then returns the DUE tasks (a 1-week or 1-month follow-up to send). stage 2 rows are not
+// tasks (they auto-soft-decline via the sweep), so the queue is stage 0/1 only.
+adminRoutes.post('/outreach/followups', async (c) => {
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const email = (typeof body.email === 'string' ? body.email : '').trim().toLowerCase();
+  const appToken = typeof body.appToken === 'string' ? body.appToken : '';
+  if (!(await appAdminOk(c.env, email, appToken))) return c.json({ error: 'unauthorized' }, 401);
+
+  const now = Date.now();
+  await sweepOutreachSoftDecline(c.env, now);
+  const rs = await c.env.DB.prepare(
+    `SELECT id, name, handle, platform, channel, angle, contact_email, follow_up_stage,
+            initial_draft, one_week_draft, one_month_draft, initial_sent_at, wk1_sent_at, next_due_at
+       FROM outreach
+      WHERE next_due_at IS NOT NULL AND next_due_at <= ? AND follow_up_stage < 2
+        AND status IN ('Sent', 'No Response')
+      ORDER BY next_due_at ASC`,
+  ).bind(now).all();
+  const due = (rs.results || []).map((r: any) => ({
+    id: r.id, name: r.name, handle: r.handle, platform: r.platform, channel: r.channel,
+    angle: r.angle, contact_email: r.contact_email,
+    stage: r.follow_up_stage | 0,                          // 0 → wk1 due, 1 → mo1 due
+    kind: (r.follow_up_stage | 0) === 0 ? 'week' : 'month',
+    initial_draft: r.initial_draft || '', one_week_draft: r.one_week_draft || '', one_month_draft: r.one_month_draft || '',
+  }));
+  return c.json({ ok: true, due });
+});
+
+// POST /admin/outreach/update — { id, status?, note?, draft? }. Status change may halt the
+// cadence (clears next_due_at) or START it (Drafted→Sent inits stage 0). draft {stage,text}
+// stores a generated draft into the right column. Used by Pierre status-report + draft-store.
+adminRoutes.post('/outreach/update', async (c) => {
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const email = (typeof body.email === 'string' ? body.email : '').trim().toLowerCase();
+  const appToken = typeof body.appToken === 'string' ? body.appToken : '';
+  if (!(await appAdminOk(c.env, email, appToken))) return c.json({ error: 'unauthorized' }, 401);
+  // Resolve the row by explicit id, or by a fuzzy query (name/@handle/email) when Ted
+  // reports back via Pierre and only names the person.
+  let id = typeof body.id === 'string' ? body.id : '';
+  if (!id && typeof body.query === 'string' && body.query.trim()) {
+    const q = body.query.trim().replace(/^@+/, '');
+    const like = '%' + q.replace(/[%_]/g, '') + '%';
+    const hit = await c.env.DB.prepare(
+      'SELECT id FROM outreach WHERE name LIKE ? OR handle LIKE ? OR contact_email LIKE ? ORDER BY created_at DESC LIMIT 1',
+    ).bind(like, like, like).first<{ id: string }>();
+    if (hit) id = hit.id;
+  }
+  if (!id) return c.json({ error: 'id required' }, 400);
+  const row = await c.env.DB.prepare(
+    'SELECT status, initial_sent_at, follow_up_stage FROM outreach WHERE id = ?',
+  ).bind(id).first<{ status: string; initial_sent_at: number | null; follow_up_stage: number }>();
+  if (!row) return c.json({ error: 'not found' }, 404);
+  const now = Date.now();
+
+  // Draft store: write the generated stage draft into the matching column.
+  if (body.draft && typeof body.draft === 'object') {
+    const stage = Number(body.draft.stage);
+    const col = stage === 1 ? 'one_week_draft' : stage === 2 ? 'one_month_draft' : 'initial_draft';
+    const text = typeof body.draft.text === 'string' ? body.draft.text.slice(0, 4000) : '';
+    await c.env.DB.prepare(`UPDATE outreach SET ${col} = ? WHERE id = ?`).bind(text, id).run();
+  }
+
+  // Note: append (don't clobber) so the history builds up.
+  if (typeof body.note === 'string' && body.note.trim()) {
+    const note = body.note.trim().slice(0, 1000);
+    await c.env.DB.prepare(
+      "UPDATE outreach SET notes = CASE WHEN notes = '' THEN ? ELSE notes || char(10) || ? END WHERE id = ?",
+    ).bind(note, note, id).run();
+  }
+
+  // Status: validate, then reconcile the cadence.
+  if (typeof body.status === 'string' && (OUTREACH_STATUSES as readonly string[]).includes(body.status)) {
+    const status = body.status;
+    if (status === 'Sent' && row.initial_sent_at == null) {
+      // First send → start the clock (stage 0, 1-week follow-up due).
+      await c.env.DB.prepare(
+        'UPDATE outreach SET status = ?, initial_sent_at = ?, next_due_at = ?, follow_up_stage = 0 WHERE id = ?',
+      ).bind(status, now, now + WK1_MS, id).run();
+    } else if (CADENCE_HALT.includes(status)) {
+      // Reply/convert/decline halts the cadence.
+      await c.env.DB.prepare('UPDATE outreach SET status = ?, next_due_at = NULL WHERE id = ?').bind(status, id).run();
+    } else {
+      await c.env.DB.prepare('UPDATE outreach SET status = ? WHERE id = ?').bind(status, id).run();
+    }
+  }
+  return c.json({ ok: true, id });
+});
+
+// POST /admin/outreach/followup-sent — { id }. A follow-up was just sent; advance the stage
+// and re-anchor the next due date off NOW (the actual send).
+adminRoutes.post('/outreach/followup-sent', async (c) => {
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const email = (typeof body.email === 'string' ? body.email : '').trim().toLowerCase();
+  const appToken = typeof body.appToken === 'string' ? body.appToken : '';
+  if (!(await appAdminOk(c.env, email, appToken))) return c.json({ error: 'unauthorized' }, 401);
+  const id = typeof body.id === 'string' ? body.id : '';
+  if (!id) return c.json({ error: 'id required' }, 400);
+  await advanceOutreachStage(c.env, id, Date.now());
+  return c.json({ ok: true, id });
 });
 
 // POST /admin/write/:resource — { id, key, value } → inline-edit one column of one
@@ -937,6 +1341,33 @@ adminRoutes.post('/write/:resource', async (c) => {
   const res = await c.env.DB.prepare(`UPDATE ${w.table} SET ${w.column} = ? WHERE ${w.idColumn} = ?`).bind(bound, id).run();
   if (!res.meta.changes) return c.json({ error: 'not found' }, 404);
   return c.json({ ok: true, id, key, value });
+});
+
+// POST /admin/delete/:resource — { id } → delete one row of a resource that declares a
+// `del` spec (currently Marathons). table/idColumn/cascade targets are author-controlled
+// registry literals; only the bound id comes from the request. Cascades run first (drop
+// dependent rows, null out foreign references) then the row itself, all in one batch.
+adminRoutes.post('/delete/:resource', async (c) => {
+  const denied = adminGate(c); if (denied) return denied;
+  const r = RESOURCES[c.req.param('resource')];
+  if (!r || !r.del) return c.json({ error: 'resource is not deletable' }, 404);
+  let body: any;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const id = typeof body.id === 'string' ? body.id : '';
+  if (!id) return c.json({ error: 'id required' }, 400);
+
+  const d = r.del;
+  const stmts = [
+    ...(d.cascadeNull ?? []).map((t) =>
+      c.env.DB.prepare(`UPDATE ${t.table} SET ${t.column} = NULL WHERE ${t.column} = ?`).bind(id)),
+    ...(d.cascadeDelete ?? []).map((t) =>
+      c.env.DB.prepare(`DELETE FROM ${t.table} WHERE ${t.column} = ?`).bind(id)),
+    c.env.DB.prepare(`DELETE FROM ${d.table} WHERE ${d.idColumn} = ?`).bind(id),
+  ];
+  const res = await c.env.DB.batch(stmts);
+  const deleted = res[res.length - 1]?.meta?.changes ?? 0;
+  if (!deleted) return c.json({ error: 'not found' }, 404);
+  return c.json({ ok: true, id, deleted });
 });
 
 // POST /admin/comments/hide — { id, hidden } → set a comment's moderation hide flag.

@@ -353,6 +353,7 @@
           <button class="ct-opt" type="button" data-ct="movie" role="menuitem">Add a movie</button>
           <button class="ct-opt" type="button" data-ct="ticket" role="menuitem">&#127903; Log a ticket</button>
           <button class="ct-opt" type="button" data-ct="game" role="menuitem">Do you want to play a game?</button>
+          <button class="ct-opt ct-share" id="ctOptOutreach" type="button" data-ct="outreach" role="menuitem" hidden>&#9997;&#65039; Outreach draft</button>
           <button class="ct-opt ct-disabled" type="button" data-ct="__shadow" role="menuitem" disabled aria-disabled="true">Shadow <span class="ct-soon">(future)</span></button>
           <button class="ct-opt ct-disabled" type="button" data-ct="device" role="menuitem" disabled aria-disabled="true">Device <span class="ct-soon">(future)</span></button>
           <div class="ct-sep"></div>
@@ -837,6 +838,193 @@
       : { email, title_name:sh.title, feel:sh.feel||'', sentiment:sh.sentiment||'' };
     try{ fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); }catch(_){}
   }
+  // [OUTREACH: {json}] — admin-only. Pierre drafts a creator DM/email and emits one JSON tag
+  // on the last line. We pull it off (greedy to the final ]), leaving the drafted text visible,
+  // and hand back the parsed object for renderOutreachCard. Malformed JSON → no card, text stays.
+  function parseOutreach(text){
+    const m = text.match(/\[OUTREACH:\s*([\s\S]*)\]\s*$/i);
+    if(!m) return { clean:text, outreach:null };
+    const clean = text.slice(0, m.index).trim();
+    let outreach=null;
+    try{ outreach = JSON.parse((m[1]||'').trim()); }catch(_){ outreach=null; }
+    return { clean, outreach };
+  }
+  // [OUTREACH_UPDATE: {json}] — Ted reported back on a contact. Pull the tag; the client
+  // resolves query→row and applies the status via a confirm chip (see addPierre).
+  function parseOutreachUpdate(text){
+    const m = text.match(/\[OUTREACH_UPDATE:\s*([\s\S]*)\]\s*$/i);
+    if(!m) return { clean:text, outreachUpd:null };
+    const clean = text.slice(0, m.index).trim();
+    let outreachUpd=null;
+    try{ outreachUpd = JSON.parse((m[1]||'').trim()); }catch(_){ outreachUpd=null; }
+    return { clean, outreachUpd };
+  }
+  function copyText(str, btn){
+    const done=()=>{ if(btn){ const o=btn.textContent; btn.textContent='Copied'; setTimeout(()=>{ try{btn.textContent=o;}catch(_){} },1400); } };
+    try{ if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(str).then(done,()=>{}); return; } }catch(_){}
+    try{ const ta=document.createElement('textarea'); ta.value=str; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); done(); }catch(_){}
+  }
+  // Open a prefilled compose. On device we hand off to the GMAIL APP via its URL scheme
+  // (googlegmail:///co?...) so the draft opens in Gmail with the fields decoded cleanly —
+  // NOT the web compose link in Safari, which can surface a raw %20/%0A-encoded body. On
+  // web (dev) there's no app, so fall back to the Gmail web compose URL.
+  function openGmailCompose(to, subject, body){
+    const enc=encodeURIComponent;
+    if(IS_NATIVE){
+      const appUrl='googlegmail:///co?to='+enc(to||'')+'&subject='+enc(subject||'')+'&body='+enc(body||'');
+      try{ window.location.href=appUrl; }catch(_){}
+      return;
+    }
+    const webUrl='https://mail.google.com/mail/?view=cm&fs=1&to='+enc(to||'')+'&su='+enc(subject||'')+'&body='+enc(body||'');
+    try{ window.open(webUrl,'_blank','noopener'); }catch(_){ location.href=webUrl; }
+  }
+  // Render the draft card + prefilled tracker form beneath Pierre's message.
+  function renderOutreachCard(wrap, o){
+    o = o || {};
+    const isEmail = String(o.channel||'').toLowerCase()==='email';
+    const subject = String(o.subject||'');
+    const bodyTxt = String(o.body||'');
+    const card = document.createElement('div');
+    card.className='outreach-card';
+    card.style.cssText='margin-top:8px;border:1px solid var(--line);border-radius:10px;padding:10px;background:rgba(255,255,255,.03);';
+
+    // ── Draft preview ─────────────────────────────────────────────
+    if(isEmail && subject){
+      const su=document.createElement('div');
+      su.style.cssText='font-size:12px;color:var(--ink-dim);margin-bottom:6px;';
+      su.innerHTML='<span style="text-transform:uppercase;letter-spacing:.04em;">Subject: </span>';
+      const st=document.createElement('span'); st.style.color='var(--ink)'; st.textContent=subject; su.appendChild(st);
+      card.appendChild(su);
+    }
+    const bd=document.createElement('div');
+    bd.style.cssText='white-space:pre-wrap;font-size:14px;line-height:1.45;color:var(--ink);';
+    bd.textContent=bodyTxt;
+    card.appendChild(bd);
+
+    // For a follow-up the tag carries no email, so fall back to the contact we're following up.
+    const toEmail = String(o.contact_email||'').trim() || ((outreachFollowup && outreachFollowup.contact_email)||'');
+    const acts=document.createElement('div');
+    acts.style.cssText='display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;';
+    const copyBtn=document.createElement('button'); copyBtn.type='button'; copyBtn.className='chip'; copyBtn.textContent='Copy';
+    copyBtn.onclick=()=>copyText(isEmail&&subject?('Subject: '+subject+'\n\n'+bodyTxt):bodyTxt, copyBtn);
+    acts.appendChild(copyBtn);
+    if(isEmail && toEmail){
+      const gm=document.createElement('button'); gm.type='button'; gm.className='chip'; gm.textContent='Send via Gmail';
+      gm.onclick=()=>openGmailCompose(toEmail, subject, bodyTxt);
+      acts.appendChild(gm);
+    }
+    card.appendChild(acts);
+
+    // ── Follow-up reply: store the draft into its slot + offer "Mark sent" (advances the
+    // cadence anchor). No create form — this contact is already tracked.
+    const fu = (outreachFollowup && outreachFollowup.sent) ? outreachFollowup : null;
+    if(fu){
+      outreachFollowup=null;
+      outreachUpdate({ id:fu.id, draft:{ stage:fu.draftStage, text:(isEmail&&subject?('Subject: '+subject+'\n\n'+bodyTxt):bodyTxt) } });
+      const frow=document.createElement('div'); frow.style.cssText='display:flex;align-items:center;gap:10px;margin-top:12px;';
+      const sent=document.createElement('button'); sent.type='button'; sent.className='chip'; sent.textContent='Mark sent';
+      const fst=document.createElement('span'); fst.style.cssText='font-size:12px;color:var(--ink-dim);';
+      sent.onclick=async ()=>{
+        sent.disabled=true; sent.textContent='Saving…';
+        const ok=await markFollowupSent(fu.id);
+        if(ok){ sent.textContent='Sent ✓'; fst.textContent = fu.kind==='month' ? 'Final nudge logged — soft-decline in a week with no reply.' : 'Logged — 1-month follow-up scheduled.'; }
+        else { sent.disabled=false; sent.textContent='Mark sent'; fst.textContent='Could not update.'; }
+      };
+      frow.appendChild(sent); frow.appendChild(fst); card.appendChild(frow);
+      wrap.appendChild(card); return;
+    }
+
+    // ── Prefilled tracker form ────────────────────────────────────
+    const sep=document.createElement('div'); sep.style.cssText='height:1px;background:var(--line);margin:12px 0 10px;'; card.appendChild(sep);
+    const hdr=document.createElement('div'); hdr.textContent='Add to outreach tracker'; hdr.style.cssText='font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-dim);margin-bottom:8px;'; card.appendChild(hdr);
+
+    const form=document.createElement('div'); form.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:8px;';
+    const fields={};
+    const field=(key,label,val,opts)=>{
+      opts=opts||{};
+      const cell=document.createElement('label'); cell.style.cssText='display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--ink-dim);'+(opts.full?'grid-column:1/3;':'');
+      cell.appendChild(document.createTextNode(label));
+      let el;
+      if(opts.select){ el=document.createElement('select'); opts.select.forEach(v=>{ const o2=document.createElement('option'); o2.value=v; o2.textContent=v; el.appendChild(o2); }); el.value=val||opts.select[0]; }
+      else if(opts.area){ el=document.createElement('textarea'); el.rows=2; el.value=val||''; }
+      else { el=document.createElement('input'); el.type=opts.type||'text'; el.value=(val==null?'':String(val)); }
+      el.style.cssText='background:var(--panel,rgba(0,0,0,.25));color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px;font-size:13px;font-family:inherit;';
+      cell.appendChild(el); form.appendChild(cell); fields[key]=el;
+    };
+    field('name','Name',o.name,{});
+    field('handle','Handle',o.handle,{});
+    field('platform','Platform',o.platform,{});
+    field('follower_count','Followers',o.followers,{type:'number'});
+    field('channel','Channel',(String(o.channel||'').toLowerCase()==='email'?'Email':'DM'),{select:['DM','Email']});
+    field('status','Status',o.status||'Drafted',{select:['Drafted','Sent','Replied','Converted','Declined','Soft Decline','No Response']});
+    field('contact_email','Email',o.contact_email,{full:true,type:'email'});
+    field('angle','Angle',o.angle,{full:true});
+    field('notes','Notes',o.notes,{full:true,area:true});
+    card.appendChild(form);
+
+    const row=document.createElement('div'); row.style.cssText='display:flex;align-items:center;gap:10px;margin-top:10px;';
+    const add=document.createElement('button'); add.type='button'; add.className='chip'; add.textContent='Add to outreach tracker';
+    const st=document.createElement('span'); st.style.cssText='font-size:12px;color:var(--ink-dim);';
+    add.onclick=()=>submitOutreachRow(fields, add, st, bodyTxt);
+    row.appendChild(add); row.appendChild(st); card.appendChild(row);
+
+    wrap.appendChild(card);
+  }
+  // Patch an outreach row (status / note / draft store). Returns the JSON or null.
+  async function outreachUpdate(patch){
+    try{
+      const { email, appToken } = await adminAuthEmail();
+      if(!appToken) return null;
+      const r=await fetch(`${API}/admin/outreach/update`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ ...patch, email, appToken })});
+      return r.ok ? await r.json().catch(()=>null) : null;
+    }catch(_){ return null; }
+  }
+  // A follow-up was just sent → advance the stage + re-anchor the next due date off NOW.
+  async function markFollowupSent(id){
+    try{
+      const { email, appToken } = await adminAuthEmail();
+      if(!appToken) return false;
+      const r=await fetch(`${API}/admin/outreach/followup-sent`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ id, email, appToken })});
+      return r.ok;
+    }catch(_){ return false; }
+  }
+  // Status-update confirm chip: Ted reported back; one tap applies the status to the row
+  // Pierre resolved (server matches query→row). Nothing changes until tapped.
+  function renderOutreachUpdateChip(wrap, upd){
+    const status=String(upd.status||'').trim();
+    const row=document.createElement('div'); row.className='chips'; row.style.marginTop='8px';
+    const b=document.createElement('button'); b.className='chip';
+    b.textContent='Mark '+(upd.query||'them')+' → '+(status||'update');
+    const st=document.createElement('span'); st.style.cssText='font-size:12px;color:var(--ink-dim);margin-left:8px;';
+    b.onclick=async ()=>{
+      b.disabled=true; b.textContent='Saving…';
+      const d=await outreachUpdate({ query:upd.query, status, note:upd.note||'' });
+      if(d && d.ok){ b.textContent=status+' ✓'; st.textContent='Updated in the tracker.'; }
+      else { b.disabled=false; b.textContent='Mark '+(upd.query||'them')+' → '+(status||'update'); st.textContent = (d&&d.error) || 'Could not update — check the name.'; }
+    };
+    row.appendChild(b); row.appendChild(st); wrap.appendChild(row);
+  }
+  async function submitOutreachRow(fields, btn, st, initialDraft){
+    const email=pgSession();
+    const appToken = IS_NATIVE ? await appNativeToken() : '';
+    if(!appToken){ st.textContent='Adding to the tracker needs the app (native-only write).'; return; }
+    const payload={ email, appToken, initial_draft: initialDraft||'' };
+    Object.keys(fields).forEach(k=>{ payload[k]=fields[k].value; });
+    if(!String(payload.name||'').trim()){ st.textContent='Name is required.'; return; }
+    btn.disabled=true; btn.textContent='Adding…';
+    try{
+      const r=await fetch(`${API}/admin/outreach`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      const d=await r.json().catch(()=>({}));
+      if(r.ok && d.ok){
+        btn.textContent = d.existed ? 'Already tracked' : 'Added ✓';
+        st.textContent = (d.existed?'Already in the tracker: ':'Added: ')+d.id;
+        Object.keys(fields).forEach(k=>{ fields[k].disabled=true; });
+      } else {
+        btn.disabled=false; btn.textContent='Add to outreach tracker';
+        st.textContent = (d && d.error) || ('Failed ('+r.status+')');
+      }
+    }catch(_){ btn.disabled=false; btn.textContent='Add to outreach tracker'; st.textContent='Could not reach the tracker.'; }
+  }
   // [TRT: title | episode | minutes] — a member tells Pierre the real running time of an
   // episode or film. The client resolves the title + episode and hands back ONE confirm chip;
   // only that tap applies it (via /catalog/runtime-report — an admin's value lands on the
@@ -1092,7 +1280,7 @@
   }
 
   function addPierre(text){
-    let clean, route, ctx, opts, backfill, watched, shadows, trt, marathon;
+    let clean, route, ctx, opts, backfill, watched, shadows, trt, marathon, outreach, outreachUpd;
     ({clean, route} = parseRoute(text));
     ({clean, ctx}   = parseSwitch(clean));
     ({clean, opts}  = parseAsk(clean));
@@ -1101,6 +1289,8 @@
     ({clean, trt}      = parseTRT(clean));        // [TRT: title | ep | minutes] → confirm-chip runtime fix
     ({clean, marathon} = parseMarathon(clean));   // [MARATHON: show | name | blurb | eps] → build a marathon
     ({clean, shadows}  = parseShadow(clean));     // [SHADOW: title | feel | sentiment] → silent shadow write
+    ({clean, outreach} = parseOutreach(clean));   // [OUTREACH: {json}] → admin draft card + tracker form
+    ({clean, outreachUpd} = parseOutreachUpdate(clean));  // [OUTREACH_UPDATE: {json}] → status confirm chip
     if(/\[GETTED\]/i.test(text)){ _awaitingTed=true; startTedPolling(); }   // handoff fired: watch for Ted's reply
     clean = clean.replace(/\[GETTED\]/ig, '').trim();   // silent Ted-escalation signal, never shown
     const wrap = document.createElement('div');
@@ -1133,6 +1323,10 @@
         wrap.appendChild(chips);
       }
     }
+    // Admin Outreach draft: the model's [OUTREACH:{json}] → a draft card (Copy + channel-aware
+    // Gmail) plus a prefilled tracker form. Only rendered for a verified admin (defence in depth).
+    if(outreach && isAdminNow()) renderOutreachCard(wrap, outreach);
+    if(outreachUpd && outreachUpd.query && isAdminNow()) renderOutreachUpdateChip(wrap, outreachUpd);
     log.appendChild(wrap);
     scrollLogBottom();
     // NL switch: only for the four real lanes; unknown values render as plain text.
@@ -2007,10 +2201,18 @@
       const appToken = IS_NATIVE ? await appNativeToken() : '';
       const token    = IS_NATIVE ? '' : await turnstileToken();
       if(IS_NATIVE && !appToken){ clearTyping(); addPierre(nativeAuthDiag()); return; }
+      // Admin Outreach turn: flag the mode and attach the pending profile screenshot (one-shot).
+      const outreachMode = (currentCtx==='outreach');
+      const img = (outreachMode && outreachImg) ? outreachImg : null;
+      if(img){ outreachImg=null; renderOutreachThumb(); }   // consume the attachment for this turn
+      // Follow-up turn: attach the contact context (one-shot). The metadata stays on
+      // outreachFollowup for renderOutreachCard to store the draft + show "Mark sent".
+      const fu = (outreachMode && outreachFollowup && !outreachFollowup.sent) ? outreachFollowup : null;
+      if(fu) fu.sent=true;
       const res = await fetch(`${API}/pierre/chat`,{
         method:"POST",
         headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({ messages: history, token, appToken, email: pgSession()||undefined, conversation_id: PIERRE_CONVO, kind: (currentCtx==='game'?'game':'chat'), tz: (Intl.DateTimeFormat().resolvedOptions().timeZone||'') })
+        body:JSON.stringify({ messages: history, token, appToken, email: pgSession()||undefined, conversation_id: PIERRE_CONVO, kind: (currentCtx==='game'?'game':'chat'), tz: (Intl.DateTimeFormat().resolvedOptions().timeZone||''), ...(outreachMode?{mode:'outreach'}:{}), ...(img?{image:img}:{}), ...(fu?{context:{followup:fu.context}}:{}) })
       });
       const data = await res.json();
       const reply = ((data && data.reply) || "").trim();
@@ -2138,6 +2340,7 @@
     {id:'game',    label:'Game'},        // "Do you want to play a game?" — streaming-shadow game
     {id:'account', label:'Account'},
     {id:'device',  label:'Device'},
+    {id:'outreach',label:'Outreach'},    // admin-only creator/influencer outreach drafting
     {id:'note',    label:'Note'},        // cube-triggered only; shown, not a menu target
   ];
   const SWITCHABLE = ['chat','add','account','device'];   // valid [SWITCH]/[ASK] targets
@@ -2171,6 +2374,96 @@
     if(ctx === 'game')    return enterGameFlow();
     if(ctx === 'account') return enterJoinFlow();
     if(ctx === 'device')  return enterDeviceFlow();
+    if(ctx === 'outreach')return enterOutreachFlow();
+  }
+
+  // ── Admin Outreach skill ────────────────────────────────────────────────────
+  // Ted picks "Outreach draft", attaches a creator's profile screenshot + says how he
+  // wants to reach out; Pierre (vision, server-side mode:'outreach') drafts the DM/email
+  // and emits [OUTREACH: {json}] → a draft card + a prefilled tracker form (parseOutreach).
+  // Gated to admins both here (picker visibility) and on the server (native secret + admin).
+  function isAdminNow(){ try{ return !!(window.parent && window.parent.__pgAdmin && window.parent.__pgAdmin.isAdmin); }catch(_){ return false; } }
+  let outreachImg=null;      // { mediaType, data(base64) } pending attachment for the next turn
+  let outreachFollowup=null; // active follow-up: { id, draftStage, kind, name, channel, contact_email, context, sent }
+  async function adminAuthEmail(){ return { email: pgSession()||'', appToken: IS_NATIVE ? await appNativeToken() : '' }; }
+  function enterOutreachFlow(){
+    if(IS_DEMO || !isAdminNow()) return;   // never for a non-admin, even if the tag leaked in
+    addFlow=null; acctFlow=null; joinFlow=null; noteCtx=null; gamePhase=null; seasonNoteFlow=false;
+    outreachImg=null; outreachFollowup=null;
+    inputSecret(false); refreshKb();
+    setCtxIndicator('outreach');
+    input.placeholder = "Who are you reaching out to?";
+    pierreSay("Outreach mode. Paste or attach the creator's profile screenshot, then tell me who they are, whether it's a DM or an email, and the angle you want. I'll draft it and prep a tracker row.", [
+      { label:'Attach screenshot', onClick:pickOutreachImage }
+    ], true);
+    setSendMode('send'); try{ input.focus(); }catch(_){}
+    loadOutreachFollowups();
+  }
+  // Fetch the due follow-up queue; if any are due, Pierre lists them as tappable chips.
+  async function loadOutreachFollowups(){
+    try{
+      const { email, appToken } = await adminAuthEmail();
+      if(!appToken) return;   // native-only
+      const r=await fetch(`${API}/admin/outreach/followups`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ email, appToken })});
+      if(!r.ok) return;
+      const d=await r.json();
+      const due=(d&&d.due)||[];
+      if(!due.length) return;
+      const chips=due.slice(0,8).map(t=>({ label:(t.kind==='month'?'Mo1':'Wk1')+': '+(t.name||t.handle||t.id), onClick:()=>startFollowup(t) }));
+      pierreSay(due.length+" follow-up"+(due.length>1?"s":"")+" due. Tap one and I'll draft the nudge.", chips, true);
+    }catch(_){}
+  }
+  // Start a follow-up: stash the contact context (one-shot for the POST), then ask Pierre to
+  // draft the stage-appropriate nudge. renderOutreachCard stores it + offers "Mark sent".
+  function startFollowup(t){
+    const draftStage = (t.stage|0)===0 ? 1 : 2;                 // wk1 → slot 1, mo1 → slot 2
+    const prior = draftStage===1 ? (t.initial_draft||'') : (t.one_week_draft||t.initial_draft||'');
+    outreachFollowup={
+      id:t.id, draftStage, kind:t.kind, name:t.name, channel:t.channel, contact_email:t.contact_email, sent:false,
+      context:{ id:t.id, name:t.name, handle:t.handle, channel:t.channel, angle:t.angle, prior_draft:prior, kind:t.kind }
+    };
+    addUser("Follow up with "+(t.name||t.handle||'them'));
+    setSendMode('mic'); try{ input.blur(); }catch(_){}
+    ask("Follow up with "+(t.name||t.handle||'them'));
+  }
+  // Reuse the ticket-flow file-input pattern; keep the picked image as base64 for the POST.
+  function pickOutreachImage(){
+    const inp=document.createElement('input');
+    inp.type='file'; inp.accept='image/*';
+    inp.style.display='none';
+    inp.onchange=async ()=>{ const f=inp.files&&inp.files[0]; try{inp.remove();}catch(_){} if(f) await setOutreachImage(f); };
+    document.body.appendChild(inp);
+    inp.click();
+  }
+  async function setOutreachImage(file){
+    try{
+      const b64=await _blobB64(file);
+      if(!b64){ showToast('Could not read that image'); return; }
+      let mt=(file.type||'').toLowerCase();
+      if(!/^image\/(png|jpe?g|webp|gif)$/.test(mt)) mt='image/png';
+      if(mt==='image/jpg') mt='image/jpeg';
+      outreachImg={ mediaType:mt, data:b64 };
+      renderOutreachThumb();
+    }catch(_){ showToast('Could not read that image'); }
+  }
+  function renderOutreachThumb(){
+    let el=document.getElementById('outreachThumb');
+    if(!outreachImg){ if(el) el.remove(); return; }
+    if(!el){
+      el=document.createElement('div'); el.id='outreachThumb'; el.className='msg you';
+      el.innerHTML='<div class="who">You</div><div class="bubble"></div>';
+      log.appendChild(el);
+    }
+    const b=el.querySelector('.bubble');
+    b.innerHTML='';
+    const img=document.createElement('img');
+    img.src='data:'+outreachImg.mediaType+';base64,'+outreachImg.data;
+    img.style.cssText='max-width:160px;max-height:220px;border-radius:8px;display:block;';
+    const x=document.createElement('button'); x.type='button'; x.className='chip'; x.textContent='Remove';
+    x.style.marginTop='6px';
+    x.onclick=()=>{ outreachImg=null; renderOutreachThumb(); };
+    b.appendChild(img); b.appendChild(x);
+    scrollLogBottom();
   }
 
   // ── "Do you want to play a game?" — the streaming-shadow game (WarGames nod).
@@ -3465,7 +3758,12 @@
 
     // CHAT PICKER popup — mirrors the cube context menu, driving the same face logic.
     const closePop=()=>{ if(pop) pop.hidden=true; if(pick) pick.setAttribute('aria-expanded','false'); };
-    const openPop =()=>{ if(pop) pop.hidden=false; if(pick) pick.setAttribute('aria-expanded','true'); };
+    const openPop =()=>{
+      // Admin-only Outreach skill: reveal it only for a verified admin account (the shell
+      // sets window.parent.__pgAdmin from /admin/app-status). Re-checked on every open.
+      try{ const o=document.getElementById('ctOptOutreach'); if(o) o.hidden=!isAdminNow(); }catch(_){}
+      if(pop) pop.hidden=false; if(pick) pick.setAttribute('aria-expanded','true');
+    };
     if(pick){
       // NB: no preventDefault on pointerdown — on iOS WKWebView that suppresses the
       // synthesized tap so the menu never opens / options never fire ("not connected").
@@ -3492,6 +3790,13 @@
       });
     });
     document.addEventListener('click', ()=>{ if(pop && !pop.hidden) closePop(); });
+
+    // Outreach skill: let an admin paste a profile screenshot straight into the composer.
+    input.addEventListener('paste', e=>{
+      if(currentCtx!=='outreach') return;
+      const items=(e.clipboardData&&e.clipboardData.items)||[];
+      for(const it of items){ if(it.type&&it.type.indexOf('image')===0){ const f=it.getAsFile(); if(f){ e.preventDefault(); setOutreachImage(f); return; } } }
+    });
 
     // thumbs + Get Ted (gated on a reply, same as the cube band). On a Ted thread the thumb
     // grades Ted's answer (👍 great / 👎 bad) and advances; otherwise it ends the Pierre chat.

@@ -161,6 +161,57 @@ const SEED_TASTE =
 const MODEL = 'claude-sonnet-4-6';
 const MAX_TURNS = 40;     // abuse cap: messages per request
 const MAX_CHARS = 12000;  // abuse cap: total characters across the conversation
+const IMG_MEDIA_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+
+// Admin-only Outreach skill. Appended to Pierre's system prompt ONLY when the request
+// is a verified admin (native app secret + user_type='admin') in mode 'outreach'. It
+// flips Pierre from member-host to Ted's outreach copywriter and asks for one structured
+// [OUTREACH: {json}] tag the client turns into a tracker row. Never reaches a member.
+const OUTREACH_SKILL = `OUTREACH DRAFTING (admin only — you are helping Ted, the founder of PangolinRC, not a member):
+This is a private founder tool. Ted is doing cold outreach to a TV/film creator or influencer to invite them to PangolinRC and its Marathon Maker feature (you program a curated episode course and see how many people actually FINISH it, not just how many watched). Drop every member-facing rule here — no [ROUTE]/[WATCHED]/[BACKFILL]/[SHADOW]/[MARATHON]/[GETTED] tags, no "what do you want to watch" framing. You are a sharp, warm copywriter who still sounds like Pierre.
+
+Ted will usually paste a screenshot of the person's profile (Instagram, TikTok, YouTube, etc.) and tell you who they are, the channel to use (DM or email), and the angle he wants. From the screenshot read their name, @handle, platform, follower count, and any bio/content signal you can see.
+
+CHECK FOR A DUPLICATE FIRST. Before you draft anything, call the lookup_outreach tool with their name or @handle to see if they are already in the tracker. If it returns a match, do NOT write a fresh initial draft — tell Ted they are already tracked, give their current status and when they were last contacted, and ask whether he wants a follow-up instead (a follow-up is a separate flow he starts from the follow-up queue). Only draft a brand-new initial when lookup_outreach comes back with no match.
+
+Draft the message Ted should send:
+- DM: short, casual, human — a few sentences, no subject line.
+- Email: a subject line plus a warm body. Reference their actual content, pitch Marathon Maker in a sentence, offer early access, and sign off as Ted (not Pierre).
+Keep it specific and un-templated — one person who genuinely likes their work reaching out, not a marketing blast.
+
+Then, on the VERY LAST line with nothing after it, emit exactly one tag: [OUTREACH: <minified JSON>] shaped exactly like this (unknown string fields → ""; followers is a number or null):
+[OUTREACH: {"name":"","handle":"","platform":"","followers":null,"channel":"DM","status":"Drafted","angle":"","contact_email":"","subject":"","body":"","notes":""}]
+- channel is "DM" or "Email" — match what Ted asked, default "DM".
+- subject is "" for a DM; body is the full drafted message (same text you wrote above).
+- angle is a one-line summary of the hook you used. notes is any useful context about the person (who they are, follower count, why they fit).
+- contact_email only if Ted gave you one.
+Write the drafted message in your visible reply AND copy it into body. Never mention the tag or the JSON to Ted.
+
+STATUS UPDATES. If Ted reports back on someone instead of asking for a draft ("Stephanie replied", "Marjorene converted", "they passed", "no answer from X"), do NOT draft — acknowledge briefly and, on the last line, emit exactly one tag: [OUTREACH_UPDATE: <minified JSON>] shaped like {"query":"name or @handle","status":"Replied","note":"one-line context"}. status is one of Replied, Converted, Declined, No Response (use Declined for a hard no). query is how to find them in the tracker. Never mention this tag either.`;
+
+// Injected on top of OUTREACH_SKILL when the client starts a follow-up from the queue.
+// Pierre writes the stage-appropriate nudge for a KNOWN, already-contacted person — no
+// dedup lookup, no create-row fields. The client already knows the id + which draft slot
+// this fills, so the tag just needs the drafted subject/body.
+function outreachFollowupBlock(f: any): string {
+  const name = String(f?.name ?? '').slice(0, 120);
+  const handle = String(f?.handle ?? '').slice(0, 120);
+  const channel = String(f?.channel ?? 'DM');
+  const angle = String(f?.angle ?? '').slice(0, 500);
+  const prior = String(f?.prior_draft ?? '').slice(0, 4000);
+  const kind = f?.kind === 'month' ? 'month' : 'week';
+  const guidance = kind === 'month'
+    ? 'This is the FINAL follow-up (about a month after the first nudge). Warm, brief, no pressure — acknowledge you don\'t want to keep bugging them, restate the invite in one line, and leave the door open for later.'
+    : 'This is a LIGHT one-week bump. Short and friendly — a gentle "in case this got buried", reference the original angle in a few words, no pressure.';
+  return `\n\nFOLLOW-UP MODE (override the initial-draft instructions above): you are writing a FOLLOW-UP to someone already contacted. Do NOT call lookup_outreach. Do NOT emit an [OUTREACH_UPDATE] tag.
+Contact: ${name}${handle ? ' (' + handle + ')' : ''}. Channel: ${channel}. Original angle: "${angle}".
+The message previously sent to them:
+"""
+${prior || '(no prior draft on record — keep it self-contained)'}
+"""
+${guidance}
+Do not repeat the original message verbatim; it's a nudge on top of it. Then on the VERY LAST line emit exactly one tag: [OUTREACH: <minified JSON>] shaped {"channel":"${channel}","subject":"","body":""} — subject "" for a DM, body is the full follow-up (same text as your visible reply). Never mention the tag.`;
+}
 
 type Msg = { role: 'user' | 'assistant'; content: string };
 
@@ -423,8 +474,43 @@ const TOOLS = [
   },
 ];
 
+// Tool set offered ONLY in the admin Outreach skill: look a creator up in the tracker
+// before drafting (dedup). Kept separate from TOOLS so outreach mode doesn't carry the
+// member-facing TMDB tools, and vice-versa.
+const OUTREACH_TOOLS = [
+  {
+    name: 'lookup_outreach',
+    description:
+      'Search the outreach tracker for a creator/influencer already logged, by name, @handle, or email. ALWAYS call this first in outreach mode, before drafting, to avoid re-contacting someone. Returns any matches with their status, channel, follower count, angle, and when they were last contacted.',
+    input_schema: {
+      type: 'object',
+      properties: { query: { type: 'string', description: 'name, handle, or email to search for' } },
+      required: ['query'],
+    },
+  },
+];
+
 async function runTool(env: Env, name: string, input: any, ctx: { tz: string }): Promise<string> {
   try {
+    if (name === 'lookup_outreach') {
+      const q = String(input?.query ?? '').trim().replace(/^@+/, '').slice(0, 120);
+      if (!q) return 'empty query';
+      const like = '%' + q.replace(/[%_]/g, '') + '%';
+      const rs = await env.DB.prepare(
+        `SELECT id, name, handle, platform, follower_count, channel, status, angle, date_contacted, contact_email, follow_up_stage
+           FROM outreach
+          WHERE name LIKE ? OR handle LIKE ? OR contact_email LIKE ?
+          ORDER BY created_at DESC LIMIT 5`,
+      ).bind(like, like, like).all();
+      const rows = rs.results || [];
+      return JSON.stringify({
+        matches: rows.map((r: any) => ({
+          id: r.id, name: r.name, handle: r.handle, platform: r.platform, followers: r.follower_count,
+          channel: r.channel, status: r.status, angle: r.angle, last_contacted: r.date_contacted,
+          email: r.contact_email, follow_up_stage: r.follow_up_stage,
+        })),
+      });
+    }
     if (name === 'premiere_timing') {
       const title = String(input?.title ?? '').trim().slice(0, 120);
       if (!title) return 'empty title';
@@ -571,7 +657,7 @@ export const pierreRoutes = new Hono<{ Bindings: Env }>();
 
 // Frontend (cube_pierre_face.html) → POST /pierre/chat  { messages: [{role, content}] }
 pierreRoutes.post('/chat', async (c) => {
-  let body: { messages?: unknown; token?: unknown; appToken?: unknown; email?: unknown; mode?: unknown; context?: unknown; conversation_id?: unknown; kind?: unknown; tz?: unknown };
+  let body: { messages?: unknown; token?: unknown; appToken?: unknown; email?: unknown; mode?: unknown; context?: unknown; conversation_id?: unknown; kind?: unknown; tz?: unknown; image?: unknown };
   try {
     body = await c.req.json();
   } catch {
@@ -619,8 +705,36 @@ pierreRoutes.post('/chat', async (c) => {
   // order). We relay tool_use → run the lookup → tool_result, up to TOOL_ROUNDS
   // round-trips, then take his final text. Tools only offered when TMDB is
   // configured; without the key this is exactly the old single-shot call.
-  const convo: Array<{ role: 'user' | 'assistant'; content: any }> = [...clean];
-  const tools = c.env.TMDB_API_KEY ? TOOLS : undefined;
+  const convo: Array<{ role: 'user' | 'assistant'; content: any }> = clean.map((m) => ({ ...m }));
+
+  // Optional image on the latest user turn — the admin Outreach skill pastes a profile
+  // screenshot for Pierre (vision) to read. Rewrite ONLY the final user message into
+  // Anthropic's content-block form; every other message stays a plain string.
+  const rawImg = body.image as { mediaType?: unknown; data?: unknown } | undefined;
+  if (
+    rawImg &&
+    typeof rawImg.data === 'string' &&
+    typeof rawImg.mediaType === 'string' &&
+    IMG_MEDIA_TYPES.has(rawImg.mediaType) &&
+    rawImg.data.length > 0 &&
+    rawImg.data.length < 9_500_000 // ~7MB decoded
+  ) {
+    for (let i = convo.length - 1; i >= 0; i--) {
+      const turn = clean[i];
+      if (turn && turn.role === 'user') {
+        convo[i] = {
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: rawImg.mediaType, data: rawImg.data } },
+            { type: 'text', text: String(turn.content) },
+          ],
+        };
+        break;
+      }
+    }
+  }
+
+  let tools = c.env.TMDB_API_KEY ? TOOLS : undefined;
 
   // Ground Pierre in the signed-in user's real log when we have one; the demo
   // seed only stands in for anonymous visitors and empty logs.
@@ -628,8 +742,35 @@ pierreRoutes.post('/chat', async (c) => {
     typeof body.email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.email)
       ? body.email.trim().toLowerCase().slice(0, 120)
       : '';
-  const taste = email ? await tasteBlock(c.env, email) : SEED_TASTE;
-  const shadow = email ? await shadowBlock(c.env, email) : '';
+  // Admin-only Outreach skill gate. Require the native app secret AND a user_type='admin'
+  // account, exactly like /admin/app-status — for anyone else we silently drop the mode
+  // (never leak the skill) and fall through to a normal chat turn. The member taste/shadow
+  // context is irrelevant to outreach drafting, so skip those reads when it's live.
+  let outreachOk = false;
+  if (body.mode === 'outreach') {
+    const appToken = typeof body.appToken === 'string' ? body.appToken : '';
+    const nativeOk = !!c.env.APP_NATIVE_SECRET && appToken.length > 0 && safeEqual(appToken, c.env.APP_NATIVE_SECRET);
+    if (nativeOk && email) {
+      const u = await c.env.DB.prepare('SELECT user_type FROM users WHERE email = ?')
+        .bind(email)
+        .first<{ user_type: string | null }>();
+      outreachOk = u?.user_type === 'admin';
+    }
+  }
+
+  // Outreach follow-up sub-mode: the client starts this from the due-queue with the
+  // contact's id/stage/prior draft, so Pierre writes the nudge (no dedup lookup needed).
+  let outreachFollowup: any = null;
+  if (outreachOk && body.context && typeof body.context === 'object') {
+    const f = (body.context as { followup?: unknown }).followup;
+    if (f && typeof f === 'object') outreachFollowup = f;
+  }
+  // In outreach mode Pierre gets the tracker-lookup tool (initial draft only), not the
+  // member-facing TMDB tools; a follow-up turn needs no tool at all.
+  if (outreachOk) tools = outreachFollowup ? undefined : OUTREACH_TOOLS;
+
+  const taste = outreachOk ? '' : email ? await tasteBlock(c.env, email) : SEED_TASTE;
+  const shadow = outreachOk ? '' : email ? await shadowBlock(c.env, email) : '';
 
   // The member's IANA timezone (browser: Intl…timeZone), so premiere_timing can render a
   // drop time in THEIR local clock. Defaults to US Eastern when the client sends nothing.
@@ -661,7 +802,9 @@ pierreRoutes.post('/chat', async (c) => {
       '\n- If their thought stands on its own, no question in it, respond to it and ask once if they want to share the thought with their people. If they say yes, put [PANEL: Share] alone on the last line. Never use that tag any other way, and never mention it.';
   }
 
-  const system = PIERRE + '\n\n' + taste + shadow + modeBlock;
+  const system = outreachOk
+    ? PIERRE + '\n\n' + OUTREACH_SKILL + (outreachFollowup ? outreachFollowupBlock(outreachFollowup) : '')
+    : PIERRE + '\n\n' + taste + shadow + modeBlock;
 
   let data: { content?: Array<any>; stop_reason?: string };
   for (let round = 0; ; round++) {
