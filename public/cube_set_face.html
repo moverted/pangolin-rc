@@ -487,6 +487,26 @@
   .cmp-sub{font-family:var(--mono);font-size:9px;letter-spacing:.03em;color:var(--muted);opacity:.85;font-style:italic;margin-top:2px}
   .cmp-meta{font-family:var(--mono);font-size:9.5px;letter-spacing:.05em;color:var(--muted);margin-top:3px}
   .cmp-chev{flex:0 0 auto;color:var(--muted);font-size:17px;line-height:1;opacity:.55}
+  /* Collapsible group headers: month (lvl0) → SERIES/MOVIES (lvl1). Chevron on the right,
+     ▾ open / ▸ collapsed. Long-press → collapse-all confirm. */
+  .cmp-grp{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;-webkit-user-select:none;padding:9px 2px}
+  .cmp-grp .cmp-glabel{font-family:var(--mono);font-weight:700}
+  .cmp-grp em{font-family:var(--mono);font-style:normal;color:var(--muted)}
+  .cmp-grp .cmp-chevg{margin-left:auto;color:var(--muted);font-size:12px;line-height:1;opacity:.7}
+  .cmp-grp.lvl0{margin-top:15px;border-bottom:1px solid rgba(255,255,255,.1)}
+  .cmp-grp.lvl0 .cmp-glabel{font-size:11px;letter-spacing:.16em;color:var(--amber)}
+  .cmp-grp.lvl0 em{font-size:8.5px}
+  .cmp-grp.lvl1{padding:7px 2px 5px 13px;margin-top:3px}
+  .cmp-grp.lvl1 .cmp-glabel{font-size:9px;letter-spacing:.18em;color:var(--muted)}
+  .cmp-grp.lvl1 em{font-size:8px}
+  .cmp-grp:active{background:rgba(255,255,255,.03)}
+  /* Collapse-all confirm card (reuses .savpop backdrop). */
+  .cmpc-card{background:#181109;border:1px solid var(--line);border-radius:14px;padding:20px 22px;max-width:280px;text-align:center}
+  .cmpc-msg{font-family:var(--display);font-weight:700;font-size:15px;color:var(--text);margin-bottom:16px}
+  .cmpc-btns{display:flex;gap:10px}
+  .cmpc-btns button{flex:1;font-family:var(--mono);font-size:11px;letter-spacing:.1em;font-weight:700;padding:10px 0;border-radius:9px;cursor:pointer}
+  #cmpcYes{background:var(--amber);color:#1a130b;border:1px solid var(--amber)}
+  #cmpcNo{background:transparent;color:var(--muted);border:1px solid var(--line)}
 </style>
 </head>
 <body>
@@ -518,12 +538,12 @@
     </div>
   </div>
 
-  <!-- SET is the resolve tab: Completed today; the Shadow (fused profile) is the reserved second
-       section to come. Kept as a sub-tab bar (not a flat list) so Shadow slots in beside COMPLETED
-       without another restructure. -->
+  <!-- SET is the resolve tab. COMPLETED (résumé of everything finished + in-progress) is the
+       default; STOPPED holds abandoned titles; SHADOW (fused taste profile) comes later. -->
   <div class="tabbar">
-    <button class="tab on" data-tab="shadow">SHADOW<span class="ct" id="n-shadow"></span></button>
-    <button class="tab" data-tab="completed">COMPLETED<span class="ct" id="n-completed"></span></button>
+    <button class="tab on" data-tab="completed">COMPLETED<span class="ct" id="n-completed"></span></button>
+    <button class="tab" data-tab="stopped">STOPPED<span class="ct" id="n-stopped"></span></button>
+    <button class="tab" data-tab="shadow">SHADOW<span class="ct" id="n-shadow"></span></button>
   </div>
 
   <div class="scroll"><div class="grid" id="grid"><div class="state">loading your log...</div></div></div>
@@ -531,6 +551,12 @@
   <div class="fx" id="fx"></div>
   <div class="flash" id="flash"><div class="flabel">&#8594; EPISODES</div><div class="fsub"></div><div class="fnote"></div></div>
   <div class="savpop" id="savpop"><div class="sav-card" id="savCard"></div></div>
+  <!-- Long-press a COMPLETED group header → collapse every section. In-app confirm (never a
+       native dialog, which would freeze the WKWebView). -->
+  <div class="savpop" id="cmpConfirm"><div class="cmpc-card">
+    <div class="cmpc-msg">Collapse all sections?</div>
+    <div class="cmpc-btns"><button id="cmpcYes">YES</button><button id="cmpcNo">CANCEL</button></div>
+  </div></div>
 
   <!-- COMFORT: a curated marathon opens full-face inside WATCH (an in-face overlay
        — faces never call each other). Its own back returns to the marathon list. -->
@@ -569,7 +595,7 @@ const SUBS=[
 const TOTAL_SAVED=SUBS.reduce((a,s)=>a+(s.full-s.paid)*s.months,0);
 
 const NOW=new Date();
-let LOG=[], activeTab="shadow", addSeq=0, selectedId=null;   // SET opens on SHADOW (the fused taste profile)
+let LOG=[], activeTab="completed", addSeq=0, selectedId=null;   // SET opens on COMPLETED (the full résumé)
 // Archived rewatch passes (GET /profile/:email/passes) — null until first loaded.
 let PASSES=null;
 // COMPLETED résumé rows (GET /profile/:email/completed) — one per tracked title with the
@@ -1137,19 +1163,50 @@ function completedRowHTML(r){
 }
 // Newest activity first (finished date, else last watch), for sort within a group.
 function completedSortVal(r){ return (r.completed_at||r.last_at||0); }
-// Word rows grouped SERIES then MOVIES (mirrors Shadow's grouping), most-recent first,
-// optionally skipping the currently-expanded title. Used in BOTH the collapsed and expanded
-// states so the grouping never flattens when a card is open.
+
+// ── Collapsible grouping: month of last activity → SERIES / MOVIES ─────────────
+// Collapsed group keys persist across sessions. Keys: month ('m2026-8') or a subgroup
+// ('m2026-8|movie'); collapsing a month hides its whole block.
+const CMP_MONTHS=['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
+let CMP_COLLAPSED=(function(){ try{ return new Set(JSON.parse(localStorage.getItem('cmpCollapsed')||'[]')); }catch(_){ return new Set(); } })();
+let CMP_MONTHKEYS=[];   // every month key in the last render — the target of "collapse all"
+function saveCollapsed(){ try{ localStorage.setItem('cmpCollapsed', JSON.stringify([...CMP_COLLAPSED])); }catch(_){} }
+function monthBucket(r){
+  const ms=r.completed_at||r.last_at;
+  if(!ms) return {key:'nodate', label:'NO DATE', sort:-1};
+  const d=new Date(ms);
+  return {key:'m'+d.getFullYear()+'-'+d.getMonth(), label:CMP_MONTHS[d.getMonth()]+' '+d.getFullYear(), sort:d.getFullYear()*12+d.getMonth()};
+}
+function grpHeader(key,label,level,count){
+  const collapsed=CMP_COLLAPSED.has(key);
+  return '<div class="cmp-grp lvl'+level+(collapsed?' collapsed':'')+'" data-gkey="'+esc(key)+'">'
+    +'<span class="cmp-glabel">'+esc(label)+'</span>'+(count!=null?'<em>'+count+'</em>':'')
+    +'<span class="cmp-chevg">'+(collapsed?'&#9656;':'&#9662;')+'</span></div>';   // ▸ / ▾
+}
+// Rows grouped by month, then SERIES then MOVIES; each header a collapse toggle. Used in both
+// the collapsed and expanded states so the grouping never flattens when a card is open.
 function completedGroupedRows(rows, excludeTitleId){
-  const list=rows.slice().sort((a,b)=>completedSortVal(b)-completedSortVal(a));
+  const list=rows.filter(r=>r.title_id!==excludeTitleId);
+  const months=new Map();
+  list.forEach(r=>{ const m=monthBucket(r); if(!months.has(m.key)) months.set(m.key,{...m,rows:[]}); months.get(m.key).rows.push(r); });
+  const ordered=[...months.values()].sort((a,b)=>b.sort-a.sort);
+  CMP_MONTHKEYS=ordered.map(m=>m.key);
   let h='';
-  [['series','SERIES'],['movie','MOVIES']].forEach(([g,label])=>{
-    const gr=list.filter(r=>r.title_id!==excludeTitleId && ((r.kind==='movie')===(g==='movie')));
-    if(!gr.length) return;
-    h+='<div class="cmp-group"><span>'+label+'</span><em>'+gr.length+'</em></div>'+gr.map(completedRowHTML).join('');
+  ordered.forEach(m=>{
+    h+=grpHeader(m.key,m.label,0,m.rows.length);
+    if(CMP_COLLAPSED.has(m.key)) return;
+    [['series','SERIES'],['movie','MOVIES']].forEach(([g,label])=>{
+      const gr=m.rows.filter(r=>(r.kind==='movie')===(g==='movie')).sort((a,b)=>completedSortVal(b)-completedSortVal(a));
+      if(!gr.length) return;
+      const skey=m.key+'|'+g;
+      h+=grpHeader(skey,label,1,gr.length);
+      if(!CMP_COLLAPSED.has(skey)) h+=gr.map(completedRowHTML).join('');
+    });
   });
   return h;
 }
+function toggleGroup(key){ if(!key) return; if(CMP_COLLAPSED.has(key)) CMP_COLLAPSED.delete(key); else CMP_COLLAPSED.add(key); saveCollapsed(); render(); }
+function openCollapseAll(){ const el=document.getElementById('cmpConfirm'); if(el) el.classList.add('show'); }
 // The COMPLETED list: the selected title expands to the full LOG card at top (matched by
 // title_id), the rest follow as grouped résumé rows.
 function completedListHTML(rows){
@@ -1184,15 +1241,18 @@ function crowFor(s){
 }
 
 function counts(){
-  const c={current:0,comfort:0,completed:0};
+  const c={current:0,comfort:0,completed:0,stopped:0};
   LOG.forEach(s=>{ if(isTheaterMovie(s)) return; c[bucketOf(s)]++;});
   // COMFORT lists the curated marathons, not LOG shows bucketed as "comfort" — so its tab
   // count is the marathon count (else it reads 0 until you open the tab, looking like a bug).
   c.comfort = MARATHONS.length;
-  // COMPLETED now lists the WHOLE résumé (every tracked title), not just the completed bucket,
-  // so its count is the résumé length once loaded (the completed render refines it further).
-  if(Array.isArray(COMPLETED)) c.completed = COMPLETED.length;
-  // SET only renders the COMPLETED sub-tab, so current/comfort count elements aren't present.
+  // COMPLETED lists the whole résumé minus stopped titles (those have their own STOPPED tab);
+  // both counts come from the résumé once loaded.
+  if(Array.isArray(COMPLETED)){
+    const active=COMPLETED.filter(r=>{ const s=LOG.find(x=>x.titleId===r.title_id); return !(s&&isTheaterMovie(s)); });
+    c.stopped = active.filter(r=>r.stopped).length;
+    c.completed = active.length - c.stopped;
+  }
   for(const k in c){ const el=document.getElementById("n-"+k); if(el) el.textContent=c[k]; }
 }
 
@@ -1379,24 +1439,23 @@ function render(){
   // The "Last: …" line is noise on the COMPLETED tab, and slides away whenever a
   // show is expanded (the open card carries its own context).
   const pierreEl=document.querySelector('.pierre');
-  if(pierreEl) pierreEl.style.display = (activeTab==='completed' || activeTab==='shadow' || selectedId) ? 'none' : '';
+  if(pierreEl) pierreEl.style.display = (activeTab==='completed' || activeTab==='stopped' || activeTab==='shadow' || selectedId) ? 'none' : '';
   const grid=document.getElementById("grid");
   if(activeTab==="shadow"){ grid.classList.remove("list","done"); grid.classList.add("shadow"); renderShadow(grid); return; }   // the fused taste profile (single-column block)
   grid.classList.remove("shadow");
   if(activeTab==="comfort"){ grid.classList.remove("done"); renderComfort(grid); return; }   // curated marathons (pre-beta)
   grid.classList.remove("list");
-  if(activeTab==="completed"){
-    grid.classList.add("done");   // block layout: COMPLETED is a word list, not the poster-tile grid
-    if(COMPLETED===null){ loadCompleted().then(()=>{ if(activeTab==='completed') render(); }); grid.innerHTML='<div class="state">loading…</div>'; return; }
+  if(activeTab==="completed" || activeTab==="stopped"){
+    grid.classList.add("done");   // block layout: a word list, not the poster-tile grid
+    if(COMPLETED===null){ loadCompleted().then(()=>{ if(activeTab==='completed'||activeTab==='stopped') render(); }); grid.innerHTML='<div class="state">loading…</div>'; return; }
     // The whole résumé, minus theater-ticket films (those live in the IRL tickets face).
-    const list=COMPLETED.filter(r=>{ const s=LOG.find(x=>x.titleId===r.title_id); return !(s&&isTheaterMovie(s)); });
-    const nc=document.getElementById("n-completed"); if(nc) nc.textContent=list.length;
-    let html = list.length ? completedListHTML(list) : '';
-    if(PASSES===null) loadPasses().then(()=>{ if(activeTab==='completed') render(); });   // one-shot
-    // Passes stay as poster tiles (a rewatch is a fresh viewing, not a finished résumé line):
-    // wrap them in their own grid so the block-level COMPLETED list doesn't stretch the tiles.
-    else if(PASSES.length) html += '<div class="passhead">Rewatch passes</div><div class="grid">' + PASSES.map(passTile).join('') + '</div>';
-    grid.innerHTML = html || '<div class="state">Watch something or chat with Pierre to see it here.</div>';
+    const all=COMPLETED.filter(r=>{ const s=LOG.find(x=>x.titleId===r.title_id); return !(s&&isTheaterMovie(s)); });
+    const stoppedRows=all.filter(r=>r.stopped), doneRows=all.filter(r=>!r.stopped);   // stopped lives in its own tab
+    const list = activeTab==='stopped' ? stoppedRows : doneRows;
+    const empty = activeTab==='stopped'
+      ? 'Nothing stopped. Shows you give up on land here.'
+      : 'Watch something or chat with Pierre to see it here.';
+    grid.innerHTML = (list.length ? completedListHTML(list) : '') || '<div class="state">'+empty+'</div>';
   }else{
     grid.classList.remove("done");
     const list=LOG.filter(s=>bucketOf(s)===activeTab&&!isTheaterMovie(s));
@@ -1422,6 +1481,17 @@ function render(){
     const s=LOG.find(x=>x.id===r.dataset.id); if(!s||s.failed)return;
     selectCurrent(s.id);
   }));
+  // Group headers: tap toggles that section; long-press (~600ms) offers "collapse all".
+  grid.querySelectorAll(".cmp-grp").forEach(el=>{
+    let timer=null, longFired=false;
+    const start=()=>{ longFired=false; timer=setTimeout(()=>{ longFired=true; timer=null; openCollapseAll(); },600); };
+    const stop=()=>{ if(timer){ clearTimeout(timer); timer=null; if(!longFired) toggleGroup(el.dataset.gkey); } };
+    const cancel=()=>{ if(timer){ clearTimeout(timer); timer=null; } };
+    el.addEventListener("pointerdown",start);
+    el.addEventListener("pointerup",stop);
+    el.addEventListener("pointerleave",cancel);
+    el.addEventListener("pointercancel",cancel);
+  });
   // Tap the expanded card (outside its buttons / archive) to collapse it. The
   // per-episode archive handles its own taps (expand blocks, play, tickets, share).
   grid.querySelectorAll(".exp-card").forEach(c=>c.addEventListener("click",ev=>{
@@ -2218,6 +2288,10 @@ function removePermanently(id){
 function switchTab(name){activeTab=name; selectedId=null;
   document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("on",x.dataset.tab===name));render();}
 document.querySelectorAll(".tab").forEach(t=>t.addEventListener("click",()=>switchTab(t.dataset.tab)));
+// Collapse-all confirm (long-press a COMPLETED group header opens it).
+document.getElementById("cmpcYes").addEventListener("click",()=>{ CMP_MONTHKEYS.forEach(k=>CMP_COLLAPSED.add(k)); saveCollapsed(); document.getElementById("cmpConfirm").classList.remove("show"); render(); });
+document.getElementById("cmpcNo").addEventListener("click",()=>document.getElementById("cmpConfirm").classList.remove("show"));
+document.getElementById("cmpConfirm").addEventListener("click",e=>{ if(e.target.id==="cmpConfirm") e.currentTarget.classList.remove("show"); });
 document.getElementById("marBack").addEventListener("click",closeMarathon);
 function firstCurrent(){return LOG.filter(s=>bucketOf(s)==="current"&&!s.failed&&!s.forceCompleted&&!s.stopped&&s.watched<s.released)[0]
   || LOG.filter(s=>bucketOf(s)==="current"&&!s.failed&&!s.forceCompleted&&!s.stopped)[0];}

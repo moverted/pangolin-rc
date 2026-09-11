@@ -2863,3 +2863,23 @@ recur.
   `--message`/`--commit-message`. Endpoint verified against ted@pangolinrc.com (116 titles).
 - **Branch:** `user-history` (off `main`). NOT merged. (Feature was developed/deployed while the
   working tree sat on `pierre-outreach-skill`; moved to its own branch after the fact.)
+
+## COMPLETED v2 — 3 tabs, month grouping, de-corrupt rewatch data (2026-09-10)
+- **Data restore (one-off, prod).** The old rewatch reset (`archiveAndResetSeason`,
+  `profile.ts`) archived a finished season into `watch_pass` and DELETED the live
+  `watch_episode` rows — wiping completion and gapping the COMPLETED résumé (Hacks). Restored
+  by reading each `watch_pass.episodes` JSON snapshot and upserting `done`/`minute` episodes
+  back into `watch_episode` (prefer more-complete state), recomputing `watch_title`
+  rollups (per `refreshCounts`, `watch_rollup.ts:18`) for the 8 affected titles, then
+  `DELETE FROM watch_pass` (13 rows, Ted). Hacks → 47/47. **Retired the passes table use.**
+- **`archiveAndResetSeason`:** removed the `DELETE FROM watch_episode` batch so a rewatch can
+  never wipe completion again (archive insert left dormant; rewatch reworked in Phase 2).
+- **Known data issue (not fixed):** two catalog "Lanterns" exist — `tvmaze:44776` (8 eps,
+  tracked by Ted, 4 watched) and `tvmaze:84190` (10 eps, orphan, 7 watched via its pass).
+  Ted's viewing is split across both ids. Needs a canonical-title decision + watch_title
+  merge — deferred.
+- **Frontend (`cube_set_face.html`, no API change):** SET tabs are now
+  `COMPLETED | STOPPED | SHADOW` (opens on COMPLETED); stopped titles split into their own
+  tab; résumé grouped by month-of-last-activity → SERIES → MOVIES, each header collapsible
+  (state in localStorage), long-press → in-app "Collapse all?" confirm. Rewatch-passes
+  section removed. Deployed Worker + Pages (`--message`).

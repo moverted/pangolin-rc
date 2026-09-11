@@ -715,9 +715,11 @@ async function archiveAndResetSeason(env: Env, email: string, titleId: string, s
     `INSERT INTO watch_pass (pass_id, user_email, title_id, season, ordinal, kind, pattern, episodes, watched_ct, season_ct, started_at, archived_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
   ).bind(passId, email, titleId, season, ord, kind, pattern, JSON.stringify(snap), watchedCt, seasonCt, startedAt, now).run();
-  await env.DB.prepare(
-    `DELETE FROM watch_episode WHERE user_email=? AND title_id=? AND episode_id IN (${ph})`
-  ).bind(email, titleId, ...ids).run();
+  // NOTE (2026-09-10): the old reset DELETED the season's live watch_episode rows here so a
+  // rewatch started from scratch — but that WIPED the original completion, gapping the
+  // COMPLETED résumé for shows watched entirely on PangolinRC (Hacks, Lanterns). Rewatches are
+  // being reworked as non-destructive REWATCH entries (Phase 2); until then, never delete the
+  // completion. The archive snapshot above is harmless/dormant.
   return { pass_id: passId, season, ordinal: ord, kind, pattern, watched_ct: watchedCt, season_ct: seasonCt, started_at: startedAt, archived_at: now };
 }
 
