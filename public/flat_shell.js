@@ -154,6 +154,12 @@ function onIndexChanged() {
   settleT = setTimeout(signal, 60);   // let the scroll settle before focusing
 }
 
+// While WE drive a scroll (goTo), `index` is already the destination and the animation is on its
+// way there — so the intermediate positions the scroll passes through are NOT user navigation.
+// The settle handler must ignore them until we arrive, or a settle firing mid-flight (rounding to
+// an in-between panel) latches `index` one short, then pins the view back to it → the "every tab is
+// one to the left" off-by-one that only a reload cleared. progScrollUntil marks that in-flight window.
+let progScrollUntil = 0, progScrollStart = 0;
 function goTo(i, smooth) {
   const n = FACES.length;
   i = (i % n + n) % n;                 // wrap → the tab bar loops around
@@ -161,6 +167,8 @@ function goTo(i, smooth) {
   // handoff (cubeRotateTo) re-pins right after this call, so its show still wins.
   if (i === FACE_INDEX.episodes) episodesPinned = false;
   index = i;
+  progScrollStart = Date.now();
+  progScrollUntil = progScrollStart + (smooth ? 550 : 120);   // smooth scroll ~ up to ½s of travel
   stage.scrollTo({ left: i * stage.clientWidth, behavior: smooth ? 'smooth' : 'auto' });
   onIndexChanged();
 }
@@ -190,6 +198,10 @@ stage.addEventListener('scroll', () => {
     if (!w) return;                    // zero-width (hidden/mid-layout) → don't derive a bogus index
     const i = Math.round(stage.scrollLeft / w);
     if (i === index) return;           // already where we think we are
+    // A programmatic goTo scroll is still travelling → this is an in-between frame, not a swipe.
+    // Leave `index` (the destination) alone; the arrival settle will match and no-op above. But if
+    // the member started a NEW touch after the goTo (tapped a tab, then swiped), honour that swipe.
+    if (Date.now() < progScrollUntil && lastTouchTs <= progScrollStart) return;
     if (Date.now() - lastTouchTs < TOUCH_WINDOW) { index = i; onIndexChanged(); }  // real swipe → follow it
     else pinToIndex();                 // involuntary scroll (resume/reflow/field-pan) → snap back
   }, 90);
