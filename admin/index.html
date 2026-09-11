@@ -109,6 +109,10 @@
   .ted-reply-in { flex: 1; min-width: 150px; background: rgba(0,0,0,0.25); color: var(--cream); border: 1px solid rgba(250,246,236,0.18); border-radius: 8px; padding: 6px 8px; font-size: 0.82rem; font-family: inherit; resize: vertical; }
   .ted-reply-send { background: #5fd6e0; color: #06232a; border: 0; border-radius: 999px; font-weight: 700; font-size: 0.75rem; padding: 6px 12px; cursor: pointer; white-space: nowrap; }
   .ted-reply-send:disabled { opacity: 0.6; cursor: default; }
+  /* Copy the whole session transcript to the clipboard, so it can be pasted straight to
+     Claude Code. Amber outline so it reads as distinct from the blue Send. */
+  .ted-reply-copy { background: transparent; color: var(--cream); border: 1px solid rgba(240,169,59,0.7); border-radius: 999px; font-weight: 700; font-size: 0.75rem; padding: 6px 12px; cursor: pointer; white-space: nowrap; align-self: stretch; }
+  .ted-reply-copy:disabled { opacity: 0.6; cursor: default; }
   .needs-dot { color: #5fd6e0; font-weight: 700; }
   .muted { color: rgba(250,246,236,0.4); }
   td img.shot { max-height: 44px; border-radius: 5px; display: block; }
@@ -285,6 +289,25 @@
         document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
       flash('✓ Copied');
     } catch (_) { flash('✗ Failed'); }
+  }
+
+  // Copy an entire Get Ted session to the clipboard, verbatim (every turn, role-labeled),
+  // with the session/user header line on top. This is the whole chat as text, so Ted can
+  // paste it straight into Claude Code — no session-lookup script, no DB query. Mirrors the
+  // clipboard + hidden-textarea fallback used by onCopyComments.
+  async function onCopyChat(btn, grp) {
+    if (!grp || !grp.turns || !grp.turns.length) return;
+    const label = (r) => r === 'pierre' ? 'PIERRE' : r === 'user' ? 'USER' : String(r || '').toUpperCase() || 'TURN';
+    const body = grp.turns.map(t => `${label(t.role)}: ${t.content == null ? '' : t.content}`).join('\n\n');
+    const text = (grp.header ? grp.header + '\n\n' : '') + body;
+    const flash = (msg) => { const o = btn.textContent; btn.textContent = msg; btn.disabled = true;
+      setTimeout(() => { btn.textContent = o; btn.disabled = false; }, 1500); };
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(text);
+      else { const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
+      flash('Copied');
+    } catch (_) { flash('Copy failed'); }
   }
 
   // Ted answers an escalation: one bubble, one Send. Drops a TED message into the user's
@@ -735,6 +758,7 @@
     attachGrips(cols);
     let _prevGroup = null, _gi = -1;
     const groupNeeds = {};   // group index -> any turn in it still needs a Ted reply
+    const groupRows = {};    // group index -> { header, turns:[{role,content}] } for whole-session copy
     $('tbody').innerHTML = data.rows.map(row => {
       let out = '';
       // A group-header row starts each new group (e.g. one per Pierre conversation),
@@ -747,9 +771,13 @@
             `<span class="gh-k">${esc(c.label)}</span> <span class="gh-v">${esc(row[c.key] == null ? '' : row[c.key])}</span>`
           ).join('<span class="gh-sep">·</span>');
           out += `<tr class="group-header" data-gi="${_gi}"><td colspan="${cols.length}"><span class="gh-caret">▾</span>${hdr}</td></tr>`;
+          groupRows[_gi] = { header: headerMeta.map(c => `${c.label}: ${row[c.key] == null ? '' : row[c.key]}`).join(' · '), turns: [] };
         }
         _prevGroup = g;
         if (Number(row.needs_reply) === 1) groupNeeds[_gi] = true;
+        // Accumulate raw turn text so a whole session can be copied verbatim (see onCopyChat).
+        if (groupRows[_gi] && (row.role != null || row.content != null))
+          groupRows[_gi].turns.push({ role: row.role, content: row.content });
       }
       const giAttr = cur.groupBy ? ` data-gi="${_gi}"` : '';
       const escAttr = (Number(row.needs_reply) === 1) ? ` data-esc="${esc(row._id || '')}"` : '';
@@ -795,10 +823,12 @@
         const escId = (escRow && (escRow.dataset.esc || escRow.dataset.id)) || '';
         const tr = document.createElement('tr');
         tr.className = 'reply-row'; tr.dataset.gi = gi;
-        tr.innerHTML = `<td colspan="${cols.length}"><div class="ted-reply"><textarea class="ted-reply-in" rows="2" placeholder="Write back to the user…"></textarea><button class="ted-reply-send" data-esc="${esc(escId)}">Send</button></div></td>`;
+        tr.innerHTML = `<td colspan="${cols.length}"><div class="ted-reply"><button class="ted-reply-copy" data-gi="${esc(gi)}">Copy chat</button><textarea class="ted-reply-in" rows="2" placeholder="Write back to the user…"></textarea><button class="ted-reply-send" data-esc="${esc(escId)}">Send</button></div></td>`;
         rows[rows.length - 1].insertAdjacentElement('afterend', tr);
       });
       $('tbody').querySelectorAll('.ted-reply-send').forEach(b => b.addEventListener('click', onTedReply));
+      // Copy the whole session transcript (verbatim) so Ted can paste it straight to Claude Code.
+      $('tbody').querySelectorAll('.ted-reply-copy').forEach(b => b.addEventListener('click', () => onCopyChat(b, groupRows[b.dataset.gi])));
     }
 
     $('count').textContent = `${data.total.toLocaleString()} row${data.total === 1 ? '' : 's'}`;

@@ -37,7 +37,8 @@ FILM
 - A film logs as watched in one go, or you can mark it started and come back. Treat a movie someone is partway through like a show they have paused: you remember where they are and you do not spoil past it.
 
 FETCHING (real lookups, use them)
-- You have tools: search_title, franchise_films, where_to_watch, premiere_timing. They are your remote for the real world. Use them whenever someone asks where to watch something, which service has it, what comes next in a film series, what order to watch one in, or when the next episode drops. Never answer availability or drop times from memory, they go stale. Look it up.
+- You have tools: search_title, franchise_films, where_to_watch, premiere_timing, find_episode, episode_arc. They are your remote for the real world. Use them whenever someone asks where to watch something, which service has it, what comes next in a film series, what order to watch one in, or when the next episode drops. Never answer availability or drop times from memory, they go stale. Look it up.
+- SEASON AND EPISODE NUMBERS: you know shows deep, so you can name the episode they mean from memory. But the NUMBER (which season, which episode) you look up, you never recite it from memory. Whenever you are about to state a specific SxEy for a titled episode, call find_episode first with the show and the episode's title, and use the number it returns. If find_episode cannot place it, name the episode by its title alone and say you are not certain of the number. A wrong episode number is exactly the kind of confident-sounding miss that sinks you.
 - WHEN THE NEXT EPISODE DROPS: use premiere_timing with the show name. It returns the real drop moment in THEIR timezone, already phrased ("tonight at 6:00 PM", "Tue, Sep 8 at 8:00 PM"). Give them that. Do not compute it yourself and do not read the drop day off the calendar, because the U.S. day often differs from the listed airdate (Apple TV+ especially drops the evening before). Trust the tool's day and time over your own sense of the schedule.
 - What the lookup says beats what you remember. Titles move between services constantly.
 - where_to_watch is US only for now. Streaming means included with a subscription. Rent and buy are the fallback, mention them only when nothing streams.
@@ -58,6 +59,11 @@ GROUND RULES (these are real, not flavor)
 - When something is genuinely past you, do not fake it. Lean on the truth: you are a pangolin, and that you do any of this at all is kind of amazing. Be warm and patient about it, and offer to get Ted, the human counterpart, who can pick up what you cannot.
 - When something genuinely trips you up, or you are unsure and do not want to fake it, be honest in your own voice: you are still in training, so you are going to call your manager Ted to see what you are getting wrong. Tell them Ted will give it a look and get back to them, right here. Better an honest "let me get Ted" than a confident wrong answer or a fake "done".
 - When you actually hand a member off to Ted (you are stuck and you are pulling him in, not just mentioning him), end that reply with the exact tag [GETTED] on its own at the very end. It is a silent signal to alert Ted, hidden from the member, so never explain it or mention the tag. Before the tag, give Ted a one line of context on what the member needs. Only use it on a real handoff, not when Ted just comes up in conversation.
+
+GROUNDING (what you may offer) — a HARD rule
+- Only offer to DO something when both are true: there is a real action for it (a tag or tool below actually performs it), AND the state it needs is right in front of you (in this prompt or in what they just told you). If either is missing, do not offer it. Say plainly what you can and cannot do instead.
+- Never contradict yourself inside one conversation. If you just said you cannot see or do something, do not turn around and offer it a line later. If a fact changes because they gave it to you, use what they gave you.
+- Their active marathon is a good example: you can only see it if it appears under THEIR ACTIVE MARATHON above. If it is there, that is the marathon they mean, so use it. If it is NOT there, do not talk about "your current marathon" as if you can see it, do not guess its episodes, and do not ask them to recite it so you can rebuild it. Offer to start a fresh one instead, or get Ted.
 
 STAYING IN YOUR LANE
 - If asked for anything that is not about watching (code, email, math, life logistics, the weather, general chitchat), you deflect SHEEPISHLY and in character — a bashful pangolin caught off his patch, a little embarrassed he can't help with that — and you always hand back a way into TV. You are just a pangolin trying to help someone watch TV. Never a bare no, never a wall, never a lecture. Rotate how you say it so it stays fresh.
@@ -140,6 +146,8 @@ BUILDING A MARATHON (a curated run of specific episodes) — the [MARATHON] tag
   - blurb: one sentence on what the run is.
   - episodes: the watch order as a comma-separated list of episode codes (S4E18, S5E09, …). List them in the exact order you want them watched.
 - After the tag the app resolves the show + every episode, builds the marathon under the member's own marathons, and hands back a chip to open it in BROWSE > PROGRAM. Your line before the tag is forward-looking ("Give me a second, building it now…") — the app posts the "built it" confirmation, not you.
+- ADDING TO A MARATHON THEY ALREADY HAVE: you have no tool for this. [MARATHON] only builds a brand new run. So if they ask to add an episode to an existing marathon, do NOT rebuild or recreate it (that makes a duplicate and orphans their progress — never do it). Say plainly you cannot drop a single episode onto an existing marathon yet, then offer the honest alternatives: a small SEPARATE new marathon (name it so it clearly reads as its own thing, not the old one), or get Ted. Only build a new marathon when they choose that.
+- ARCS AND MULTI-PART STUNTS: when they zero in on one specific episode to watch or add, and it could be part of a bigger story (a two/three/four-parter, a sweeps stunt, a "to be continued"), call episode_arc with the show and that episode before you answer. If it comes back as part of an arc, that arc usually plays better as its own short marathon than one part on its own. Offer, in this order: (1) the whole arc as its own little marathon [recommended] — build it with [MARATHON] using the arc's episodes in order; (2) only if you can SEE their active marathon above, the arc as a block, but remember you cannot append to an existing run, so this means a new marathon that combines it; (3) just the one episode they asked for. Respect what they asked for: the arc is a better option to offer, never a correction. If episode_arc says strong, state it plainly; if weak, ask ("this one feels like it's in the middle of something, is it part of a bigger run?") rather than assert it. If they have already seen some of the arc (the marathon block or their log shows it), say so and start at their next unwatched part.
 
 SWITCHING WHERE THEY ARE (the cube has modes, you can move them)
 - There are four places you can put someone: Chat with you (the default), Add a show, their Account (sign in or sign up), or Connect a device.
@@ -370,6 +378,69 @@ async function shadowBlock(env: Env, email: string): Promise<string> {
   }
 }
 
+// The member's ACTIVE marathon(s): a curated run (a `maps` row) that watch_title.active_map_id
+// points at, folded into Pierre's context so he can name it, read its exact course in order,
+// and know where the member is in it. This is the ONLY marathon state Pierre can see — without
+// this block he must not claim to see "your marathon" (the grounding rule below enforces that).
+// Best-effort: any error yields '' (treated as "no marathon in context").
+async function marathonBlock(env: Env, email: string): Promise<string> {
+  try {
+    const runs = await env.DB.prepare(
+      `SELECT wt.title_id AS title_id, wt.active_map_id AS map_id, wt.current_episode_id AS cur_ep,
+              m.name AS name, m.blurb AS blurb, t.name AS show_name
+         FROM watch_title wt
+         JOIN maps m ON m.map_id = wt.active_map_id
+         LEFT JOIN titles t ON t.title_id = wt.title_id
+        WHERE wt.user_email = ?1 AND wt.active_map_id IS NOT NULL AND wt.active_map_id <> ''
+        ORDER BY wt.updated_at DESC
+        LIMIT 4`,
+    ).bind(email).all<{ title_id: string; map_id: string; cur_ep: string | null; name: string | null; blurb: string | null; show_name: string | null }>();
+    const rows = runs.results || [];
+    if (!rows.length) return '';
+
+    const epCode = (episode_id: string, season: number | null, number: number | null): string => {
+      if (season != null && number != null) return `S${season}E${number}`;
+      const m = /:s(\d+)e(\d+)$/i.exec(episode_id);
+      return m ? `S${m[1]}E${m[2]}` : episode_id;
+    };
+
+    const sections: string[] = [];
+    for (const run of rows) {
+      const steps = await env.DB.prepare(
+        `SELECT s.position AS position, s.episode_id AS episode_id,
+                e.season AS season, e.number AS number, e.name AS ep_name,
+                COALESCE((SELECT we.done FROM watch_episode we
+                           WHERE we.user_email = ?1 AND we.episode_id = s.episode_id), 0) AS done
+           FROM map_steps s
+           LEFT JOIN episodes e ON e.episode_id = s.episode_id
+          WHERE s.map_id = ?2
+          ORDER BY s.position ASC`,
+      ).bind(email, run.map_id).all<{ position: number; episode_id: string; season: number | null; number: number | null; ep_name: string | null; done: number }>();
+      const stepRows = steps.results || [];
+      if (!stepRows.length) continue;
+      const lines = stepRows.map((s) => {
+        const c = epCode(s.episode_id, s.season, s.number);
+        const nm = s.ep_name ? ` "${s.ep_name}"` : '';
+        const seen = s.done ? ' [watched]' : '';
+        const here = run.cur_ep && s.episode_id === run.cur_ep ? '  <- they are here now' : '';
+        return `  ${s.position}. ${c}${nm}${seen}${here}`;
+      });
+      const title = (run.name || 'Untitled marathon') + (run.show_name ? ` (${run.show_name})` : '');
+      sections.push(title + '\n' + (run.blurb ? `  ${run.blurb}\n` : '') + lines.join('\n'));
+    }
+    if (!sections.length) return '';
+    return (
+      '\n\nTHEIR ACTIVE MARATHON' + (sections.length > 1 ? 'S' : '') +
+      ' (a curated run they are on RIGHT NOW — the real course, in order, showing what they have watched and where they are. ' +
+      'This is the ONLY marathon state you can see. When they say "the marathon" or "my marathon", THIS is it: name it, use this exact episode list, and never ask them to list it again. ' +
+      'You have no tool to append an episode to an existing marathon, so never say you added one to it, and NEVER rebuild or recreate a marathon that already exists here):\n' +
+      sections.join('\n\n')
+    );
+  } catch {
+    return '';
+  }
+}
+
 // ── Pierre's tools ──────────────────────────────────────────────────────────
 // Server-side lookups riding the existing TMDB key (handlers/tmdb.ts). No new
 // public routes: these run only inside the chat handler, model-invoked.
@@ -419,6 +490,32 @@ const TOOLS = [
       type: 'object',
       properties: { title: { type: 'string', description: 'the show name' } },
       required: ['title'],
+    },
+  },
+  {
+    name: 'find_episode',
+    description:
+      "Resolve a specific TV episode to its real season and episode number. Give the show name and the episode's title (or a code like 'S3E14'). Returns the episode's season, number, name, and airdate from TVMaze. Use this to GROUND any episode number before you state it — never recite a season/episode number from memory.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        show: { type: 'string', description: 'the series name' },
+        episode: { type: 'string', description: "the episode title (e.g. 'I Am Curious...Maddie') or a code like 'S3E14'" },
+      },
+      required: ['show', 'episode'],
+    },
+  },
+  {
+    name: 'episode_arc',
+    description:
+      "Check whether a specific episode is part of a multi-episode arc or sweeps stunt (a two/three/four-parter, 'to be continued', a recurring-guest storyline). Give the show name and the episode (a title or an 'S3E14' code). Returns whether it belongs to an arc, how confident, the episode's position in the arc, and the arc's full episode range in order. Use it before offering a single episode that might be the tail of a bigger story.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        show: { type: 'string', description: 'the series name' },
+        episode: { type: 'string', description: "the episode title or a code like 'S3E14'" },
+      },
+      required: ['show', 'episode'],
     },
   },
 ];
@@ -503,6 +600,39 @@ async function runTool(env: Env, name: string, input: any, ctx: { tz: string }):
       if (!out.streaming.length && !out.rent.length && !out.buy.length) return 'no US availability on record';
       return JSON.stringify(out);
     }
+    if (name === 'find_episode') {
+      const show = String(input?.show ?? '').trim().slice(0, 120);
+      const episode = String(input?.episode ?? '').trim().slice(0, 160);
+      if (!show || !episode) return 'need a show and an episode';
+      const s = await tvmazeResolve(show);
+      if (!s) return `could not find the show "${show}"`;
+      const eps = await tvmazeEpisodes(s.id);
+      if (!eps) return 'lookup failed';
+      const ep = locateEpisode(eps, episode);
+      if (!ep) return JSON.stringify({ show: s.name, found: false, note: `could not place "${episode}" in ${s.name}` });
+      return JSON.stringify({
+        show: s.name, found: true, episode: `S${ep.season}E${ep.number}`,
+        season: ep.season, number: ep.number, name: ep.name, airdate: ep.airdate || null,
+      });
+    }
+    if (name === 'episode_arc') {
+      const show = String(input?.show ?? '').trim().slice(0, 120);
+      const episode = String(input?.episode ?? '').trim().slice(0, 160);
+      if (!show || !episode) return 'need a show and an episode';
+      const s = await tvmazeResolve(show);
+      if (!s) return `could not find the show "${show}"`;
+      const eps = await tvmazeEpisodes(s.id);
+      if (!eps) return 'lookup failed';
+      const target = locateEpisode(eps, episode);
+      if (!target) return JSON.stringify({ show: s.name, found: false, note: `could not place "${episode}" in ${s.name}` });
+      const arc = await detectArc(eps, target);
+      return JSON.stringify({
+        show: s.name, episode: `S${target.season}E${target.number}`, episode_name: target.name,
+        in_arc: arc.in_arc, confidence: arc.confidence, basis: arc.basis,
+        position: arc.in_arc ? arc.position : null, total: arc.in_arc ? arc.total : null,
+        arc_episodes: arc.in_arc ? arc.episodes : [],
+      });
+    }
     return 'unknown tool';
   } catch {
     return 'lookup failed';
@@ -565,6 +695,142 @@ async function flagIfExplicitRequest(env: Env, email: string, text: string): Pro
   } catch (e) {
     console.error('pierre flagIfExplicitRequest', e);
   }
+}
+
+// ── Episode + arc lookups (TVMaze), shared by find_episode / episode_arc ──────
+// Public TVMaze, no key. All best-effort: null/none on any failure so a lookup miss
+// degrades to "name it by title, don't assert a number/arc", never a crash.
+
+type TvEp = { id: number; season: number; number: number; name: string; airdate: string };
+
+async function tvmazeEpisodes(showId: number): Promise<TvEp[] | null> {
+  try {
+    const r = await fetch(`https://api.tvmaze.com/shows/${showId}/episodes`);
+    if (!r.ok) return null;
+    const arr: any = await r.json();
+    if (!Array.isArray(arr)) return null;
+    return arr
+      .filter((e: any) => e && e.season != null && e.number != null)
+      .map((e: any) => ({ id: e.id, season: e.season, number: e.number, name: String(e.name || ''), airdate: String(e.airdate || '') }));
+  } catch { return null; }
+}
+
+async function tvmazeGuestNames(episodeId: number): Promise<Set<string> | null> {
+  try {
+    const r = await fetch(`https://api.tvmaze.com/episodes/${episodeId}?embed=guestcast`);
+    if (!r.ok) return null;
+    const d: any = await r.json();
+    const g = (d && d._embedded && d._embedded.guestcast) || [];
+    const set = new Set<string>();
+    for (const c of g) { const n = c && c.person && c.person.name; if (n) set.add(String(n)); }
+    return set;
+  } catch { return null; }
+}
+
+const _sxe = (s: string): { season: number; number: number } | null => {
+  const m = /s\s*(\d+)\s*e\s*(\d+)/i.exec(s);
+  return m ? { season: Number(m[1]), number: Number(m[2]) } : null;
+};
+const _normTitle = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+// A title with any trailing part marker stripped ("...Maddie (4)" and "...Maddie" collapse to one).
+const _bareStem = (s: string): string => _normTitle(s).replace(/\s+(?:part\s+|pt\s+)?\d+$/, '').trim();
+
+// Locate one episode in a show's list by an SxEy code, else by (fuzzy) title match.
+function locateEpisode(eps: TvEp[], query: string): TvEp | null {
+  const code = _sxe(query);
+  if (code) return eps.find((e) => e.season === code.season && e.number === code.number) || null;
+  const q = _normTitle(query), qb = _bareStem(query);
+  if (!q) return null;
+  let best: TvEp | null = null, bestScore = 0;
+  for (const e of eps) {
+    const nt = _normTitle(e.name), nb = _bareStem(e.name);
+    let score = 0;
+    if (nt === q) score = 100;
+    else if (qb && nb === qb) score = 90;
+    else if (nt.includes(q) || q.includes(nt)) score = 60;
+    else if (qb && nb && (nb.includes(qb) || qb.includes(nb))) score = 50;
+    if (score > bestScore) { bestScore = score; best = e; }
+  }
+  return bestScore >= 50 ? best : null;
+}
+
+// A part number carried in the title: "(4)", "Part 4", "Pt. 4". Null if none.
+function titlePart(name: string): number | null {
+  const paren = /\((\d+)\)\s*$/.exec(name);
+  if (paren) return Number(paren[1]);
+  const pt = /\b(?:part|pt\.?)\s+(\d+)\b/i.exec(name);
+  if (pt) return Number(pt[1]);
+  return null;
+}
+
+type Arc = {
+  in_arc: boolean; confidence: 'strong' | 'weak' | 'none'; basis: string;
+  position: number; total: number; episodes: Array<{ code: string; name: string }>;
+};
+
+// Infer whether `target` sits inside a multi-episode arc, strongest signal first:
+// (1) explicit part numbers in titles, (2) a shared title stem across consecutive
+// episodes, (3) a guest star recurring across 3+ consecutive episodes. Sweeps-window
+// airdates are supporting-only and never decide it alone.
+async function detectArc(eps: TvEp[], target: TvEp): Promise<Arc> {
+  const none: Arc = { in_arc: false, confidence: 'none', basis: '', position: 0, total: 0, episodes: [] };
+  const season = eps.filter((e) => e.season === target.season);
+  const byNum = new Map<number, TvEp>();
+  for (const e of season) byNum.set(e.number, e);
+  const code = (e: TvEp) => `S${e.season}E${e.number}`;
+  const pack = (run: TvEp[], confidence: 'strong' | 'weak', basis: string): Arc => ({
+    in_arc: true, confidence, basis,
+    position: run.findIndex((e) => e.id === target.id) + 1,
+    total: run.length,
+    episodes: run.map((e) => ({ code: code(e), name: e.name })),
+  });
+
+  // Signal 1: part numbers step by one across consecutive episodes.
+  const tp = titlePart(target.name);
+  if (tp != null) {
+    const run: TvEp[] = [target];
+    for (let n = target.number - 1, want = tp - 1; want >= 1; n--, want--) {
+      const e = byNum.get(n); if (e && titlePart(e.name) === want) run.unshift(e); else break;
+    }
+    for (let n = target.number + 1, want = tp + 1; ; n++, want++) {
+      const e = byNum.get(n); if (e && titlePart(e.name) === want) run.push(e); else break;
+    }
+    if (run.length >= 2) return pack(run, 'strong', 'the episode titles are numbered parts of one story');
+  }
+
+  // Signal 2: a shared title stem across consecutive episodes (no explicit part number).
+  const stem = _bareStem(target.name);
+  if (stem && stem.length >= 4) {
+    const same = (e?: TvEp) => !!e && _bareStem(e.name) === stem;
+    const run: TvEp[] = [target];
+    for (let n = target.number - 1; same(byNum.get(n)); n--) run.unshift(byNum.get(n)!);
+    for (let n = target.number + 1; same(byNum.get(n)); n++) run.push(byNum.get(n)!);
+    if (run.length >= 2) return pack(run, 'strong', 'consecutive episodes share one title');
+  }
+
+  // Signal 3: a guest star recurring across consecutive episodes. Bounded guest-cast
+  // fetches in a ±3 in-season window around the target.
+  const window: number[] = [];
+  for (let n = target.number - 3; n <= target.number + 3; n++) if (byNum.has(n)) window.push(n);
+  const guestsByNum = new Map<number, Set<string>>();
+  await Promise.all(window.map(async (n) => {
+    const set = await tvmazeGuestNames(byNum.get(n)!.id);
+    if (set) guestsByNum.set(n, set);
+  }));
+  const targetGuests = guestsByNum.get(target.number);
+  if (targetGuests && targetGuests.size) {
+    let bestRun: TvEp[] = [], bestGuest = '';
+    for (const g of targetGuests) {
+      const run: TvEp[] = [target];
+      for (let n = target.number - 1; guestsByNum.get(n)?.has(g); n--) run.unshift(byNum.get(n)!);
+      for (let n = target.number + 1; guestsByNum.get(n)?.has(g); n++) run.push(byNum.get(n)!);
+      if (run.length > bestRun.length) { bestRun = run; bestGuest = g; }
+    }
+    if (bestRun.length >= 3) return pack(bestRun, 'strong', `${bestGuest} recurs across these consecutive episodes`);
+    if (bestRun.length === 2) return pack(bestRun, 'weak', `${bestGuest} appears in these two consecutive episodes`);
+  }
+
+  return none;
 }
 
 export const pierreRoutes = new Hono<{ Bindings: Env }>();
@@ -630,6 +896,9 @@ pierreRoutes.post('/chat', async (c) => {
       : '';
   const taste = email ? await tasteBlock(c.env, email) : SEED_TASTE;
   const shadow = email ? await shadowBlock(c.env, email) : '';
+  // The member's active curated run(s), so Pierre can see "the marathon" they mean instead of
+  // claiming he can't. Empty string when they have none, which the grounding rule handles.
+  const marathon = email ? await marathonBlock(c.env, email) : '';
 
   // The member's IANA timezone (browser: Intl…timeZone), so premiere_timing can render a
   // drop time in THEIR local clock. Defaults to US Eastern when the client sends nothing.
@@ -661,7 +930,7 @@ pierreRoutes.post('/chat', async (c) => {
       '\n- If their thought stands on its own, no question in it, respond to it and ask once if they want to share the thought with their people. If they say yes, put [PANEL: Share] alone on the last line. Never use that tag any other way, and never mention it.';
   }
 
-  const system = PIERRE + '\n\n' + taste + shadow + modeBlock;
+  const system = PIERRE + '\n\n' + taste + shadow + marathon + modeBlock;
 
   let data: { content?: Array<any>; stop_reason?: string };
   for (let round = 0; ; round++) {

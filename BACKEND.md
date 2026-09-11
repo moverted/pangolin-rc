@@ -2904,3 +2904,66 @@ recur.
   order→pending→question→YES built a 2-step map; in-order→auto marathon; movie→solo, views.
 - **Note:** the live test re-logged 5 already-completed episodes with empty `sessions`,
   overwriting their original session timing (done=1 intact; résumé unaffected). No backup.
+
+## Pierre grounding fix + marathon-in-context + arc detection; Get Ted "Copy chat" (2026-09-11)
+Branch `user-history`. NOT deployed — branch build only, awaiting Ted's go for main + prod.
+No D1 migration (no schema change). Touches Worker (`src/handlers/pierre.ts`) + admin Pages
+(`admin/index.html`). Prompted by the session `fa9feca0` bug (Appendix A of the handoff).
+
+- **Diagnosis of `fa9feca0` (static, from `pierre.ts` — no prod query; see DB note below):**
+  - *Was the active marathon in Pierre's context on any turn?* **No.** The system prompt was
+    `PIERRE + taste + shadow + modeBlock`; `tasteBlock()` reads watch_title / watch_episode /
+    reflection / watch_comment / coviewers / streaming_shadow only. `maps` / `map_steps` /
+    `watch_title.active_map_id` were never injected. That is why he could not "see the marathon."
+  - *Append-to-course tool?* **None.** The only marathon capability is the `[MARATHON]` tag,
+    which builds a NEW map (`kind='user'`). *Create* exists; *append* does not. So "add it to
+    the marathon" mapped to no action, and "I'll rebuild it… on the end" was him reaching for
+    create as a workaround — the destructive duplicate the spec forbids.
+  - *"want me to add it" offer* came from the BUILDING A MARATHON block, which framed
+    marathon-building as freely available and said nothing about needing the run in context or
+    being unable to append.
+  - *"S3E22" origin:* **model memory, ungrounded.** None of Pierre's tools resolved a title to
+    a season/episode. TVMaze ground truth: "I Am Curious... Maddie" is **S3E14** (season 3 has
+    only 15 episodes), so S3E22 was simply wrong.
+- **DB-guardrail correction (Part 1 of the handoff was backwards).** The spec said "query
+  `pangolinrc-events` only, never `pangolin-rc`." But the Pierre transcript table `pierre_chat`
+  lives in **`pangolin-rc`** (the `DB` binding; `migrations/0041`,`0044`,`0046`), and
+  `pangolinrc-events` is referenced nowhere in `src/`. A session-lookup script would have had to
+  read `pangolin-rc` to work at all. **Resolution (Ted):** drop the lookup script entirely; make
+  the Get Ted panel button copy the **whole chat transcript** to the clipboard instead. No prod
+  query from tooling, guardrail intact. `scripts/session.mjs` was NOT created.
+- **Part 1 — `admin/index.html` "Copy chat" button.** The Get Ted reply row is now
+  `[Copy chat] [Write back…] [Send]`. Copy assembles the session verbatim from the already-
+  rendered turns (`groupRows[gi]` → header line + `ROLE: content` per turn) and writes it with
+  `navigator.clipboard` + hidden-textarea/`execCommand` fallback; shows "Copied" ~1.5s. No
+  network, no session id needed (the full UUID isn't even sent to the client — only `substr(…,8)`).
+- **Part 2 — grounding + marathon state (`pierre.ts`).**
+  - New `marathonBlock(env,email)`: reads `watch_title.active_map_id → maps (+ blurb) + map_steps
+    (+ episodes) + watch_episode.done`, injected into `system` as THEIR ACTIVE MARATHON (course
+    in order, [watched] flags, "they are here now"). Empty string when no active run.
+  - Prompt: a hard GROUNDING rule (only offer an action when a real tag/tool performs it AND its
+    state is in context; never contradict a limit stated earlier in the convo; only reference
+    "your marathon" if it appears in the injected block). BUILDING A MARATHON gained explicit
+    "no append tool → never rebuild/recreate an existing marathon; offer a clearly-separate new
+    one or Get Ted." A FETCHING rule requires grounding any SxEy via the new `find_episode` tool.
+  - New tool `find_episode(show, episode)` → resolves a titled episode to real season/number via
+    TVMaze (fuzzy title match that ignores trailing part markers, or an SxEy code).
+- **Part 3 — arc detection (`pierre.ts`).** New tool `episode_arc(show, episode)` +
+  `detectArc()`. Signals, strongest first: (1) numbered part titles stepping by one across
+  consecutive episodes `(1)(2)(3)(4)` / "Part N"; (2) shared title stem across consecutive
+  episodes; (3) a guest star recurring across 3+ consecutive episodes (bounded ±3 in-season
+  `?embed=guestcast` fetches); sweeps-window airdates supporting-only. Returns in_arc /
+  confidence / position / total / arc_episodes. Prompt tells Pierre to offer, in order: the
+  whole arc as its own mini-marathon (recommended), the arc as a new combined marathon (only if
+  he can see the active run), or just the one episode; assert on strong, ASK on weak.
+  - **Note vs. spec:** the handoff assumed the Moonlighting stunt had no Part-N in its titles and
+    could only be caught by Mark Harmon's guest cast. TVMaze actually labels them
+    "…(1)…(2)…(3)…(4)", so signal 1 catches it cheaply; Mark Harmon (guestcast on S3E14 =
+    "Sam Crawford", verified) is real reinforcement, not the only path.
+  - **Verified against live TVMaze (show 1487):** S3E14 → in_arc, position 4/4, range
+    S3E11–S3E14; S3E9 "The Straight Poop" (clip show) → not flagged. `tsc --noEmit` clean.
+- **Capability audit (other offers with no tool behind them):** the tags Pierre can emit —
+  `[GETTED] [ROUTE] [BACKFILL] [WATCHED] [SHADOW] [TRT] [MARATHON] [SWITCH] [ASK] [PANEL:Share]`
+  — each has a real handler (Worker or the shared `cube_pierre_face.html`). The only tool-less
+  offer was append-to-an-existing-marathon, now closed by the no-append/no-rebuild prompt rule.
+  Deferred: building an actual append-to-course tool (flagged, not built).
