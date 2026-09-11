@@ -2967,3 +2967,24 @@ No D1 migration (no schema change). Touches Worker (`src/handlers/pierre.ts`) + 
   — each has a real handler (Worker or the shared `cube_pierre_face.html`). The only tool-less
   offer was append-to-an-existing-marathon, now closed by the no-append/no-rebuild prompt rule.
   Deferred: building an actual append-to-course tool (flagged, not built).
+
+## Shipped `user-history` → main + prod: flat pager off-by-one fix (2026-09-11, DEPLOYED)
+
+Merged branch `user-history` into `main` (fast-forward `8c77f6c..966f013`) and deployed the whole
+stack to production — the "deploy HELD" on the Pierre-grounding work was lifted by Ted this session.
+Worker `40bc76bb-5b58-4930-b2cd-efd3bd500082` (`npx wrangler deploy`) + Pages Production `944cbdb8`
+(`main`, commit `966f013`, `remote.pangolinrc.com`). D1: **no migrations to apply** — `0061`/`0062`
+already present on remote `pangolin-rc`. iOS bundle re-synced (`cap copy`, www→ios) and Xcode opened
+for Ted's clean/archive/distribute; the fix is byte-present in `ios/App/App/public/flat_shell.js`.
+
+- **`public/flat_shell.js` — the bug fix (this session's headline).** Symptom: intermittently every
+  bottom tab landed/highlighted one panel to the LEFT (tap SET → BROWSE, PIERRE → FEED, WATCH → an
+  empty LOG detail), only a reload cleared it — a regression of the Watch+Log merge's new
+  `TOUCH_WINDOW` swipe guard. Cause: the `#stage` scroll-settle handler read an *in-flight*
+  `goTo()` smooth scroll as a user swipe (a pre-tap pager swipe kept `lastTouchTs` inside
+  `TOUCH_WINDOW`), latched `index` one panel short mid-animation, then `pinToIndex()` pulled the view
+  back to the wrong panel. Fix: `goTo()` marks a `progScrollUntil` window; the settle handler ignores
+  intermediate positions while a programmatic scroll is travelling, UNLESS a fresh touch began after
+  the `goTo` (deliberate tap-then-swipe still honoured). Static asset only — no Worker/D1 change from
+  the fix itself; the Worker deploy above carries the already-committed rewatch + Pierre-grounding
+  handlers (`src/handlers/pierre.ts`,`profile.ts`,`catalog.ts`) that rode along in the same merge.
