@@ -831,8 +831,8 @@ const API_BASE = (location.protocol === 'http:' && location.hostname === 'localh
 // render functions (renderTickets / renderMedia) stay in this file for that port. The JOIN
 // intake above is untouched; this only renders once the device is a member.
 const IRL_TABS = [
-  { key:'suggestions', label:'Suggest', badge:'DISCOVER' },
-  { key:'collect',     label:'Program', badge:'MARATHONS' },   // internal key stays 'collect'; UI label is PROGRAM
+  { key:'collect',     label:'Program', badge:'MARATHONS' },   // PROGRAM on the left; internal key stays 'collect'
+  { key:'suggestions', label:'Suggest', badge:'DISCOVER' },    // SUGGEST on the right
 ];
 let irlTab = 'collect';   // BROWSE opens on PROGRAM (marathons); Suggest is a tab away
 // Dev/layout preview only: ?seed populates sample stubs + discs so the layout can be
