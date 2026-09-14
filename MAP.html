@@ -6,168 +6,241 @@
 <title>pangolinRC — Design Map</title>
 <style>
   :root{
-    --bg:#0d0b09; --panel:#16120e; --line:rgba(255,255,255,.10);
+    --bg:#0d0b09; --panel:#16120e; --panel2:#1c1712; --line:rgba(255,255,255,.10);
     --text:#f3ede4; --muted:#9a9488; --amber:#e89f3d;
-    --live:#6cc070; --risk:#e8a33d; --ext:#7aa0d0; --gone:#c56; --legacy:#6b6660;
+    --live:#6cc070; --risk:#e8a33d; --wip:#9a86d0; --ext:#7aa0d0; --legacy:#6b6660; --gone:#c56;
     --mono:'SF Mono',ui-monospace,Menlo,monospace;
   }
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--text);
-    font-family:system-ui,-apple-system,sans-serif;padding:24px 20px 80px}
+    font-family:system-ui,-apple-system,sans-serif;padding:24px 20px 90px}
   header h1{margin:0 0 4px;font-size:22px;letter-spacing:.02em}
-  header p{margin:0 0 14px;color:var(--muted);font-size:13px;max-width:760px;line-height:1.5}
-  .legend{display:flex;flex-wrap:wrap;gap:14px;margin:12px 0 26px;font-size:12px;color:var(--muted)}
+  header p{margin:0 0 10px;color:var(--muted);font-size:13px;max-width:820px;line-height:1.55}
+  header p b{color:var(--text)}
+  code{font-family:var(--mono);font-size:.92em}
+  /* nav mock */
+  .navmock{margin:18px 0 8px;border:1px solid var(--line);border-radius:14px;overflow:hidden;max-width:820px}
+  .navtop{display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--panel2);
+    border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)}
+  .navtop .pf{display:inline-flex;align-items:center;gap:6px;color:var(--amber);font-weight:700;
+    border:1px solid rgba(232,159,61,.5);border-radius:999px;padding:4px 10px}
+  .navbar{display:flex}
+  .navbar .t{flex:1;text-align:center;padding:12px 6px;font:700 12px/1 var(--mono);letter-spacing:.06em;
+    color:var(--muted);border-right:1px solid var(--line)}
+  .navbar .t:last-child{border-right:0}
+  .navbar .t.heavy{color:var(--amber);background:rgba(232,159,61,.08)}
+  .navbar .t small{display:block;font:400 9px/1.3 system-ui;color:var(--muted);margin-top:4px;letter-spacing:0}
+  .legend{display:flex;flex-wrap:wrap;gap:14px;margin:16px 0 4px;font-size:12px;color:var(--muted)}
   .legend b{display:inline-flex;align-items:center;gap:6px;font-weight:600;color:var(--text)}
   .dot{width:9px;height:9px;border-radius:50%}
-  .dot.live{background:var(--live)} .dot.risk{background:var(--risk)}
-  .dot.ext{background:var(--ext)} .dot.gone{background:var(--gone)} .dot.legacy{background:var(--legacy)}
-  .tile.legacy{opacity:.55}
-  h2.sect{font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--amber);
-    margin:34px 0 14px;border-bottom:1px solid var(--line);padding-bottom:7px}
-  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:20px}
-  .tile{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;
-    display:flex;flex-direction:column}
-  .frame{position:relative;width:100%;height:300px;overflow:hidden;background:#000;
-    border-bottom:1px solid var(--line)}
-  /* render a 375x812 phone scaled to fit the tile width */
+  .dot.live{background:var(--live)} .dot.risk{background:var(--risk)} .dot.wip{background:var(--wip)}
+  .dot.ext{background:var(--ext)} .dot.legacy{background:var(--legacy)} .dot.gone{background:var(--gone)}
+  /* tab section */
+  .tab{margin:30px 0 0;border-top:1px solid var(--line);padding-top:18px}
+  .tab > h2{font-size:17px;margin:0 0 2px;display:flex;align-items:center;gap:9px}
+  .tab > h2 .star{color:var(--amber);font-size:13px}
+  .tab .tjob{color:var(--muted);font-size:12.5px;margin:0 0 14px;max-width:820px;line-height:1.5}
+  .lane{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start}
+  .screens{display:flex;gap:14px;flex-wrap:wrap}
+  .phone{width:186px}
+  .frame{position:relative;width:186px;height:300px;overflow:hidden;background:#000;
+    border:1px solid var(--line);border-radius:12px}
   .frame iframe{position:absolute;top:0;left:0;width:375px;height:812px;border:0;
-    transform:scale(.56);transform-origin:top left;background:#000;pointer-events:none}
-  .frame.wide iframe{width:390px;transform:scale(.55)}
-  .frame .badge{position:absolute;top:8px;right:8px;z-index:2;font:600 10px/1 var(--mono);
-    padding:4px 7px;border-radius:6px;background:rgba(0,0,0,.72);display:inline-flex;align-items:center;gap:5px}
+    transform:scale(.496);transform-origin:top left;background:#000;pointer-events:none}
+  .frame .badge{position:absolute;top:7px;right:7px;z-index:2;font:600 9px/1 var(--mono);
+    padding:4px 6px;border-radius:6px;background:rgba(0,0,0,.74);display:inline-flex;align-items:center;gap:5px}
   .frame .stub{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
-    justify-content:center;gap:8px;color:var(--muted);font-size:12px;text-align:center;padding:16px}
-  .frame .stub .glyph{font-size:30px;opacity:.5}
-  .meta{padding:10px 12px}
-  .meta .name{font-weight:700;font-size:14px}
-  .meta .file{font-family:var(--mono);font-size:10.5px;color:var(--muted);margin-top:2px;word-break:break-all}
-  .meta .job{font-size:11.5px;color:var(--muted);margin-top:6px;line-height:1.45}
-  .meta .states{margin-top:8px;display:flex;flex-wrap:wrap;gap:5px}
-  .chip{font:600 10px/1 var(--mono);padding:4px 7px;border-radius:999px;border:1px solid var(--line);
-    color:var(--muted)}
-  .chip.risk{color:var(--risk);border-color:rgba(232,163,61,.5)}
-  .chip.live{color:var(--live);border-color:rgba(108,192,112,.4)}
+    justify-content:center;gap:7px;color:var(--muted);font-size:11px;text-align:center;padding:14px}
+  .frame .stub .glyph{font-size:26px;opacity:.5}
+  .plabel{font:700 12px/1 var(--mono);margin:8px 2px 2px;color:var(--text)}
+  .pfile{font:400 10px/1.3 var(--mono);color:var(--muted);margin:0 2px;word-break:break-all}
+  .pnote{font-size:11px;color:var(--muted);margin:5px 2px 0;line-height:1.4}
+  /* structure column */
+  .struct{flex:1;min-width:260px}
+  .grp{margin:0 0 14px}
+  .grp h4{margin:0 0 8px;font:700 10px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--amber)}
+  .rows{display:flex;flex-direction:column;gap:7px}
+  .row{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:8px 11px}
+  .row .rt{display:flex;align-items:center;gap:8px;font-weight:700;font-size:13px}
+  .row .rt .dot{flex:none}
+  .row .rj{font-size:11.5px;color:var(--muted);margin-top:3px;line-height:1.4}
+  .row .rf{font:400 10px/1.3 var(--mono);color:var(--muted);opacity:.8;margin-top:4px;word-break:break-all}
+  .row.dialog{border-left:3px solid rgba(232,159,61,.5)}
+  .subchips{display:flex;flex-wrap:wrap;gap:7px}
+  .subchip{border:1px solid var(--line);border-radius:999px;padding:6px 12px;font:600 12px/1 var(--mono)}
+  .subchip .dot{margin-right:6px;display:inline-block;vertical-align:middle}
+  /* pierre callout */
+  .pierrebox{flex:1;min-width:260px;background:linear-gradient(180deg,rgba(154,134,208,.12),rgba(154,134,208,.03));
+    border:1px solid rgba(154,134,208,.4);border-radius:12px;padding:16px 18px}
+  .pierrebox h4{margin:0 0 8px;color:var(--wip);font:700 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase}
+  .pierrebox p{margin:0 0 9px;font-size:12.5px;color:var(--text);line-height:1.5}
+  .pierrebox p.sub{color:var(--muted);font-size:11.5px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;margin-top:6px}
+  .tile{background:var(--panel);border:1px solid var(--line);border-radius:11px;overflow:hidden}
+  .tile .frame{width:100%;border:0;border-bottom:1px solid var(--line);border-radius:0;height:210px}
+  .tile .frame iframe{transform:scale(.53)}
+  .tile .m{padding:9px 11px}
+  .tile .m .n{font-weight:700;font-size:13px}
+  .tile .m .j{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.4}
   a.ext-link{color:var(--ext);font-size:11px;text-decoration:none}
-  .note{font-size:11px;color:var(--muted);margin:-6px 0 18px;max-width:760px;line-height:1.5}
+  h2.sect{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--amber);
+    margin:40px 0 14px;border-bottom:1px solid var(--line);padding-bottom:7px}
 </style>
 </head>
 <body>
 <header>
   <h1>pangolinRC — Design Map</h1>
-  <p><b>Flat is the app now — the cube is legacy.</b> We design to the flat swipe/tab shell
-  (<code>app.html</code> + <code>flat_shell.js</code>); the six faces are shared and render inside it.
-  Every page that has been <b>designed and can be seen</b> is rendered live below. Overlay states
-  (cards/modals that live inside a page) get their own tile too — those are exactly the pieces
-  that go missing. Pierre-skill logic is intentionally <i>not</i> drawn here — it's behaviour, not a surface.
-  Ship status ties back to <code style="color:var(--amber)">FEATURES.md</code>.</p>
+  <p><b>Flat is the app.</b> Nav = a <b>Profile</b> button top-left + <b>5 bottom tabs</b>. Every tab,
+  subtab, page, and dialogue box has a place here — <b>except PIERRE's internals</b>, which are one
+  deliberately-undiagrammed subset (the AI brain / skills / intent detection: behaviour, not a surface).
+  Live tiles render the real pages. Ship status ties back to <code style="color:var(--amber)">FEATURES.md</code>.</p>
+
+  <div class="navmock">
+    <div class="navtop"><span class="pf">☰ PROFILE</span><span>top-left corner — account &amp; settings</span></div>
+    <div class="navbar">
+      <div class="t heavy">WATCH<small>heaviest · queue + log</small></div>
+      <div class="t">FEED<small>everyone's activity</small></div>
+      <div class="t">PIERRE<small>the brain</small></div>
+      <div class="t">BROWSE<small>program · suggest</small></div>
+      <div class="t">SET<small>completed·stopped·shadow</small></div>
+    </div>
+  </div>
+
   <div class="legend">
-    <b><span class="dot live"></span> On main + prod</b>
-    <b><span class="dot risk"></span> At risk — stranded off main</b>
-    <b><span class="dot ext"></span> Separate Pages project</b>
-    <b><span class="dot legacy"></span> Legacy (cube — frozen)</b>
-    <b><span class="dot gone"></span> Retired</b>
+    <b><span class="dot live"></span> Live on main + prod</b>
+    <b><span class="dot risk"></span> Built but off main</b>
+    <b><span class="dot wip"></span> Under development</b>
+    <b><span class="dot ext"></span> Separate project</b>
+    <b><span class="dot legacy"></span> Legacy (cube)</b>
   </div>
 </header>
-<p class="note">Faces normally run inside the shell (which feeds them data via postMessage), so a tile may
-render partial chrome or an empty state when opened standalone — that's expected; it still shows the design.
-Open this file directly (<code>file://…/MAP.html</code>) or serve the repo root.</p>
 
-<h2 class="sect">The app — flat shell (primary surface)</h2>
-<div class="grid" id="shells"></div>
+<div id="tabs"></div>
 
-<h2 class="sect">Faces — shared, rendered inside the flat shell</h2>
-<div class="grid" id="faces"></div>
-
-<h2 class="sect">Designed overlay states — live inside a page, not standalone</h2>
-<p class="note">These are the "fully-designed screens" that vanish in refactors because they're not their own
-file. Each names its parent page and ship status. The co-view comment card is the one that regressed.</p>
-<div class="grid" id="overlays"></div>
-
-<h2 class="sect">Admin &amp; external Pages projects</h2>
+<h2 class="sect">Admin &amp; external projects</h2>
 <div class="grid" id="external"></div>
 
 <script>
-const FACES = [
-  {name:'FEED',file:'public/cube_feed_face.html',job:'Latest drops — surfaced feed of new content.',status:'live',
-    states:[['co-viewing comments on feed','live']]},
-  {name:'WATCH',file:'public/cube_watch_face.html',job:'The show list — decide what to watch. Episode screen w/ scrubber.',status:'live',
-    states:[['expanded card + "watching with"','live'],['playhead markers (flame/leaf)','live']]},
-  {name:'PIERRE',file:'public/cube_pierre_face.html',job:'Your host — keyboard chat face.',status:'live',
-    states:[['GET TED queue threads','live'],['rotating opener / idle nudge','live'],['Outreach draft skill','risk']]},
-  {name:'PROFILE',file:'public/cube_profile_face.html',job:"That's you — account, devices, coviewers, Shadow.",status:'live',
-    states:[['coviewers / sofa roster','live'],['ambient screen toggle','live']]},
-  {name:'LOG',file:'public/cube_log_face.html',job:'Viewing log — track/log progress; the active-watch timer lives here.',status:'live',
-    states:[['CO-VIEW comment card (REPLAY/REPLY/CANCEL)','risk'],['end-of-episode end-notes interstitial','risk'],['rewatch passes / highlights','live']]},
-  {name:'BROWSE / JOIN',file:'public/cube_browse_face.html',job:'Get in on it — join/browse; IRL tickets & shelf; share cards.',status:'live',
-    states:[['9:16 share card kit','live'],['IRL tickets / shelf','live']]},
-  {name:'SET / COMPLETED',file:'public/cube_set_face.html',job:'Shadow taste table + COMPLETED watch résumé (3 tabs, month grouping).',status:'live',
-    states:[['COMPLETED / STOPPED / SHADOW tabs','live']]},
-  {name:'WATCH (comfort)',file:'public/cube_watch_comfort_face.html',job:'Comfort-show variant of the watch face.',status:'live',states:[]},
-];
-const SHELLS = [
-  {name:'Flat app ★ PRIMARY',file:'public/app.html',job:'The app: conventional swipe/tab shell. Default surface for everyone, no WebGL. Reuses the 6 faces. Design here.',status:'live',wide:true,
-    states:[['tab pager','live'],['GET TED one-at-a-time','live']]},
-  {name:'Cube shell (LEGACY)',file:'public/index.html',job:'Old 3D-cube root shell + cube_shell.js. Frozen at tag cube-freeze; kept for reference only. Do NOT design new work here.',status:'legacy',wide:true,
-    states:[['second-screen captions','legacy'],['co-view caption pill','legacy'],['bug reporter modal','legacy']]},
-];
-const OVERLAYS = [
-  {name:'Co-view comment card',parent:'LOG face',status:'risk',
-    job:'The big inline card between the progress bar and START/mic/FINISH — REPLAY / REPLY-countdown / CANCEL. Fires as a friend\'s comment marker passes. THIS is the screen that regressed.',
-    where:'coview-inline / applyCoviewButtons in cube_log_face.html — restored on branch coview-card'},
-  {name:'End-notes interstitial',parent:'LOG face (after finish)',status:'risk',
-    job:'After finishing an episode, friends\' end-notes surface as a queue: Play/Replay, thumbs to clear, or Reply (voice/text). Then on to Pierre.',
-    where:'interstitialThenPierre / enFinishInterstitial in cube_log_face.html — branch coview-card'},
-  {name:'Shareable comment+reply card',parent:'end-notes / IRL ticket',status:'live',
-    job:'Poster-forward 9:16 canvas PNG shared via native bridge (IG DM etc). Pierre/url/QR band.',
-    where:'pg_share_card.js · pg_share_qr.js'},
-  {name:'Bug reporter modal',parent:'Cube shell',status:'live',
-    job:'Screenshot + note → optional send-to-Claude (admin). Currently hidden app-wide (#bug-btn display:none).',
-    where:'#bug-modal in index.html'},
-  {name:'Ambient screen mode',parent:'Profile toggle',status:'live',
-    job:'"Go dark but stay open" while watching — dim overlay + keep-awake, wakes on tap or friend comment.',
-    where:'pg_screen — index.html / shell'},
-  {name:'Marathon creator / editor',parent:'built via Pierre + PROGRAM editor',status:'live',
-    job:'Curated maps drive Current/Next via active_map_id; gated map mode.',
-    where:'admin + pierre'},
+const APP = [
+  {
+    name:'WATCH', heavy:true, status:'live',
+    job:'The heaviest tab — current + planned shows, cycling through availability. Activating a show from the QUEUE reveals the LOG screen (you stay on WATCH). A "› Current" button up top jumps to LOG when a timer is running; from LOG, the top-right Queue button (and tapping WATCH) returns to the list.',
+    screens:[
+      {label:'QUEUE (the list)',file:'public/cube_watch_face.html',status:'live',
+        note:'Default WATCH view. Current + planned shows; availability. Top subtab.'},
+      {label:'LOG (timer screen)',file:'public/cube_log_face.html',status:'live',
+        note:'Revealed when a show is activated / a timer runs. Home of the comment engine + the friend-reply card.'},
+    ],
+    subtabs:[['QUEUE','live'],['LOG','live']],
+    dialogs:[
+      {name:'Comment feature',status:'live',where:'cube_log_face.html',
+       job:'Record your own timecoded comments while the timer runs. Very stable, deeply engrained in the code + design.'},
+      {name:'Friend co-view reply card',status:'live',where:'coview-inline · cube_log_face.html',
+       job:'Timed dialogue box: showcases a friend\'s comment visually + audibly as its marker passes, then lets you reply (REPLAY / REPLY / CANCEL). Restored to prod 2026-09-13.'},
+      {name:'End-notes interstitial',status:'live',where:'interstitialThenPierre · cube_log_face.html',
+       job:'On finishing an episode: friends\' end-notes as a queue — play/replay, thumbs to clear, or reply — then on to Pierre.'},
+      {name:'Finish / timer-expiry prompt',status:'live',where:'cube_log_face.html',
+       job:'FINISHED? prompt vs. auto-complete when the timer runs out (race handled).'},
+    ],
+  },
+  {
+    name:'FEED', status:'live',
+    job:'A reflection of activity across all users on the app.',
+    screens:[{label:'FEED',file:'public/cube_feed_face.html',status:'live',note:'The surfaced activity stream.'}],
+    subtabs:[], dialogs:[
+      {name:'Co-view comments on feed',status:'live',where:'cube_feed_face.html',job:'Friends\' timecoded comments surfaced in the feed.'},
+    ],
+  },
+  {
+    name:'PIERRE', status:'live', pierre:true,
+    job:'The chatbot interface — slowly becoming the hub of activity and communication in the app. It talks to the "skills".',
+    screens:[{label:'PIERRE',file:'public/cube_pierre_face.html',status:'live',note:'The keyboard-driven chat surface.'}],
+  },
+  {
+    name:'BROWSE', status:'live',
+    job:'Get in on it. Home of the Marathons (under PROGRAM); also houses SUGGEST (underdeveloped — that\'s ok).',
+    screens:[{label:'BROWSE',file:'public/cube_browse_face.html',status:'live',note:'PROGRAM + SUGGEST live here; IRL tickets/shelf behind a flag.'}],
+    subtabs:[['PROGRAM','live'],['SUGGEST','wip']],
+    dialogs:[
+      {name:'Marathon creator / editor',status:'live',where:'PROGRAM · built via Pierre',job:'Curated maps drive real Current/Next via active_map_id.'},
+      {name:'In-app marathon delete + manager',status:'risk',where:'admin + browse — PR #36 branch',job:'Manage/delete marathons in-app. Built but still stranded off main (outreach branch).'},
+      {name:'9:16 share card kit',status:'live',where:'pg_share_card.js · pg_share_qr.js',job:'Poster-forward share card via native bridge (IG DM etc).'},
+      {name:'IRL tickets / shelf',status:'wip',where:'cube_browse_face.html',job:'3-tab IRL (Suggestions/Tickets/Shelf) — behind freeze flag, backend gaps stubbed.'},
+    ],
+  },
+  {
+    name:'SET', status:'live',
+    job:'Watch résumé + taste. Three top subtabs. COMPLETED and STOPPED are working correctly after the recent rebuild.',
+    screens:[{label:'SET',file:'public/cube_set_face.html',status:'live',note:'COMPLETED / STOPPED / SHADOW.'}],
+    subtabs:[['COMPLETED','live'],['STOPPED','live'],['SHADOW','live']],
+    dialogs:[
+      {name:'SHADOW taste table',status:'live',where:'cube_set_face.html + profile.ts',job:'Per-user taste table Pierre references and the user reshapes.'},
+    ],
+  },
+  {
+    name:'PROFILE', corner:true, status:'live',
+    job:'Top-left button. Typical profile info + settings. Ted\'s pattern: a change likely to face pushback ships default-ON with a per-user toggle to opt out.',
+    screens:[{label:'PROFILE',file:'public/cube_profile_face.html',status:'live',note:'Account, devices, coviewers, toggles.'}],
+    subtabs:[],
+    dialogs:[
+      {name:'Ambient screen mode',status:'live',where:'pg_screen toggle',job:'"Go dark but stay open" while watching — dim overlay + keep-awake, wakes on tap or friend comment.'},
+      {name:'Coviewers / sofa roster',status:'live',where:'cube_profile_face.html',job:'Who you regularly watch with; name-only or linked to an account.'},
+      {name:'Feed privacy toggle',status:'live',where:'cube_profile_face.html',job:'Keep co-viewing off the social feed.'},
+    ],
+  },
 ];
 const EXTERNAL = [
-  {name:'Admin portal',file:'admin/index.html',job:'D1 admin: list/filter/pivot, inline-edit, Episode Feed, Outreach. Needs auth — tile may be blank.',status:'live',stub:'Auth-gated'},
-  {name:'Splash (apex/www)',url:'https://pangolinrc.com',job:'Marketing splash — separate pangolinrc-splash Pages project.',status:'ext'},
-  {name:'Join / waitlist',url:'https://join.pangolinrc.com',job:'Waitlist form → Worker /waitlist (Turnstile).',status:'ext'},
-  {name:'Invest one-pager',url:'https://invest.pangolinrc.com',job:'Investor one-pager — pangolinrc-invest project.',status:'ext'},
-  {name:'Users admin',url:'#',job:'Waitlist admin — RETIRED 2026-08-16 (folded into admin portal).',status:'gone',stub:'Retired'},
+  {name:'Admin portal',file:'admin/index.html',job:'D1 admin — list/filter/pivot, Episode Feed, Outreach, pierre_chat grading. Auth-gated (tile blank).',status:'ext',stub:'Auth-gated'},
+  {name:'Cube shell (LEGACY)',file:'public/index.html',job:'Old 3D-cube shell + cube_shell.js, tag cube-freeze. Reference only — no new work.',status:'legacy'},
+  {name:'Splash',url:'https://pangolinrc.com',job:'Marketing splash — pangolinrc-splash project.',status:'ext'},
+  {name:'Join / waitlist',url:'https://join.pangolinrc.com',job:'Waitlist form → Worker /waitlist.',status:'ext'},
+  {name:'Invest',url:'https://invest.pangolinrc.com',job:'Investor one-pager — pangolinrc-invest project.',status:'ext'},
 ];
 
-const BADGE = {live:['live','ON MAIN'],risk:['risk','OFF MAIN'],ext:['ext','EXTERNAL'],gone:['gone','RETIRED'],legacy:['legacy','LEGACY']};
-function frameFor(item){
-  const [cls,label]=BADGE[item.status]||BADGE.live;
-  const badge=`<span class="badge"><span class="dot ${cls}"></span>${label}</span>`;
-  if(item.stub) return `<div class="frame">${badge}<div class="stub"><div class="glyph">▦</div>${item.stub}</div></div>`;
-  if(item.url) return `<div class="frame">${badge}<div class="stub"><div class="glyph">↗</div><a class="ext-link" href="${item.url}" target="_blank">${item.url}</a></div></div>`;
-  return `<div class="frame ${item.wide?'wide':''}">${badge}<iframe loading="lazy" src="${item.file}"></iframe></div>`;
+const BADGE={live:['live','LIVE'],risk:['risk','OFF MAIN'],wip:['wip','WIP'],ext:['ext','EXTERNAL'],legacy:['legacy','LEGACY'],gone:['gone','RETIRED']};
+function badgeHtml(s){const[c,l]=BADGE[s]||BADGE.live;return `<span class="badge"><span class="dot ${c}"></span>${l}</span>`;}
+function phone(scr){
+  return `<div class="phone"><div class="frame">${badgeHtml(scr.status)}<iframe loading="lazy" src="${scr.file}"></iframe></div>
+    <div class="plabel">${scr.label}</div><div class="pfile">${scr.file}</div>
+    ${scr.note?`<div class="pnote">${scr.note}</div>`:''}</div>`;
 }
-function statesHtml(states){
-  if(!states||!states.length) return '';
-  return `<div class="states">`+states.map(([t,s])=>`<span class="chip ${s}">${t}</span>`).join('')+`</div>`;
+function dialogRow(d){
+  const[c]=BADGE[d.status]||BADGE.live;
+  return `<div class="row dialog"><div class="rt"><span class="dot ${c}"></span>${d.name}</div>
+    <div class="rj">${d.job}</div>${d.where?`<div class="rf">${d.where}</div>`:''}</div>`;
 }
-function pageTile(item){
-  return `<div class="tile ${item.status==='legacy'?'legacy':''}">${frameFor(item)}<div class="meta">
-    <div class="name">${item.name}</div>
-    <div class="file">${item.file||item.url||''}</div>
-    <div class="job">${item.job}</div>${statesHtml(item.states)}
-  </div></div>`;
+function subchips(subs){
+  if(!subs||!subs.length) return '';
+  return `<div class="grp"><h4>Subtabs</h4><div class="subchips">`+
+    subs.map(([n,s])=>{const[c]=BADGE[s];return `<span class="subchip"><span class="dot ${c}"></span>${n}</span>`;}).join('')+
+    `</div></div>`;
 }
-function overlayTile(o){
-  const [cls,label]=BADGE[o.status];
-  return `<div class="tile"><div class="frame"><span class="badge"><span class="dot ${cls}"></span>${label}</span>
-    <div class="stub"><div class="glyph">◱</div>overlay of<br><b style="color:var(--amber)">${o.parent}</b></div></div>
-    <div class="meta"><div class="name">${o.name}</div><div class="job">${o.job}</div>
-    <div class="file">${o.where}</div></div></div>`;
+function tabSection(t){
+  const star = t.heavy?'<span class="star">★ heaviest</span>':t.corner?'<span class="star">▸ top-left</span>':'';
+  let right;
+  if(t.pierre){
+    right = `<div class="pierrebox"><h4>◆ One subset — not diagrammed</h4>
+      <p>PIERRE is the AI brain. Per directive, <b>all Pierre changes live in one large subset</b> — skills + intent
+      detection — and are intentionally left off this map (behaviour, not a fixed surface).</p>
+      <p class="sub">The chat picker keeps it accessible for old ways of thinking, but that won't be the primary way
+      to interact with Pierre for long once intent detection matures. Surfaced elsewhere: the Get Ted escalation queue.</p></div>`;
+  } else {
+    const dgroup = (t.dialogs&&t.dialogs.length)?`<div class="grp"><h4>Dialogue boxes / pages</h4><div class="rows">`+t.dialogs.map(dialogRow).join('')+`</div></div>`:'';
+    right = `<div class="struct">${subchips(t.subtabs)}${dgroup}</div>`;
+  }
+  return `<div class="tab"><h2>${t.name} ${star} ${badgeHtml(t.status)}</h2>
+    <p class="tjob">${t.job}</p>
+    <div class="lane"><div class="screens">${t.screens.map(phone).join('')}</div>${right}</div></div>`;
 }
-document.getElementById('faces').innerHTML   = FACES.map(pageTile).join('');
-document.getElementById('shells').innerHTML  = SHELLS.map(pageTile).join('');
-document.getElementById('overlays').innerHTML= OVERLAYS.map(overlayTile).join('');
-document.getElementById('external').innerHTML= EXTERNAL.map(pageTile).join('');
+function extTile(x){
+  let f;
+  if(x.stub) f=`<div class="frame">${badgeHtml(x.status)}<div class="stub"><div class="glyph">▦</div>${x.stub}</div></div>`;
+  else if(x.url) f=`<div class="frame">${badgeHtml(x.status)}<div class="stub"><div class="glyph">↗</div><a class="ext-link" href="${x.url}" target="_blank">${x.url.replace('https://','')}</a></div></div>`;
+  else f=`<div class="frame">${badgeHtml(x.status)}<iframe loading="lazy" src="${x.file}"></iframe></div>`;
+  return `<div class="tile">${f}<div class="m"><div class="n">${x.name}</div><div class="j">${x.job}</div></div></div>`;
+}
+document.getElementById('tabs').innerHTML = APP.map(tabSection).join('');
+document.getElementById('external').innerHTML = EXTERNAL.map(extTile).join('');
 </script>
 </body>
 </html>
