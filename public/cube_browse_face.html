@@ -391,6 +391,11 @@
   .mar-ed .edadd{background:none;border:1px dashed var(--line);border-radius:9px;color:var(--muted);
     padding:9px;font-size:12px;cursor:pointer;margin-top:7px;width:100%}
   .mar-ed .savemsg{font-size:11.5px;color:var(--green,#7fca6b);min-height:14px;margin-top:2px}
+  .mar-ed .eddelete{background:none;border:0;color:#e07a6b;font-size:12px;font-weight:600;cursor:pointer;
+    padding:10px;margin-top:2px;width:100%;text-align:center}
+  .mar-ed .eddelete:active{opacity:.6}
+  .mar-sheet .opt.danger{color:#e07a6b;border-color:rgba(224,122,107,.5)}
+  .mar-sheet .opt.danger:disabled{opacity:.6;cursor:default}
   /* View-mode title + MARATHON/SERIES blurb toggle */
   .mar-ed .mar-title{margin:0;font-size:17px;line-height:1.2;font-weight:800}
   .mar-btabs{display:flex;gap:6px;margin-bottom:7px}
@@ -658,7 +663,8 @@ function renderMarathon(pane){
        </div>`;
   const footer = edit
     ? `<div class="savemsg" id="edSaveMsg"></div>
-       <div class="edactions"><button class="cancel2">Cancel</button><button class="save">Save</button></div>`
+       <div class="edactions"><button class="cancel2">Cancel</button><button class="save">Save</button></div>
+       ${s.is_owner ? '<button class="eddelete">Delete marathon</button>' : ''}`
     : '';
   pane.innerHTML = `
     <div class="mar-ed">
@@ -689,6 +695,7 @@ function renderMarathon(pane){
     pane.querySelector('.edadd').onclick = () => addEpisodeFlow(pane);
     pane.querySelector('.cancel2').onclick = () => openMarathonDetail(pane, s.map_id);   // re-fetch → discard
     pane.querySelector('.save').onclick = () => saveEditor(pane);
+    const delBtn = pane.querySelector('.eddelete'); if(delBtn) delBtn.onclick = () => confirmDeleteMarathon(pane);
   } else {
     // Edit: owners edit in place; community marathons fork or go to Pierre.
     pane.querySelector('.editbtn').onclick = () => {
@@ -751,6 +758,34 @@ async function saveEditor(pane){
   _marathonsCache = null;   // list is stale after an edit
   if(ok){ s.blurb=blurb; s.blurb0=blurb; s.blurb_by=blurbBy; s.blurb_by0=blurbBy; s.mode='view'; renderMarathon(pane); }
   else if(msg){ msg.style.color='#e07a6b'; msg.textContent='Save failed — try again.'; }
+}
+// Delete YOUR marathon — owner-only (edit mode is only reachable when is_owner). A confirm
+// sheet before the destructive call, since it drops the run + its episode order for good.
+function confirmDeleteMarathon(pane){
+  const s = _edState; if(!s || !s.is_owner) return;
+  const sheet = document.createElement('div'); sheet.className = 'mar-sheet';
+  sheet.innerHTML = `<div class="card">
+    <h3>Delete "${_marEsc(s.name||'this marathon')}"?</h3>
+    <p>This removes the marathon and its episode order for good. Your viewing progress stays — anyone watching it just drops back to normal air order.</p>
+    <button class="opt danger" data-act="del">Delete marathon</button>
+    <button class="cancel">Cancel</button></div>`;
+  document.body.appendChild(sheet);
+  const close = () => sheet.remove();
+  sheet.querySelector('.cancel').onclick = close;
+  sheet.addEventListener('click', e => { if(e.target===sheet) close(); });
+  sheet.querySelector('[data-act="del"]').onclick = async (ev) => {
+    const btn = ev.currentTarget; btn.disabled = true; btn.textContent = 'Deleting…';
+    const ok = await deleteMarathon(s.map_id);
+    if(ok){ close(); _marathonsCache = null; renderCollect(pane); }   // back to YOUR MARATHONS list
+    else { btn.disabled = false; btn.textContent = 'Delete failed — try again'; }
+  };
+}
+async function deleteMarathon(mapId){
+  const email = memberEmail();
+  try{
+    const r = await fetch(ART_API + '/profile/' + encodeURIComponent(email) + '/marathons/' + encodeURIComponent(mapId), { method:'DELETE' });
+    return r.ok;
+  }catch(_){ return false; }
 }
 // Community marathon edit → fork a private copy (manual edit) or hand it to Pierre.
 function openCommunitySheet(pane, mapId, name){
