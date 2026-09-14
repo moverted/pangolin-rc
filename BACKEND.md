@@ -4,6 +4,30 @@ Append-only log. Any session that touches the Worker, D1, or deploy
 configuration adds an entry here before the session ends (see CLAUDE.md,
 "Backend and deploy rules").
 
+## 2026-09-13 — v2-stabilize: restore co-view comment card to prod + commit deployed catch-up (DEPLOYED)
+
+Consolidation pass (branch `v2-stabilize` → fast-forwarded into `main`). Fixes Ted's report that
+the fully-designed co-view comment card (REPLAY/REPLY/CANCEL) stopped appearing while watching
+(Gentlemen S02E02 w/ seed comments). Root cause: never lost from a file — it was stranded on the
+unmerged `pierre-outreach-skill` branch (PR #36, commit `839562b`), bundled with outreach/admin work,
+so it never reached `main`/prod. `main` never touched `cube_log_face.html`, so it cherry-picked clean.
+
+- **Committed deployed catch-up** (`1fe406a`): the prod-live `/pierre/log` persistence rework +
+  opener/idle nudge + profile upsert fix were never in git. Now recorded; no behavior change.
+- **Restored co-view card + end-notes interstitial** (merged `coview-card` = cherry-pick of `839562b`):
+  `public/cube_log_face.html` (+530), `cube_shell.js`, `index.html`, and `src/index.ts`
+  (end-notes repliable on both reply paths — the only new Worker behavior).
+- **Tooling** (`8cd6e04`): repo-root `FEATURES.md` (ship ledger) + `MAP.html` (visual design map,
+  flat-first). Both stay OUT of `public/`, not deployed.
+- **Deploys:** `wrangler deploy` Worker **version `26b82c4c`** + `wrangler pages deploy public
+  --project-name pangolin-rc` app **deployment `02c0c602`**. No D1 migration (prod already has the
+  seedtest comments + the `pierre_chat` PK). Verified live: `remote.pangolinrc.com/cube_log_face`
+  returns 9× `coview-inline`. Admin project (`pangolinrc-admin`) NOT redeployed — its changes were
+  already live from the 09-12 deploys.
+- **Still off `main` (next):** the outreach cadence + admin Episode Feed remainder of PR #36 —
+  4-conflict merge (`pierre.ts`, `admin/index.html`, `cube_log_face.html`, `BACKEND.md`), reviewed
+  before its own deploy. `main` NOT yet pushed to `origin`.
+
 ## 2026-09-12 — Pierre chat: mirror the whole visible thread + rotating opener + idle nudge
 
 Fixes the partial-transcript bug (session `9c85106d`): only the `/pierre/chat` lane used to
