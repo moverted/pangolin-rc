@@ -4,6 +4,29 @@ Append-only log. Any session that touches the Worker, D1, or deploy
 configuration adds an entry here before the session ends (see CLAUDE.md,
 "Backend and deploy rules").
 
+## 2026-09-14 — v2: merge outreach half of PR #36 + cut the cube (DEPLOYED)
+
+Second consolidation pass. Merged the remaining stranded PR #36 stack into `main` and
+retired the 3D cube; flat is now the only shell.
+
+- **Outreach merge** (branch `outreach-merge` → main): outreach follow-up cadence + dedup +
+  status-via-Pierre (migration `0060`), admin-only Pierre Outreach draft skill, admin Episode
+  Feed (attributed/threaded transcript + end-note Play-ring), in-app marathon delete/manager.
+  Conflicts resolved: `pierre.ts` kept BOTH the outreach skill gate and grounding's
+  `marathonBlock` (marathon flows through the non-outreach system prompt with the `outreachOk`
+  guard); `cube_log_face.html` took the branch (newer Play-ring superset, co-view card intact);
+  `admin/index.html` combined the delete-column colspan with Copy-chat groupRows.
+- **Cut the cube:** `index.html` is now a stub routing to `/app.html`; deleted `cube_shell.js`
+  + `clickwheel.js`; removed the Cube/Flat toggle (app.html button + profile face) and cleared
+  legacy `pg_mode`. Faces unchanged (render as flat tabs). BROWSE subtabs flipped (PROGRAM left).
+- **Deploys:** Worker **`9efd798e`**, app Pages **`97c2cf4c`**, admin Pages **`9cae56bb`**.
+  `wrangler d1 migrations list --remote` = "No migrations to apply" (0060/0061/0062 already on
+  prod). `tsc --noEmit` clean. Verified live: `remote.pangolinrc.com/index.html` → `/app` flat
+  shell (Profile + WATCH/FEED/PIERRE/BROWSE/SET, QUEUE/TICKETS/STACK), no console errors;
+  deleted cube JS falls back to the index stub (SPA fallback, text/html).
+- **iOS:** `index.html` is the Capacitor entry, so the cube-cut needs a fresh bundle
+  (`cap copy` + clean archive) to reach TestFlight — handed off to Ted via Xcode.
+
 ## 2026-09-13 — v2-stabilize: restore co-view comment card to prod + commit deployed catch-up (DEPLOYED)
 
 Consolidation pass (branch `v2-stabilize` → fast-forwarded into `main`). Fixes Ted's report that
