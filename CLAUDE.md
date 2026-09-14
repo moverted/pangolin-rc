@@ -10,7 +10,17 @@
 
 ## Cube map (canonical vocabulary)
 
-The instance UI is a 3D cube; each of its six faces is a self-contained page loaded into an iframe, hosted and routed by the shell. This table is the single source of truth for face naming — all docs, comments, and prompts defer to it. Filenames follow `cube_<name>_face.html` (lowercase). Face label is the label shown on the cube in the UI.
+> **⚠️ THE 3D CUBE WAS RETIRED 2026-09-14. Flat is the only app.** The root
+> (`public/index.html`) is now a stub that always routes to `public/app.html`
+> (the flat swipe/tab shell, driven by `public/flat_shell.js`). `cube_shell.js`
+> and `clickwheel.js` were **deleted**; there is no cube/flat toggle. The six
+> `cube_*_face.html` **faces still exist and are canonical** — they render as
+> tabs inside the flat shell. Nav is a Profile button (top-left) + 5 bottom tabs:
+> **WATCH** (subtabs QUEUE▸LOG / TICKETS / STACK) · **FEED** · **PIERRE** ·
+> **BROWSE** (PROGRAM / SUGGEST) · **SET** (COMPLETED / STOPPED / SHADOW). See
+> `MAP.html` (repo root) for the visual map. The cube rows below are historical.
+
+The instance UI was a 3D cube; each of its six faces is a self-contained page loaded into an iframe, hosted and routed by the shell. This table is the single source of truth for face naming — all docs, comments, and prompts defer to it. Filenames follow `cube_<name>_face.html` (lowercase). Face label is the label shown on the cube in the UI.
 
 | Face label | Filename | Job |
 |---|---|---|
