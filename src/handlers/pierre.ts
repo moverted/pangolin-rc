@@ -983,19 +983,10 @@ pierreRoutes.post('/chat', async (c) => {
     .join('\n')
     .trim();
 
-  // Persist this turn to the Pierre-chat transcript (grouped by conversation_id, the
-  // whole session). Best-effort via waitUntil — never blocks or fails the reply. The
-  // reflection flow doesn't send a conversation_id, so those turns are not saved here.
-  const conversationId =
-    typeof body.conversation_id === 'string' && body.conversation_id ? body.conversation_id.slice(0, 80) : '';
-  // Chat type (lane) so the admin can tell a game session from free chat. Only 'game' is
-  // meaningful today; everything else stores 'chat'.
-  const chatKind = body.kind === 'game' ? 'game' : 'chat';
-  if (conversationId)
-    c.executionCtx.waitUntil(
-      persistChatTurns(c.env, conversationId, email, lastUser, reply, chatKind).catch((e) => console.error('pierre_chat persist', e)),
-    );
-
+  // Transcript persistence now lives client-side: the face mirrors the WHOLE visible thread
+  // (this chat lane plus the game, flows, and local lines) to POST /pierre/log, so the stored
+  // transcript equals what the member actually saw. This reply is persisted by that path when
+  // the face renders it — we no longer double-write it here.
   return c.json({ reply });
 });
 
@@ -1180,26 +1171,39 @@ pierreRoutes.post('/escalate', async (c) => {
   return c.json({ ok: true });
 });
 
-// Append one exchange (the user turn + Pierre's reply) to the transcript, in order.
-// seq continues from the conversation's current max, so a session builds turn by turn.
-async function persistChatTurns(env: Env, conversationId: string, email: string, userText: string, replyText: string, kind: string = 'chat'): Promise<void> {
-  const row = await env.DB
-    .prepare('SELECT COALESCE(MAX(seq), 0) AS m FROM pierre_chat WHERE conversation_id = ?')
-    .bind(conversationId)
-    .first<{ m: number }>();
-  let seq = row?.m || 0;
+// POST /pierre/log — the face mirrors the WHOLE visible Pierre thread here for evaluation.
+// The visible transcript is the source of truth: every lane (chat, game, add-show/ticket,
+// flows) and every local line is sent, so the stored session equals what the member saw and
+// Get Ted carries the full thread. Idempotent — each turn carries a client-generated `id`, so
+// `INSERT OR IGNORE` dedupes the debounce/beacon re-sends that naturally repeat the tail.
+// Client assigns `seq` (stable per conversation); `created_at` is server time at flush.
+// User-initiated and low value, so no bot gate (the chat turns it mirrors are already gated).
+pierreRoutes.post('/log', async (c) => {
+  let body: { conversation_id?: unknown; email?: unknown; turns?: unknown };
+  try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
+  const conversationId = typeof body.conversation_id === 'string' ? body.conversation_id.slice(0, 80) : '';
+  const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+  if (!conversationId || !Array.isArray(body.turns)) return c.json({ error: 'conversation_id and turns required' }, 400);
   const now = Date.now();
-  // Escalation: a [GETTED] tag on Pierre's reply means he handed the member off to Ted.
-  // Flag the turn (needs_ted) for the admin queue and strip the tag so the stored text is
-  // clean (the member never saw it either, the app strips it before display).
-  const needsTed = /\[GETTED\]/i.test(replyText) ? 1 : 0;
-  const cleanReply = replyText.replace(/\[GETTED\]/gi, '').trim();
-  const ins = (role: string, content: string, flag: number) =>
-    env.DB.prepare(
-      'INSERT INTO pierre_chat (id, conversation_id, user_email, seq, role, content, grade, needs_ted, ted_status, kind, created_at) VALUES (?, ?, ?, ?, ?, ?, \'\', ?, \'\', ?, ?)',
-    ).bind(crypto.randomUUID(), conversationId, email || null, ++seq, role, content, flag, kind, now);
   const stmts = [];
-  if (userText) stmts.push(ins('user', userText.slice(0, 4000), 0));
-  if (cleanReply) stmts.push(ins('pierre', cleanReply.slice(0, 8000), needsTed));
-  if (stmts.length) await env.DB.batch(stmts);
-}
+  for (const raw of (body.turns as unknown[]).slice(0, 300)) {
+    if (!raw || typeof raw !== 'object') continue;
+    const t = raw as { id?: unknown; seq?: unknown; role?: unknown; content?: unknown; kind?: unknown; needs_ted?: unknown };
+    const id = typeof t.id === 'string' && t.id ? t.id.slice(0, 80) : crypto.randomUUID();
+    const seq = Number.isFinite(Number(t.seq)) ? Math.floor(Number(t.seq)) : 0;
+    const role = t.role === 'pierre' ? 'pierre' : 'user';   // Ted turns are server-written, never mirrored
+    const content = typeof t.content === 'string' ? t.content.slice(0, 8000) : '';
+    const kind = t.kind === 'game' ? 'game' : 'chat';
+    // Pierre self-escalation: a [GETTED] reply flags its own turn so the session surfaces in
+    // the admin Get Ted queue (the band's Get Ted still goes through /pierre/escalate).
+    const needsTed = t.needs_ted ? 1 : 0;
+    if (!content) continue;
+    stmts.push(
+      c.env.DB.prepare(
+        "INSERT OR IGNORE INTO pierre_chat (id, conversation_id, user_email, seq, role, content, grade, needs_ted, ted_status, kind, created_at) VALUES (?, ?, ?, ?, ?, ?, '', ?, '', ?, ?)",
+      ).bind(id, conversationId, email || null, seq, role, content, needsTed, kind, now),
+    );
+  }
+  if (stmts.length) { try { await c.env.DB.batch(stmts); } catch (e) { console.error('pierre_chat log', e); } }
+  return c.json({ ok: true, saved: stmts.length });
+});

@@ -320,6 +320,13 @@ const RESOURCES: Record<string, Resource> = {
       { key: 'title_id',   label: 'Title ID',   expr: 'watch_title.title_id' },
       { key: 'status',     label: 'Status',     expr: 'watch_title.status' },
       { key: 'started_at', label: 'Started',    expr: 'watch_title.started_at' },
+      // Completion date = when the last episode was actually marked finished, derived from
+      // the episode rows (newest LOGGED, non-bp done write) exactly like GET /completed. This
+      // is stable: reopening the SET › Completed résumé (a read) never touches watch_episode,
+      // so the date "stays there" — unlike updated_at, which any status recompute can bump.
+      { key: 'completed_at', label: 'Completed', expr:
+        `(SELECT MAX(CASE WHEN we.bp = 0 THEN we.updated_at END) FROM watch_episode we
+            WHERE we.user_email = watch_title.user_email AND we.title_id = watch_title.title_id AND we.done = 1)` },
       { key: 'updated_at', label: 'Updated',    expr: 'watch_title.updated_at' },
     ],
     searchExprs: ['watch_title.user_email', 'titles.name', 'watch_title.title_id'],
@@ -759,7 +766,7 @@ const RESOURCES: Record<string, Resource> = {
 };
 
 // Columns that hold a ms-epoch timestamp, so the frontend renders them as dates.
-const DATE_KEYS = new Set(['created_at', 'updated_at', 'started_at', 'last_shared', 'last_at']);
+const DATE_KEYS = new Set(['created_at', 'updated_at', 'started_at', 'completed_at', 'last_shared', 'last_at']);
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
 

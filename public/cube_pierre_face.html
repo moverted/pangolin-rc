@@ -388,6 +388,56 @@
   let PIERRE_CONVO = (self.crypto && crypto.randomUUID) ? crypto.randomUUID() : 'c'+Date.now()+Math.random().toString(36).slice(2);
   const newConvoId = () => (self.crypto && crypto.randomUUID) ? crypto.randomUUID() : 'c'+Date.now()+Math.random().toString(36).slice(2);
 
+  // ── Transcript mirror ──────────────────────────────────────────────────────────
+  // The VISIBLE thread is the source of truth. Every line that reaches the log
+  // (addUser / addPierre / pierreSay — chat, game, add-show/ticket, flows, local lines) is
+  // buffered here and synced to POST /pierre/log, so the stored session equals what the member
+  // saw and Get Ted carries the whole thread. Ted turns are server-written, so they are NOT
+  // mirrored; the _replaying guard also suppresses re-persist while we re-render a fetched
+  // thread. Idempotent: each turn has a stable client id (server INSERT OR IGNORE dedupes the
+  // debounce/beacon re-sends). We hold empty opener/idle-only convos out of the store until a
+  // real user turn exists, so open-and-leave never creates a row.
+  let convoTurns = [];        // {id, seq, role, content, kind} for the current PIERRE_CONVO
+  let convoSeq = 0;           // client-assigned, stable order within the conversation
+  let _convoHasUser = false;  // gate: no flush (no row) until the member actually speaks
+  let _replaying = false;     // true while re-rendering a server-fetched thread
+  let _flushTimer = null;
+  let _sentUpTo = 0;          // turns with seq < this are confirmed sent (re-sends are safe)
+  function persistTurn(role, content, needsTed){
+    if(IS_DEMO || _replaying) return;
+    const text = (content==null?'':String(content)).trim();
+    if(!text) return;
+    const kind = (typeof currentCtx!=='undefined' && currentCtx==='game') ? 'game' : 'chat';
+    convoTurns.push({ id:newConvoId(), seq:convoSeq++, role, content:text.slice(0,8000), kind, needs_ted: needsTed?1:0 });
+    if(role==='user') _convoHasUser = true;
+    scheduleFlush();
+  }
+  function scheduleFlush(){
+    if(!_convoHasUser || _flushTimer) return;
+    _flushTimer = setTimeout(()=>{ _flushTimer=null; flushTurns(false); }, 600);
+  }
+  function flushTurns(useBeacon){
+    if(!_convoHasUser) return Promise.resolve();
+    const pending = convoTurns.filter(t=>t.seq >= _sentUpTo);
+    if(!pending.length) return Promise.resolve();
+    const hi = pending[pending.length-1].seq + 1;
+    const payload = { conversation_id: PIERRE_CONVO, email: pgSession()||undefined, turns: pending };
+    const url = API+'/pierre/log';
+    if(useBeacon && navigator.sendBeacon){
+      try{ if(navigator.sendBeacon(url, new Blob([JSON.stringify(payload)],{type:'application/json'}))) _sentUpTo=hi; }catch(_){}
+      return Promise.resolve();
+    }
+    return fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),keepalive:true})
+      .then(r=>{ if(r && r.ok) _sentUpTo=hi; }).catch(()=>{});
+  }
+  function resetConvoBuffer(){
+    convoTurns = []; convoSeq = 0; _sentUpTo = 0; _convoHasUser = false;
+    if(_flushTimer){ clearTimeout(_flushTimer); _flushTimer = null; }
+  }
+  // Last-ditch capture when the app is backgrounded or closed mid-thread.
+  window.addEventListener('pagehide', ()=>{ try{ flushTurns(true); }catch(_){} });
+  document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='hidden'){ try{ flushTurns(true); }catch(_){} } });
+
   // Demo build (remote.demo.pangolinrc.com, or ?demo=1 preview): Pierre's chat is closed.
   const IS_DEMO = location.hostname.split('.').includes('demo') || new URLSearchParams(location.search).has('demo');
   // Embedded in the conventional /app shell (flat_shell.js passes ?app=1), not the 3D
@@ -510,6 +560,7 @@
     wrap.querySelector('.bubble').textContent = text;
     log.appendChild(wrap);
     scrollLogBottom();
+    persistTurn('user', text);   // mirror to the transcript (the visible thread is the record)
   }
   // Ted, the human, stepping in. Same shape as a Pierre bubble but his own blue voice
   // and a TED label (uppercased by .who). Delivered from the admin, not the model.
@@ -534,6 +585,7 @@
       const msgs = (d && d.messages) || [];
       if(!msgs.length) return;
       let hi = since, tedDelivered = 0;
+      _replaying = true;   // server-originated deliveries; already recorded in the escalation thread
       msgs.forEach(m=>{ if(m && m.text){
         // A flagged Pierre delivery (e.g. an apology) shows in his own voice and leaves the
         // chat open to keep talking; a Ted reply shows as TED and closes the session.
@@ -541,6 +593,7 @@
         else { addTed(m.text); tedDelivered++; }
         if(m.created_at > hi) hi = m.created_at;
       } });
+      _replaying = false;
       try{ localStorage.setItem('pg_ted_seen', String(hi)); }catch(_){}
       // Ted answering is the end of this session: the human closed it out. Stop waiting,
       // let the member scrub the thread, and turn the composer into a single Start new
@@ -578,6 +631,14 @@
   // picker's Clear chat). Tapping the "Start new chat" composer runs it.
   input.addEventListener('click', ()=>{ if(_tedMode){ tedExit('good', ()=>clearChat()); return; } if(_clearMode) clearChat(); });
 
+  // Idle feature nudge: any engagement cancels the pending tip and re-opens the window for the
+  // next quiet stretch; settling back on the mic (blur) re-arms it.
+  if(input){
+    input.addEventListener('focus', ()=>{ cancelIdleNudge(); _idleNudged=false; });
+    input.addEventListener('input', ()=>{ cancelIdleNudge(); _idleNudged=false; });
+    input.addEventListener('blur',  ()=>{ armIdleNudge(); });
+  }
+
   // Feedback band (👍 / GET TED / 👎) lives in the shell but acts on THIS chat. Tell the
   // shell when it should be active (a reply has happened), and handle the taps here.
   let _fbReady = false;
@@ -614,11 +675,13 @@
   function enterTedMode(thread){
     _tedMode=true; _activeTedTurnId=thread.ted_turn_id;
     log.innerHTML='';                                  // replace the view with the full thread
+    _replaying=true;                                   // re-render only; these turns are already stored
     (thread.messages||[]).forEach(m=>{
       if(m.role==='ted') addTed(m.text);
       else if(m.role==='user') addUser(m.text);
       else addPierre(m.text);
     });
+    _replaying=false;
     scrollLogBottom();
     _awaitingTed=false; stopTedPolling();
     setClearChatMode(true);                            // read-only: engage via thumbs / picker
@@ -648,9 +711,12 @@
       body:JSON.stringify({ email, kind, face:'PIERRE' })}); }catch(_){} }
     clearChat();   // a thumb ends the chat and resets the window
   }
-  function onBandGetTed(){
+  async function onBandGetTed(){
     const email=pgSession();
-    if(email){ try{ fetch(`${API}/pierre/escalate`,{method:'POST',headers:{'Content-Type':'application/json'},
+    // Flush the WHOLE visible thread first so the escalation carries everything on screen, then
+    // file the Get Ted — its needs_ted marker lands after the thread (ordered by seq).
+    try{ await flushTurns(false); }catch(_){}
+    if(email){ try{ await fetch(`${API}/pierre/escalate`,{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({ email, conversation_id:PIERRE_CONVO })}); }catch(_){} }
     // The escalation is filed to Ted's queue (he follows up there); reset the window now.
     clearChat("Calling my manager on that one. Ted will take a look and follow up. Fresh start in the meantime, what are you after?");
@@ -1152,6 +1218,9 @@
     if(shadows && shadows.length) shadows.forEach(recordShadow);
     // If this message left the member with a hidden composer and nothing to tap, un-strand them.
     scheduleExitCheck();
+    // Mirror the shown line (tags stripped). A [GETTED] reply = Pierre self-escalated, so flag
+    // this turn needs_ted so the session surfaces in the admin Get Ted queue.
+    persistTurn('pierre', clean, /\[GETTED\]/i.test(text));
     return clean;
   }
 
@@ -2283,11 +2352,14 @@
   // Clear chat: a genuine new conversation. The only hard wipe.
   function clearChat(openingLine){
     if(IS_DEMO) return;
+    try{ flushTurns(false); }catch(_){}   // capture the thread BEFORE the convo rolls (no-data-loss)
+    resetConvoBuffer();
     history.length = 0; log.innerHTML = '';
     PIERRE_CONVO = newConvoId();   // a fresh chat is its own transcript
     addFlow=null; acctFlow=null; joinFlow=null; noteCtx=null;
     seasonNoteFlow=false; seasonNote=null; roomPhase=null; gamePhase=null;
     _intentSeen=false; _nudged=false; _eggChecked=false; _awaitingTed=false; stopTedPolling();
+    _idleNudged=false; cancelIdleNudge();       // a fresh chat may idle-nudge again (next rotation)
     try{ setClearChatMode(false); }catch(_){}   // leave the "Start new chat" state if we were in it
     inputSecret(false); input.placeholder = "Ask Pierre what to watch...";
     setCtxIndicator('chat');
@@ -2418,6 +2490,60 @@
   function tod(){ const h=new Date().getHours();
     if(h<5||h>=22) return "Late one"; if(h<12) return "Morning"; if(h<17) return "Afternoon"; return "Evening"; }
 
+  // ── Opening line: rotate the voice, never the same one twice running. Keeps the tod()
+  // prefix; no feature pitch here (that is the idle nudge's job below).
+  const OPENERS = [
+    "I am Pierre. Tell me what you are in the mood for and I will keep your queue moving. Or tell me what you watched last, I have opinions.",
+    "Pierre here. What are we watching? Give me a mood, a title, or the last thing you finished.",
+    "I am Pierre, your man on the couch. Name a mood and I will point you somewhere good.",
+    "Pierre, at your service. What are you after tonight, something new or the next of something you love?",
+    "I am Pierre. Tell me what landed well lately and I will find you the one after it.",
+    "Pierre here. The queue is warm. So, what are you in the mood for?",
+    "I am Pierre. Name a title you loved and I will run with it, or just hand me the mood."
+  ];
+  function pickOpener(){
+    if(!OPENERS.length) return "";
+    let last=-1; try{ last=parseInt(localStorage.getItem('pg_opener_i')||'-1',10); }catch(_){}
+    let i=Math.floor(Math.random()*OPENERS.length);
+    if(OPENERS.length>1 && i===last) i=(i+1)%OPENERS.length;   // never repeat the last one
+    try{ localStorage.setItem('pg_opener_i', String(i)); }catch(_){}
+    return OPENERS[i];
+  }
+
+  // ── Idle feature nudge: if the member lands on Pierre and just sits there, after ~7s
+  // surface ONE gentle suggestion that exposes an offering (add a show/film, log a ticket,
+  // play the game), rotating through them across visits so the whole toolbox gets seen over
+  // time. It flows through pierreSay so it is part of the transcript too. Cancels the moment
+  // they type, focus the box, enter a flow, or a Ted thread is up; re-arms after each turn.
+  const FEATURE_TIPS = [
+    { lane:'series', label:'Add a series', line:"While you are here: started a show somewhere else? Add it and I will track where you are and nudge you on new episodes." },
+    { lane:'game',   label:'Play a round', line:"Want to play a game? Name two things you have seen, shows or films, and I will name you a third." },
+    { lane:'movie',  label:'Add a movie',  line:"Caught a film lately? Add it to your history and I will fold it into what I know about you." },
+    { lane:'ticket', label:'Log a ticket', line:"See something in a theater? Log the ticket and I will remember the night, not just the title." }
+  ];
+  let _idleTimer=null, _idleNudged=false;
+  function cancelIdleNudge(){ if(_idleTimer){ clearTimeout(_idleTimer); _idleTimer=null; } }
+  function armIdleNudge(){
+    cancelIdleNudge();
+    if(IS_DEMO || _idleNudged) return;
+    _idleTimer=setTimeout(()=>{
+      _idleTimer=null;
+      // Only when the room is genuinely idle: empty untouched box, no flow, no Ted thread.
+      // (The first-load arm is already gated on the RAMP/rewatch nudge not firing.)
+      if(_idleNudged || _tedMode) return;
+      if(addFlow || joinFlow || acctFlow || noteCtx || seasonNoteFlow || gamePhase) return;
+      if(input && (input.value||'').trim()) return;
+      if(document.activeElement===input) return;
+      if(!FEATURE_TIPS.length) return;
+      let i=0; try{ i=parseInt(localStorage.getItem('pg_tip_i')||'-1',10); }catch(_){}
+      i=(Number.isFinite(i)?i+1:0) % FEATURE_TIPS.length;
+      try{ localStorage.setItem('pg_tip_i', String(i)); }catch(_){}
+      const tip=FEATURE_TIPS[i];
+      _idleNudged=true;
+      pierreSay(tip.line, [{ label:tip.label, onClick:()=>{ if(_tedMode) exitTedMode(); switchTo(tip.lane, {viaUser:true}); } }], true);
+    }, 7000);
+  }
+
   // A Pierre line with optional choice chips. Chips disable once one is tapped.
   function pierreSay(text, chips, keepFocus){
     const wrap=document.createElement('div'); wrap.className='msg pierre';
@@ -2438,6 +2564,7 @@
       wrap.appendChild(c);
     }
     log.appendChild(wrap); scrollLogBottom();
+    persistTurn('pierre', text);   // mirror to the transcript (the visible thread is the record)
   }
   const tedChip=()=>[{label:'Get Ted', onClick:getTed}];
   function getTed(){ pierreSay("Pinging Ted. He is the human in this operation, he can pick up what I cannot."); }
@@ -3380,17 +3507,19 @@
       input.disabled = true; send.disabled = true; input.placeholder = "chat closed for the demo";
       return;
     }
-    addPierre(tod()+". I am Pierre. Tell me what you are in the mood for and I will keep your queue moving. Or just tell me what you watched last, I have opinions.");
+    addPierre(tod()+". "+pickOpener());   // rotating greeting
     // Standalone only. When embedded in the cube, the parent focuses this input
     // inside the selecting gesture so iOS raises the keyboard (a load-time focus
     // here would pre-focus it and suppress that).
     if (window.parent === window) input.focus();
     // After the room settles, if nothing steered Pierre into a flow, check whether a
-    // tracked show is in RAMP and, if so, deliver the scheduler nudge (once).
+    // tracked show is in RAMP and, if so, deliver the scheduler nudge (once). If nothing
+    // spoke up proactively, arm the idle feature nudge so a quiet landing still gets a tip.
     setTimeout(async ()=>{
       if(_intentSeen || addFlow || joinFlow || acctFlow || noteCtx) return;
       let asked=false; try{ asked=await checkRewatchQuestion(); }catch(_){}   // a direct question wins over the nudge
-      if(!asked){ try{ wowProactiveNudge(); }catch(_){} }
+      if(!asked){ try{ await wowProactiveNudge(); }catch(_){} }
+      if(!asked && !_nudged) armIdleNudge();
     }, 1300);
     if(IS_FLAT_APP) loadTedThread();   // flat app: one-at-a-time Ted queue
     else fetchTedMessages();           // cube: inline delivery, surface any reply since last time

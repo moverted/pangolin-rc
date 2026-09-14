@@ -4,6 +4,95 @@ Append-only log. Any session that touches the Worker, D1, or deploy
 configuration adds an entry here before the session ends (see CLAUDE.md,
 "Backend and deploy rules").
 
+## 2026-09-12 — Pierre chat: mirror the whole visible thread + rotating opener + idle nudge
+
+Fixes the partial-transcript bug (session `9c85106d`): only the `/pierre/chat` lane used to
+persist (last user turn + reply), so the game, flows, and local lines were never saved, Get
+Ted missed them, and a clear lost the thread. Now the **visible thread is the source of
+truth**, mirrored client-side.
+
+- **`src/handlers/pierre.ts`**
+  - New `POST /pierre/log` `{conversation_id, email, turns:[{id, seq, role, content, kind,
+    needs_ted}]}` → `INSERT OR IGNORE` per turn. Idempotent on the client-generated turn `id`
+    (debounce + `sendBeacon` re-sends the tail safely); client assigns `seq`; `created_at` is
+    server time at flush. `role` clamped to user|pierre (Ted turns are server-written).
+  - Removed the incremental persist from `POST /pierre/chat` (and deleted `persistChatTurns`)
+    so the client now owns persistence of both the user turn and the visible reply — no
+    double-write. `flagIfExplicitRequest` kept.
+  - Per-turn `needs_ted` carries Pierre's `[GETTED]` self-escalation flag (previously set by
+    `persistChatTurns`), so self-escalated sessions still surface in the admin Get Ted queue.
+    The band's Get Ted still files via `/pierre/escalate` (unchanged).
+  - No D1 migration: `pierre_chat` PK=`id` backs the idempotent insert-ignore. (Note: next
+    free migration number is 0063; `0062_rewatch.sql` already exists.)
+- **`public/cube_pierre_face.html`**
+  - Transcript mirror: `convoTurns` buffer + `persistTurn()` wired into the three render choke
+    points (`addUser`/`addPierre`/`pierreSay`); `_replaying` guard suppresses re-persist while
+    re-rendering a fetched Ted thread (`enterTedMode`, cube `fetchTedMessages`). Debounced
+    (~600ms) batch flush; **force-flush** before `clearChat`, inside `onBandGetTed` (await →
+    then escalate), and on `pagehide`/`visibilitychange` (beacon). Flush is gated until the
+    first real user turn so open-and-leave never creates a row.
+  - Rotating opener (`OPENERS` pool + `pickOpener`, tone only, keeps `tod()` prefix,
+    no-immediate-repeat via `localStorage`).
+  - Idle feature nudge: ~7s of genuine idle (empty/untouched box, no flow, no Ted thread, no
+    other nudge) surfaces one rotating `FEATURE_TIPS` suggestion (add series/movie, ticket,
+    game) via `pierreSay` + tap chip → `switchTo`; cancels on focus/typing, re-arms on blur,
+    rotates index via `localStorage`.
+- **Verified (local wrangler dev + D1 mirror):** `/pierre/log` inserts in order; a repeated
+  POST with the same ids stays at the original row count (idempotent); `needs_ted` flag
+  persists per-turn (user=0, `[GETTED]` Pierre turn=1). `tsc --noEmit` clean; all inline
+  scripts parse.
+- **Deploys:** `wrangler deploy` (Worker) + `wrangler pages deploy public --project-name
+  pangolin-rc` (app) + iOS bundle rebuild (`cap copy` → clean archive). No admin/D1 change.
+- **Out of scope (fast-follow):** `new-user-tour-pierre` picker skill.
+
+## 2026-09-12 — Admin timestamps now render in Pacific (not UTC)
+
+Ted: "change all the times in all the chats to Pacific." Root cause: `fmtDate` in
+`admin/index.html` formatted via `new Date(n).toISOString()` → UTC. Rewrote it to
+`Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles', …, timeZoneName: 'short' })`
+→ "YYYY-MM-DD HH:MM PST/PDT". Shared helper, so ALL date columns (created_at/updated_at/
+started_at/completed_at/last_shared/last_at) across every resource — incl. pierre_chat
+transcripts — now read in Pacific with an explicit zone label. DST handled by Intl.
+Static-only admin Pages deploy `de30aa63`; no Worker/D1 change.
+
+## 2026-09-12 — Restore Get Ted "Copy chat" button (redeploy stale admin portal)
+
+Ted reported the Copy chat button was missing from Get Ted. Root cause: not a code bug —
+the button shipped in `admin/index.html` at commit `7ffeb29` (Pierre grounding PR, merged to
+main), but the 2026-09-11 prod ship only pushed the Worker + main-app Pages (`pangolin-rc`,
+flat-pager fix). The admin portal is a **separate Pages project** (`pangolinrc-admin`) and was
+never redeployed, so `admin.pangolinrc.com` served a stale build (live grep "Copy chat" = 0).
+
+- **Fix:** `wrangler pages deploy admin --project-name=pangolinrc-admin` (deployment
+  `4bb8227d`). Static-only; no Worker/D1 change. Verified live: admin.pangolinrc.com now
+  returns 1 match for "Copy chat".
+- **Note:** uncommitted Worker-side WIP (`admin.ts` `completed_at` column, `profile.ts`) was
+  NOT included — Pages deploy uploads only the `admin/` folder (clean at HEAD).
+
+## 2026-09-11 — Completion date must "stay put": idempotent episode timestamps + admin Completed column (DEPLOYED)
+
+Two Worker deploys (`513295c1` then `655fbe80`), no migration. Fixes Ted's report: completed shows
+in the admin **Watch · Title** table all showed UPDATED = today, even though they were finished
+earlier. Root cause was that several write paths re-stamped timestamps for episodes that were already
+done — so re-logging/re-finishing (or any status recompute) moved the completion date to now.
+
+- **`src/handlers/admin.ts`** — `watch_title` resource gains a **Completed** column: a correlated
+  subquery `MAX(CASE WHEN we.bp=0 THEN we.updated_at END)` over the member's done episode rows — the
+  same "newest logged finish" the résumé's `GET /completed` already returns. Reading the résumé never
+  touches `watch_episode`, so this date is stable across reopens (unlike `watch_title.updated_at`).
+  Added `completed_at` to `DATE_KEYS` so the frontend renders it as a date. `Updated` column kept.
+- **`src/handlers/profile.ts` `recomputeTitle`** — now only writes `watch_title` (incl. `updated_at`)
+  when `status` or `current_episode_id` actually changed. A no-op recompute no longer bumps the row.
+- **`src/handlers/profile.ts` episode upsert (`POST /:email/episodes/:id`)** — `ON CONFLICT DO UPDATE`
+  keeps the existing `updated_at` when `done`/`minute`/`bp` are unchanged (re-sending an already-done
+  finale is a no-op on the timestamp). Verified in prod: re-POSTing `done=1` left `updated_at` fixed.
+- **`src/handlers/profile.ts` `op:'finish'` (PATCH title "watched it all")** — bulk mark now scoped
+  `AND done=0`, so episodes already finished keep their original finish times.
+
+Forward-looking only: the 4 rows Ted flagged already hold 9/11 as their sole recorded finish time
+(their earlier timestamp, if any, was overwritten before this fix and isn't recoverable from data).
+Correct those individually if the real dates are known.
+
 ## 2026-09-06 — Outreach tracker: new D1 table + admin resource, email-linked to funnel (DEPLOYED)
 
 Worker `5696d8d8` + migration `0059_outreach.sql` (remote applied) + seed `scripts/outreach-seed.sql`

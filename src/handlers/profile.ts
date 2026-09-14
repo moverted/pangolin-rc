@@ -388,7 +388,7 @@ const MANUAL = new Set(['stopped', 'comfort']);   // buckets the auto-recompute 
 // member set a manual bucket (stopped/comfort). Mirrors the client's bucketOf.
 async function recomputeTitle(env: Env, email: string, titleId: string): Promise<{ status: string; current: string | null } | null> {
   const t = await env.DB.prepare('SELECT status, total_episodes FROM titles WHERE title_id = ?').bind(titleId).first<any>();
-  const wt = await env.DB.prepare('SELECT status, active_map_id FROM watch_title WHERE user_email = ? AND title_id = ?').bind(email, titleId).first<any>();
+  const wt = await env.DB.prepare('SELECT status, current_episode_id, active_map_id FROM watch_title WHERE user_email = ? AND title_id = ?').bind(email, titleId).first<any>();
   if (!t || !wt) return null;
   const mapId = (wt.active_map_id || '') as string;
   let total: number, watched: number, released: number;
@@ -419,9 +419,16 @@ async function recomputeTitle(env: Env, email: string, titleId: string): Promise
     // RETURNING was retired: a caught-up still-running show stays CURRENT (mirrors bucketOf).
     else status = ended ? 'completed' : 'current';
   }
+  // Only stamp updated_at when the status or resume pointer actually moved. A recompute that
+  // changes nothing — e.g. reopening an already-completed title, or a recompute triggered as a
+  // side effect of touching a neighbouring show — must NOT bump the row's "last real change"
+  // time. Otherwise merely opening SET › Completed makes finished shows look freshly updated.
+  const changed = status !== wt.status || (current ?? null) !== (wt.current_episode_id ?? null);
   const now = Date.now();
-  await env.DB.prepare('UPDATE watch_title SET status=?, current_episode_id=?, updated_at=? WHERE user_email=? AND title_id=?')
-    .bind(status, current, now, email, titleId).run();
+  if (changed) {
+    await env.DB.prepare('UPDATE watch_title SET status=?, current_episode_id=?, updated_at=? WHERE user_email=? AND title_id=?')
+      .bind(status, current, now, email, titleId).run();
+  }
   // Keep the denormalized per-user rollups (watched_count/minute_sum/last_*) in step with
   // the raw watch_episode rows this recompute reflects, so the flat /titles read stays exact.
   await refreshCounts(env, email, titleId);
@@ -989,8 +996,16 @@ profileRoutes.post('/:email/episodes/:episode_id', async (c) => {
     `INSERT INTO watch_episode (user_email, episode_id, title_id, show_name, episode_name, done, minute, bp, sessions, updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,?)
      ON CONFLICT(user_email, episode_id) DO UPDATE SET
-       done=excluded.done, minute=excluded.minute, bp=excluded.bp, sessions=excluded.sessions, updated_at=excluded.updated_at,
-       show_name=excluded.show_name, episode_name=excluded.episode_name`
+       done=excluded.done, minute=excluded.minute, bp=excluded.bp, sessions=excluded.sessions,
+       show_name=excluded.show_name, episode_name=excluded.episode_name,
+       -- Only advance updated_at when the actual watch state (done/minute/bp) moved. Re-sending
+       -- a finale that is already done=1 (a resume/sync/re-finish) must NOT rewrite its timestamp,
+       -- so "the time you clicked finished on the last episode" stays put — that value is the
+       -- completion date the résumé and admin Completed column read.
+       updated_at=CASE WHEN watch_episode.done=excluded.done
+                        AND watch_episode.minute=excluded.minute
+                        AND watch_episode.bp=excluded.bp
+                   THEN watch_episode.updated_at ELSE excluded.updated_at END`
   ).bind(email, episode_id, ep.title_id, ep.show_name, ep.episode_name, done, minute, bp, sessions, now).run();
   // Backfill: watching/starting an episode implies you've seen everything before it.
   // Mark every EARLIER episode (air order) with no record yet as BP (Before Pierre) —
@@ -1051,7 +1066,11 @@ profileRoutes.patch('/:email/titles/:title_id', async (c) => {
   try { body = await c.req.json(); } catch { return c.json({ error: 'Invalid JSON' }, 400); }
   const op = str(body.op, 20);   // 'finish' | 'reset' | ''
   const now = Date.now();
-  if (op === 'finish') await c.env.DB.prepare('UPDATE watch_episode SET done=1, updated_at=? WHERE user_email=? AND title_id=?').bind(now, email, titleId).run();
+  // "Watched it all": mark every not-yet-done episode done NOW, but leave episodes that were
+  // already done alone — re-finishing must not rewrite the original finish timestamps (see the
+  // episode upsert). Otherwise reopening a completed show and tapping finish again would reset
+  // its whole completion date to today.
+  if (op === 'finish') await c.env.DB.prepare('UPDATE watch_episode SET done=1, updated_at=? WHERE user_email=? AND title_id=? AND done=0').bind(now, email, titleId).run();
   else if (op === 'reset') await c.env.DB.prepare('UPDATE watch_episode SET done=0, minute=0, bp=0, sessions=NULL, updated_at=? WHERE user_email=? AND title_id=?').bind(now, email, titleId).run();
 
   let status = str(body.status, 40);
