@@ -782,6 +782,7 @@
 </div>
 
 
+<script src="/pg_offline.js"></script>
 <script src="/wow-scheduler.js"></script>
 <script>
 const NOW=new Date(); const DAY=864e5;
@@ -3157,18 +3158,26 @@ const acctEmail = () => { try{ return localStorage.getItem('pg_user')||''; }catc
 async function loadTitle(titleId, pattern, opts){
   opts = opts || {};
   const email = acctEmail();
+  // Detail (title + episode list) is mirrored to local storage per (email,title) whenever it
+  // loads online — so the Log detail opens and episodes are log-able in airplane mode. Same key
+  // scheme the WATCH face prefetches into (pgDetailKey), so any tracked show cached while online
+  // is here offline.
+  const pgDetailKey = () => 'detail_'+(email||'anon')+'_'+titleId;
   const fetchDetail = async () => {
     try{
-      if(email){ const r=await fetch(`${API_BASE}/profile/${encodeURIComponent(email)}/titles/${encodeURIComponent(titleId)}`); if(r.ok){ const d=await r.json(); if(d && d.title) return d; } }
-      const r=await fetch(`${API_BASE}/catalog/titles/${encodeURIComponent(titleId)}/episodes`+(email?('?email='+encodeURIComponent(email)):'')); if(r.ok){ const d=await r.json(); if(d && d.title) return {title:d.title, episodes:d.episodes, map:d.map||null}; }
+      if(email){ const r=await fetch(`${API_BASE}/profile/${encodeURIComponent(email)}/titles/${encodeURIComponent(titleId)}`); if(r.ok){ const d=await r.json(); if(d && d.title){ if(window.pgNet) try{ window.pgNet.cacheSet(pgDetailKey(), d); }catch(_){} return d; } } }
+      const r=await fetch(`${API_BASE}/catalog/titles/${encodeURIComponent(titleId)}/episodes`+(email?('?email='+encodeURIComponent(email)):'')); if(r.ok){ const d=await r.json(); if(d && d.title){ const det={title:d.title, episodes:d.episodes, map:d.map||null}; if(window.pgNet) try{ window.pgNet.cacheSet(pgDetailKey(), det); }catch(_){} return det; } }
     }catch(_){}
+    // Offline / server miss → the last cached copy so the detail still renders.
+    if(window.pgNet){ try{ const c=window.pgNet.cacheGet(pgDetailKey(), null); if(c && c.title) return c; }catch(_){} }
     return null;
   };
   let detail = await fetchDetail();
   // Not in the catalog yet → this load IS the initiation: materialize server-side
   // (idempotent) and read it back. Keeps "build the data when watch starts" true no
-  // matter which face triggered the load.
-  if((!detail || !detail.title) && email){
+  // matter which face triggered the load. Skipped offline (needs the network); the cache
+  // above is the offline path.
+  if((!detail || !detail.title) && email && !(window.pgNet && window.pgNet.isOffline())){
     try{ await fetch(`${API_BASE}/catalog/initiate`,{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({email, title_id:titleId, pattern:pattern||{kind:'beginning'}})}); }catch(_){}
     detail = await fetchDetail();

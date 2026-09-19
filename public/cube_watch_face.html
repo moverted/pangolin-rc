@@ -61,6 +61,7 @@
     white-space:nowrap;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:border-color .15s ease,box-shadow .15s ease,transform .1s ease}
   .addbtn:hover{border-color:var(--amber);box-shadow:0 0 6px rgba(233,162,60,.35)}
   .addbtn:active{transform:scale(.92)}
+  .addbtn.disabled-offline{opacity:.3;pointer-events:none}
 
   .pierre{flex-shrink:0;padding:6px 15px 9px;display:flex;flex-direction:column;gap:6px;border-bottom:1px solid var(--line)}
   .pierre .read{display:flex;align-items:center;gap:8px;min-height:16px}
@@ -593,6 +594,7 @@
   </div>
 </div>
 
+<script src="/pg_offline.js"></script>
 <script src="/wow-scheduler.js"></script>
 <script src="/zxing.min.js"></script>   <!-- STACK barcode scanner (ported from Browse) -->
 <script>
@@ -1847,10 +1849,32 @@ function publishLog(){
 /* ---- Account persistence (signed-in members) ----------------------------- */
 // Title-level state lives server-side now (watch_title); episode progress flows
 // through POST /episodes. PATCH a title's bucket or run a bulk op (finish/reset).
+// Watch-logging writes go through the offline outbox (pg_offline.js): offline they persist
+// and replay on reconnect (deduped server-side by op id), instead of the old silent-drop
+// fetch. `pgLogCacheKey`/`persistLogCache` mirror the tracked-titles list so the LOG still
+// renders in airplane mode. Falls back to plain fetch if the outbox script isn't present.
+function pgLogWrite(url, method, body){
+  if(window.pgNet) return window.pgNet.queueWrite(url, { method, body });
+  return fetch(url,{method,headers:{"Content-Type":"application/json"},body: body!=null?JSON.stringify(body):undefined}).catch(()=>{});
+}
+function pgLogCacheKey(email){ return 'titles_'+email; }
+function persistLogCache(){ const email=acct(); if(email && window.pgNet){ try{ window.pgNet.cacheSet(pgLogCacheKey(email), LOG); }catch(_){} } }
+// "Keep a local sync at all times": while online, mirror each tracked show's full detail
+// (title + episode list) into the same cache the LOG detail reads (pgDetailKey there), so any
+// show can be opened and its episodes logged offline. Fire-and-forget, sequential to stay gentle.
+async function pgPrefetchDetails(email, recs){
+  if(!email || !window.pgNet || window.pgNet.isOffline()) return;
+  for(const s of (recs||[])){
+    const titleId=s && s.titleId; if(!titleId) continue;
+    try{ const r=await fetch(API+"/profile/"+encodeURIComponent(email)+"/titles/"+encodeURIComponent(titleId));
+      if(r.ok){ const d=await r.json(); if(d && d.title){ try{ window.pgNet.cacheSet('detail_'+email+'_'+titleId, d); }catch(_){} } } }catch(_){}
+  }
+}
 function patchTitle(s, body){
   const email=acct(); if(!email || !s || !s.titleId) return Promise.resolve();
-  return fetch(API+"/profile/"+encodeURIComponent(email)+"/titles/"+encodeURIComponent(s.titleId),
-    {method:"PATCH", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body||{})}).catch(()=>{});
+  const r=pgLogWrite(API+"/profile/"+encodeURIComponent(email)+"/titles/"+encodeURIComponent(s.titleId),"PATCH",body||{});
+  persistLogCache();
+  return Promise.resolve(r);
 }
 
 // Build a LOG record from a /titles row. The catalog already carries name, poster,
@@ -1885,10 +1909,17 @@ async function loadAccount(email){
   _wowPrefetched=false; _wowModesPrefetched=false;   // fresh account load → re-derive scheduler
   if(window.WoW){ try{ await WoW.store.load(email); }catch(_){} }
   try{
-    const r=await fetch(API+"/profile/"+encodeURIComponent(email)+"/titles"); if(!r.ok) return [];
+    const r=await fetch(API+"/profile/"+encodeURIComponent(email)+"/titles"); if(!r.ok) throw new Error('titles '+r.status);
     const data=await r.json();
-    return (data.titles||[]).map(recordFromTitle);
-  }catch(e){ return []; }
+    const recs=(data.titles||[]).map(recordFromTitle);
+    if(window.pgNet){ try{ window.pgNet.cacheSet(pgLogCacheKey(email), recs); }catch(_){} }   // mirror for offline
+    try{ pgPrefetchDetails(email, recs); }catch(_){}   // background: cache each show's episodes too
+    return recs;
+  }catch(e){
+    // Offline / server error → fall back to the last cached list so the LOG still renders.
+    if(window.pgNet){ try{ const c=window.pgNet.cacheGet(pgLogCacheKey(email), null); if(Array.isArray(c)) return c; }catch(_){} }
+    return [];
+  }
 }
 
 // Episode face reported progress within an episode (minutes / done / BP). Writes
@@ -1908,14 +1939,20 @@ function applyProgress(pr){
     s.lastMinute = pr.done ? 0 : (pr.minute||0);
     if(pr.started_at!=null) s.startedAt=pr.started_at;
     s.lastDate=new Date().toISOString().slice(0,10); s.isNew=false;
+    // Optimistically bump the watched count on a finished episode so the tile moves offline
+    // too; the server's authoritative count reconciles on the next online load.
+    if(pr.done){ s.watched = Math.min((s.watched||0)+1, s.total || ((s.watched||0)+1)); }
     render(); renderPierre();
   }
-  fetch(API+"/profile/"+encodeURIComponent(email)+"/episodes/"+encodeURIComponent(episodeId),
-    {method:"POST", headers:{"Content-Type":"application/json"},
-     body:JSON.stringify({done:!!pr.done, minute:pr.minute||0, bp:!!pr.bp, sessions:pr.sessions||[]})})
-    .then(async ()=>{ if(s){ refreshTitle(titleId); }
-      else { LOG = await loadAccount(email); render(); renderPierre(); } })   // pull in the show we just persisted
-    .catch(()=>{});
+  pgLogWrite(API+"/profile/"+encodeURIComponent(email)+"/episodes/"+encodeURIComponent(episodeId),"POST",
+    {done:!!pr.done, minute:pr.minute||0, bp:!!pr.bp, sessions:pr.sessions||[]});
+  persistLogCache();
+  // Online, reconcile with the authoritative counts; offline, keep the optimistic snapshot
+  // (the queued write will sync and the next online load will true it up).
+  if(!(window.pgNet && window.pgNet.isOffline())){
+    if(s){ refreshTitle(titleId); }
+    else { loadAccount(email).then(async a=>{ LOG=a; render(); renderPierre(); }); }   // pull in the show we just persisted
+  }
 }
 
 // Pull one title's authoritative counts/bucket back into its LOG record.
@@ -2444,7 +2481,11 @@ function buildSavings(){
     '<div class="sav-total"><span class="t">SAVED SO FAR</span><span class="v">'+money(TOTAL_SAVED)+'</span></div>'+
     '<div class="sav-foot">Half of each bill, covered in exchange for your viewing data. That data is the product.</div>';
 }
-document.getElementById("addBtn").addEventListener("click",e=>{e.stopPropagation();addShow();});
+document.getElementById("addBtn").addEventListener("click",e=>{e.stopPropagation(); if(window.pgNet && window.pgNet.isOffline()) return; addShow();});
+// Adding a show needs the online catalog, so the +Show/Movie button is disabled offline
+// (dimmed + inert). Logging what you already track keeps working. Re-enables on reconnect.
+function pgSyncAddBtn(){ const b=document.getElementById("addBtn"); if(b){ const off=!!(window.pgNet&&window.pgNet.isOffline()); b.classList.toggle("disabled-offline",off); b.setAttribute("aria-disabled",off?"true":"false"); } }
+window.addEventListener("offline",pgSyncAddBtn); window.addEventListener("online",pgSyncAddBtn); pgSyncAddBtn();
 document.getElementById("savingsBtn").addEventListener("click",e=>{e.stopPropagation();document.getElementById("savpop").classList.add("show");});
 document.getElementById("savpop").addEventListener("click",()=>document.getElementById("savpop").classList.remove("show"));
 

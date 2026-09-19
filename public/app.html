@@ -58,6 +58,8 @@
   .tab.on { color: #f0a93b; }            /* selected tab → theme amber (was off-white) */
   .tab.on .tab-ic { opacity: 1; transform: scale(1.06); }
   .tab:active { color: #f0a93b; }
+  /* Offline: FEED / BROWSE / SET are locked (need the network). Dimmed + unclickable. */
+  .tab.tab-locked { opacity: .32; pointer-events: none; }
 
   /* PIERRE is the hero: dead-center, bigger portrait bumped up out of the bar so he
      pops above the strip. Since he sits in the chat area when open, his tab hides
@@ -106,6 +108,47 @@
   #profile-av svg { width: 20px; height: 20px; }
   body.profile-open #profile-av { display: none; }   /* already on Profile → hide its own entry */
 
+  /* Airplane / offline indicator — a little plane flies over Pierre's hero portrait when
+     the browser is offline, so the member knows at a glance why he's quiet. Driven by
+     flat_shell.js from the online/offline events; hidden whenever the network is up. */
+  /* Sits over the remote in Pierre's paws (same spot as the ted-badge) so it reads as
+     Pierre holding the plane. */
+  .tab.hero .plane-badge {
+    position: absolute; left: 56%; top: 1px;
+    transform: translateX(-50%) rotate(-16deg);
+    font-size: 22px; line-height: 1; z-index: 4; pointer-events: none;
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,.55));
+  }
+  .tab.hero .plane-badge[hidden] { display: none; }
+  body.pierre-open .tab.hero .plane-badge { display: none; }   /* portrait hidden here; Pierre face shows its own plane */
+
+  /* First-open airplane explainer overlay. */
+  #airplane-intro {
+    position: fixed; inset: 0; z-index: 100001;   /* above screen-dim */
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px; background: rgba(8,6,4,.72);
+    -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+  }
+  #airplane-intro[hidden] { display: none; }
+  #airplane-intro .ap-card {
+    max-width: 340px; width: 100%;
+    background: #14100c; border: 1px solid #3a2f22; border-radius: 16px;
+    padding: 26px 22px 20px; text-align: center;
+    box-shadow: 0 18px 50px rgba(0,0,0,.6);
+  }
+  #airplane-intro .ap-plane { font-size: 40px; line-height: 1; margin-bottom: 10px; transform: rotate(-14deg); }
+  #airplane-intro .ap-copy {
+    margin: 0 0 20px; color: #e8dccb;
+    font-family: Nunito, system-ui, sans-serif; font-size: 15px; line-height: 1.5;
+  }
+  #airplane-intro #ap-ok {
+    appearance: none; border: 1px solid rgba(255,138,0,.5); border-radius: 999px;
+    background: rgba(255,138,0,.16); color: #ffd7a1;
+    font-family: 'Space Mono', ui-monospace, monospace; font-size: 12px; letter-spacing: .12em;
+    text-transform: uppercase; padding: 9px 22px; cursor: pointer;
+  }
+  #airplane-intro #ap-ok:active { transform: scale(.96); }
+
   /* Return to the 3D cube. Mirrors the cube's bug button (top-right, same shape),
      tinted JOIN-blue so it reads as "the blue bug" that takes you back. */
   #cube-btn {
@@ -151,6 +194,23 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg>
   </button>
   <nav id="tabbar" aria-label="Faces"></nav>
+
+  <!-- First-open-in-airplane-mode explainer. Shown once per offline stint (reset on reconnect),
+       so a new flight sees it again. Copy is Pierre's own voice. -->
+  <div id="airplane-intro" hidden>
+    <div class="ap-card" role="dialog" aria-modal="true" aria-labelledby="ap-title">
+      <div class="ap-plane" aria-hidden="true">✈️</div>
+      <p id="ap-title" class="ap-copy">
+        I see you're in airplane mode — I hope you're going somewhere fun, and that you
+        downloaded enough to pass the time. I'll still help you log your watches, but comments
+        will be text only, and my full features — chat, adding shows, and getting things from
+        friends — will have to wait until we sync back up online.
+      </p>
+      <button id="ap-ok" type="button">Got it</button>
+    </div>
+  </div>
+
+  <script src="/pg_offline.js"></script>
   <script type="module" src="/flat_shell.js"></script>
 </body>
 </html>

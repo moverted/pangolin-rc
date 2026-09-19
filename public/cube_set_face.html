@@ -570,6 +570,7 @@
   </div>
 </div>
 
+<script src="/pg_offline.js"></script>
 <script src="/wow-scheduler.js"></script>
 <script>
 const SEED=[
@@ -1391,10 +1392,22 @@ function passTile(p){
 const SET_SENT_OPTS=[['love','Love'],['like','Like'],['meh','Meh'],['nope','Nope'],['','—']];
 const SET_TIERS=[['Top 10','TOP 10'],['Top 25','TOP 25'],['Top 50','TOP 50'],['','THE REST']];
 let _shadowRows=[], _shadowFilter='';
+// Mirror the last good /shadow into localStorage per-email so the SHADOW grid still
+// renders in airplane mode. Server stays authoritative: a good load overwrites the cache;
+// a failed one falls back to it. _shadowFromCache lets the grid flag it as offline.
+let _shadowFromCache=false;
 async function loadShadow(){
-  const email=acct(); if(!email){ _shadowRows=[]; return; }
-  try{ const r=await fetch(`${API}/shadow?email=`+encodeURIComponent(email)+'&all=1'); _shadowRows = r.ok ? ((await r.json()).shadow||[]) : []; }
-  catch(_){ _shadowRows=[]; }
+  const email=acct(); if(!email){ _shadowRows=[]; _shadowFromCache=false; return; }
+  _shadowFromCache=false;
+  try{
+    const r=await fetch(`${API}/shadow?email=`+encodeURIComponent(email)+'&all=1');
+    if(!r.ok) throw new Error('shadow '+r.status);
+    _shadowRows=(await r.json()).shadow||[];
+    try{ localStorage.setItem('pg_shadow_'+email, JSON.stringify(_shadowRows)); }catch(_){}
+  }catch(_){
+    try{ _shadowRows=JSON.parse(localStorage.getItem('pg_shadow_'+email)||'[]'); _shadowFromCache=_shadowRows.length>0; }
+    catch(_2){ _shadowRows=[]; }
+  }
 }
 async function renderShadow(grid){
   const email=acct();

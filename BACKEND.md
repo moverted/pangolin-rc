@@ -3325,3 +3325,43 @@ for Ted's clean/archive/distribute; the fix is byte-present in `ios/App/App/publ
   endpoints 401 for non-admin/wrong token.
 - **NOT yet applied/deployed:** remote migration 0060, Worker + Pages deploy, iOS bundle — pending
   Ted's production authorization. Native-only UI (admin gate).
+
+## 2026-09-14 — Reconcile Tressany duplicate (Founder's Circle vs waitlist)
+- **Data-only** (remote D1 `pangolin-rc`; no code/migration/deploy). `tressanycamille@gmail.com`
+  had a pre-provisioned Founder's Circle `users` row (`pw_required=1`, `status='prospect'`,
+  `founding_member=0`) AND filed a fresh public join-form `waitlist` row (`status='new'`,
+  `source='join_form'`, `fav_show='PSYCH!!!!! prime video!'`) — showing her as a new prospect +
+  feeding the new-count badge.
+- **Actions (remote):** (1) `waitlist.status` `new`→`invited` to dedup her out of the prospect queue;
+  (2) folded her only unique datum onto her account — inserted a `streaming_shadow` row
+  (`title_name='Psych'`, `kind='series'`, `sentiment='love'`, `source='manual'`, `note='PSYCH!!!!! prime
+  video!'`, `feel=''` left for Pierre, `visibility='circle'`); (3) then DELETEd the `waitlist` row
+  entirely at Ted's request (taste note now lives on the shadow, so nothing lost).
+- **Left as-is per Ted:** `users.founding_member` stays `0`.
+
+## 2026-09-18 — Offline mode (airplane) + store-and-forward sync  [branch `offline-sync`, NOT deployed]
+- **Migration `0063_processed_ops.sql`:** `processed_ops(op_id PRIMARY KEY, created_at)` + index —
+  the idempotency ledger for the client outbox. Applied to LOCAL D1 only; **remote apply pending**.
+- **Worker (`src/index.ts`):** added `X-PG-Op-Id` to CORS `allowHeaders`; new `app.use('*')`
+  dedupe middleware — for mutating methods carrying `X-PG-Op-Id`, `INSERT OR IGNORE` claims the id
+  (dupe → short-circuit `{ok:true,deduped:true}`), and a failed handler releases the claim so a real
+  retry still runs. Requests without the header (all existing traffic) pass through untouched.
+  `tsc` clean. Verified via local `wrangler dev`: 1st POST ok, 2nd (same id) deduped, no-header +
+  distinct-id unaffected, only the expected rows written.
+- **Client (new `public/pg_offline.js`, `window.pgNet`):** connectivity state/events, a durable
+  OUTBOX (IndexedDB + localStorage fallback) — `queueWrite` sends when online / persists offline and
+  replays oldest-first on reconnect with the op-id header — plus a `cacheGet/cacheSet` read cache.
+  Loaded in the shell + watch/log/pierre/set faces (same-origin → shared IndexedDB).
+- **Behavior (per Ted's spec): offline collapses to WATCH + a stripped PIERRE.**
+  - Shell (`app.html`/`flat_shell.js`): plane over Pierre, first-open explainer (Ted's copy, once per
+    offline stint), FEED/BROWSE/SET tabs locked+dimmed (bounce to WATCH), `+Show/Movie` disabled.
+  - WATCH (`cube_watch_face.html`): episode-log + title-bucket writes routed through the outbox with
+    optimistic UI; titles list cached; **prefetches each tracked show's detail while online** so shows
+    open + log offline. LOG (`cube_log_face.html`): detail (title+episodes) cached/hydrated, online-only
+    `catalog/initiate` skipped offline.
+  - PIERRE (`cube_pierre_face.html`): mic disabled offline (Whisper is server-side → keyboard only);
+    free chat returns one canned line (no LLM); the end-of-episode comment is captured as a queued
+    private note (no spoiler/share flow) then bounces back to WATCH. SHADOW writes routed through the
+    outbox too.
+- **NOT deployed:** remote migration 0063, Worker deploy, Pages deploy, iOS bundle — pending Ted's
+  go-ahead. On `offline-sync` branch, uncommitted.

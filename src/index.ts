@@ -28,8 +28,35 @@ const app = new Hono<{ Bindings: Env }>();
 app.use('*', cors({
   origin: '*',
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization'],
+  allowHeaders: ['Content-Type', 'Authorization', 'X-PG-Op-Id'],
 }));
+
+// ── Offline outbox idempotency ────────────────────────────────────────────────
+// Writes replayed from the client outbox (pg_offline.js) carry a stable `X-PG-Op-Id`.
+// A replay can legitimately fire twice, so we claim the id in `processed_ops` before the
+// handler runs; a second sighting is short-circuited (no duplicate row). If the handler
+// fails, we release the claim so a real retry still works. Requests without the header —
+// i.e. everything not from the outbox — pass straight through untouched.
+const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+app.use('*', async (c, next) => {
+  const opId = c.req.header('X-PG-Op-Id');
+  if (!opId || !MUTATING.has(c.req.method)) return next();
+  try {
+    const claim = await c.env.DB
+      .prepare('INSERT OR IGNORE INTO processed_ops (op_id, created_at) VALUES (?, ?)')
+      .bind(opId, Date.now()).run();
+    if (claim.meta.changes === 0) return c.json({ ok: true, deduped: true }); // already applied
+  } catch {
+    return next(); // ledger unavailable → don't block the write
+  }
+  let ok = false;
+  try {
+    await next();
+    ok = c.res.status >= 200 && c.res.status < 300;
+  } finally {
+    if (!ok) { try { await c.env.DB.prepare('DELETE FROM processed_ops WHERE op_id = ?').bind(opId).run(); } catch { /* best effort */ } }
+  }
+});
 
 // Co-view reveal delay: a friend's comment surfaces to the second viewer 30
 // seconds AFTER the mark it was spoken at (an 8:00 comment plays at 8:30). This

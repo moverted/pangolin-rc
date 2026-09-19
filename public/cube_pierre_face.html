@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <title>Pierre</title>
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
+<script src="/pg_offline.js"></script>
 <script src="/wow-scheduler.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -66,6 +67,17 @@
   .dot{width:7px;height:7px;border-radius:50%;background:var(--amber);box-shadow:0 0 10px var(--amber);}
   .wordmark{font-family:'Space Mono',monospace;font-weight:400;font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-dim);}
   .eyebrow{font-family:'Space Mono';font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-dim);margin-left:auto;}
+  /* Airplane / offline indicator — a little plane flies over Pierre's portrait when the
+     browser is offline, so the member knows at a glance why he's quiet. Sits just above his
+     head (the art is anchored bottom-left), only shown when navigator reports offline. */
+  /* Positioned over the remote in Pierre's paws so it reads as him holding it. */
+  .pierre-plane{
+    position:absolute;left:80px;bottom:26px;z-index:3;
+    font-size:28.6px;line-height:1;pointer-events:none;
+    transform:rotate(-14deg);
+    filter:drop-shadow(0 2px 5px rgba(0,0,0,.55));
+  }
+  .pierre-plane[hidden]{display:none;}
 
   /* chat */
   .log{
@@ -309,6 +321,7 @@
   .sp-sent{margin-top:7px;background:var(--burrow-3);border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:4px 7px;font-size:12px;}
   .sp-cut{background:transparent;border:1px solid var(--line);color:var(--ink-dim);border-radius:999px;width:30px;height:30px;font-size:15px;cursor:pointer;flex:none;}
   .sp-empty{color:var(--ink-dim);font-size:13px;text-align:center;padding:40px 20px;line-height:1.5;}
+  .sp-cached{color:#ffd7a1;background:rgba(255,138,0,.10);border:1px solid rgba(255,138,0,.30);border-radius:8px;font-size:12px;line-height:1.4;padding:8px 12px;margin-bottom:10px;}
   /* 125% block-text bump — chat message prose scaled ~1.25x (labels/mono chrome unchanged). */
   .msg{font-size:18px}
 </style>
@@ -327,6 +340,7 @@
     <div class="log" id="log" aria-live="polite" aria-label="Conversation with Pierre"></div>
 
     <img class="pierre-art" id="art" alt="Pierre, a pangolin holding a TV remote" />
+    <span class="pierre-plane" id="pierrePlane" role="img" aria-label="Airplane mode — you are offline" hidden>✈️</span>
 
     <div class="toast" id="toast" role="status"></div>
 
@@ -384,6 +398,26 @@
   const API = (location.protocol === 'http:' && location.hostname === 'localhost')
     ? 'http://localhost:8787'
     : 'https://pangolin-rc.edward-m-willett.workers.dev';
+
+  // ── Airplane / offline indicator ─────────────────────────────────────────────
+  // Reflect navigator connectivity in the header so the member knows why Pierre is
+  // quiet and why the shadow may be a cached copy. On reconnect, silently refresh the
+  // shadow if its panel is open so cached rows are replaced by the live server truth.
+  function pgIsOffline(){ return typeof navigator !== 'undefined' && navigator.onLine === false; }
+  function updateOfflineUI(){
+    const plane = document.getElementById('pierrePlane');
+    if(plane) plane.hidden = !pgIsOffline();
+  }
+  // If we drop offline while resting on the mic, flip the composer to the text arrow so the
+  // member isn't staring at a mic that can't transcribe. Guarded: setSendMode/sendMode live
+  // later in the script (TDZ), so only touch them from event handlers, never at first paint.
+  function refreshComposerForNet(){ try{ if(pgIsOffline() && sendMode==='mic') setSendMode('send'); }catch(_){} }
+  if(typeof window !== 'undefined'){
+    window.addEventListener('offline', ()=>{ updateOfflineUI(); refreshComposerForNet(); });
+    window.addEventListener('online', ()=>{ updateOfflineUI(); if(document.getElementById('spBody')) { try{ loadShadowRows(); }catch(_){} } });
+    document.addEventListener('DOMContentLoaded', updateOfflineUI);
+    updateOfflineUI();
+  }
   // One id per Pierre-face session, so the server can group this whole chat into a
   // single transcript (POST /pierre/chat → pierre_chat table, saved every turn).
   let PIERRE_CONVO = (self.crypto && crypto.randomUUID) ? crypto.randomUUID() : 'c'+Date.now()+Math.random().toString(36).slice(2);
@@ -1496,6 +1530,9 @@
   // rest — start recording), 'rec' (red REC + ticks — stop), 'busy' (red … — transcribing).
   let sendMode='send';
   function setSendMode(m){
+    // Offline, transcription (/transcribe → Whisper) can't run, so never rest on the mic —
+    // fall back to the text arrow. Keyboard is the only offline input. (See updateOfflineUI.)
+    if(m==='mic' && pgIsOffline()) m='send';
     sendMode=m;
     send.classList.remove('mic','rec','busy');
     if(m==='mic'){ send.innerHTML=_MIC_SVG; send.setAttribute('aria-label','Record'); send.classList.add('mic'); send.disabled=false; }
@@ -1514,6 +1551,7 @@
   let _rec=null,_recChunks=[],_recTimer=null,_recLeft=0;
   async function startComposerRec(){
     if(_recTimer) return;
+    if(pgIsOffline()){ setSendMode('send'); try{ input.focus(); }catch(_){} return; }   // no online transcription → type instead
     let stream;
     try{ stream=await navigator.mediaDevices.getUserMedia({audio:true}); recordMicPermission(true); }
     catch(_){ recordMicPermission(false); input.focus(); setSendMode('send'); return; }   // no mic or declined → fall back to typing
@@ -1882,6 +1920,21 @@
     input.placeholder = "Ask Pierre what to watch...";
     pushJournal(ctx.show, ctx.ep, text);
     const email=pgSession();
+    // Offline: this is the ONE thing a stripped Pierre still does — take the end-of-episode
+    // comment as text. Queue it (private) to sync later, skip the spoiler/share flow entirely,
+    // and slide back to WATCH. No LLM riff.
+    if(pgIsOffline()){
+      if(email && ctx.titleId && window.pgNet){
+        const url = ctx.finished ? `${API}/transcribe/endnote` : `${API}/reflection`;
+        const body = ctx.finished
+          ? { email, showId:ctx.titleId, episodeId:ctx.ep||null, text, spoiler:0, private:1 }
+          : { userEmail:email, showId:ctx.titleId, ticketId:ctx.ticketId||null, text };
+        window.pgNet.queueWrite(url, { method:'POST', body });
+      }
+      addPierre("Got it — saved to your journal. I'll post it when we're back online.");
+      setTimeout(()=>backOut(), 1000);
+      return;
+    }
     let recorded=false; try{ recorded=!!((window.top&&window.top.__pgReflectCommentId)||window.__pgReflectCommentId); }catch(_){}
     // END-NOTE (a finished watch): NO LLM riff. The line lands and goes straight to the
     // spoiler choice. A typed end-note is held client-side and committed to /transcribe/endnote
@@ -2286,6 +2339,12 @@
   }
 
   async function ask(text){
+    // Offline: Pierre can't reach the model, so no real chat. Give one steady canned line
+    // instead of a failed request. (End-of-episode notes are handled in noteTurn, not here.)
+    if(pgIsOffline()){
+      addPierre("We're off the grid right now, so I can't really talk — but I'll still take your note when you finish an episode. Back to your shows for now.");
+      return;
+    }
     const content = (history.length === 0) ? (journalContext() + text) : text;
     history.push({role:'user', content});
     busy = true; send.disabled = true;
@@ -2707,19 +2766,32 @@
     document.body.appendChild(panel);   // body is position:fixed;inset:0 → fixed panel gets a bounded, scrollable viewport
     return panel;
   }
+  // Last good /shadow response is mirrored to localStorage per-email so the shadow
+  // still renders when the fetch fails (airplane mode / no connectivity). The server
+  // stays authoritative: a successful load overwrites the cache; a failed one reads it.
+  function shadowCacheKey(email){ return 'pg_shadow_'+email; }
   async function loadShadowRows(){
     const email=pgSession(); if(!email) return;
-    try{ const r=await fetch(`${API}/shadow?email=`+encodeURIComponent(email)+'&all=1'); _shadowRows = r.ok ? ((await r.json()).shadow||[]) : []; }
-    catch(_){ _shadowRows=[]; }
-    renderShadowList();
+    let fromCache=false;
+    try{
+      const r=await fetch(`${API}/shadow?email=`+encodeURIComponent(email)+'&all=1');
+      if(!r.ok) throw new Error('shadow '+r.status);
+      _shadowRows = (await r.json()).shadow||[];
+      try{ localStorage.setItem(shadowCacheKey(email), JSON.stringify(_shadowRows)); }catch(_){}
+    }catch(_){
+      try{ _shadowRows = JSON.parse(localStorage.getItem(shadowCacheKey(email))||'[]'); fromCache=_shadowRows.length>0; }
+      catch(_2){ _shadowRows=[]; }
+    }
+    renderShadowList(fromCache);
   }
-  function renderShadowList(){
+  function renderShadowList(fromCache){
     const body=document.getElementById('spBody'); if(!body) return;
     const filt=(document.getElementById('spFilter')?.value||'').trim().toLowerCase();
     const rows=_shadowRows.filter(r=>!filt || (r.title_name||'').toLowerCase().includes(filt));
     const cnt=document.getElementById('spCount');
     if(cnt) cnt.textContent = _shadowRows.length ? (filt ? rows.length+' of '+_shadowRows.length : String(_shadowRows.length)) : '';
     body.innerHTML='';
+    if(fromCache){ const c=document.createElement('div'); c.className='sp-cached'; c.textContent='✈︎ Offline — showing your last saved shadow. Changes sync when you reconnect.'; body.appendChild(c); }
     if(!_shadowRows.length){
       const e=document.createElement('div'); e.className='sp-empty';
       e.textContent='Nothing here yet. Talk to me about what you watch, or type a title above and tap + Add.';
@@ -2747,19 +2819,25 @@
     el.appendChild(main); el.appendChild(cut);
     return el;
   }
+  // Shadow writes go through the offline outbox (pg_offline.js) so an edit made in airplane
+  // mode is persisted locally and replayed on reconnect, instead of the old silent-drop fetch.
+  // After each, we mirror the current rows into the read cache so an offline reload keeps them.
+  function persistShadowCache(){ const email=pgSession(); if(email){ try{ localStorage.setItem(shadowCacheKey(email), JSON.stringify(_shadowRows)); }catch(_){} } }
+  function shadowWrite(url, method, body){
+    if(window.pgNet) return window.pgNet.queueWrite(url, { method, body });
+    return fetch(url,{method,headers:{'Content-Type':'application/json'},body: body!=null?JSON.stringify(body):undefined}).catch(()=>{});
+  }
   async function shadowSave(id, patch){
     const email=pgSession(); if(!email) return;
-    try{ await fetch(`${API}/shadow/`+encodeURIComponent(id),{method:'PUT',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify(Object.assign({email},patch))}); }catch(_){}
+    shadowWrite(`${API}/shadow/`+encodeURIComponent(id),'PUT',Object.assign({email},patch)); persistShadowCache();
   }
   async function shadowCut(id){
     const email=pgSession(); if(!email) return;
-    try{ await fetch(`${API}/shadow/`+encodeURIComponent(id)+'?email='+encodeURIComponent(email),{method:'DELETE'}); }catch(_){}
+    shadowWrite(`${API}/shadow/`+encodeURIComponent(id)+'?email='+encodeURIComponent(email),'DELETE',null); persistShadowCache();
   }
   async function shadowAdd(title){
     const email=pgSession(); if(!email) return;
-    try{ await fetch(`${API}/shadow`,{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({email, title_name:title})}); }catch(_){}
+    shadowWrite(`${API}/shadow`,'POST',{email, title_name:title}); persistShadowCache();
   }
   // Voice-first entry: the shell asks whether to raise the keyboard (only text flows —
   // email/password) or rest on the mic (general chat).

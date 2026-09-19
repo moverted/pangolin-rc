@@ -56,6 +56,33 @@ const tabbar = document.getElementById('tabbar');
 const frames = [];
 let index = FACE_INDEX.log;   // open on WATCH, the cold-open face
 
+// ─── Airplane / offline indicator + first-open explainer ─────────────────────
+// When the browser goes offline, a little plane flies over Pierre's hero portrait so
+// the member knows at a glance why he's quiet, and (once per offline stint) a short
+// explainer spells out what still works. Faces own their own offline fallbacks (e.g.
+// Pierre's cached shadow + the outbox in pg_offline.js); this is the global signal.
+const OFFLINE = () => (typeof navigator !== 'undefined' && navigator.onLine === false);
+function updateNetIndicator() {
+  const plane = document.getElementById('planeBadge');
+  if (plane) plane.hidden = !OFFLINE();
+}
+// Show the explainer the first time we notice we're offline in this stint. Cleared on
+// reconnect so the next flight sees it again.
+let introShown = false;
+function maybeShowAirplaneIntro() {
+  const el = document.getElementById('airplane-intro');
+  if (!el) return;
+  if (OFFLINE() && !introShown) {
+    introShown = true;
+    el.hidden = false;
+  }
+}
+function hideAirplaneIntro() { const el = document.getElementById('airplane-intro'); if (el) el.hidden = true; }
+document.getElementById('ap-ok')?.addEventListener('click', hideAirplaneIntro);
+
+window.addEventListener('offline', () => { updateNetIndicator(); maybeShowAirplaneIntro(); updateOfflineTabs(); });
+window.addEventListener('online', () => { updateNetIndicator(); hideAirplaneIntro(); introShown = false; updateOfflineTabs(); });
+
 // ─── build panels + tab bar ─────────────────────────────────────────────────
 FACES.forEach((f) => {
   const panel = document.createElement('div');
@@ -94,11 +121,35 @@ TAB_ORDER.forEach((fi) => {
   // Pierre's hands, driven by pierre:ted-waiting from the Pierre face. Nothing dire — just a
   // count of answered Get-Ted threads waiting to be read.
   const badge = fi === FACE_INDEX.pierre ? `<span class="ted-badge" id="tedBadge" hidden></span>` : '';
-  b.innerHTML = ic + badge + `<span class="lbl">${f.label}</span>`;
+  // Offline plane rides over the hero PIERRE portrait (toggled by updateNetIndicator).
+  const plane = fi === FACE_INDEX.pierre ? `<span class="plane-badge" id="planeBadge" role="img" aria-label="Airplane mode — you are offline" hidden>✈️</span>` : '';
+  b.innerHTML = ic + badge + plane + `<span class="lbl">${f.label}</span>`;
   // WATCH is state-aware post Watch/Log merge (see goWatch); every other tab is a plain goTo.
-  b.addEventListener('click', () => { if (fi === FACE_INDEX.log) goWatch(); else goTo(fi, true); });
+  b.addEventListener('click', () => {
+    if (OFFLINE() && OFFLINE_LOCKED.has(fi)) return;   // FEED/BROWSE/SET are inert offline
+    if (fi === FACE_INDEX.log) goWatch(); else goTo(fi, true);
+  });
   tabbar.appendChild(b);
 });
+
+// ─── Offline tab gating ───────────────────────────────────────────────────────
+// Offline the app collapses to WATCH + a stripped PIERRE. FEED, BROWSE and SET need the
+// network (feeds, catalog search, shadow/lists), so they're locked and dimmed; if the member
+// is sitting on one when the signal drops, we slide them back to WATCH.
+const OFFLINE_LOCKED = new Set([FACE_INDEX.feed, FACE_INDEX.join, FACE_INDEX.set]);
+function updateOfflineTabs() {
+  const off = OFFLINE();
+  document.body.classList.toggle('offline-mode', off);
+  OFFLINE_LOCKED.forEach((fi) => {
+    const btn = tabbar.querySelector('.tab[data-panel="' + fi + '"]');
+    if (btn) { btn.classList.toggle('tab-locked', off); btn.setAttribute('aria-disabled', off ? 'true' : 'false'); }
+  });
+  if (off && OFFLINE_LOCKED.has(index)) goWatch();   // bounced off a locked face → WATCH
+}
+
+updateNetIndicator();   // reflect current connectivity now that the hero plane badge exists
+updateOfflineTabs();
+maybeShowAirplaneIntro();   // app opened already in airplane mode → greet with the explainer
 
 // The WATCH tab merges the old Watch + Log destinations: with a show in progress it opens that
 // show's Log detail (the "Log face"); with nothing in progress it rests on the Watch list (whose
