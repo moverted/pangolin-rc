@@ -28,11 +28,13 @@ for (const entry of await readdir(src)) {
   copied++;
 }
 
-// sanity: the files the cube cannot boot without
+// sanity: the files the flat app cannot boot without. (The 3D cube was retired 2026-09-14;
+// index.html is now a stub that routes to app.html, driven by flat_shell.js. cube_shell.js /
+// clickwheel.js were deleted; the six cube_*_face.html files live on as tabs.)
 const required = [
-  'index.html', 'cube_shell.js', 'clickwheel.js',
+  'index.html', 'app.html', 'flat_shell.js', 'pg_offline.js',
   'cube_feed_face.html', 'cube_watch_face.html', 'cube_pierre_face.html',
-  'cube_profile_face.html', 'cube_log_face.html', 'cube_browse_face.html',
+  'cube_profile_face.html', 'cube_log_face.html', 'cube_browse_face.html', 'cube_set_face.html',
 ];
 const missing = [];
 for (const f of required) {
