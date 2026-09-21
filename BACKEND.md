@@ -3363,5 +3363,19 @@ for Ted's clean/archive/distribute; the fix is byte-present in `ios/App/App/publ
     free chat returns one canned line (no LLM); the end-of-episode comment is captured as a queued
     private note (no spoiler/share flow) then bounces back to WATCH. SHADOW writes routed through the
     outbox too.
-- **NOT deployed:** remote migration 0063, Worker deploy, Pages deploy, iOS bundle — pending Ted's
-  go-ahead. On `offline-sync` branch, uncommitted.
+- **DEPLOYED 2026-09-18:** remote migration 0063 applied; Worker version `07536258`; Pages prod
+  `8dc2a47f`. Branch `offline-sync` merged to `main` (local). iOS synced + Xcode handoff; TestFlight
+  build pending Ted.
+
+## 2026-09-21 — Share card: title-safe redesign + join-link caption/clipboard  [frontend + Pages]
+- **Frontend only** (no Worker/D1). `public/pg_share_card.js` reworked: copy moved off the bottom into
+  a centered translucent panel inside the 9:16 title-safe band (SAFE_TOP=250 / SAFE_BOTTOM=H-640, clears
+  Reels/Stories/TikTok/Shorts chrome); **QR dropped** (not tappable in a shared reel); `pangolinrc.com`
+  now a vertical mark up the right column (RAIL_COL) above the action-rail icons; poster still fills.
+- **Share link/clipboard:** `doShareCard` (cube_pierre_face) + `tixShareAudio`/`tixShareCard`
+  (cube_browse_face) append `join.pangolinrc.com` to the caption AND copy it to the clipboard within the
+  share tap (`pgCopyText` helper), with a "copied to your clipboard" notice so the sharer can paste it as
+  an IG Link Sticker. Card VISUAL stays the short `pangolinrc.com`.
+- **DEPLOYED:** Pages prod `a9407a01` (verified remote.pangolinrc.com serving it). iOS synced
+  (`sync-www` + `cap copy ios`) + Xcode opened; TestFlight build pending Ted. Branch
+  `share-card-titlesafe` → merged to `main` (local). Workshop file `_sharecard_preview.html` deleted.
