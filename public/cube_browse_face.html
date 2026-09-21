@@ -1357,11 +1357,21 @@ async function buildTicketVideo(cardBlob, audioBlob){
 // Share audio = the same card + the audio, composed into a video. Native muxes the
 // card image + audio into an mp4 (CardVideo, the path Pierre uses); web falls back to
 // sharing the audio (+ card image) files.
+// The card's visual URL is pangolinrc.com; the link we hand the sharer to paste (IG Link
+// Sticker / caption) is the join page. Copy it within the tap so it's ready to paste.
+var PG_JOIN_LINK='join.pangolinrc.com';
+async function pgCopyText(t){
+  try{ if(navigator.clipboard && navigator.clipboard.writeText){ await navigator.clipboard.writeText(t); return true; } }catch(_){}
+  try{ const ta=document.createElement('textarea'); ta.value=t; ta.style.position='fixed'; ta.style.opacity='0';
+    document.body.appendChild(ta); ta.focus(); ta.select(); const ok=document.execCommand('copy'); document.body.removeChild(ta); return ok; }catch(_){ return false; }
+}
+function pgWithJoin(caption){ return (caption? caption+'  ·  ':'') + PG_JOIN_LINK; }
 async function tixShareAudio(tx){
   const blob = tx._audioBlob; if(!blob){ _txHint(tx,'no audio to share','bad'); return; }
   _txHint(tx,'building video…');
   const text = (tx.querySelector('.tixtxt')||{}).value || '';
-  const caption = (text?('“'+text+'” — '):'')+(tx.dataset.film||'');
+  const caption = pgWithJoin((text?('“'+text+'” — '):'')+(tx.dataset.film||''));
+  await pgCopyText(PG_JOIN_LINK);
   let cardBlob=null; try{ cardBlob = await buildTicketCard({ id:tx.dataset.id||'', film:tx.dataset.film||'', theater:tx.dataset.theater||'',
     date:tx.dataset.date||'', poster:tx.dataset.poster||'', text }); }catch(_){}
   const type = blob.type||'audio/webm';
@@ -1371,7 +1381,7 @@ async function tixShareAudio(tx){
   if(cardBlob && Cap && Cap.isNativePlatform && Cap.isNativePlatform() && Cap.Plugins && Cap.Plugins.CardVideo){
     try{
       const res = await Cap.Plugins.CardVideo.compose({ image: await blobB64(cardBlob), audio: await blobB64(blob), audioExt: ext });
-      if(res && res.uri){ (window.top||window).postMessage({type:'pg:shareFile', name:'ticket-'+Date.now()+'.mp4', caption, fileUri:res.uri}, '*'); _txHint(tx,'opening share…'); return; }
+      if(res && res.uri){ (window.top||window).postMessage({type:'pg:shareFile', name:'ticket-'+Date.now()+'.mp4', caption, fileUri:res.uri}, '*'); _txHint(tx,'join.pangolinrc.com copied · opening share…'); return; }
     }catch(_){}
   }
   // Web fallback: compose a video (card + audio) so the Story actually has sound.
@@ -1381,11 +1391,11 @@ async function tixShareAudio(tx){
       const vext = vid.type.indexOf('mp4')>=0 ? 'mp4' : 'webm';
       const vfile = new File([vid], 'ticket-'+Date.now()+'.'+vext, {type:vid.type});
       if(navigator.canShare && navigator.canShare({files:[vfile]})){ await navigator.share({files:[vfile], text:caption}); _txHint(tx,''); return; }
-      const b64 = await blobB64(vid); (window.top||window).postMessage({type:'pg:shareFile', dataB64:b64, name:vfile.name, caption}, '*'); _txHint(tx,'opening share…'); return;
+      const b64 = await blobB64(vid); (window.top||window).postMessage({type:'pg:shareFile', dataB64:b64, name:vfile.name, caption}, '*'); _txHint(tx,'join.pangolinrc.com copied · opening share…'); return;
     }
   }catch(_){}
   // Last resort: share the raw audio file.
-  try{ const b64 = await blobB64(blob); (window.top||window).postMessage({type:'pg:shareFile', dataB64:b64, name:'reflection.'+ext, caption}, '*'); _txHint(tx,'opening share…'); }
+  try{ const b64 = await blobB64(blob); (window.top||window).postMessage({type:'pg:shareFile', dataB64:b64, name:'reflection.'+ext, caption}, '*'); _txHint(tx,'join.pangolinrc.com copied · opening share…'); }
   catch(_){ _txHint(tx,"couldn't share",'bad'); }
 }
 async function tixShareCard(tx){
@@ -1394,10 +1404,11 @@ async function tixShareCard(tx){
   try{
     const blob = await buildTicketCard({ id:tx.dataset.id||'', film:tx.dataset.film||'', theater:tx.dataset.theater||'', date:tx.dataset.date||'',
       poster:tx.dataset.poster||'', text });
-    const caption = (text?('“'+text+'” — '):'')+(tx.dataset.film||'');
+    const caption = pgWithJoin((text?('“'+text+'” — '):'')+(tx.dataset.film||''));
+    await pgCopyText(PG_JOIN_LINK);
     try{ const file = new File([blob],'ticket-card.png',{type:'image/png'});
       if(navigator.canShare && navigator.canShare({files:[file]})){ await navigator.share({files:[file], text:caption}); _txHint(tx,''); return; } }catch(_){}
-    const b64 = await blobB64(blob); (window.top||window).postMessage({type:'pg:shareFile', dataB64:b64, name:'ticket-card.png', caption}, '*'); _txHint(tx,'opening share…');
+    const b64 = await blobB64(blob); (window.top||window).postMessage({type:'pg:shareFile', dataB64:b64, name:'ticket-card.png', caption}, '*'); _txHint(tx,'join.pangolinrc.com copied · opening share…');
   }catch(_){ _txHint(tx,"couldn't build the card",'bad'); }
 }
 // Poster-forward 9:16 (Reels/Stories) share card — the poster fills the frame, a

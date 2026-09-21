@@ -2227,10 +2227,21 @@
       addPierre(whereNextLine());
     }
   }); }catch(_){}
+  // Copy text to the clipboard within the share tap's user-activation. navigator.clipboard
+  // first (works in the iOS WKWebView + web), with an execCommand fallback for older paths.
+  async function pgCopyText(t){
+    try{ if(navigator.clipboard && navigator.clipboard.writeText){ await navigator.clipboard.writeText(t); return true; } }catch(_){}
+    try{ const ta=document.createElement('textarea'); ta.value=t; ta.style.position='fixed'; ta.style.opacity='0';
+      document.body.appendChild(ta); ta.focus(); ta.select(); const ok=document.execCommand('copy'); document.body.removeChild(ta); return ok; }catch(_){ return false; }
+  }
+  // The card's visual URL is pangolinrc.com (short/brand); the link we hand the sharer to paste
+  // — as an Instagram Link Sticker or in the caption — is the join page. Copy it and say so.
+  var PG_JOIN_LINK='join.pangolinrc.com';
   async function doShareCard(blob, ctx, text){
-    const caption=(ctx.show||'')+(ctx.ep?(' '+ctx.ep):'')+' — on pangolinRC';
-    // Share a 9:16 frame (square card anchored top on the gradient) so Instagram Reel/Story
-    // fill without cropping the card's sides. Fall back to the raw square if framing fails.
+    const caption=(ctx.show||'')+(ctx.ep?(' '+ctx.ep):'')+' — on pangolinRC  ·  '+PG_JOIN_LINK;
+    // Prime the paste: copy the join link now so it's ready for an IG Link Sticker / caption.
+    if(await pgCopyText(PG_JOIN_LINK)) addPierre(PG_JOIN_LINK+' has been copied to your clipboard');
+    // Share a 9:16 frame so Instagram Reel/Story fill without cropping the card's sides.
     let shareB=blob;
     try{ const cv=await buildStoryFrame(blob); const fb=await new Promise(r=>cv.toBlob(r,'image/png',0.92)); if(fb) shareB=fb; }catch(_){}
     if(await shareBlob(shareB, 'pangolinrc-card-'+Date.now()+'.png', caption)){ addPierre('Shared.'); return; }
