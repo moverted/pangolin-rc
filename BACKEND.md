@@ -3379,3 +3379,25 @@ for Ted's clean/archive/distribute; the fix is byte-present in `ios/App/App/publ
 - **DEPLOYED:** Pages prod `a9407a01` (verified remote.pangolinrc.com serving it). iOS synced
   (`sync-www` + `cap copy ios`) + Xcode opened; TestFlight build pending Ted. Branch
   `share-card-titlesafe` → merged to `main` (local). Workshop file `_sharecard_preview.html` deleted.
+
+## 2026-09-24 — Airplane detection by reachability (not navigator.onLine) + Pierre confirm
+- **Root cause of the "blank/broken in flight" report:** `navigator.onLine` reports connected on
+  throttled/captive airline WiFi, so the app kept trying to reach the Worker and hung (same reason
+  Disney+ won't show downloads on a plane). iOS/web never expose the airplane toggle, so we infer.
+- **Worker (`src/index.ts`):** new `GET /ping` — tiny, DB-free, `Cache-Control: no-store`, returns
+  `{ok:true, pg:1}`. The `pg:1` marker lets the client tell a real reply from a captive-portal page.
+- **Client (`public/pg_offline.js`):** connectivity is now REACHABILITY-based. `isOffline()` = OS
+  offline OR `/ping` didn't answer with the marker inside 2.5s. Probes on load, on resume
+  (visibilitychange), every 20s while visible, and on OS online/offline hints; dispatches
+  window online/offline on change so all existing airplane UI reacts. Added `fetchTimed()` (7s) +
+  an 8s timeout on outbox `sendOp`.
+- **Faces** (`flat_shell.js`, `cube_pierre_face.html`, `cube_watch_face.html`, `cube_log_face.html`,
+  `cube_set_face.html`): read `window.pgNet.isOffline()` instead of raw `navigator.onLine`, and
+  short-circuit data reads to cache when offline (+ `fetchTimed`) so throttled WiFi can't hang a face.
+- **UX:** since offline is inferred, the first-detect overlay now has Pierre ASK "Are you in airplane
+  mode?" (Yes → what-still-works copy; No → keep trying + re-probe) instead of asserting it.
+- **Verified locally** (worker `/ping` up): with `navigator.onLine` left TRUE, blocking `/ping` flips
+  the app offline (plane + locked tabs + question), and restoring it flips back online.
+- **DEPLOYED:** Worker version `bf0df0b2` (prod `/ping` → `{ok:true,pg:1}`); Pages prod `b470b808`
+  (verified remote.pangolinrc.com serving the probe + question). iOS synced + Xcode opened; TestFlight
+  build pending Ted. Branch `airplane-reachability` → merged to `main` (local).
