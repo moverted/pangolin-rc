@@ -141,13 +141,16 @@
     margin: 0 0 20px; color: #e8dccb;
     font-family: Nunito, system-ui, sans-serif; font-size: 15px; line-height: 1.5;
   }
-  #airplane-intro #ap-ok {
+  #airplane-intro .ap-btns { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+  #airplane-intro button {
     appearance: none; border: 1px solid rgba(255,138,0,.5); border-radius: 999px;
     background: rgba(255,138,0,.16); color: #ffd7a1;
     font-family: 'Space Mono', ui-monospace, monospace; font-size: 12px; letter-spacing: .12em;
     text-transform: uppercase; padding: 9px 22px; cursor: pointer;
   }
-  #airplane-intro #ap-ok:active { transform: scale(.96); }
+  #airplane-intro button:active { transform: scale(.96); }
+  /* the "keep trying" alt reads quieter than the primary "yes" */
+  #airplane-intro button.ap-alt { background: transparent; border-color: #3a2f22; color: #b9ab97; }
 
   /* Return to the 3D cube. Mirrors the cube's bug button (top-right, same shape),
      tinted JOIN-blue so it reads as "the blue bug" that takes you back. */
@@ -195,18 +198,38 @@
   </button>
   <nav id="tabbar" aria-label="Faces"></nav>
 
-  <!-- First-open-in-airplane-mode explainer. Shown once per offline stint (reset on reconnect),
-       so a new flight sees it again. Copy is Pierre's own voice. -->
+  <!-- Offline is INFERRED from a failed reachability probe (we can't read the OS airplane
+       toggle), so Pierre ASKS rather than assumes. Shown once per offline stint (reset on
+       reconnect). The app is already offline-safe by the time this appears. -->
   <div id="airplane-intro" hidden>
-    <div class="ap-card" role="dialog" aria-modal="true" aria-labelledby="ap-title">
+    <div class="ap-card" role="dialog" aria-modal="true" aria-labelledby="ap-q">
       <div class="ap-plane" aria-hidden="true">✈️</div>
-      <p id="ap-title" class="ap-copy">
-        I see you're in airplane mode — I hope you're going somewhere fun, and that you
-        downloaded enough to pass the time. I'll still help you log your watches, but comments
-        will be text only, and my full features — chat, adding shows, and getting things from
-        friends — will have to wait until we sync back up online.
-      </p>
-      <button id="ap-ok" type="button">Got it</button>
+      <!-- Step 1 — the question -->
+      <div id="ap-step-q">
+        <p id="ap-q" class="ap-copy">Hang on — I can't reach the network. Are you in airplane mode?</p>
+        <div class="ap-btns">
+          <button id="ap-yes" type="button">Yes, I'm flying</button>
+          <button id="ap-no" type="button" class="ap-alt">No — keep trying</button>
+        </div>
+      </div>
+      <!-- Step 2a — confirmed airplane -->
+      <div id="ap-step-yes" hidden>
+        <p class="ap-copy">
+          I hope you're going somewhere fun, and that you downloaded enough to pass the time.
+          I'll still help you log your watches, but comments will be text only, and my full
+          features — chat, adding shows, and getting things from friends — will have to wait
+          until we sync back up online.
+        </p>
+        <button id="ap-ok" type="button">Got it</button>
+      </div>
+      <!-- Step 2b — not airplane, keep trying -->
+      <div id="ap-step-no" hidden>
+        <p class="ap-copy">
+          Odd — I still can't get through. I'll keep trying, and you can use whatever you've
+          downloaded in the meantime.
+        </p>
+        <button id="ap-ok2" type="button">OK</button>
+      </div>
     </div>
   </div>
 

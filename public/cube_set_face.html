@@ -1399,8 +1399,13 @@ let _shadowFromCache=false;
 async function loadShadow(){
   const email=acct(); if(!email){ _shadowRows=[]; _shadowFromCache=false; return; }
   _shadowFromCache=false;
+  // Offline (reachability-aware): straight to cache, no hanging fetch.
+  if(window.pgNet && window.pgNet.isOffline()){
+    try{ _shadowRows=JSON.parse(localStorage.getItem('pg_shadow_'+email)||'[]'); _shadowFromCache=_shadowRows.length>0; }catch(_2){ _shadowRows=[]; }
+    return;
+  }
   try{
-    const r=await fetch(`${API}/shadow?email=`+encodeURIComponent(email)+'&all=1');
+    const r=await (window.pgNet?window.pgNet.fetchTimed:fetch)(`${API}/shadow?email=`+encodeURIComponent(email)+'&all=1');
     if(!r.ok) throw new Error('shadow '+r.status);
     _shadowRows=(await r.json()).shadow||[];
     try{ localStorage.setItem('pg_shadow_'+email, JSON.stringify(_shadowRows)); }catch(_){}

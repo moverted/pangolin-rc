@@ -403,7 +403,9 @@
   // Reflect navigator connectivity in the header so the member knows why Pierre is
   // quiet and why the shadow may be a cached copy. On reconnect, silently refresh the
   // shadow if its panel is open so cached rows are replaced by the live server truth.
-  function pgIsOffline(){ return typeof navigator !== 'undefined' && navigator.onLine === false; }
+  // Reachability-based (pg_offline.js) so throttled airline WiFi counts as offline, not just a
+  // flipped navigator.onLine. Falls back to navigator when the outbox script isn't present.
+  function pgIsOffline(){ return window.pgNet ? window.pgNet.isOffline() : (typeof navigator !== 'undefined' && navigator.onLine === false); }
   function updateOfflineUI(){
     const plane = document.getElementById('pierrePlane');
     if(plane) plane.hidden = !pgIsOffline();
@@ -2784,15 +2786,15 @@
   async function loadShadowRows(){
     const email=pgSession(); if(!email) return;
     let fromCache=false;
+    const hydrate=()=>{ try{ _shadowRows = JSON.parse(localStorage.getItem(shadowCacheKey(email))||'[]'); fromCache=_shadowRows.length>0; }catch(_2){ _shadowRows=[]; } };
+    // Offline (reachability-aware): render from cache without touching the network.
+    if(pgIsOffline()){ hydrate(); renderShadowList(fromCache); return; }
     try{
-      const r=await fetch(`${API}/shadow?email=`+encodeURIComponent(email)+'&all=1');
+      const r=await (window.pgNet?window.pgNet.fetchTimed:fetch)(`${API}/shadow?email=`+encodeURIComponent(email)+'&all=1');
       if(!r.ok) throw new Error('shadow '+r.status);
       _shadowRows = (await r.json()).shadow||[];
       try{ localStorage.setItem(shadowCacheKey(email), JSON.stringify(_shadowRows)); }catch(_){}
-    }catch(_){
-      try{ _shadowRows = JSON.parse(localStorage.getItem(shadowCacheKey(email))||'[]'); fromCache=_shadowRows.length>0; }
-      catch(_2){ _shadowRows=[]; }
-    }
+    }catch(_){ hydrate(); }
     renderShadowList(fromCache);
   }
   function renderShadowList(fromCache){

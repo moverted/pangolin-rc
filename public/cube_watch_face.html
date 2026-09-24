@@ -1907,9 +1907,16 @@ function recordFromTitle(t){
 // Load the signed-in member's tracked titles from the catalog-backed endpoint.
 async function loadAccount(email){
   _wowPrefetched=false; _wowModesPrefetched=false;   // fresh account load → re-derive scheduler
+  // Offline (reachability-aware): skip the network entirely and hydrate from cache, so throttled
+  // airline WiFi can't hang WATCH on a blank screen.
+  const _off = !!(window.pgNet && window.pgNet.isOffline());
+  if(_off){
+    if(window.pgNet){ try{ const c=window.pgNet.cacheGet(pgLogCacheKey(email), null); if(Array.isArray(c)) return c; }catch(_){} }
+    return [];
+  }
   if(window.WoW){ try{ await WoW.store.load(email); }catch(_){} }
   try{
-    const r=await fetch(API+"/profile/"+encodeURIComponent(email)+"/titles"); if(!r.ok) throw new Error('titles '+r.status);
+    const r=await (window.pgNet?window.pgNet.fetchTimed:fetch)(API+"/profile/"+encodeURIComponent(email)+"/titles"); if(!r.ok) throw new Error('titles '+r.status);
     const data=await r.json();
     const recs=(data.titles||[]).map(recordFromTitle);
     if(window.pgNet){ try{ window.pgNet.cacheSet(pgLogCacheKey(email), recs); }catch(_){} }   // mirror for offline

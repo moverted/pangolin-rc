@@ -61,24 +61,33 @@ let index = FACE_INDEX.log;   // open on WATCH, the cold-open face
 // the member knows at a glance why he's quiet, and (once per offline stint) a short
 // explainer spells out what still works. Faces own their own offline fallbacks (e.g.
 // Pierre's cached shadow + the outbox in pg_offline.js); this is the global signal.
-const OFFLINE = () => (typeof navigator !== 'undefined' && navigator.onLine === false);
+// Reachability-based (pg_offline.js): true when the server can't actually be reached, not just
+// when the OS flips navigator.onLine — so throttled airline WiFi still counts as offline.
+const OFFLINE = () => (window.pgNet ? window.pgNet.isOffline() : (typeof navigator !== 'undefined' && navigator.onLine === false));
 function updateNetIndicator() {
   const plane = document.getElementById('planeBadge');
   if (plane) plane.hidden = !OFFLINE();
 }
-// Show the explainer the first time we notice we're offline in this stint. Cleared on
-// reconnect so the next flight sees it again.
+// Offline is inferred, so Pierre ASKS "are you in airplane mode?" the first time we notice
+// we can't reach the server this stint. Cleared on reconnect so a new flight asks again.
 let introShown = false;
+function apStep(id) { ['ap-step-q', 'ap-step-yes', 'ap-step-no'].forEach((s) => { const el = document.getElementById(s); if (el) el.hidden = (s !== id); }); }
 function maybeShowAirplaneIntro() {
   const el = document.getElementById('airplane-intro');
   if (!el) return;
   if (OFFLINE() && !introShown) {
     introShown = true;
+    apStep('ap-step-q');       // always open on the question
     el.hidden = false;
   }
 }
 function hideAirplaneIntro() { const el = document.getElementById('airplane-intro'); if (el) el.hidden = true; }
+// Yes → the "here's what still works" reassurance. No → re-probe (maybe it was a blip) and say
+// we'll keep trying. If the probe finds the server, the 'online' handler hides this for us.
+document.getElementById('ap-yes')?.addEventListener('click', () => apStep('ap-step-yes'));
+document.getElementById('ap-no')?.addEventListener('click', () => { apStep('ap-step-no'); try { window.pgNet && window.pgNet.probe(); } catch (e) {} });
 document.getElementById('ap-ok')?.addEventListener('click', hideAirplaneIntro);
+document.getElementById('ap-ok2')?.addEventListener('click', hideAirplaneIntro);
 
 window.addEventListener('offline', () => { updateNetIndicator(); maybeShowAirplaneIntro(); updateOfflineTabs(); });
 window.addEventListener('online', () => { updateNetIndicator(); hideAirplaneIntro(); introShown = false; updateOfflineTabs(); });

@@ -75,6 +75,15 @@ const COVIEW_MAX_COMMENTS_PER_EPISODE = 5;
 // (is_endnote = 1). See COMMENT_CLIP_SHARE.md "Revision — 2026-07-29".
 const ENDNOTE_MAX_PER_EPISODE = 1;
 
+// Reachability probe for the client's airplane-mode detection (pg_offline.js). navigator.onLine
+// lies on airline WiFi (reports connected while heavily throttled / behind a captive portal),
+// so the client probes THIS instead: a tiny, DB-free, no-cache reply carrying a marker (pg:1) a
+// captive portal can't fake. Timeout/failure/missing-marker ⇒ the app treats itself as offline.
+app.get('/ping', (c) => {
+  c.header('Cache-Control', 'no-store');
+  return c.json({ ok: true, pg: 1 });
+});
+
 // Transcribe endpoint - direct handler to avoid routing issues
 app.options('/transcribe', (c) => {
   return c.json({ ok: true });
