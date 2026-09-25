@@ -3401,3 +3401,18 @@ for Ted's clean/archive/distribute; the fix is byte-present in `ios/App/App/publ
 - **DEPLOYED:** Worker version `bf0df0b2` (prod `/ping` → `{ok:true,pg:1}`); Pages prod `b470b808`
   (verified remote.pangolinrc.com serving the probe + question). iOS synced + Xcode opened; TestFlight
   build pending Ted. Branch `airplane-reachability` → merged to `main` (local).
+
+## 2026-09-25 — Reel share: full pasteable caption (card + video paths)  [frontend + Pages]
+- **Frontend only** (no Worker/D1). `public/cube_pierre_face.html`: new `pgShareCaption(ctx,text)`
+  builds a complete caption — show + unit (episode `S3E14` / `· Season N` / `· the complete series` /
+  just the title for a movie) + the sharer's words + `join.pangolinrc.com`. Sourced from the in-memory
+  edited transcript so a **whisper correction is what gets pasted** (never the raw auto-transcription);
+  quote **omitted when spoiler-flagged**, mirroring the card art.
+- **Both share paths copy it now:** `doShareCard` copies the full caption (was just the bare join link);
+  `doShareVideo` (Reel/audio) copies it too — it previously copied **nothing**, so reels went out
+  captionless. Pierre says "Caption copied — paste it into Instagram." Clipboard is the channel because
+  `flat_shell.js` shares files-only (passing text next to a file → IG "Can't send link"). Web-share
+  fallback simplified (the caption already carries the quote).
+- **DEPLOYED:** Pages prod `1718b55d` (verified remote.pangolinrc.com serving `pgShareCaption`). iOS
+  synced (`sync-www` + `cap copy ios`) + Xcode opened; TestFlight build pending Ted. Committed to `main`
+  `2cd6319` (direct to main, per this repo's convention — no feature branch).
