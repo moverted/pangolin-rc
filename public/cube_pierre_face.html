@@ -2466,6 +2466,8 @@
     if(addFlow==='name'){ input.blur(); (addKind==='movie'?resolveMovieName:resolveShowName)(text); return; }
     // Game lane: the member's single entry carries both titles → one grounded guess, no question back.
     if(gamePhase==='pair'){ input.blur(); submitGame(text); return; }
+    // After a pick, a free-text reaction maps to Seen it / Save for later / Not for me.
+    if(gamePhase==='react'){ input.blur(); reactGame(text); return; }
     setSendMode('mic'); input.blur();   // voice-first: settle back on the mic after each turn
     ask(text);
   }
@@ -2691,14 +2693,14 @@
       return;   // still gamePhase==='pair'
     }
     const [a, b] = parts;
-    gamePhase = null;                              // consume the pair; reactions after this are chat
+    gamePhase = null;                              // consume the pair; the outcome chips take over
     recordGameTitle(a); recordGameTitle(b);        // the two titles they named are taste signals → shadow
     showTyping();
     let data=null;
     try{
       const { token, appToken } = await pierreAuthPair();
       const r=await fetch(API+'/pierre/room-guess/one',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({ show1:a, show2:b, token, appToken, email:pgSession()||undefined })});
+        body:JSON.stringify({ show1:a, show2:b, avoid:stackTitleNames(), token, appToken, email:pgSession()||undefined })});
       if(r.ok) data=await r.json();
     }catch(_){}
     clearTyping();
@@ -2707,31 +2709,97 @@
       gamePhase = 'pair';                          // let them offer another pair
       return;
     }
-    deliverGameGuess(data.thread||'', data.pick);
+    deliverGameGuess(data.thread||'', data.pick, a, b);
   }
-  function deliverGameGuess(thread, pick){
+  // STACK (owned discs) is client-only localStorage, so the server can't dedupe it — pass the
+  // titles into the game's avoid list so Pierre never offers a disc the member already owns.
+  // (QUEUE, Pierre Suggests, watched, and dismissed are deduped server-side in room-guess/one.)
+  function stackTitleNames(){
+    try{ const m=JSON.parse(localStorage.getItem('pg_irl_media')||'[]');
+      return Array.isArray(m) ? m.map(x=>x&&x.title).filter(Boolean) : []; }catch(_){ return []; }
+  }
+  // Deliver the pick and the three outcome chips. Every outcome is a recorded signal:
+  //   Seen it       → watched (preApp, no binge flame) + optional 0–10 rank
+  //   Save for later → Pierre Suggests (the "want to watch, not started" home)
+  //   Not for me     → dismissed, source 'game'
+  // Free-text intent maps to the same three (gamePhase 'react'); unclear → re-offer the chips.
+  let _gamePending=null, _gameReactMiss=0;
+  function deliverGameGuess(thread, pick, seedA, seedB){
     if(thread) addPierre(thread);
     const line = pick.name + (pick.reason ? (' — ' + pick.reason) : '');
-    pierreSay(line, [{ label:'Put it on', poster:pick.poster||null, onClick:()=>putOnGamePick(pick) }], true);
-    addPierre("Seen it? Tell me how it landed and I will fold that into your streaming shadow.");
+    _gamePending={ pick, seedA, seedB }; _gameReactMiss=0; gamePhase='react';
+    pierreSay(line, gameOutcomeChips(pick, seedA, seedB), true);
     setSendMode('mic'); try{ input.blur(); }catch(_){}
   }
-  // Record a title that ran through the game (the member's named pair, or a pick they put on)
-  // into the streaming shadow. Silent; source 'game'. Kind/sentiment fill in later via classify.
+  function gameOutcomeChips(pick, seedA, seedB){
+    return [
+      { label:'Seen it',        poster:pick.poster||null, onClick:()=>onSeenGamePick(pick, seedA, seedB) },
+      { label:'Save for later', onClick:()=>onSaveGamePick(pick, seedA, seedB) },
+      { label:'Not for me',     onClick:()=>onDismissGamePick(pick, seedA, seedB) },
+    ];
+  }
+  // Free-text reaction after a pick, mapped to the three outcomes. Clear intent acts; unclear
+  // re-offers the chips once, then (to never trap them) falls through to a normal chat turn.
+  function reactGame(text){
+    const t=String(text||'').toLowerCase(); const p=_gamePending; if(!p){ gamePhase=null; ask(text); return; }
+    if(/\b(seen|saw|watched|already seen|i've seen)\b/.test(t)){ onSeenGamePick(p.pick, p.seedA, p.seedB); return; }
+    if(/\b(save|later|yes|yeah|sure|queue|add it|keep|sounds good|put it in)\b/.test(t)){ onSaveGamePick(p.pick, p.seedA, p.seedB); return; }
+    if(/\b(no|nope|not for me|pass|nah|skip|dismiss|meh|not interested)\b/.test(t)){ onDismissGamePick(p.pick, p.seedA, p.seedB); return; }
+    if(_gameReactMiss++ < 1){ pierreSay("Seen it, save it for later, or not for you?", gameOutcomeChips(p.pick, p.seedA, p.seedB), true); return; }
+    gamePhase=null; _gamePending=null; ask(text);   // still unclear → let it be a chat turn
+  }
+  // Record a title that ran through the game (the member's named pair, or a watched pick) into
+  // the streaming shadow. Silent; source 'game'. Kind/sentiment fill in later via classify.
   function recordGameTitle(name){
     const email=pgSession(); if(!email || !name) return;
     try{ fetch(`${API}/shadow`,{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({ email, title_name:name, source:'game' })}); }catch(_){}
   }
-  async function putOnGamePick(pick){
-    if(!pick || !pick.tvmazeId) return;
-    if(pick.name) recordGameTitle(pick.name);     // they put on Pierre's pick → into the shadow
-    showTyping();
-    let show=null;
-    try{ const r=await fetch('https://api.tvmaze.com/shows/'+pick.tvmazeId); if(r.ok) show=await r.json(); }catch(_){}
-    clearTyping();
-    if(show && show.id){ addKind='show'; resolveShow(show); }   // hand into the normal series put-on flow
-    else pierreSay("I could not pull it up just now. Try adding it from the WATCH list.");
+  const _gameTitleId=pick=>pick&&pick.tvmazeId ? ('tvmaze:'+pick.tvmazeId) : '';
+  // Seen it → watched (into the shadow; no episode row is logged, so the binge flame never
+  // fires) + an optional, skippable 0–10 rank folded onto the recorded 'seen' signal.
+  function onSeenGamePick(pick, seedA, seedB){
+    gamePhase=null; _gamePending=null;
+    if(pick.name) recordGameTitle(pick.name);      // shadow, as watched
+    offerSeenRank(pick, seedA, seedB);
+  }
+  function logSeen(pick, seedA, seedB, rank){
+    const email=pgSession(); if(!email) return;
+    try{ fetch(API+'/suggests/event',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ email, kind:'seen', title_id:_gameTitleId(pick)||undefined, title_name:pick.name,
+        seed_a:seedA, seed_b:seedB, ...(rank!=null?{rank}:{}) })}); }catch(_){}
+  }
+  function offerSeenRank(pick, seedA, seedB){
+    const chips=[];
+    for(let n=0;n<=10;n++){ chips.push({ label:String(n), onClick:()=>{ logSeen(pick,seedA,seedB,n); addPierre('Noted — '+pick.name+' at '+n+'.'); } }); }
+    chips.push({ label:'Skip', onClick:()=>{ logSeen(pick,seedA,seedB,null); addPierre('Filed it as seen.'); } });
+    pierreSay('Seen it. Rank it 0 to 10? (optional)', chips, true);
+    setSendMode('mic'); try{ input.blur(); }catch(_){}
+  }
+  // Save for later → Pierre Suggests, with Pierre's exact confirmation line.
+  function onSaveGamePick(pick, seedA, seedB){
+    gamePhase=null; _gamePending=null;
+    const email=pgSession();
+    if(email){ try{ fetch(API+'/suggests',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ email, title_id:_gameTitleId(pick)||undefined, title_name:pick.name,
+        poster:pick.poster||'', seed_a:seedA, seed_b:seedB })}); }catch(_){} }
+    addPierre("I'll put it in your suggestions for later.");
+    setSendMode('mic'); try{ input.blur(); }catch(_){}
+  }
+  // Not for me → dismissed on the spot (source 'game'); also marked 'nope' in the shadow so
+  // Pierre reads it back and never re-offers it.
+  function onDismissGamePick(pick, seedA, seedB){
+    gamePhase=null; _gamePending=null;
+    const email=pgSession();
+    if(email){
+      try{ fetch(API+'/suggests/event',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ email, kind:'dismissed', title_id:_gameTitleId(pick)||undefined, title_name:pick.name,
+          seed_a:seedA, seed_b:seedB })}); }catch(_){}
+      try{ fetch(API+'/shadow',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ email, title_name:pick.name, source:'game', sentiment:'nope' })}); }catch(_){}
+    }
+    addPierre("Noted. Not that one. Want another pair?");
+    setSendMode('mic'); try{ input.blur(); }catch(_){}
   }
 
   // Clear chat: a genuine new conversation. The only hard wipe.
@@ -3888,7 +3956,8 @@
       // a note/reflection flow (which manage their own chrome), make sure it's back.
       if(p.intent!=='note' && p.intent!=='season-note' && p.intent!=='series-note') flowChrome(true);
       if(p.intent) _intentSeen=true;   // arrived via an explicit flow → don't also proactively nudge
-      if(p.intent==='add') enterAddFlow(p.history||[]);
+      if(p.intent==='game') enterGameFlow();   // the Pierre Suggests game link lands here
+      else if(p.intent==='add') enterAddFlow(p.history||[]);
       else if(p.intent==='join') enterJoinFlow();
       else if(p.intent==='login') enterJoinFlow();
       else if(p.intent==='device') enterDeviceFlow();

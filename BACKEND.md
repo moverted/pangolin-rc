@@ -4,6 +4,33 @@ Append-only log. Any session that touches the Worker, D1, or deploy
 configuration adds an entry here before the session ends (see CLAUDE.md,
 "Backend and deploy rules").
 
+## 2026-09-25 — Pierre Suggests + game flow (BRANCH ONLY, NOT DEPLOYED)
+
+Branch `pierre-suggests-game-flow`, uncommitted. Gives the "want to watch, not started"
+state a home again (nav restructure turned SHELF→STACK, QUEUE→currently watching, orphaning
+it). Awaiting Ted sign-off before merge/deploy; run `wrangler d1 migrations apply pangolin-rc`
++ deploy the Worker + Pages when approved.
+
+- **D1 migration `0064_pierre_suggests.sql`.** Two tables in `pangolin-rc`:
+  `pierre_suggests` (saved game picks; one row per user+title) and `pierre_suggest_events`
+  (append-only derived signals — the local "events spine"; `pangolinrc-events` is NOT bound to
+  the Worker, so per Ted the four game signals land here, keeping the saved→started hit rate a
+  single-table read). Kinds: `saved` / `started` / `dismissed` (dismiss_source game|suggests) /
+  `seen` (pre_app=1, optional rank 0..10). Validated locally: applies clean, all four land.
+- **New handler `src/handlers/suggests.ts`** (mounted at `/suggests` in `index.ts`):
+  `GET /:email` (newest first), `POST /` (save + `saved` event), `POST /:email/:id/start`
+  (remove + `started` event with time-since-saved), `DELETE /:email/:id` (remove +
+  `dismissed`/suggests event), `POST /event` (game-only `dismissed`/game + `seen` outcomes).
+- **`pierre.ts` room-guess dedupe.** New `placedTitleNames()` (QUEUE `watch_title` +
+  `pierre_suggests` + dismissed events) added as HARD avoids in `/pierre/room-guess/one` so the
+  game never re-offers a placed/dismissed title. STACK (owned discs, client-only localStorage)
+  is folded into the caller's `avoid` list from `cube_pierre_face.html`.
+- **Frontend (public/, not Worker):** three-outcome game chips in `cube_pierre_face.html`
+  (Seen it / Save for later / Not for me + free-text intent map); Suggest surface rebuilt in
+  `cube_browse_face.html` (game-saved picks + persistent game link; retired PICKS_SEED +
+  "People you follow" placeholder; kept the backed "From friends" rail per Ted); Tickets +
+  STACK-scan copy fixes. `tsc --noEmit` clean; both faces load with no console errors.
+
 ## 2026-09-14 — v2: merge outreach half of PR #36 + cut the cube (DEPLOYED)
 
 Second consolidation pass. Merged the remaining stranded PR #36 stack into `main` and
