@@ -120,7 +120,9 @@
   .user .who{text-align:right;}
 
   /* routing chips under a Pierre message */
-  .chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:8px;}
+  /* align-items:flex-start so a plain pill never stretches to the height of a
+     taller poster-card chip sharing the row (the "Save for later" oval bug). */
+  .chips{display:flex;flex-wrap:wrap;align-items:flex-start;gap:7px;margin-top:8px;}
   .chip{
     font-family:'Space Mono';font-size:11px;letter-spacing:.04em;
     background:transparent;color:var(--amber);
@@ -136,6 +138,10 @@
     border-radius:12px;text-align:center;}
   .chip.hasimg .chip-poster{width:94px;height:141px;object-fit:cover;border-radius:6px;background:rgba(239,177,78,.08);display:block;}
   .chip.hasimg .chip-label{display:block;line-height:1.25;}   /* full title + year, no truncation */
+  /* game guess: the pick's poster shown on its own, above three identical plain-pill
+     outcome chips (Seen it / Not for me / Save for later). */
+  .guess-poster{width:120px;height:180px;object-fit:cover;border-radius:10px;margin-top:10px;
+    display:block;background:rgba(239,177,78,.08);}
 
   /* Room-building guess cards: poster + name + the one-line why, with Add / Reroll. */
   .rg-grid{display:flex;flex-direction:column;gap:9px;margin-top:9px;}
@@ -1381,7 +1387,8 @@
     }
   }
 
-  function addPierre(text){
+  function addPierre(text, sayOpts){
+    sayOpts = sayOpts || {};
     let clean, route, ctx, opts, backfill, watched, shadows, trt, marathon, outreach, outreachUpd;
     ({clean, route} = parseRoute(text));
     ({clean, ctx}   = parseSwitch(clean));
@@ -1398,7 +1405,8 @@
     const wrap = document.createElement('div');
     wrap.className = 'msg pierre';
     wrap.innerHTML = '<div class="who">Pierre</div><div class="bubble"></div>';
-    wrap.querySelector('.bubble').textContent = clean;
+    const bubble = wrap.querySelector('.bubble');
+    if(!sayOpts.type) bubble.textContent = clean;   // type path fills it after the dots (below)
     if(route){
       const chips = document.createElement('div');
       chips.className = 'chips';
@@ -1431,6 +1439,13 @@
     if(outreachUpd && outreachUpd.query && isAdminNow()) renderOutreachUpdateChip(wrap, outreachUpd);
     log.appendChild(wrap);
     scrollLogBottom();
+    // Typewriter path: type the line on, holding any chips/cards hidden (space reserved)
+    // until the line lands, so Pierre reads as typing rather than popping in.
+    if(sayOpts.type){
+      const extras=[...wrap.children].filter(c=>c!==bubble && !c.classList.contains('who'));
+      extras.forEach(e=>{ e.style.visibility='hidden'; });
+      typeInto(bubble, clean).then(()=>extras.forEach(e=>{ e.style.visibility=''; scrollLogBottom(); }));
+    }
     // NL switch: only for the four real lanes; unknown values render as plain text.
     if(ctx && SWITCHABLE.indexOf(ctx)>=0) switchTo(ctx, {viaUser:false});
     // A backfill tag: run the real log now, then confirm ONLY what actually landed.
@@ -1454,6 +1469,7 @@
     return clean;
   }
 
+  let _typingStart=0;
   function showTyping(){
     const wrap = document.createElement('div');
     wrap.className = 'msg pierre';
@@ -1461,8 +1477,40 @@
     wrap.innerHTML = '<div class="who">Pierre</div><div class="typing"><span></span><span></span><span></span></div>';
     log.appendChild(wrap);
     scrollLogBottom();
+    _typingStart = (typeof performance!=='undefined'?performance.now():Date.now());
   }
   function clearTyping(){ const t=document.getElementById('typing'); if(t) t.remove(); scheduleExitCheck(); }
+  // Hold the typing dots on screen for at least `minMs` from when they appeared, so a fast
+  // reply still gets a beat of "[...]" instead of snapping straight to text.
+  function settleTyping(minMs){
+    const now=(typeof performance!=='undefined'?performance.now():Date.now());
+    const waited=now-_typingStart;
+    return (waited>=minMs) ? Promise.resolve() : new Promise(r=>setTimeout(r, minMs-waited));
+  }
+  // Typewriter: fill `el` with `text` over a length-scaled, capped duration so Pierre's line
+  // types on rather than popping in. Resolves when the full line is shown.
+  function typeInto(el, text){
+    text = String(text==null?'':text);
+    return new Promise(res=>{
+      const total=text.length;
+      if(!el || !total){ if(el) el.textContent=text; res(); return; }
+      // Backgrounded tab throttles timers to ~1/s, which would strand the reveal — in that
+      // case just show the full line at once (nobody's watching it type anyway).
+      if(typeof document!=='undefined' && document.hidden){ el.textContent=text; res(); return; }
+      el.textContent='';
+      const DUR=Math.min(2600, Math.max(650, total*11));   // ms: short lines ~0.7s, long ones cap ~2.6s
+      const TICK=24;
+      const steps=Math.max(1, Math.round(DUR/TICK));
+      const per=Math.max(1, Math.ceil(total/steps));
+      let i=0;
+      const id=setInterval(()=>{
+        i=Math.min(total, i+per);
+        el.textContent=text.slice(0,i);
+        scrollLogBottom();
+        if(i>=total){ clearInterval(id); res(); }
+      }, TICK);
+    });
+  }
 
   // Recall: notes the member auto-journaled on the WATCH/LOG face live in a shared
   // same-origin journal (pg_journal). Surface the recent ones to Pierre once, as
@@ -2359,6 +2407,9 @@
   // Game lane state: 'pair' = waiting on the member's two titles (in one entry); null once
   // the guess is delivered, so follow-up turns become normal chat and Pierre can react.
   let gamePhase=null;
+  // A game guess has landed this conversation. The next chat-picker selection wipes the
+  // chat first so the game thread (poster + outcome chips) doesn't linger under the new lane.
+  let _gamePlayed=false;
   function enterSeasonNoteFlow(p){
     if(IS_DEMO) return;
     addFlow=null; acctFlow=null; joinFlow=null; noteCtx=null;
@@ -2406,9 +2457,10 @@
       });
       const data = await res.json();
       const reply = ((data && data.reply) || "").trim();
+      await settleTyping(1600);   // always a beat of "[...]" before the line types on
       clearTyping();
       if(reply){
-        const shown = addPierre(reply);   // strips any [SWITCH]/[ASK]/[ROUTE] tag
+        const shown = addPierre(reply, { type:true });   // strips any [SWITCH]/[ASK]/[ROUTE] tag, then types on
         history.push({role:'assistant', content: shown || reply});
         fbReady(true);   // a real exchange happened → the feedback band goes live
       }else if(hasCap){
@@ -2703,6 +2755,7 @@
         body:JSON.stringify({ show1:a, show2:b, avoid:stackTitleNames(), token, appToken, email:pgSession()||undefined })});
       if(r.ok) data=await r.json();
     }catch(_){}
+    await settleTyping(1600);   // a beat of "[...]" before the guess types on
     clearTyping();
     if(!data || !data.pick){
       pierreSay("My guesser slipped on those two, and I will not invent a title I cannot place. Try two others, or let me get Ted.", tedChip());
@@ -2727,15 +2780,17 @@
   function deliverGameGuess(thread, pick, seedA, seedB){
     if(thread) addPierre(thread);
     const line = pick.name + (pick.reason ? (' — ' + pick.reason) : '');
-    _gamePending={ pick, seedA, seedB }; _gameReactMiss=0; gamePhase='react';
-    pierreSay(line, gameOutcomeChips(pick, seedA, seedB), true);
+    _gamePending={ pick, seedA, seedB }; _gameReactMiss=0; gamePhase='react'; _gamePlayed=true;
+    pierreSay(line, gameOutcomeChips(pick, seedA, seedB), true, { poster:pick.poster||null, type:true });
     setSendMode('mic'); try{ input.blur(); }catch(_){}
   }
+  // Three identical plain-pill outcomes; the poster shows on its own line above them
+  // (passed to pierreSay as opts.poster), never baked onto a chip.
   function gameOutcomeChips(pick, seedA, seedB){
     return [
-      { label:'Seen it',        poster:pick.poster||null, onClick:()=>onSeenGamePick(pick, seedA, seedB) },
-      { label:'Save for later', onClick:()=>onSaveGamePick(pick, seedA, seedB) },
+      { label:'Seen it',        onClick:()=>onSeenGamePick(pick, seedA, seedB) },
       { label:'Not for me',     onClick:()=>onDismissGamePick(pick, seedA, seedB) },
+      { label:'Save for later', onClick:()=>onSaveGamePick(pick, seedA, seedB) },
     ];
   }
   // Free-text reaction after a pick, mapped to the three outcomes. Clear intent acts; unclear
@@ -2803,21 +2858,23 @@
   }
 
   // Clear chat: a genuine new conversation. The only hard wipe.
-  function clearChat(openingLine){
+  // silent=true wipes the thread WITHOUT an opening line — used when a new lane is about to
+  // speak its own intro (e.g. a game-end picker selection), so there's no stray "Fresh start".
+  function clearChat(openingLine, silent){
     if(IS_DEMO) return;
     try{ flushTurns(false); }catch(_){}   // capture the thread BEFORE the convo rolls (no-data-loss)
     resetConvoBuffer();
     history.length = 0; log.innerHTML = '';
     PIERRE_CONVO = newConvoId();   // a fresh chat is its own transcript
     addFlow=null; acctFlow=null; joinFlow=null; noteCtx=null;
-    seasonNoteFlow=false; seasonNote=null; roomPhase=null; gamePhase=null;
+    seasonNoteFlow=false; seasonNote=null; roomPhase=null; gamePhase=null; _gamePlayed=false;
     _intentSeen=false; _nudged=false; _eggChecked=false; _awaitingTed=false; stopTedPolling();
     _idleNudged=false; cancelIdleNudge();       // a fresh chat may idle-nudge again (next rotation)
     try{ setClearChatMode(false); }catch(_){}   // leave the "Start new chat" state if we were in it
     inputSecret(false); input.placeholder = "Ask Pierre what to watch...";
     setCtxIndicator('chat');
     fbReady(false);                             // band goes inactive until Pierre replies again
-    addPierre(openingLine || "Fresh start. What are you in the mood for?");
+    if(!silent) addPierre(openingLine || "Fresh start. What are you in the mood for?");
     setSendMode('mic'); try{ input.blur(); }catch(_){}   // voice-first: rest on the mic
   }
 
@@ -3017,10 +3074,21 @@
   }
 
   // A Pierre line with optional choice chips. Chips disable once one is tapped.
-  function pierreSay(text, chips, keepFocus){
+  // opts: { poster } renders the pick's art on its own line (above the chips);
+  //       { type } types the line on with a typewriter, revealing poster+chips when it lands.
+  function pierreSay(text, chips, keepFocus, opts){
+    opts = opts || {};
     const wrap=document.createElement('div'); wrap.className='msg pierre';
     wrap.innerHTML='<div class="who">Pierre</div><div class="bubble"></div>';
-    wrap.querySelector('.bubble').textContent=text;
+    const bubble=wrap.querySelector('.bubble');
+    let posterEl=null;
+    if(opts.poster){                                    // standalone poster (game guess), not a chip
+      posterEl=document.createElement('img'); posterEl.className='guess-poster';
+      posterEl.loading='lazy'; posterEl.alt=''; posterEl.src=opts.poster;
+      posterEl.onerror=()=>{ posterEl.remove(); posterEl=null; };
+      wrap.appendChild(posterEl);
+    }
+    let chipsEl=null;
     if(chips && chips.length){
       const c=document.createElement('div'); c.className='chips';
       chips.forEach(ch=>{ const b=document.createElement('button'); b.className='chip'+(ch.on?' on':'')+(ch.poster?' hasimg':'');
@@ -3034,9 +3102,18 @@
         b.onclick=()=>{ c.querySelectorAll('button').forEach(x=>x.disabled=true); ch.onClick(); scheduleExitCheck(); };
         c.appendChild(b); });
       wrap.appendChild(c);
+      chipsEl=c;
     }
     log.appendChild(wrap); scrollLogBottom();
     persistTurn('pierre', text);   // mirror to the transcript (the visible thread is the record)
+    if(opts.type){
+      // Type the line on; hold the poster + chips hidden (space reserved) until it finishes.
+      const reveal=[posterEl, chipsEl].filter(Boolean);
+      reveal.forEach(e=>{ e.style.visibility='hidden'; });
+      typeInto(bubble, text).then(()=>reveal.forEach(e=>{ e.style.visibility=''; scrollLogBottom(); }));
+    } else {
+      bubble.textContent=text;
+    }
   }
   const tedChip=()=>[{label:'Get Ted', onClick:getTed}];
   function getTed(){ pierreSay("Pinging Ted. He is the human in this operation, he can pick up what I cannot."); }
@@ -3991,7 +4068,9 @@
     setTimeout(async ()=>{
       if(_intentSeen || addFlow || joinFlow || acctFlow || noteCtx) return;
       let asked=false; try{ asked=await checkRewatchQuestion(); }catch(_){}   // a direct question wins over the nudge
-      if(!asked){ try{ await wowProactiveNudge(); }catch(_){} }
+      // PAUSED 2026-10-05 (Ted): the proactive next-episode nudge was popping at unexpected
+      // times. Suppressed on open until re-tuned; the code + RAMP law stay intact.
+      // if(!asked){ try{ await wowProactiveNudge(); }catch(_){} }
       if(!asked && !_nudged) armIdleNudge();
     }, 1300);
     if(IS_FLAT_APP) loadTedThread();   // flat app: one-at-a-time Ted queue
@@ -4122,12 +4201,24 @@
       b.addEventListener('click', ()=>{
         if(b.classList.contains('ct-disabled')) return;   // Shadow / Device (future): no-op
         const ct=b.getAttribute('data-ct');
-        // From a Ted thread, "chat" exits (General TV Chat / Share / Clear) ack it GOOD and pull
-        // the next; detours (add series/movie/ticket, game) leave it ungraded so it waits.
+        // A game was played this thread → the next selection wipes it first so the game's
+        // poster + outcome chips don't linger under the new lane. '__clear' already wipes;
+        // 'chat' routes through a full clearChat (its own fresh-start line); every other
+        // lane gets a silent wipe, then speaks its own intro.
+        const wipeAfterGame = _gamePlayed && ct!=='__share';
         if(ct==='__clear'){ if(_tedMode) tedExit('good', ()=>clearChat()); else clearChat(); }
         else if(ct==='__share'){ shareFlatChat(); if(_tedMode) tedExit('good', ()=>clearChat()); }
-        else if(ct==='chat'){ if(_tedMode) tedExit('good', ()=>switchTo('chat',{viaUser:true})); else switchTo('chat',{viaUser:true}); }
-        else { if(_tedMode) exitTedMode(); switchTo(ct, {viaUser:true}); }
+        else if(ct==='chat'){
+          // After a game, a clean wipe; otherwise the usual keep-history "Back to it".
+          if(_tedMode) tedExit('good', ()=> wipeAfterGame ? clearChat() : switchTo('chat',{viaUser:true}));
+          else if(wipeAfterGame) clearChat();
+          else switchTo('chat',{viaUser:true});
+        }
+        else {
+          if(_tedMode) exitTedMode();
+          if(wipeAfterGame) clearChat(null, true);   // silent wipe; the lane adds its own intro
+          switchTo(ct, {viaUser:true});
+        }
         closePop();
       });
     });

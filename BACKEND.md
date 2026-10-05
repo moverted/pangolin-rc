@@ -4,6 +4,24 @@ Append-only log. Any session that touches the Worker, D1, or deploy
 configuration adds an entry here before the session ends (see CLAUDE.md,
 "Backend and deploy rules").
 
+## 2026-10-05 — Pierre: force search_title for "does it exist / what is it / new" (NOT DEPLOYED)
+
+Prompt-only change in `src/handlers/pierre.ts`, no schema/route change. Fixes the
+East-of-Eden miss: a member asked about the new Netflix *East of Eden* series and Pierre
+claimed "nothing came back / not in the catalog" WITHOUT calling `search_title`. Confirmed
+TMDB `/search/multi` returns that series (2026, id 258165) as the TOP hit — the tool would
+have found it; the model just never called it (the FETCHING triggers only covered
+where-to-watch / order / next-drop, not existence/newness). Added a FETCHING rule: whenever a
+member names a specific title and asks whether it exists / what it is / whether it's new, call
+`search_title` BEFORE answering, and never say "nothing came back / not in the catalog / can't
+find it" unless `search_title` was actually run this turn and truly returned nothing.
+`tsc --noEmit` clean. Deploy the Worker (`wrangler deploy`) to ship.
+
+(Same session, frontend-only in `public/cube_pierre_face.html`, Pages not Worker: game-guess
+chips → 3 identical plain pills + standalone poster; chat + game-guess typewriter reveal with a
+~1.6s min dots dwell; clear-chat-after-game on the next picker selection; proactive
+next-episode nudge PAUSED on open. Needs a Pages deploy + `cap copy` for iOS.)
+
 ## 2026-09-25 — Pierre Suggests + game flow (BRANCH ONLY, NOT DEPLOYED)
 
 Branch `pierre-suggests-game-flow`, uncommitted. Gives the "want to watch, not started"
