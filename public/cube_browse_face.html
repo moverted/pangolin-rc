@@ -295,6 +295,23 @@
   .tf-meta{font-family:var(--mono);font-size:9.5px;color:#e0cfb0;text-shadow:0 1px 5px rgba(0,0,0,.85)}
   .tixfull .tix-rec{border-top:none;background:rgba(9,6,4,.4);border:1px solid rgba(255,255,255,.12);border-radius:12px;margin-top:4px;backdrop-filter:blur(3px)}
 
+  /* ---- Pierre Suggests: saved game picks + the persistent game link ---- */
+  .scard{display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.07)}
+  .scard .pi{flex:0 0 auto;width:52px;height:74px;border-radius:8px;background:#0a0806 center/cover no-repeat;border:1px solid var(--line)}
+  .scard .smid{flex:1 1 auto;min-width:0}
+  .scard .nm{font-family:var(--display);font-weight:700;font-size:14px;line-height:1.25;
+    overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+  .scard .sact{flex:0 0 auto;display:flex;flex-direction:column;gap:6px}
+  .scard .sbtn{font-family:var(--display);font-weight:700;font-size:11.5px;letter-spacing:.02em;
+    border-radius:9px;padding:8px 12px;cursor:pointer;white-space:nowrap}
+  .scard .sbtn.go{color:#1a130b;background:var(--amber);border:0}
+  .scard .sbtn.drop{color:var(--text);background:var(--panel-2);border:1px solid var(--line)}
+  .gamelink{display:block;width:100%;margin-top:14px;text-align:left;
+    font-family:var(--mono);font-size:12.5px;line-height:1.5;color:var(--amber);
+    background:rgba(232,159,61,.07);border:1px dashed rgba(232,159,61,.5);border-radius:12px;
+    padding:14px 16px;cursor:pointer}
+  .gamelink:hover{background:rgba(232,159,61,.12)}
+
   /* ---- Physical media: scanner viewport + the collected shelf ---- */
   .cam{position:relative;flex:0 0 auto;border:1px solid var(--line);border-radius:12px;overflow:hidden;
     background:#0a0806;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center}
@@ -316,6 +333,7 @@
   .camrow .scan{color:#1a130b;background:var(--amber)}
   .camrow .manual{color:var(--text);background:var(--panel-2);border:1px solid var(--line)}
   .camrow button:active{transform:translateY(1px)}
+  .scanhint{font-family:var(--mono);font-size:11px;color:#8a7d6b;text-align:center;margin-top:8px}
   .shelfhead{display:flex;justify-content:space-between;align-items:center;margin:18px 0 8px;flex:0 0 auto}
   .shelfhead h2{font-family:var(--display);font-size:14px;font-weight:700;margin:0}
   .shelfright{display:flex;align-items:center;gap:10px}
@@ -499,32 +517,9 @@ function forcedMember(){
   catch(_){ return new URLSearchParams(location.search).has('member'); }
 }
 
-// Pierre's picks rail — real shows pulled live from TVMaze (posters + ids), so a
-// tap can open the actual show on the Watch face. Friends/Following stay honest
-// empties until that data is real.
-const PICKS_SEED = ['Severance','The Bear','Shogun','Slow Horses','Fallout','The Penguin'];
-
-async function fetchShow(name){
-  try{
-    const r = await fetch('https://api.tvmaze.com/singlesearch/shows?q=' + encodeURIComponent(name));
-    if(!r.ok) return null; const d = await r.json();
-    return { id:d.id, name:d.name, img:(d.image && (d.image.medium || d.image.original)) || '' };
-  }catch(_){ return null; }
-}
 // Remember the title just chosen so the WATCH face opens (selects/expands) the same
 // card when you rotate to it — bare TVmaze ids are normalized to the catalog title_id.
 function markWatchOpen(titleId){ try{ localStorage.setItem('pg_watch_open', String(titleId)); }catch(_){} }
-function openShow(id, name){
-  markWatchOpen(String(id).startsWith('tvmaze:') ? id : 'tvmaze:'+id);
-  if (window.parent !== window){
-    // addToLog:true loads the show on BOTH faces at selection time — the episode
-    // (LOG) face AND the WATCH list — instead of waiting on the async episode:track
-    // relay, which could land before the Watch iframe was ready and get dropped.
-    const payload = { show:{ id, name }, addToLog:true };
-    if (typeof window.parent.cubeRotateTo === 'function') window.parent.cubeRotateTo('episodes', payload);
-    else window.parent.postMessage({ type:'cube:rotateTo', face:'episodes', payload }, '*');
-  }
-}
 // Open a catalog title by its full id ('tvmaze:…' | 'tmdb:…'), routing films through
 // the movie hand-off and shows through the show hand-off (the Watch face branches
 // on payload shape). Used by the "From friends" rail, where shares carry a title_id.
@@ -885,38 +880,73 @@ function switchTab(key, opts){
   else                     renderSuggestions(pane);
 }
 
-// A film opens single-unit on the Watch face (and lands in the Log), same handoff
-// shape Pierre uses for a movie.
+// Pierre Suggests — the "want to watch, not started" home the nav restructure lost. It
+// holds ONLY picks the member saved from Pierre's game ("Save for later"); the passive
+// "Pierre's picks" seed and the "People you follow" placeholder were retired. A persistent
+// game link sits at the bottom of the list, empty or full, and routes to the Pierre game.
+// The real "From friends" rail (backed by /profile/:email/shares) stays below.
 async function renderSuggestions(pane){
   const name = memberName();
   pane.innerHTML = `
     <div class="rail">
-      <h2>Pierre's picks <em>live</em></h2>
-      <div class="why">shows worth your night</div>
-      <div class="cards" id="cardsPierre"><div class="why">loading…</div></div>
+      <h2>Pierre Suggests</h2>
+      <div class="why">picks you saved from the game</div>
+      <div id="suggestsList"><div class="why">loading…</div></div>
+      <button class="gamelink" id="gameLink" type="button">Give Pierre two titles and he'll find you a third.</button>
     </div>
     <div class="rail" id="railFriends">
       <h2>From friends</h2>
       <div class="cards" id="cardsFriends"><div class="why">loading…</div></div>
-    </div>
-    <div class="rail">
-      <h2>People you follow <em>soon</em></h2>
-      <div class="bempty"><b>Follow a few TV voices and their picks land here.</b><br>No one followed yet. Nothing faked.</div>
     </div>
     <div class="signout">signed in${name?(' as '+esc(name)):''} &middot; <button id="signout">not you?</button></div>`;
   document.getElementById('signout').onclick = () => {
     try{ localStorage.removeItem('pg_user'); localStorage.removeItem('pg_username'); }catch(_){}
     document.getElementById('browse').classList.remove('show'); document.querySelector('.track').style.display = '';
   };
+  document.getElementById('gameLink').onclick = openPierreGame;
+  loadSuggests();
   loadFriendShares();
-  const wrap = document.getElementById('cardsPierre');
-  const shows = (await Promise.all(PICKS_SEED.map(fetchShow))).filter(Boolean);
-  if (!wrap) return;   // tab switched away mid-fetch
-  if (!shows.length){ wrap.innerHTML = `<div class="why">couldn't reach the guide just now</div>`; return; }
-  wrap.innerHTML = shows.map(s => `<div class="bcard" data-id="${s.id}" data-name="${esc(s.name)}">
-    <div class="pi" style="${s.img?`background-image:url('${s.img}')`:''}"></div>
-    <div class="nm">${esc(s.name)}</div></div>`).join('');
-  wrap.querySelectorAll('.bcard').forEach(el => el.onclick = () => openShow(+el.dataset.id, el.dataset.name));
+}
+// Route to the Pierre tab, game view. The Pierre face handles intent:'game' → enterGameFlow.
+function openPierreGame(){
+  if(window.parent !== window)
+    window.parent.postMessage({ type:'cube:rotateTo', face:'pierre', payload:{ intent:'game' } }, '*');
+}
+// The saved picks, newest first. Empty → the list is blank and only the game link shows
+// (no placeholder rows, per the empty-state rule).
+async function loadSuggests(){
+  const wrap = document.getElementById('suggestsList'); if(!wrap) return;
+  const email = memberEmail();
+  if(!email){ wrap.innerHTML=''; return; }
+  let items=[];
+  try{ const r = await fetch(API_BASE + '/suggests/' + encodeURIComponent(email));
+    if(r.ok) items = (await r.json()).suggests || []; }catch(_){}
+  if(!wrap.isConnected) return;   // tab switched away mid-fetch
+  if(!items.length){ wrap.innerHTML=''; return; }
+  wrap.innerHTML = items.map(s => `<div class="scard" data-id="${esc(s.id)}" data-title-id="${esc(s.title_id||'')}" data-name="${esc(s.title_name)}">
+    <div class="pi" style="${s.poster?`background-image:url('${esc(s.poster)}')`:''}"></div>
+    <div class="smid"><div class="nm">${esc(s.title_name)}</div></div>
+    <div class="sact"><button class="sbtn go" data-go="${esc(s.id)}">Watch now</button>
+      <button class="sbtn drop" data-drop="${esc(s.id)}">Dismiss</button></div></div>`).join('');
+  wrap.querySelectorAll('[data-go]').forEach(b => b.onclick = () => watchNowSuggest(email, b.dataset.go, b.closest('.scard')));
+  wrap.querySelectorAll('[data-drop]').forEach(b => b.onclick = () => dismissSuggest(email, b.dataset.drop, b.closest('.scard')));
+}
+// Watch now: move the pick to QUEUE (currently watching) and remove it from Suggests. The
+// start call removes the row + records the "started" signal (time-since-saved = hit rate);
+// the normal put-on handoff loads it on WATCH/LOG.
+async function watchNowSuggest(email, id, card){
+  const name = card ? card.dataset.name : '';
+  const titleId = card ? card.dataset.titleId : '';
+  try{ await fetch(API_BASE + '/suggests/' + encodeURIComponent(email) + '/' + encodeURIComponent(id) + '/start', { method:'POST' }); }catch(_){}
+  if(card) card.remove();
+  if(titleId) openTitle(titleId, name);
+}
+// Dismiss: remove from Suggests and record it dismissed (source 'suggests' = interest faded).
+async function dismissSuggest(email, id, card){
+  if(card) card.remove();
+  try{ await fetch(API_BASE + '/suggests/' + encodeURIComponent(email) + '/' + encodeURIComponent(id), { method:'DELETE' }); }catch(_){}
+  const wrap = document.getElementById('suggestsList');
+  if(wrap && !wrap.querySelector('.scard')) wrap.innerHTML='';   // back to empty → only the game link
 }
 
 // ── TICKETS: the member's logged theater stubs. Real data lives in watch_ticket
@@ -1019,7 +1049,7 @@ async function renderTickets(pane, opts){
   };
   if(!tickets.length){
     grid.innerHTML = `<div class="bempty" style="margin-top:14px"><b>Your ticket stubs live here.</b><br>
-      Log a theater watch with a photo of the ticket (LOG → Finish → IRL Theater, or ask Pierre) and it lands on this shelf.</div>`;
+      Snap a photo or screenshot of your ticket and Pierre logs it.</div>`;
     scheduleRetry();
     return;
   }
@@ -1466,6 +1496,7 @@ function renderMedia(pane){
         <button class="scan" id="scanBtn">Scan barcode</button>
         <button class="manual" id="manualBtn">Enter by hand</button>
       </div>
+      <div class="scanhint">Scan the barcode on a DVD or Blu-ray.</div>
       <div class="camstatus" id="camStatus">point the camera at the barcode on the case</div>
     </div>` : '';
   pane.innerHTML = `

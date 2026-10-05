@@ -4,6 +4,23 @@ import { tmdbFetch } from './tmdb';
 import { shadowTitleNames } from './shadow';
 import { premiereTiming, resolveDrop } from '../premiere_timing';
 
+// Titles the member has already PLACED — currently watching (watch_title / QUEUE), saved
+// (pierre_suggests), or dismissed (pierre_suggest_events). The game must never re-offer
+// these. Bounded per user, so the caller treats them as hard avoids. STACK (owned discs)
+// is client-only localStorage, so the caller passes those names in `avoid` instead.
+async function placedTitleNames(env: Env, email: string): Promise<string[]> {
+  try {
+    const rs = await env.DB.prepare(
+      `SELECT show_name AS n FROM watch_title      WHERE user_email = ?1 AND show_name <> ''
+       UNION SELECT title_name FROM pierre_suggests WHERE user_email = ?1
+       UNION SELECT title_name FROM pierre_suggest_events WHERE user_email = ?1 AND kind = 'dismissed'`,
+    ).bind(email).all<{ n: string }>();
+    return (rs.results ?? []).map((r) => r.n).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 // Pierre's persona lives server-side so the system prompt, the seed context, and
 // the Anthropic API key never ship to the browser. The client sends only the
 // running conversation; everything else is added here.
@@ -1275,7 +1292,12 @@ pierreRoutes.post('/room-guess/one', async (c) => {
   // pass 0 and dropped on pass 1 so a big shadow can't starve the pick (was failing the game).
   const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
   const shadowNames = email ? await shadowTitleNames(c.env, email, 30) : [];
-  const hard = new Set([_norm(show1), _norm(show2), ...avoidArr]);
+  // Never re-offer a title the member has already placed: QUEUE (currently watching),
+  // Pierre Suggests (saved), or one they dismissed. These are small, bounded sets, so
+  // they're HARD avoids (unlike the shadow, which is soft so a big history can't starve
+  // the pick). STACK (owned discs) is client-only, so the caller folds it into `avoid`.
+  const placedNames = email ? await placedTitleNames(c.env, email) : [];
+  const hard = new Set([_norm(show1), _norm(show2), ...avoidArr, ...placedNames.map(_norm)]);
   const soft = shadowNames.map(_norm);
   for (let pass = 0; pass < 2; pass++) {
     const avoid = new Set(pass === 0 ? [...hard, ...soft] : [...hard]);
