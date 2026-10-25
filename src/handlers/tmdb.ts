@@ -117,6 +117,33 @@ export async function searchAll(env: Env, q: string): Promise<any[]> {
   return out;
 }
 
+// A compact, typed hit for Pierre's search_title tool — films AND shows in one pass.
+export type TitleHit = { id: number; type: 'movie' | 'tv'; title: string; year: string | null; overview: string };
+
+// TMDB /search/multi → movie + tv hits only, normalized and trimmed. This is how
+// Pierre's search_title covers both kinds in one call (TVmaze handles series
+// grounding elsewhere; here we just need existence + year + a one-line overview).
+export async function multiSearch(env: Env, q: string): Promise<TitleHit[]> {
+  let res: Response;
+  try {
+    res = await tmdbFetch(env, '/search/multi', { query: q, include_adult: 'false' });
+  } catch {
+    return [];
+  }
+  if (!res.ok) return [];
+  const d = (await res.json()) as { results?: any[] };
+  return (d.results || [])
+    .filter((x) => x && x.id && (x.media_type === 'movie' || x.media_type === 'tv') && (x.title || x.name))
+    .slice(0, 8)
+    .map((x) => ({
+      id: x.id,
+      type: x.media_type as 'movie' | 'tv',
+      title: x.title || x.name || '',
+      year: year(x.release_date || x.first_air_date),
+      overview: typeof x.overview === 'string' ? x.overview.slice(0, 160) : '',
+    }));
+}
+
 // ── Fuzzy matching (no LLM) ──────────────────────────────────────────────────
 // TMDB's keyword index has no spell/semantic tolerance, so the raw top hit can be
 // zero, or a literal-but-wrong title (e.g. "The Odessey" → a Zombies live album).
@@ -163,7 +190,8 @@ function simScore(q: string, title: string): number {
 
 // A confident hit = most query words present AND the title isn't padded with a pile
 // of unrelated words (which is how "The Odessey" wrongly matches the Zombies album).
-function confident(q: string, title: string): boolean {
+// Exported so Pierre's search_title tool can judge its own top hit the same way.
+export function confident(q: string, title: string): boolean {
   const qt = toks(q), tt = new Set(toks(title));
   if (!qt.length) return false;
   let hit = 0;
@@ -267,30 +295,32 @@ function mergeById(primary: any[], secondary: any[]): any[] {
   return out;
 }
 
-// GET /tmdb/search?q=...  → { results: [movie card], corrected?, uncertain? }
 // `corrected` = the canonical title we rescued to; `uncertain` = the raw hit was weak,
 // so the client should NOT auto-pick a lone result — show the lineup and let the user
 // choose (this is what stops an obscure album loading itself before they can react).
-tmdbRoutes.get('/search', async (c) => {
-  if (!c.env.TMDB_API_KEY) return c.json({ error: 'movies not configured', results: [] }, 503);
-  const q = clean(c.req.query('q'));
-  if (!q) return c.json({ results: [] });
-
-  const raw = await searchAll(c.env, q);
+// The full FILM resolution behind /tmdb/search: raw search, then a no-LLM rescue from
+// TMDB's live catalogue, then a rate-limited LLM typo rescue. Exported so Pierre's
+// search_title tool resolves films exactly as well as the Add-a-movie flow does.
+export async function resolveMovieQuery(
+  env: Env,
+  q: string,
+  ip: string,
+): Promise<{ results: any[]; corrected?: string; uncertain?: boolean }> {
+  const raw = await searchAll(env, q);
   // A confident top hit is the common case — return immediately, no rescue cost.
-  if (raw.length && confident(q, raw[0].title)) return c.json({ results: raw });
+  if (raw.length && confident(q, raw[0].title)) return { results: raw };
 
   // Stage 1 (no LLM): rescue from TMDB's LIVE catalogue. Broaden to the anchor and
   // fuzzy-rank real candidates against the full query. Fixes new franchise films the
   // LLM can't recall ("Spider-Man Brave New Day" → "Spider-Man: Brand New Day").
-  const pool = await broadenSearch(c.env, q, raw);
+  const pool = await broadenSearch(env, q, raw);
   if (pool.length) {
     const ranked = pool.map((m) => ({ m, s: simScore(q, m.title) })).sort((a, b) => b.s - a.s);
     const best = ranked[0];
     const rawTop = raw[0] ? nrm(raw[0].title) : '';
     // Only claim a correction when we genuinely improved on the raw top hit.
     if (best && best.s >= 0.6 && nrm(best.m.title) !== rawTop) {
-      return c.json({ results: ranked.slice(0, 12).map((r) => r.m), corrected: best.m.title });
+      return { results: ranked.slice(0, 12).map((r) => r.m), corrected: best.m.title };
     }
   }
 
@@ -298,23 +328,31 @@ tmdbRoutes.get('/search', async (c) => {
   // only hit is an obscure real title that isn't what they meant ("The Odessey" → a 1968
   // album, but they meant "The Odyssey"). Ask what they most likely meant; when it lands,
   // put BOTH the suggestion and the raw hit in the lineup so the user picks.
-  const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || '';
-  if (await gateAllows(c.env, ip)) {
+  if (await gateAllows(env, ip)) {
     const top = raw[0]?.title || '';
-    const suggest = await llmSuggestTitle(c.env, q, top);
+    const suggest = await llmSuggestTitle(env, q, top);
     if (suggest && nrm(suggest) !== nrm(q) && nrm(suggest) !== nrm(top)) {
-      const alt = await searchAll(c.env, suggest);   // variants too: "WALL-E" suggestion → finds WALL·E
+      const alt = await searchAll(env, suggest);   // variants too: "WALL-E" suggestion → finds WALL·E
       if (alt.length > 0) {
         const merged = mergeById(alt, raw).slice(0, 12);
         // If we also kept an obscure raw hit alongside the suggestion, it's a genuine
         // choice → uncertain, so the client shows both instead of auto-picking.
-        return c.json({ results: merged, corrected: suggest, uncertain: merged.length > 1 });
+        return { results: merged, corrected: suggest, uncertain: merged.length > 1 };
       }
     }
   }
   // Nothing better. If the lone raw hit is a weak match, flag it so the client makes the
   // user tap rather than silently committing it.
-  return c.json({ results: raw, uncertain: raw.length > 0 && !confident(q, raw[0].title) });
+  return { results: raw, uncertain: raw.length > 0 && !confident(q, raw[0].title) };
+}
+
+// GET /tmdb/search?q=...  → { results: [movie card], corrected?, uncertain? }
+tmdbRoutes.get('/search', async (c) => {
+  if (!c.env.TMDB_API_KEY) return c.json({ error: 'movies not configured', results: [] }, 503);
+  const q = clean(c.req.query('q'));
+  if (!q) return c.json({ results: [] });
+  const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || '';
+  return c.json(await resolveMovieQuery(c.env, q, ip));
 });
 
 // ── Physical-media resolve (IRL shelf) ───────────────────────────────────────

@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Env } from '../types';
-import { tmdbFetch } from './tmdb';
+import { tmdbFetch, multiSearch, resolveMovieQuery, confident } from './tmdb';
 import { shadowTitleNames } from './shadow';
 import { premiereTiming, resolveDrop } from '../premiere_timing';
 
@@ -605,7 +605,7 @@ const OUTREACH_TOOLS = [
   },
 ];
 
-async function runTool(env: Env, name: string, input: any, ctx: { tz: string }): Promise<string> {
+async function runTool(env: Env, name: string, input: any, ctx: { tz: string; ip?: string }): Promise<string> {
   try {
     if (name === 'lookup_outreach') {
       const q = String(input?.query ?? '').trim().replace(/^@+/, '').slice(0, 120);
@@ -658,19 +658,31 @@ async function runTool(env: Env, name: string, input: any, ctx: { tz: string }):
     if (name === 'search_title') {
       const q = String(input?.query ?? '').trim().slice(0, 120);
       if (!q) return 'empty query';
-      const r = await tmdbFetch(env, '/search/multi', { query: q, include_adult: 'false' });
-      if (!r.ok) return 'lookup failed';
-      const d = (await r.json()) as { results?: any[] };
-      const hits = (d.results || [])
-        .filter((x) => x && (x.media_type === 'movie' || x.media_type === 'tv'))
-        .slice(0, 6)
-        .map((x) => ({
-          id: x.id,
-          type: x.media_type,
-          title: x.title || x.name || '',
-          year: (x.release_date || x.first_air_date || '').slice(0, 4) || null,
-          overview: typeof x.overview === 'string' ? x.overview.slice(0, 160) : '',
-        }));
+      // One /search/multi pass covers both films and shows. A confident top hit is the
+      // common case — return it and spend nothing on rescue.
+      const multi = await multiSearch(env, q);
+      if (multi[0] && confident(q, multi[0].title)) return JSON.stringify(multi.slice(0, 6));
+      // Weak or empty top hit: run the SAME film rescue the Add-a-movie flow uses (typo
+      // correction + catalogue broaden + LLM), so new or misspelled films resolve here too
+      // instead of a false "no matches". Rescued films lead (they carry the correction),
+      // then any show the multi pass turned up.
+      const movie = await resolveMovieQuery(env, q, ctx.ip || '');
+      const rescued = (movie.results || []).map((m: any) => ({
+        id: m.id,
+        type: 'movie' as const,
+        title: m.title || '',
+        year: m.year ?? null,
+        overview: typeof m.overview === 'string' ? m.overview.slice(0, 160) : '',
+      }));
+      const seen = new Set<string>();
+      const hits: any[] = [];
+      for (const h of [...rescued, ...multi]) {
+        const k = h.type + ':' + h.id;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        hits.push(h);
+        if (hits.length >= 6) break;
+      }
       return hits.length ? JSON.stringify(hits) : 'no matches';
     }
     if (name === 'franchise_films') {
@@ -1065,6 +1077,9 @@ pierreRoutes.post('/chat', async (c) => {
   const tz =
     typeof body.tz === 'string' && body.tz.length > 0 && body.tz.length < 64 ? body.tz : 'America/New_York';
 
+  // Client IP: threads into search_title's LLM typo-rescue rate gate (keyed per IP).
+  const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || '';
+
   // Moderation trail: if this turn is a request for porn/explicit content, log it to
   // the flagged-request object for admin review. Pierre still declines in-chat via his
   // system prompt; this only RECORDS who asked. Fire-and-forget (never adds latency to
@@ -1094,56 +1109,88 @@ pierreRoutes.post('/chat', async (c) => {
     ? PIERRE + '\n\n' + OUTREACH_SKILL + (outreachFollowup ? outreachFollowupBlock(outreachFollowup) : '')
     : PIERRE + '\n\n' + taste + shadow + marathon + modeBlock;
 
-  let data: { content?: Array<any>; stop_reason?: string };
-  for (let round = 0; ; round++) {
-    let res: Response;
-    try {
-      res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-api-key': c.env.ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: MODEL,
-          max_tokens: 1000,
-          temperature: 1.0,   // deliberate: Pierre leans on varied, fresh phrasing
-          system,
-          messages: convo,
-          ...(tools ? { tools } : {}),
-        }),
-      });
-    } catch {
-      return c.json({ error: 'upstream unreachable' }, 502);
+  // Run the model↔tool loop against the current `convo`. `forceFirst` pins the first
+  // turn to one tool (tool_choice), used to make Pierre actually look a title up when it
+  // tried to deny one from memory. Tracks whether search_title ever fired this turn.
+  let calledSearch = false;
+  const runLoop = async (
+    forceFirst?: string,
+  ): Promise<{ content?: Array<any>; stop_reason?: string } | { error: Response }> => {
+    let data: { content?: Array<any>; stop_reason?: string } = {};
+    for (let round = 0; ; round++) {
+      let res: Response;
+      try {
+        res = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-api-key': c.env.ANTHROPIC_API_KEY,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model: MODEL,
+            max_tokens: 1000,
+            temperature: 1.0,   // deliberate: Pierre leans on varied, fresh phrasing
+            system,
+            messages: convo,
+            ...(tools ? { tools } : {}),
+            ...(forceFirst && round === 0 && tools ? { tool_choice: { type: 'tool', name: forceFirst } } : {}),
+          }),
+        });
+      } catch {
+        return { error: c.json({ error: 'upstream unreachable' }, 502) };
+      }
+
+      if (!res.ok) {
+        console.error('anthropic error', res.status, await res.text().catch(() => ''));
+        return { error: c.json({ error: 'upstream error' }, 502) };
+      }
+
+      data = (await res.json()) as { content?: Array<any>; stop_reason?: string };
+      const uses = (data.content || []).filter((b) => b.type === 'tool_use');
+      if (uses.some((u) => u.name === 'search_title')) calledSearch = true;
+      if (data.stop_reason !== 'tool_use' || round >= TOOL_ROUNDS || !uses.length) break;
+      convo.push({ role: 'assistant', content: data.content });
+      const results = await Promise.all(
+        uses.map(async (u) => ({
+          type: 'tool_result',
+          tool_use_id: u.id,
+          content: await runTool(c.env, u.name, u.input, { tz, ip }),
+        })),
+      );
+      convo.push({ role: 'user', content: results });
     }
+    return data;
+  };
 
-    if (!res.ok) {
-      console.error('anthropic error', res.status, await res.text().catch(() => ''));
-      return c.json({ error: 'upstream error' }, 502);
+  const extractText = (d: { content?: Array<any> }) =>
+    (d.content || [])
+      .filter((b) => b.type === 'text')
+      .map((b) => b.text || '')
+      .join('\n')
+      .trim();
+
+  let out = await runLoop();
+  if ('error' in out) return out.error;
+  let reply = extractText(out);
+
+  // Anti-hallucination guard: Pierre is supposed to call search_title before claiming a
+  // title does not exist. When it skipped the lookup AND still produced a "can't find it"
+  // denial (its worst confident-miss, especially on brand-new films past the model's
+  // cutoff), force the search and let it answer grounded. Member chat only — outreach and
+  // tool-less turns can't ground, and their copy shouldn't be second-guessed.
+  const DENIES_EXISTENCE =
+    /\b(nothing (?:came|comes|coming) back|not (?:in (?:the|my) catalog|indexed)|can(?:'|no)?t (?:find|place)|could ?n'?t find|isn'?t ringing a bell|not ringing a bell|doesn'?t (?:seem to )?exist|might not exist|no matches|slipping through the cracks|hasn'?t hit the catalog)\b/i;
+  if (tools && !outreachOk && !calledSearch && DENIES_EXISTENCE.test(reply)) {
+    const grounded = await runLoop('search_title');
+    if (!('error' in grounded)) {
+      const groundedText = extractText(grounded);
+      if (groundedText) {
+        out = grounded;
+        reply = groundedText;
+      }
     }
-
-    data = (await res.json()) as { content?: Array<any>; stop_reason?: string };
-    if (data.stop_reason !== 'tool_use' || round >= TOOL_ROUNDS) break;
-
-    const uses = (data.content || []).filter((b) => b.type === 'tool_use');
-    if (!uses.length) break;
-    convo.push({ role: 'assistant', content: data.content });
-    const results = await Promise.all(
-      uses.map(async (u) => ({
-        type: 'tool_result',
-        tool_use_id: u.id,
-        content: await runTool(c.env, u.name, u.input, { tz }),
-      })),
-    );
-    convo.push({ role: 'user', content: results });
   }
-
-  const reply = (data.content || [])
-    .filter((b) => b.type === 'text')
-    .map((b) => b.text || '')
-    .join('\n')
-    .trim();
 
   // Transcript persistence now lives client-side: the face mirrors the WHOLE visible thread
   // (this chat lane plus the game, flows, and local lines) to POST /pierre/log, so the stored

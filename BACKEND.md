@@ -4,6 +4,33 @@ Append-only log. Any session that touches the Worker, D1, or deploy
 configuration adds an entry here before the session ends (see CLAUDE.md,
 "Backend and deploy rules").
 
+## 2026-10-24 — Pierre movie fix: robust search_title + forced-grounding guard (DEPLOYED)
+
+Two-part fix for "the movie part of Pierre is not working" (Ted). Chat transcripts showed
+Pierre denying real 2026 films ("Norm: The Tale of Norm Macdonald", "You Can See Everything")
+with "nothing came back / isn't ringing a bell" — the "Norm" case was conclusive: TMDB
+`/search/multi` returns the exact title, yet Pierre answered from memory (recalled "Nothing
+Special"), proving it never called `search_title`. Backend was healthy (TMDB key set, tools
+wired, `/tmdb/search` even typo-corrects "Voicemail for Isabelle" → "Voicemails for Isabelle").
+Root causes: (1) the model skips `search_title` for films and hallucinates; TV dodges this via
+server-side TVmaze grounding in the game/log flows. (2) `search_title` hit raw `/search/multi`
+with no rescue, weaker than the Add-a-movie flow.
+
+Changes, all `src/handlers/`:
+- `tmdb.ts`: exported `confident`; added `multiSearch` (TV+film `/search/multi`, typed hits);
+  extracted the `/tmdb/search` body into exported `resolveMovieQuery(env,q,ip)` (raw +
+  broaden/rerank + rate-limited LLM typo rescue); `/search` route now just calls it (no
+  behavior change — verified post-deploy).
+- `pierre.ts`: `search_title` now does `multiSearch` first, and on a weak/empty top hit falls
+  through to `resolveMovieQuery` (same rescue as Add-a-movie), merged films-first. Threaded
+  client `ip` into `runTool` for the LLM-rescue gate. Wrapped the model↔tool loop in `runLoop`
+  tracking whether `search_title` fired; after the turn, if the reply is a "can't find it"
+  denial AND the tool never ran (member chat only, not outreach), force one `tool_choice:
+  search_title` pass and answer grounded. `DENIES_EXISTENCE` regex covers nothing-came-back /
+  not-in-catalog / isn't-ringing-a-bell / might-not-exist / slipping-through-the-cracks.
+
+`tsc --noEmit` clean. Deployed Worker (version 85ac5c59). No schema/route-surface change.
+
 ## 2026-10-05 — Pierre: force search_title for "does it exist / what is it / new" (NOT DEPLOYED)
 
 Prompt-only change in `src/handlers/pierre.ts`, no schema/route change. Fixes the
