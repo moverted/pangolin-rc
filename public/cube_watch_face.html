@@ -535,6 +535,56 @@
   .tf-body{position:relative;z-index:2;padding:16px 16px 44px;display:flex;flex-direction:column;gap:11px}
   .tf-film{font-family:var(--display);font-weight:700;font-size:26px;line-height:1.05;color:var(--text);text-shadow:0 2px 10px rgba(0,0,0,.85)}
   .tf-meta{font-family:var(--mono);font-size:9.5px;color:#e0cfb0;text-shadow:0 1px 5px rgba(0,0,0,.85)}
+  /* Reflection recorder (ported from Browse): mic + 10s countdown ring, then the editor. */
+  .tix-rec{display:flex;flex-direction:column;align-items:center;gap:10px;padding:15px 12px 16px;
+    border-top:1px dashed var(--line);background:rgba(0,0,0,.3)}
+  .tixfull .tix-rec{border-top:none;background:rgba(9,6,4,.4);border:1px solid rgba(255,255,255,.12);border-radius:12px;margin-top:4px;backdrop-filter:blur(3px)}
+  .tixmic{position:relative;width:64px;height:64px;border-radius:50%;border:1px solid var(--line);
+    background:var(--panel);color:var(--amber);cursor:pointer;display:flex;align-items:center;justify-content:center;
+    box-shadow:0 6px 18px -10px rgba(232,159,61,.6)}
+  .tixmic:active{transform:scale(.96)}
+  .tixmic svg{width:28px;height:28px}
+  .tixmic.rec{color:#e0554e;border-color:rgba(224,85,78,.65)}
+  .tixmic.busy{color:var(--muted)}
+  .tixmic .rec-ring{position:absolute;inset:-1px;width:calc(100% + 2px);height:calc(100% + 2px)}
+  .tixmic .rec-seg{transition:opacity .15s}
+  .tixmic .rec-num{font-family:var(--mono);font-weight:700;font-size:18px}
+  .tixhint{font-family:var(--mono);font-size:9.5px;letter-spacing:.04em;color:var(--muted)}
+  .tixhint.ok{color:var(--green)} .tixhint.bad{color:var(--amber-soft)}
+  .tixcompose{display:flex;gap:10px;align-items:flex-end;width:100%}
+  .tixin{flex:1 1 auto;box-sizing:border-box;min-height:52px;max-height:120px;resize:none;font-family:var(--body);
+    font-size:13px;line-height:1.35;color:var(--text);background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:9px 10px}
+  .tixin:focus{outline:none;border-color:var(--amber-soft)}
+  .tixin::placeholder{color:var(--muted)}
+  .tixcompose .tixmic{flex:0 0 auto;width:52px;height:52px;box-shadow:0 5px 15px -9px rgba(232,159,61,.6)}
+  .tixcompose .tixmic svg{width:24px;height:24px}
+  .tixmic.send{color:var(--amber);border-color:rgba(232,159,61,.6)}
+  .tixmic.send svg{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+  .tixtx{width:100%;display:flex;flex-direction:column;gap:9px}
+  .tixtxrow{display:flex;gap:10px;align-items:center}
+  .tixplay{position:relative;flex:0 0 auto;width:44px;height:44px;border-radius:50%;border:1px solid var(--line);
+    background:var(--panel-2);color:var(--amber);cursor:pointer;display:flex;align-items:center;justify-content:center;
+    box-shadow:0 4px 12px -8px rgba(232,159,61,.7)}
+  .tixplay:hover{border-color:var(--amber-soft)} .tixplay:active{transform:scale(.94)}
+  .tixplay .tp-icon{position:relative;z-index:1;display:flex;align-items:center;justify-content:center}
+  .tixplay .tp-icon svg{width:18px;height:18px;fill:currentColor}
+  .tixplay .tp-ring{position:absolute;inset:0;width:44px;height:44px;transform:rotate(-90deg)}
+  .tixplay .tp-bg{fill:none;stroke:rgba(255,255,255,.1);stroke-width:2}
+  .tixplay .tp-arc{fill:none;stroke:var(--amber);stroke-width:2.5;stroke-linecap:round;
+    stroke-dasharray:125.66;stroke-dashoffset:125.66;transition:stroke-dashoffset .12s linear}
+  .tixplay.playing{color:#e0554e;border-color:rgba(224,85,78,.55)}
+  .tixplay.playing .tp-arc{stroke:#e0554e}
+  .tixtx textarea{flex:1 1 auto;width:100%;box-sizing:border-box;min-height:48px;resize:vertical;font-family:var(--body);
+    font-size:13px;line-height:1.35;color:var(--text);background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:9px 10px}
+  .tixtx textarea:focus{outline:none;border-color:var(--amber-soft)}
+  .tixacts{display:flex;gap:6px}
+  .tixacts button{flex:1;display:flex;flex-direction:row;align-items:center;gap:5px;padding:5px 8px;border:1px solid var(--line);
+    border-radius:8px;background:var(--panel-2);color:var(--muted);font-family:var(--mono);font-size:8px;letter-spacing:.04em;
+    text-transform:uppercase;text-align:left;cursor:pointer;line-height:1.05}
+  .tixacts button span{flex:1 1 auto;min-width:0}
+  .tixacts button:active{transform:translateY(1px)}
+  .tixacts button svg{flex:0 0 auto;width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+  .tixacts .a-trash:hover{color:var(--red);border-color:rgba(157,74,63,.6)}
 </style>
 </head>
 <body>
@@ -1472,7 +1522,12 @@ function ticketBgPos(focalY, w, openH){
 // Tapping a stub opens the enlarged REAL-LIFE ticket (the theater stub), NOT the show's episode
 // log — a theater watch happened out in the world, so it stays in its own ticket detail. Fixed
 // overlay with a close button; no episode/log handoff.
-function closeTicketDetail(){ const el=document.querySelector('.tixfull'); if(el) el.remove(); }
+function closeTicketDetail(){
+  const el=document.querySelector('.tixfull'); if(!el) return;
+  try{ if(el._audioEl) el._audioEl.pause(); }catch(_){}
+  stopTixRec(el, true);
+  el.remove();
+}
 function openTicketDetail(t){
   if(!t) return;
   closeTicketDetail();
@@ -1480,6 +1535,7 @@ function openTicketDetail(t){
   const meta = [t.theater||'', ticketDateLabel(t.date), t.time||''].filter(Boolean).join(' · ');
   const el = document.createElement('div');
   el.className = 'tixfull';
+  el.dataset.id=t.id||''; el.dataset.show=t.showId||''; el.dataset.ep=t.episodeId||'';
   if(img) el.style.backgroundImage = `url('${tixEsc(img)}')`;
   if(t._bgpos) el.style.backgroundPosition = t._bgpos;
   el.innerHTML = `<button class="tf-close" aria-label="Close">&#10005;</button>
@@ -1487,9 +1543,184 @@ function openTicketDetail(t){
       <div class="tf-film">${tixEsc(t.film||'Untitled')}</div>
       <div class="tf-meta">${tixEsc(meta)}</div>
     </div>
-    <div class="tf-body"></div>`;
+    <div class="tf-body"><div class="tix-rec"></div></div>`;
   document.body.appendChild(el);
   el.querySelector('.tf-close').onclick = closeTicketDetail;
+  // A saved reflection loads as the clip; otherwise the composer (type or record a 10s take).
+  if(t.reflection && (t.reflection.text || t.reflection.audioUrl)){
+    (async()=>{ let blob=null; try{ if(t.reflection.audioUrl){ const r=await fetch(t.reflection.audioUrl); if(r.ok) blob=await r.blob(); } }catch(_){}
+      showTranscript(el, t.reflection.text||'', blob, t.reflection.id||null); })();
+  } else resetTixRec(el);
+}
+
+// ── Ticket reflection recorder (ported from the old Browse tickets tab) ──────────────
+// Type a comment OR record a 10-second spoken take (auto-transcribed), edit it freely, or
+// start over. Saves as a private reflection via /transcribe, keyed to the ticket's film.
+const MIC_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>';
+const IC_TRASH='<svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>';
+const IC_SEND='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13M12 6l6 6-6 6"/></svg>';
+const IC_PLAY='<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
+const IC_PAUSE='<svg viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>';
+function tixRecRing(total){
+  const C=289.03, step=C/total, seg=Math.max(6, step-11); let s='';
+  for(let i=0;i<total;i++){ s+='<circle class="rec-seg" data-i="'+i+'" cx="50" cy="50" r="46" fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round" stroke-dasharray="'+seg.toFixed(2)+' '+(C-seg).toFixed(2)+'" stroke-dashoffset="'+(-step*i).toFixed(2)+'" transform="rotate(-90 50 50)"/>'; }
+  return '<svg class="rec-ring" viewBox="0 0 100 100" aria-hidden="true">'+s+'</svg>';
+}
+function _txHint(tx, msg, cls){ const h=tx.querySelector('.tix-rec .tixhint'); if(h){ h.textContent=msg; h.className='tixhint'+(cls?' '+cls:''); } }
+// Keep the cached ticket + the closed-stub marker in step with edits/re-records.
+function syncTicketReflection(tx, id, text){
+  const tid = tx && tx.dataset && tx.dataset.id; if(!tid || !_tixData || !_tixData[tid]) return;
+  const hasAudio = !!(tx && tx._audioBlob);
+  _tixData[tid].reflection = id
+    ? { id, text:text||'', audioUrl: hasAudio ? (API+'/transcribe/audio/'+id) : null }
+    : null;
+  refreshStubMarker(tid);
+}
+function refreshStubMarker(id){
+  const grid = document.getElementById('tixGrid'); if(!grid) return;
+  const stub = grid.querySelector('.tix[data-id="'+(window.CSS&&CSS.escape?CSS.escape(id):id)+'"] .film');
+  if(!stub) return;
+  const old = stub.querySelector('.tix-hasrefl'); if(old) old.remove();
+  const r = _tixData[id] && _tixData[id].reflection;
+  if(r && (r.text || r.audioUrl)){
+    const span = document.createElement('span');
+    span.className = 'tix-hasrefl'; span.title = 'reflection saved';
+    span.innerHTML = r.audioUrl ? IC_SPEAKER : IC_BUBBLE;
+    stub.appendChild(span);
+  }
+}
+// Composer: a text box on the left, a mic on the right. Empty box → the mic records; typed
+// text → the mic becomes a send arrow. (Same mic-until-typed logic as the Pierre composer.)
+function resetTixRec(tx){
+  const rec = tx.querySelector('.tix-rec'); if(!rec) return;
+  tx._audioBlob=null; tx._reflId=null; tx._savedText='';
+  rec.innerHTML = `<div class="tixcompose">
+      <textarea class="tixin" placeholder="type your reflection…"></textarea>
+      <button class="tixmic" aria-label="Record a reflection">${MIC_SVG}</button>
+    </div>
+    <div class="tixhint">tap the mic for a 10s take · or type it</div>`;
+  const ta = rec.querySelector('.tixin'), btn = rec.querySelector('.tixmic');
+  const refresh = ()=>{ const has = ta.value.trim().length>0;
+    btn.classList.toggle('send', has); btn.innerHTML = has ? IC_SEND : MIC_SVG;
+    btn.setAttribute('aria-label', has ? 'Save reflection' : 'Record a reflection'); };
+  ta.addEventListener('input', refresh);
+  btn.addEventListener('click', ()=>{ const v=ta.value.trim(); if(v) tixSubmitTyped(tx, v); else toggleTixRec(tx); });
+  refresh();
+}
+async function tixSubmitTyped(tx, text){
+  _txHint(tx, 'saving…');
+  try{
+    const fd = new FormData(); fd.append('text', text);
+    fd.append('episodeId', tx.dataset.ep || 'pierre-note');
+    if(tx.dataset.show) fd.append('showId', tx.dataset.show);
+    fd.append('reflection','1'); fd.append('private','1'); fd.append('userEmail', acct()||'');
+    const r = await fetch(API+'/transcribe', {method:'POST', body:fd, mode:'cors'});
+    if(r.ok){ const d=await r.json(); showTranscript(tx, d.transcription||text, null, d.id||null); }
+    else _txHint(tx, "couldn't save", 'bad');
+  }catch(_){ _txHint(tx, "couldn't save", 'bad'); }
+}
+let _tixRec=null, _tixChunks=[], _tixTimer=null, _tixLeft=0, _tixEl=null;
+function toggleTixRec(tx){ if(_tixTimer && _tixEl===tx) stopTixRec(tx); else startTixRec(tx); }
+async function startTixRec(tx){
+  if(_tixTimer) stopTixRec(_tixEl, true);
+  const mic = tx.querySelector('.tixmic'), hint = tx.querySelector('.tixhint');
+  let stream; try{ stream = await navigator.mediaDevices.getUserMedia({audio:true}); }
+  catch(_){ if(hint){ hint.textContent='mic blocked — allow microphone access'; hint.className='tixhint bad'; } return; }
+  _tixEl = tx; _tixChunks = []; _tixRec = new MediaRecorder(stream); _tixRec.ondataavailable = e=>_tixChunks.push(e.data); _tixRec.start();
+  _tixLeft = 10;
+  mic.classList.add('rec'); mic.innerHTML = tixRecRing(10) + '<span class="rec-num">10</span>';
+  if(hint){ hint.textContent='recording… tap to stop'; hint.className='tixhint'; }
+  const sync=()=>{ mic.querySelectorAll('.rec-seg').forEach(s=>{ s.style.opacity=(+s.getAttribute('data-i')<_tixLeft)?'1':'0'; });
+    const n=mic.querySelector('.rec-num'); if(n) n.textContent=Math.max(_tixLeft,0); };
+  sync();
+  _tixTimer = setInterval(()=>{ _tixLeft--; sync(); if(_tixLeft<=0) stopTixRec(tx); }, 1000);
+}
+function stopTixRec(tx, discard){
+  if(!tx || _tixEl!==tx){ return; }
+  if(_tixTimer){ clearInterval(_tixTimer); _tixTimer=null; }
+  if(!_tixRec || _tixRec.state==='inactive'){ if(discard) resetTixRec(tx); return; }
+  _tixRec.onstop = async()=>{
+    try{ _tixRec.stream.getTracks().forEach(t=>t.stop()); }catch(_){}
+    if(discard || !_tixChunks.length){ resetTixRec(tx); return; }
+    const mic = tx.querySelector('.tixmic'), hint = tx.querySelector('.tixhint');
+    if(mic){ mic.classList.remove('rec'); mic.classList.add('busy'); mic.innerHTML='…'; }
+    if(hint){ hint.textContent='transcribing…'; hint.className='tixhint'; }
+    const email = acct();
+    const blob = new Blob(_tixChunks, { type:(_tixChunks[0]&&_tixChunks[0].type)||'audio/webm' });
+    let text='', id=null, ok=false;
+    try{
+      const fd = new FormData(); fd.append('audio', blob);
+      fd.append('episodeId', tx.dataset.ep || 'pierre-note');
+      if(tx.dataset.show) fd.append('showId', tx.dataset.show);
+      fd.append('timestampMs','0'); fd.append('reflection','1'); fd.append('private','1');
+      fd.append('userEmail', email||'');
+      const res = await fetch(API + '/transcribe', { method:'POST', body:fd, mode:'cors' });
+      if(res.ok){ const d = await res.json(); text = (d&&d.transcription||'').trim(); id = (d&&d.id)||null; ok = true; }
+    }catch(_){}
+    if(!ok){ resetTixRec(tx); const h=tx.querySelector('.tixhint'); if(h){ h.textContent="didn't save — try again"; h.className='tixhint bad'; } return; }
+    showTranscript(tx, text, blob, id);
+  };
+  try{ _tixRec.stop(); }catch(_){ if(discard) resetTixRec(tx); }
+}
+// After a take: an editable transcript (+ replay if audio) and a Start-over button. The
+// reflection is already saved (private); editing persists on blur, Start over deletes it.
+const TP_C = 2 * Math.PI * 20;
+function showTranscript(tx, text, blob, id){
+  tx._audioBlob = blob; tx._reflId = id; tx._savedText = (text||'').trim(); tx._audioEl = null;
+  syncTicketReflection(tx, id, text);
+  const rec = tx.querySelector('.tix-rec'); if(!rec) return;
+  const hasAudio = !!blob;
+  const playBtn = hasAudio
+    ? `<button class="tixplay" aria-label="Replay reflection"><svg class="tp-ring" viewBox="0 0 44 44"><circle class="tp-bg" cx="22" cy="22" r="20"/><circle class="tp-arc" cx="22" cy="22" r="20"/></svg><span class="tp-icon">${IC_PLAY}</span></button>`
+    : '';
+  rec.innerHTML = `<div class="tixtx">
+    <div class="tixtxrow">
+      ${playBtn}
+      <textarea class="tixtxt" placeholder="your reflection…">${tixEsc(text||'')}</textarea>
+    </div>
+    <div class="tixacts">
+      <button class="a-trash">${IC_TRASH}<span>Start over</span></button>
+    </div>
+    <div class="tixhint"></div>
+  </div>`;
+  if(hasAudio) rec.querySelector('.tixplay').onclick = ()=> tixPlay(tx);
+  rec.querySelector('.a-trash').onclick = ()=> tixTrash(tx);
+  rec.querySelector('.tixtxt').addEventListener('blur', ()=> tixAutoSave(tx));
+}
+async function tixAutoSave(tx){
+  const id = tx._reflId, ta = tx.querySelector('.tixtxt'); if(!id || !ta) return;
+  const text = ta.value.trim();
+  if(!text || text === tx._savedText) return;
+  try{
+    const r = await fetch(API+'/transcribe/'+encodeURIComponent(id), {method:'PATCH',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify({email:acct(), text})});
+    if(r.ok){ tx._savedText = text; syncTicketReflection(tx, id, text); _txHint(tx,'saved ✓','ok'); }
+    else _txHint(tx,"couldn't save the edit",'bad');
+  }catch(_){ _txHint(tx,"couldn't save the edit",'bad'); }
+}
+function tixPlay(tx){
+  const btn = tx.querySelector('.tixplay'), blob = tx._audioBlob; if(!blob || !btn) return;
+  const icon = btn.querySelector('.tp-icon'), arc = btn.querySelector('.tp-arc');
+  const setArc = (frac)=>{ if(arc) arc.style.strokeDashoffset = String(TP_C * (1 - Math.max(0, Math.min(1, frac||0)))); };
+  if(arc && arc.style.strokeDasharray==='') arc.style.strokeDasharray = String(TP_C);
+  if(tx._audioEl && !tx._audioEl.paused){ tx._audioEl.pause(); return; }
+  if(!tx._audioEl){
+    tx._audioEl = new Audio(URL.createObjectURL(blob));
+    tx._audioEl.onplay  = ()=>{ btn.classList.add('playing'); if(icon) icon.innerHTML=IC_PAUSE; };
+    tx._audioEl.onpause = ()=>{ btn.classList.remove('playing'); if(icon) icon.innerHTML=IC_PLAY; };
+    tx._audioEl.onended = ()=>{ btn.classList.remove('playing'); if(icon) icon.innerHTML=IC_PLAY; setArc(0); };
+    tx._audioEl.ontimeupdate = ()=>{ const d=tx._audioEl.duration; if(d && isFinite(d)) setArc(tx._audioEl.currentTime/d); };
+  }
+  setArc(0);
+  tx._audioEl.currentTime = 0; tx._audioEl.play().catch(()=>{});
+}
+async function tixTrash(tx){
+  const id = tx._reflId, email = acct();
+  try{ if(tx._audioEl) tx._audioEl.pause(); }catch(_){}
+  if(id){ try{ await fetch(API+'/transcribe/'+encodeURIComponent(id), {method:'DELETE', headers:{'Content-Type':'application/json'}, body:JSON.stringify({email})}); }catch(_){} }
+  syncTicketReflection(tx, null);
+  tx._audioBlob=null; tx._reflId=null; tx._audioEl=null; tx._savedText='';
+  resetTixRec(tx);
 }
 let _tixData = {};
 const _todayLabel = 'Today, ' + new Date().toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });

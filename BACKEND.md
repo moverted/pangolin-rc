@@ -4,6 +4,21 @@ Append-only log. Any session that touches the Worker, D1, or deploy
 configuration adds an entry here before the session ends (see CLAUDE.md,
 "Backend and deploy rules").
 
+## 2026-10-25 — Restore theater-ticket reflection recorder on WATCH→TICKETS (DEPLOYED, Pages only)
+
+Ted: "I used to be able to make a comment on the movies I watched in the theater." Regression from
+the nav restructure — when TICKETS moved Browse→WATCH, the ticket-detail reflection recorder was
+left behind (the `cube_watch_face.html` comment literally said the "audio-reflection recorder stays
+a Browse-only subsystem … deferred follow-up"); WATCH's `openTicketDetail` was display-only. Ported
+the recorder from `cube_browse_face.html` into `cube_watch_face.html` (type OR record a 10s spoken
+take → auto-transcribed via POST /transcribe reflection=1 private=1, editable on blur via PATCH
+/transcribe/:id, delete via DELETE; plays back audio). Dropped the share-card/share-audio buttons
+per Ted (type+voice+edit+delete only — no share pipeline pulled in). Adapted helpers to the WATCH
+face: ART_API→API, memberEmail()→acct(), esc→tixEsc; reused existing IC_SPEAKER/IC_BUBBLE/_tixData.
+Reflections key on show_id, which is how /profile/:email/tickets already surfaces them. No
+Worker/D1 change. Inline-JS syntax-checked. Deployed Pages (deployment 9f0c0fcd), verified live.
+Needs a fresh iOS bundle for native.
+
 ## 2026-10-25 — Ticket-logging nav fix: land on WATCH→TICKETS, not retired Browse (DEPLOYED, Pages only)
 
 Ted: "ticket logging is not working." It WAS working server-side — prod `watch_ticket` had four
