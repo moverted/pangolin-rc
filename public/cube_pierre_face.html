@@ -3597,8 +3597,10 @@
         if(pd.mm && pd.dd && year) body.ticketDate = year+'-'+String(pd.mm).padStart(2,'0')+'-'+String(pd.dd).padStart(2,'0');
         try{ fetch(`${API}/ticket/${encodeURIComponent(tk.id)}/attach`, {method:'PATCH',
           headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)}).catch(()=>{}); }catch(_){}
+        // TICKETS moved from the old Browse face to WATCH (cube_watch_face = face 'log'); land
+        // there on the TICKETS sub-tab and highlight this stub as its poster resolves.
         if(window.parent!==window)
-          window.parent.postMessage({type:'cube:rotateTo', face:'join', payload:{tab:'tickets'}}, '*');
+          window.parent.postMessage({type:'cube:rotateTo', face:'log', payload:{showTickets:{ticketId:tk.id}}}, '*');
       };
       if(pd.mm && pd.dd){
         let years = inferTicketYears(pd.wd, pd.mm, pd.dd, relISO);

@@ -4,6 +4,25 @@ Append-only log. Any session that touches the Worker, D1, or deploy
 configuration adds an entry here before the session ends (see CLAUDE.md,
 "Backend and deploy rules").
 
+## 2026-10-25 — Ticket-logging nav fix: land on WATCH→TICKETS, not retired Browse (DEPLOYED, Pages only)
+
+Ted: "ticket logging is not working." It WAS working server-side — prod `watch_ticket` had four
+fully-attached "You Can See Everything" stubs (tmdb:1765072, 2026-10-21); he retried 4× because
+the ticket never visibly landed. Root cause: after the year-confirm, `finalize` in
+`cube_pierre_face.html` posted `cube:rotateTo {face:'join', tab:'tickets'}` — but TICKETS moved
+from the old Browse face to WATCH (`cube_watch_face.html`) in the nav restructure. In flat_shell
+`face:'join'` = index 4 = BROWSE (now PROGRAM/SUGGEST), so tapping the year bounced you to an
+empty Suggest tab. Frontend-only (cube retired; flat_shell already routes `face:'log'`):
+- `cube_pierre_face.html`: finalize now posts `{face:'log', payload:{showTickets:{ticketId}}}`.
+- `cube_log_face.html`: the other ticket-upload path (tkCam/tkLib) had the same stale
+  `face:'join'` target → same fix.
+- `cube_watch_face.html`: new `p.showTickets` branch in the `cube:payload` handler → switchTab
+  ('tickets') + highlight the stub via `_pendingTixAwait` → `renderTickets(grid,{awaitId})`.
+No Worker/D1 change. Deployed Pages (`wrangler pages deploy public --project-name pangolin-rc
+--branch main`, deployment cc110eaf), verified live via `-L` (the .html→extensionless 308
+redirect gotcha). Needs a fresh iOS bundle for native (frontend change, unlike the movie fix).
+NOTE: 4 duplicate "You Can See Everything" tickets in prod from Ted's retries — offered to clean.
+
 ## 2026-10-24 — Pierre movie fix: robust search_title + forced-grounding guard (DEPLOYED)
 
 Two-part fix for "the movie part of Pierre is not working" (Ted). Chat transcripts showed

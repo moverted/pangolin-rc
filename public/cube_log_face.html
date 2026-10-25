@@ -3909,10 +3909,10 @@ async function uploadTicket(file){
       renderSvcCorner();
     }
     loadTickets();         // pull it back so it shows on the watched row
-    // Swing to the IRL Tickets tab — the captured stub lands on the shelf there.
-    // Pass the new ticket id so Tickets can self-heal it in (poster/date can lag the
-    // write on the immediate read) instead of needing a manual out-and-back.
-    if(window.parent!==window) window.parent.postMessage({type:'cube:rotateTo', face:'join', payload:{tab:'tickets', addedTicketId:d.id}}, '*');
+    // Swing to the TICKETS sub-tab — it moved from the old Browse face to WATCH (face
+    // 'log'). Pass the new ticket id so Tickets can self-heal it in (poster/date can lag
+    // the write on the immediate read) instead of needing a manual out-and-back.
+    if(window.parent!==window) window.parent.postMessage({type:'cube:rotateTo', face:'log', payload:{showTickets:{ticketId:d.id}}}, '*');
   }catch(err){ alert('Ticket upload error: '+err.message); }
 }
 $('tkCam').onclick=()=>$('tkCamInput').click();

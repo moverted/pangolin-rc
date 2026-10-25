@@ -626,6 +626,7 @@ const TOTAL_SAVED=SUBS.reduce((a,s)=>a+(s.full-s.paid)*s.months,0);
 
 const NOW=new Date();
 let LOG=[], activeTab="current", addSeq=0, selectedId=null;
+let _pendingTixAwait=null;   // ticket id to highlight once we land on the TICKETS sub-tab (Pierre deep-link)
 // Archived rewatch passes (GET /profile/:email/passes) — null until first loaded.
 let PASSES=null;
 // Highlighter marker: stamps a partial-then-restarted ("highlights") pass in the Completed tab.
@@ -1551,7 +1552,7 @@ function render(){
   // TICKETS + STACK: the full rendering (theater stubs / owned physical + PVOD) is being ported
   // in from the Browse face. Interim honest state until that lands, so the tabs are non-empty and
   // read as intentional, not broken.
-  if(activeTab==="tickets"){ grid.classList.remove("list"); renderTickets(grid); return; }
+  if(activeTab==="tickets"){ grid.classList.remove("list"); const aw=_pendingTixAwait; _pendingTixAwait=null; renderTickets(grid, aw?{awaitId:aw}:undefined); return; }
   if(activeTab==="stack"){ grid.classList.remove("list"); renderStack(grid); return; }
   grid.classList.remove("list");
   if(activeTab==="completed"){
@@ -2152,6 +2153,13 @@ window.addEventListener("message",(e)=>{
       if(activeTab!=="comfort") switchTab("comfort");
       const m=MARATHONS.find(x=>x.id===p.openMarathon);
       if(m) openMarathon(m);
+    }
+    // A theater ticket just logged in Pierre → land on the TICKETS sub-tab and highlight
+    // the new stub (awaitId polls until its poster resolves). The stub lives in watch_ticket,
+    // not the Log, so this is separate from the focusTicket tile path below.
+    if(p.showTickets){
+      _pendingTixAwait = p.showTickets.ticketId || null;
+      if(activeTab!=='tickets') switchTab('tickets'); else render();
     }
     // A ticket just logged in Pierre → land on its tab (CURRENT = upcoming, COMPLETED =
     // already screened) and select the tile once the log reloads.
